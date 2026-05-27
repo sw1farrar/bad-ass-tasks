@@ -9,30 +9,29 @@ export function SupabaseSetupBanner() {
   if (isSupabaseConfigured() || dismissed) return null;
 
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4">
-      <div className="glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl">
+    <div className="fixed top-[calc(3.25rem+env(safe-area-inset-top,4px))] left-1/2 -translate-x-1/2 z-[65] max-w-[min(26rem,calc(100vw-1.5rem))] w-full mx-3 md:top-auto md:bottom-20 md:max-w-xl md:z-[60]">
+      <div className="glass border border-[#c084fc]/30 rounded-2xl md:rounded-2xl px-3 py-1.5 md:px-6 md:py-4 text-xs md:text-sm shadow-2xl">
         <div className="flex items-start gap-4">
           <div className="text-[#c084fc] text-xl mt-0.5">🚀</div>
           <div className="flex-1">
-            <div className="font-semibold text-[#c084fc]">Ready for real data &amp; auth?</div>
-            <div className="text-[#a1a1aa] mt-1 text-[13px]">
-              This is currently running in beautiful local demo mode. 
-              Connect Supabase to unlock real-time sync, auth, workspaces, and persistence across devices.
+            <div className="font-semibold text-[#c084fc] text-xs md:text-sm">Connected to Supabase — real infrastructure.</div>
+            <div className="text-[#a1a1aa] text-[10px] md:text-[13px] md:mt-0.5 leading-tight hidden md:block">
+              Real-time sync, auth, workspaces &amp; persistence across devices.
             </div>
-            <div className="mt-3 flex gap-2 text-xs">
+            <div className="mt-1 md:mt-3 flex gap-2 text-[10px] md:text-xs">
               <a 
                 href="https://supabase.com/dashboard" 
                 target="_blank"
-                className="btn btn-primary text-xs px-4 py-1.5"
+                className="btn btn-primary text-[10px] md:text-xs px-3 py-1 md:px-4 md:py-1.5"
               >
-                Create free Supabase project
+                Create project
               </a>
               <button 
                 onClick={() => setDismissed(true)}
                 aria-label="Dismiss Supabase setup banner for now"
-                className="btn btn-ghost text-xs px-3"
+                className="btn btn-ghost text-[10px] md:text-xs px-2 md:px-3"
               >
-                Dismiss for now
+                Dismiss
               </button>
             </div>
             <div className="mt-3 text-[11px] text-[#71717a]">

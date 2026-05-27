@@ -5,7 +5,7 @@ import {
   Check, Plus, Search, Command, Calendar, Users, Settings, 
   ChevronLeft, ChevronRight, Clock, Star, Zap, ArrowUpRight, Sparkles,
   Loader2, User, LogOut, X, Trash2, GripVertical, Repeat, Download, Upload, FileText, BarChart3, RefreshCw, FileDown,
-  GitBranch, Network, Bell
+  GitBranch, Network, Bell, Home
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -68,6 +68,7 @@ import {
 } from "@/lib/utils";
 
 const VIEWS = [
+  { id: "home", label: "Home", icon: Home },
   { id: "today", label: "Today", icon: Clock },
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Notes", icon: Star },
@@ -1101,7 +1102,7 @@ export default function BadAssTasks() {
           onDragEnd={handleSwipeEnd}
           whileTap={{ scale: 0.995 }}
           className={cn(
-            "task-row group flex items-center gap-4 px-5 py-3.5 rounded-xl border border-transparent cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#c084fc]/50 bg-[var(--bg-card)] relative z-10",
+            "task-row group flex items-center gap-3 md:gap-4 px-4 md:px-5 py-2.5 md:py-3.5 rounded-xl border border-transparent cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#c084fc]/50 bg-[var(--bg-card)] relative z-10",
             isDone && "completed"
           )}
           role="button"
@@ -1136,8 +1137,8 @@ export default function BadAssTasks() {
           </button>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3">
-              <div className={cn("task-title font-medium text-[15px] truncate", isDone && "line-through")}>
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className={cn("task-title font-medium text-[14px] md:text-[15px] truncate", isDone && "line-through")}>
                 {task.title}
               </div>
               <div className={`priority-badge priority-${task.priority.toLowerCase()}`}>
@@ -1196,11 +1197,11 @@ export default function BadAssTasks() {
   // Old button-based Kanban removed — replaced by real @dnd-kit implementation (see KanbanBoard + store.kanbanReorder above)
 
   const renderTodayView = () => (
-    <div className="max-w-4xl mx-auto pt-8">
-      <div className="mb-8">
-        <div className="text-[#c084fc] text-sm font-semibold tracking-[3px] mb-1">GOOD MORNING, ALEX</div>
-        <div className="flex items-center gap-3">
-          <div className="text-5xl font-semibold tracking-tighter">What matters today?</div>
+    <div className="max-w-4xl mx-auto pt-4 md:pt-8">
+      <div className="mb-4 md:mb-8">
+        <div className="text-[#c084fc] text-[10px] md:text-sm font-semibold tracking-[3px] mb-0.5 md:mb-1">GOOD MORNING, ALEX</div>
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="text-3xl md:text-5xl font-semibold tracking-tighter">What matters today?</div>
           <button
             onClick={async () => {
               const realMode = isXAIConfigured();
@@ -1278,33 +1279,33 @@ export default function BadAssTasks() {
 
   const renderTasksView = () => (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-3 md:mb-6">
         <div>
-          <div className="text-3xl font-semibold tracking-tight">Tasks</div>
-          <div className="text-[#71717a] text-sm mt-1">{filteredTasks.length} tasks • {tasks.filter(t => t.status !== "done").length} open</div>
+          <div className="text-2xl md:text-3xl font-semibold tracking-tight">Tasks</div>
+          <div className="text-[#71717a] text-xs md:text-sm mt-0.5">{filteredTasks.length} tasks • {tasks.filter(t => t.status !== "done").length} open</div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button 
             onClick={() => setKanbanView("list")} 
-            className={cn("px-4 py-1.5 text-sm rounded-full transition", kanbanView === "list" ? "bg-white/10" : "hover:bg-white/5")}
+            className={cn("px-3 py-1 text-xs md:text-sm md:px-4 md:py-1.5 rounded-full transition", kanbanView === "list" ? "bg-white/10" : "hover:bg-white/5")}
           >
             List
           </button>
           <button 
             onClick={() => setKanbanView("board")} 
-            className={cn("px-4 py-1.5 text-sm rounded-full transition", kanbanView === "board" ? "bg-white/10" : "hover:bg-white/5")}
+            className={cn("px-3 py-1 text-xs md:text-sm md:px-4 md:py-1.5 rounded-full transition", kanbanView === "board" ? "bg-white/10" : "hover:bg-white/5")}
           >
             Board
           </button>
-          <button onClick={handleAddFromNatural} className="btn btn-secondary ml-2 text-sm px-4">
-            <Plus className="h-4 w-4" /> Natural add
+          <button onClick={handleAddFromNatural} className="btn btn-secondary ml-1 text-xs md:text-sm px-3 md:px-4 py-1 md:py-2">
+            <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Natural</span> add
           </button>
         </div>
       </div>
 
       {/* Agent 32: Upgraded hybrid semantic global search + filters (replaces basic; drives results + graph) */}
-      <div className="flex flex-col gap-2 mb-4">
+      <div className="flex flex-col gap-2 mb-3">
         <div className="flex gap-2 items-center">
           <input
             value={globalSearchQuery}
@@ -1313,52 +1314,48 @@ export default function BadAssTasks() {
               // Keep legacy filter in sync for list compatibility
               setTaskFilter({ search: e.target.value });
             }}
-            placeholder="Search tasks, notes, tags... (hybrid semantic: keywords + meaning + links)"
-            className="input flex-1 px-4 py-2.5 rounded-2xl text-sm"
+            placeholder="Search tasks, notes, tags... (hybrid)"
+            className="input flex-1 px-3 py-2 md:py-2.5 rounded-2xl text-sm"
           />
           <button
             onClick={() => setIsGraphOpen(true)}
-            className="btn btn-secondary px-3 py-2 text-sm flex items-center gap-1.5 border-[#c084fc]/40 hover:border-[#c084fc]"
-            title="Open interactive Knowledge Graph (visual links + suggestions)"
+            className="btn btn-secondary px-2.5 py-2 text-xs md:text-sm flex items-center gap-1 border-[#c084fc]/40 hover:border-[#c084fc]"
+            title="Knowledge Graph"
           >
-            <Network className="h-4 w-4" /> Graph
+            <Network className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Graph</span>
           </button>
         </div>
-        {/* Quick type filters + clear */}
-        <div className="flex gap-1.5 flex-wrap text-[10px]">
+        {/* Compact mobile-first filter bar (was two tall rows — now single scrollable for density) */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 text-[10px] snap-x touch-pan-x">
           {(['all','task','note'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setSearchResultType(t)}
               className={cn(
-                "px-2.5 py-0.5 rounded-full border transition",
+                "px-2.5 py-1 rounded-full border transition snap-start shrink-0",
                 searchResultType === t ? "bg-[#c084fc] text-black border-[#c084fc]" : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
               )}
             >
               {t === 'all' ? 'All' : t === 'task' ? 'Tasks' : 'Notes'}
             </button>
           ))}
-          <button onClick={() => { setGlobalSearchQuery(""); setTaskFilter({ search: "" }); setSearchResultType('all'); }} className="px-2 py-0.5 text-[#71717a] hover:text-white">Clear</button>
-          <span className="ml-auto text-[#71717a]/70 self-center">Hybrid semantic + graph links</span>
+          <button onClick={() => { setGlobalSearchQuery(""); setTaskFilter({ search: "" }); setSearchResultType('all'); }} className="px-2 py-1 text-[#71717a] hover:text-white shrink-0">Clear</button>
+          {/* Recurring filters inline on the same bar for compactness */}
+          {(["all", "only", "none"] as const).map((mode) => (
+            <button
+              key={`rec-${mode}`}
+              onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
+              className={cn(
+                "px-2 py-1 rounded-full border transition snap-start shrink-0",
+                (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
+                  ? "bg-[#c084fc] text-black border-[#c084fc]"
+                  : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+              )}
+            >
+              {mode === "all" ? "All tasks" : mode === "only" ? "Recurring" : "Non-recurring"}
+            </button>
+          ))}
         </div>
-      </div>
-
-      {/* Agent 13: Recurring-aware filter chips (affects lists + today; calendar uses engine directly) */}
-      <div className="flex gap-1 mb-3 text-[10px]">
-        {(["all", "only", "none"] as const).map((mode) => (
-          <button
-            key={mode}
-            onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
-            className={cn(
-              "px-2 py-0.5 rounded-full border transition",
-              (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
-                ? "bg-[#c084fc] text-black border-[#c084fc]"
-                : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
-            )}
-          >
-            {mode === "all" ? "All tasks" : mode === "only" ? "Recurring only" : "Non-recurring"}
-          </button>
-        ))}
       </div>
 
       {/* Agent 32: Live hybrid semantic results (when global query active) — delightful ranked cards with quick actions */}
@@ -1407,7 +1404,7 @@ export default function BadAssTasks() {
       {kanbanView === "list" ? (
         <div className="space-y-1">
           {filteredTasks.length > 0 ? filteredTasks.map(renderTaskRow) : (
-            <div className="text-center py-16 text-[#71717a]">No tasks match your filters.</div>
+            <div className="text-center py-8 md:py-16 text-[#71717a] text-sm">No tasks match your filters.</div>
           )}
         </div>
       ) : (
@@ -1415,6 +1412,78 @@ export default function BadAssTasks() {
       )}
     </div>
   );
+
+  const renderHomeView = () => {
+    // Placeholder for the new global "Home" meta-view across all workspaces.
+    // This will eventually aggregate Today's Focus, Workspace Pulse, Recent Movement,
+    // Master Task List, Master Calendar, and a prominent AI summary across workspaces.
+    return (
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-8">
+          <div className="text-[#c084fc] text-sm font-semibold tracking-[3px] mb-1">YOUR LIFE AT A GLANCE</div>
+          <div className="text-4xl font-semibold tracking-tighter">Home</div>
+          <div className="text-[#71717a] mt-1">Everything happening across all your workspaces.</div>
+        </div>
+
+        {/* AI Global Summary - Prominent */}
+        <div className="glass rounded-3xl p-6 mb-6 border border-[#c084fc]/20">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="h-4 w-4 text-[#ff00aa]" />
+            <div className="font-semibold">AI Summary</div>
+          </div>
+          <div className="text-[#a1a1aa]">
+            Across your 4 workspaces, you have <span className="text-white font-medium">7 tasks due today</span> and 
+            2 P0 items at risk. The most active workspace right now is <span className="text-white">Startup</span>.
+          </div>
+          <button 
+            onClick={() => {
+              // TODO: Wire real cross-workspace AI briefing
+              toast.info("Global AI briefing coming soon");
+            }}
+            className="mt-4 text-xs px-4 py-2 rounded-full border border-[#c084fc]/40 hover:bg-[#c084fc]/10"
+          >
+            Generate full cross-workspace briefing
+          </button>
+        </div>
+
+        {/* Workspace Pulse */}
+        <div className="mb-8">
+          <div className="text-sm text-[#71717a] mb-3 font-medium tracking-widest">YOUR WORLDS</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {workspaces.map((ws) => (
+              <div 
+                key={ws.id}
+                onClick={() => switchWorkspace(ws.id)}
+                className="glass rounded-2xl p-4 cursor-pointer hover:border-[#c084fc]/30 border border-white/10 transition"
+              >
+                <div className="font-semibold">{ws.name}</div>
+                <div className="text-xs text-[#71717a] mt-1">3 due • 12 active</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Today's Focus across all workspaces (placeholder) */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm text-[#71717a] font-medium tracking-widest">TODAY'S FOCUS ACROSS ALL WORLDS</div>
+            <button onClick={() => setView("tasks")} className="text-xs text-[#c084fc]">View all</button>
+          </div>
+          <div className="glass rounded-2xl p-6 text-[#71717a]">
+            Aggregated task list across workspaces will appear here.
+          </div>
+        </div>
+
+        {/* Recent Movement */}
+        <div>
+          <div className="text-sm text-[#71717a] mb-3 font-medium tracking-widest">RECENT MOVEMENT</div>
+          <div className="glass rounded-2xl p-6 text-[#71717a]">
+            Cross-workspace activity feed coming soon.
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderNotesView = () => {
     return <div className="p-8 text-center text-[#71717a]">Notes view temporarily stubbed for syntax debugging.</div>;
@@ -2450,8 +2519,8 @@ export default function BadAssTasks() {
                 </button>
               </div>
 
-              {/* Tab Navigation - feels like dedicated powerful tool */}
-              <div className="flex flex-wrap gap-1 text-xs">
+              {/* Tab Navigation - feels like dedicated powerful tool (mobile: scrollable row for touch) */}
+              <div className="flex gap-1 text-xs overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory touch-pan-x">
                 {[
                   { id: 'overview', label: 'Overview', icon: BarChart3 },
                   { id: 'exports', label: 'Export Data', icon: FileDown },
@@ -2465,7 +2534,7 @@ export default function BadAssTasks() {
                     <button
                       key={tab.id}
                       onClick={() => setAdminTab(tab.id as any)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all ${active ? 'bg-[#c084fc] text-black border-[#c084fc] font-medium' : 'bg-white/5 border-white/10 hover:bg-white/10 text-[#a1a1aa] hover:text-white'}`}
+                      className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] snap-start rounded-xl border transition-all shrink-0 ${active ? 'bg-[#c084fc] text-black border-[#c084fc] font-medium' : 'bg-white/5 border-white/10 hover:bg-white/10 text-[#a1a1aa] hover:text-white'}`}
                     >
                       <Icon className="h-3.5 w-3.5" /> {tab.label}
                     </button>
@@ -2812,26 +2881,27 @@ export default function BadAssTasks() {
 
   const currentViewComponent = () => {
     switch (currentView) {
+      case "home": return renderHomeView();
       case "today": return renderTodayView();
       case "tasks": return renderTasksView();
       case "notes": return renderNotesView();
       case "calendar": return renderCalendarView();
       case "teams": return renderTeamsView();
-      default: return renderTasksView();
+      default: return renderHomeView();
     }
   };
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0f] text-[#f4f4f5]">
       {/* Top Bar — responsive compaction on mobile via .top-bar */}
-      <div className="top-bar h-16 border-b border-white/10 flex items-center px-5 justify-between z-50 bg-[#0a0a0f]/95 backdrop-blur-xl">
+      <div className="top-bar relative h-16 border-b border-white/10 flex items-center px-5 justify-between z-50 bg-[#0a0a0f]/95 backdrop-blur-xl">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-              <Check className="h-4.5 w-4.5 text-black" />
+          <div className="flex items-center gap-2 shrink-0 min-w-0">
+            <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center flex-shrink-0">
+              <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
             </div>
-            <div>
-              <div className="font-semibold tracking-[-0.3px] text-[17px]">Bad Ass Tasks</div>
+            <div className="min-w-0 hidden sm:block">
+              <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Bad Ass Tasks</div>
             </div>
           </div>
 
@@ -2847,12 +2917,12 @@ export default function BadAssTasks() {
                   setNewWorkspaceName("");
                 }
               }}
-              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl hover:bg-white/5 border border-white/10"
+              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl hover:bg-white/5 border border-white/10 workspace-switcher"
             >
-              <span className="flex items-center gap-1.5">
-                {currentWorkspace.name}
+              <span className="flex items-center gap-1.5 workspace-name truncate">
+                <span className="truncate">{currentWorkspace.name}</span>
                 {!isSingleOwnerWorkspace && (
-                  <span className="text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest">{currentWorkspace.role}</span>
+                  <span className="text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest shrink-0">{currentWorkspace.role}</span>
                 )}
               </span>
               <ChevronRight className="h-3 w-3 rotate-90" />
@@ -2867,10 +2937,10 @@ export default function BadAssTasks() {
                       onClick={() => { switchWorkspace(ws.id); setShowWorkspaceMenu(false); }}
                       className={cn("w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 flex justify-between items-center", ws.id === currentWorkspace.id && "text-[#c084fc]")}
                     >
-                      <span className="flex items-center gap-1.5">
-                        {ws.name}
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">{ws.name}</span>
                         {!(ws.id === currentWorkspace.id && isSingleOwnerWorkspace) && (
-                          <span className="text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest">{ws.role}</span>
+                          <span className="text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest shrink-0">{ws.role}</span>
                         )}
                       </span>
                       {ws.id === currentWorkspace.id && <Check className="h-3.5 w-3.5" />}
@@ -2975,7 +3045,7 @@ export default function BadAssTasks() {
               {showNotifications && (
                 <div
                   ref={notificationsRef}
-                  className="absolute right-0 top-12 w-80 glass-strong rounded-2xl border border-white/10 shadow-2xl z-[260] overflow-hidden bg-[#111114]"
+                  className="absolute right-0 top-12 w-80 max-w-[min(20rem,calc(100vw-2rem))] glass-strong rounded-2xl border border-white/10 shadow-2xl z-[260] overflow-hidden bg-[#111114]"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-[#0a0a0f]">
@@ -3120,7 +3190,7 @@ export default function BadAssTasks() {
           {/* Profile Popover — triggered by clicking the top-right avatar + name pill */}
           {showProfilePopover && user && (
             <div 
-              className="absolute right-4 top-14 w-80 glass rounded-2xl border border-white/10 shadow-2xl z-[260] p-5 text-sm"
+              className="absolute right-4 top-14 w-80 max-w-[min(20rem,calc(100vw-2rem))] glass rounded-2xl border border-white/10 shadow-2xl z-[260] p-5 text-sm"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
@@ -3334,6 +3404,27 @@ export default function BadAssTasks() {
         {/* Sidebar — improved a11y: navigation landmark + aria */}
         <aside className="sidebar w-64 hidden lg:flex flex-col pt-3 px-3 border-r border-white/10" aria-label="Workspace navigation and views">
           {/* Sidebar content starts here (unchanged inner structure for minimal diff) */}
+
+          {/* Home - Global meta view (sits above the per-workspace section) */}
+          <div className="px-1 mb-2">
+            <div
+              role="button"
+              tabIndex={0}
+              aria-current={currentView === "home" ? "page" : undefined}
+              onClick={() => setView("home")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setView("home");
+                }
+              }}
+              className={cn("sidebar-item", currentView === "home" && "active")}
+            >
+              <Home className="h-4 w-4" />
+              Home
+            </div>
+          </div>
+
           <div className="px-3 mb-4">
             <div className="text-xs text-[#71717a] font-medium tracking-widest mb-1.5 px-1">WORKSPACE</div>
             <div className="flex items-center gap-2 text-lg font-semibold tracking-tighter">
@@ -3358,7 +3449,7 @@ export default function BadAssTasks() {
           </div>
 
           <div className="space-y-0.5 px-1">
-            {VIEWS.map((v) => {
+            {VIEWS.filter(v => v.id !== "home").map((v) => {
               const Icon = v.icon;
               const isActive = currentView === v.id;
               const handleSidebarNav = (e?: React.KeyboardEvent) => {
@@ -3851,12 +3942,13 @@ export default function BadAssTasks() {
         </div>
       )}
 
-      {/* Floating AI button (Phase 7) — .ai-fab for mobile repositioning above nav */}
+      {/* Floating AI button (Phase 7) — .ai-fab for mobile repositioning above nav (unified with FAB to prevent collision on phones) */}
       <button
         onClick={() => setShowAIChat(!showAIChat)}
-        className="ai-fab fixed bottom-6 right-6 z-[80] btn btn-primary px-5 py-3 rounded-2xl flex items-center gap-2 shadow-xl md:bottom-6 md:right-6"
+        className="ai-fab fixed bottom-6 right-4 z-[80] btn btn-primary px-4 py-2.5 rounded-2xl flex items-center gap-2 shadow-xl md:bottom-6 md:right-6 md:px-5 md:py-3"
+        aria-label="Open AI assistant"
       >
-        <Sparkles className="h-4 w-4" /> AI
+        <Sparkles className="h-4 w-4" /> <span className="hidden xs:inline">AI</span>
       </button>
 
       {showAIChat && <AIChatPanel onClose={() => setShowAIChat(false)} />}

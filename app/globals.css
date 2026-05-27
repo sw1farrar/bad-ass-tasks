@@ -386,7 +386,9 @@ body {
   [role="button"],
   .sidebar-item,
   .task-row,
-  .input {
+  .input,
+  .bottom-nav-item,
+  .sync-indicator {
     min-height: 44px;
     touch-action: manipulation;
   }
@@ -429,21 +431,39 @@ body {
 
   /* Main scroll area gets breathing room above fixed bottom nav + safe area */
   .main-content {
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 8px)) !important;
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)) !important;
   }
 
   /* Top bar compaction on phones (prevents crowding) */
   .top-bar {
-    height: 56px;
-    padding-left: 12px;
-    padding-right: 12px;
+    height: 52px;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: max(6px, env(safe-area-inset-top, 4px));
   }
 
-  /* Floating elements adjust for bottom nav */
-  .floating-quick-add,
-  .ai-fab {
-    bottom: calc(4.25rem + env(safe-area-inset-bottom, 4px));
+  /* General view header + content tightening on phones for density */
+  .main-content {
+    padding-top: 0.75rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
   }
+
+  /* Prevent horizontal overflow/crowding in top bar on narrow phones */
+  .top-bar .workspace-switcher,
+  .top-bar .workspace-name {
+    max-width: 108px;
+    min-width: 0;
+  }
+
+  /* Floating elements adjust for bottom nav — unified clearance to eliminate FAB/AI collisions on phones */
+  .floating-quick-add,
+  .fab,
+  .ai-fab {
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)); /* ~92px + safe: clears 56px nav + 12-16px visual gap */
+  }
+  .fab { right: 16px; }
+  .ai-fab { right: 16px; } /* align both; was conflicting 6/16 + different bottoms */
 }
 
 /* Base styles for new mobile bottom navigation (md:hidden, fixed, native feel) */
@@ -464,6 +484,46 @@ body {
 @media (max-width: 768px) {
   .bottom-nav {
     display: flex;
+  }
+}
+
+/* Ultra-narrow phones (<360px): tighter but still >=44px targets, more breathing */
+@media (max-width: 360px) {
+  .bottom-nav-item {
+    padding: 6px 1px 8px;
+    font-size: 9px;
+  }
+  .bottom-nav-item .icon {
+    width: 20px;
+    height: 20px;
+  }
+  .fab,
+  .ai-fab {
+    width: 48px;
+    height: 48px;
+    right: 12px;
+  }
+  .ai-fab {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* General mobile compaction for any remaining large headers or sparse sections (Today, Calendar, etc.) */
+@media (max-width: 768px) {
+  .main-content {
+    /* already tightened earlier; this adds header scaling */
+  }
+  .main-content .text-5xl,
+  .main-content .text-3xl {
+    font-size: 1.35rem !important;
+    line-height: 1.05 !important;
+  }
+  .main-content .mb-8 {
+    margin-bottom: 1rem !important;
+  }
+  .main-content .pt-8 {
+    padding-top: 1rem !important;
   }
 }
 
@@ -491,6 +551,8 @@ body {
 
 .bottom-nav-item.active {
   color: var(--neon-purple);
+  background: rgba(192, 132, 252, 0.08);
+  border-radius: 8px;
 }
 
 .bottom-nav-item .icon {
@@ -517,6 +579,11 @@ body {
   transition: transform 0.15s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.15s ease;
   touch-action: manipulation;
   border: none;
+}
+
+/* AI FAB base (desktop) — mobile overridden in @media to align with .fab and avoid collision */
+.ai-fab {
+  /* mobile rules in 768px media unify right/bottom with .fab */
 }
 
 .fab:active {
@@ -574,6 +641,28 @@ body {
 *:focus-visible {
   outline: 2px solid var(--neon-purple);
   outline-offset: 2px;
+}
+
+/* Mobile Command Palette (⌘K) — make usable on phones (critical nav surface).
+   Keeps cmdk internals intact; overrides positioning + height for thumb + kb safety.
+   Desktop unchanged. */
+@media (max-width: 768px) {
+  .cmdk-root {
+    align-items: flex-end !important;
+    padding-top: 0 !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+  }
+  .cmdk-root > [cmdk-dialog] {
+    max-height: 78dvh !important;
+    margin-bottom: 0 !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-top-left-radius: 1rem !important;
+    border-top-right-radius: 1rem !important;
+  }
+  .cmdk-root [cmdk-list] {
+    max-height: 52dvh !important;
+  }
 }
 
 /* Selection color */
