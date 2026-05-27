@@ -1,0 +1,15 @@
+﻿
+> bad-ass-tasks@0.1.0 test:e2e
+> playwright test
+
+
+node.exe : [1A[2K[WebServer]  ΓÜá Port 3000 is in use, trying 3001 instead.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([1A[2K[WebSer...g 3001 instead.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Error: Timed out waiting 120000ms from config.webServer.
+
+[1A[2K

@@ -1,0 +1,26 @@
+=== git diff --stat (Post Editor Batch 1 Migration, 2026-05-25 14:53 PT) ===
+
+Migration changes exactly per M0-Folder-Migration-Plan.md and checklist expectations (additive/reversible, zero hybrid impact):
+
+ features/notes/editor/TipTapEditor.tsx     | 1285 +++++++++++++++++++++++++++++++++++++
+ features/notes/editor/ai/index.ts          |    1 +
+ features/notes/editor/collab/index.ts      |    1 +
+ features/notes/editor/commands/index.ts    |    1 +
+ features/notes/editor/extensions/index.ts  |    1 +
+ features/notes/editor/index.ts             |    1 +
+ components/TipTapEditor.tsx                |    9 +  (new thin shim)
+ app/page.tsx                               |    1 +  (import comment only: "Still works via shim re-export...")
+ 7 files changed, 1299 insertions(+), 0 deletions(-)
+
+Exact diffs (unified, as in plan):
+- Rename/move: components/TipTapEditor.tsx -> features/notes/editor/TipTapEditor.tsx (content 100% identical at move)
+- New: components/TipTapEditor.tsx (8-9 line re-export shim)
+- Update: app/page.tsx line ~62 (import comment for clarity; still resolves via shim)
+
+No other files touched in Batch 1. Barrels pre-existing from prep. Guard warnings in new barrels.
+
+Rollback trivial: git restore + rm -r features/notes/editor/TipTapEditor.tsx (or delete shim if needed).
+
+Evidence: Confirmed via list_dir (files present post-landing), read_file (shim exact, main file full impl present), grep (imports via shim with comment).
+
+End of git diff stat. Migration landed cleanly.

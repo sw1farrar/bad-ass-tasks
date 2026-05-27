@@ -1,0 +1,997 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Bad Ass Tasks — Neon Dark Theme */
+  --bg: #0a0a0f;
+  --bg-secondary: #111114;
+  --bg-tertiary: #1a1a20;
+  --bg-card: #141418;
+  --bg-elevated: #1f1f26;
+
+  --border: #24242a;
+  --border-subtle: #1f1f24;
+
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #8a8a95; /* Agent 33: bumped for WCAG AA+ on dark cards */
+
+  --neon-purple: #c084fc;
+  --neon-purple-dark: #a855f7;
+  --neon-pink: #ff00aa;
+  --neon-pink-dark: #cc0088;
+
+  --priority-p0: #ff3366;
+  --priority-p1: #ff9500;
+  --priority-p2: #ffd700;
+  --priority-p3: #c084fc;
+
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Beautiful custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-purple);
+}
+
+/* Glassmorphism */
+.glass {
+  background: rgba(20, 20, 24, 0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-strong {
+  background: rgba(17, 17, 20, 0.92);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--border);
+}
+
+/* Neon accents */
+.neon-text {
+  color: var(--neon-purple);
+  text-shadow: 0 0 10px rgba(192, 132, 252, 0.5);
+}
+
+.neon-pink-text {
+  color: var(--neon-pink);
+  text-shadow: 0 0 10px rgba(255, 0, 170, 0.5);
+}
+
+.neon-border {
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 0 1px rgba(192, 132, 252, 0.2);
+}
+
+/* Task rows & cards */
+.task-row {
+  transition: all 0.1s cubic-bezier(0.23, 1.0, 0.32, 1);
+}
+
+.task-row:hover {
+  background-color: var(--bg-elevated);
+  transform: translateX(2px);
+}
+
+.task-row.completed {
+  opacity: 0.65;
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+
+.task-row.completed .task-title {
+  color: var(--text-muted);
+}
+
+/* Priority badges */
+.priority-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.priority-p0 { background: rgba(255, 51, 102, 0.15); color: var(--priority-p0); border: 1px solid rgba(255, 51, 102, 0.3); }
+.priority-p1 { background: rgba(255, 149, 0, 0.15); color: var(--priority-p1); border: 1px solid rgba(255, 149, 0, 0.3); }
+.priority-p2 { background: rgba(255, 215, 0, 0.15); color: #b39700; border: 1px solid rgba(255, 215, 0, 0.3); }
+.priority-p3 { background: rgba(192, 132, 252, 0.15); color: var(--neon-purple); border: 1px solid rgba(192, 132, 252, 0.3); }
+
+/* Kanban columns */
+.kanban-column {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  transition: border-color 0.2s ease;
+}
+
+.kanban-column.drag-over {
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 0 1px rgba(192, 132, 252, 0.3);
+}
+
+/* Command palette */
+.cmdk-root {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.6);
+}
+
+.cmdk-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+}
+
+.cmdk-item {
+  transition: all 0.08s ease;
+}
+
+.cmdk-item[data-selected="true"] {
+  background: rgba(192, 132, 252, 0.1);
+  border-left: 2px solid var(--neon-purple);
+}
+
+/* Beautiful inputs */
+.input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+}
+
+.input:focus {
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.15);
+  outline: none;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 500;
+  transition: all 0.1s cubic-bezier(0.23, 1, 0.32, 1);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--neon-purple);
+  color: #0a0a0f;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--neon-purple-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(192, 132, 252, 0.3);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-elevated);
+  border-color: var(--neon-purple);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Modals & sheets */
+.modal {
+  animation: scaleIn 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet {
+  animation: slideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.1s ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.sidebar-item.active {
+  background: rgba(192, 132, 252, 0.12);
+  color: var(--neon-purple);
+  font-weight: 600;
+}
+
+/* Keyboard navigation focus styles (keyboard-first polish) */
+.sidebar-item:focus-visible {
+  outline: 2px solid var(--neon-purple);
+  outline-offset: 1px;
+  background: rgba(192, 132, 252, 0.08);
+}
+
+.cmdk-item:focus-visible {
+  outline: none; /* cmdk handles its own selected state */
+}
+
+/* Due date badges */
+.due-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.due-overdue {
+  background: rgba(255, 51, 102, 0.15);
+  color: var(--priority-p0);
+}
+
+.due-today {
+  background: rgba(192, 132, 252, 0.15);
+  color: var(--neon-purple);
+}
+
+.due-soon {
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--priority-p1);
+}
+
+/* Recurring badges — Agent 8 polish, matches neon theme */
+.recurring-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* Calendar grid cells + drag affordance */
+.calendar-day {
+  transition: background 120ms ease;
+}
+.calendar-day.drag-over {
+  background: rgba(192, 132, 252, 0.08) !important;
+  outline: 1px dashed #c084fc;
+}
+
+/* Confetti canvas */
+#confetti-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Rich editor placeholder (for future TipTap) */
+.editor {
+  min-height: 200px;
+  outline: none;
+  line-height: 1.7;
+}
+
+.editor p {
+  margin: 0.5em 0;
+}
+
+/* Status pills */
+.status-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+}
+
+.status-backlog { background: #27272a; color: #a1a1aa; }
+.status-todo { background: #1e3a5f; color: #60a5fa; }
+.status-doing { background: #3a2a1f; color: #fbbf24; }
+.status-done { background: #2a1a3a; color: var(--neon-purple); }
+
+/* Tooltips */
+.tooltip {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+/* Loading shimmer */
+.shimmer {
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-elevated) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Mobile adaptations (prototype → foundation for native phone feel)
+   - Sidebar already hidden via Tailwind + this
+   - Added generous touch targets (min 44px), safe areas for notches/home indicator
+   - Bottom nav + FAB base styles (used by mobile shell additions in page.tsx)
+   - Reduced motion + perf tweaks for lower-end devices
+   - Preserves all desktop styles (lg+ unaffected)
+*/
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+  
+  .desktop-only {
+    display: none;
+  }
+
+  /* Touch-friendly sizing (iOS HIG / Material 44-48px minimum) */
+  .btn,
+  button,
+  [role="button"],
+  .sidebar-item,
+  .task-row,
+  .input {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .sidebar-item {
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+
+  .task-row {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  /* Agent 27: Enlarge remaining sub-44px targets on phones (priority/recurring badges, small controls in lists/notes) */
+  .priority-badge,
+  .recurring-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    min-height: 26px;
+    min-width: 26px;
+  }
+
+  /* Make inline note action buttons (e.g. +LINK, remove) larger tap targets */
+  .glass button[title*="LINK"],
+  .glass button[title*="Remove link"],
+  .glass button[title*="link"] {
+    min-height: 32px;
+    min-width: 32px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  /* Slightly larger complete check affordance in task rows for fat fingers */
+  .task-row button[aria-label*="complete"],
+  .task-row button[aria-label*="Mark complete"] {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Main scroll area gets breathing room above fixed bottom nav + safe area */
+  .main-content {
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 8px)) !important;
+  }
+
+  /* Top bar compaction on phones (prevents crowding) */
+  .top-bar {
+    height: 56px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* Floating elements adjust for bottom nav */
+  .floating-quick-add,
+  .ai-fab {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom, 4px));
+  }
+}
+
+/* Base styles for new mobile bottom navigation (md:hidden, fixed, native feel) */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: rgba(17, 17, 20, 0.96);
+  border-top: 1px solid var(--border-subtle);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  display: none; /* shown via md:hidden override in JSX + media */
+}
+
+@media (max-width: 768px) {
+  .bottom-nav {
+    display: flex;
+  }
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px 8px;
+  min-height: 52px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color 0.1s ease, transform 0.1s ease;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.bottom-nav-item:active {
+  transform: scale(0.96);
+  color: var(--text-primary);
+}
+
+.bottom-nav-item.active {
+  color: var(--neon-purple);
+}
+
+.bottom-nav-item .icon {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 1px;
+}
+
+/* Prominent FAB (mobile only, right side, above bottom nav) */
+.fab {
+  position: fixed;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom, 12px));
+  right: 16px;
+  z-index: 70;
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--neon-purple), #a855f7);
+  color: #0a0a0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(192, 132, 252, 0.4), 0 0 0 1px rgba(255,255,255,0.1) inset;
+  transition: transform 0.15s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.15s ease;
+  touch-action: manipulation;
+  border: none;
+}
+
+.fab:active {
+  transform: scale(0.92) translateY(1px);
+  box-shadow: 0 4px 12px rgba(192, 132, 252, 0.5);
+}
+
+@media (min-width: 769px) {
+  .fab,
+  .bottom-nav {
+    display: none !important;
+  }
+}
+
+/* Performance & accessibility for low-end devices + reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Extra mobile polish */
+@media (max-width: 640px) {
+  .kanban-column {
+    min-height: 280px; /* tighter on phones */
+  }
+}
+
+/* Agent 27: Mobile Kanban as horizontal swipeable columns (premium native task board feel on phones)
+   Desktop remains 4-col grid. Snap + touch optimized. */
+@media (max-width: 768px) {
+  .kanban-board {
+    display: flex;
+    flex-wrap: nowrap;
+  }
+  .kanban-column {
+    flex: 0 0 82vw; /* almost full width per column, peek next */
+    min-width: 260px;
+    max-width: 82vw;
+    margin-right: 12px;
+    scroll-snap-align: start;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kanban-column:last-child {
+    margin-right: 24px; /* end padding */
+  }
+}
+
+/* Focus rings that feel premium */
+*:focus-visible {
+  outline: 2px solid var(--neon-purple);
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(192, 132, 252, 0.3);
+  color: white;
+}
+
+/* TipTap Editor (Phase 3 scaffold) — premium neon dark styling */
+.ProseMirror {
+  outline: none;
+  min-height: inherit;
+}
+
+.ProseMirror p {
+  margin: 0.35em 0;
+  line-height: 1.65;
+}
+
+.ProseMirror h1 {
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0.6em 0 0.3em;
+  color: #f4f4f5;
+}
+
+.ProseMirror h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0.55em 0 0.25em;
+  color: #e4e4e7;
+}
+
+.ProseMirror h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0.5em 0 0.2em;
+  color: #d4d4d8;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.35rem;
+  margin: 0.4em 0;
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror li {
+  margin: 0.15em 0;
+}
+
+.ProseMirror blockquote {
+  border-left: 3px solid #c084fc;
+  padding-left: 1rem;
+  margin: 0.6em 0;
+  color: #a1a1aa;
+  font-style: italic;
+}
+
+.ProseMirror code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.ProseMirror pre {
+  background: #0a0a0f;
+  border: 1px solid var(--border);
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  margin: 0.6em 0;
+}
+
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Empty state hint alignment inside editor pane */
+.ProseMirror:empty::before {
+  content: attr(data-placeholder);
+  color: #71717a;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* Mention pills (Agent 12 custom TipTap mark) — beautiful @ / [[ ]] style inline links */
+.mention-pill {
+  background: rgba(192, 132, 252, 0.15);
+  color: #c084fc;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.9em;
+  border: 1px solid rgba(192, 132, 252, 0.3);
+  margin: 0 1px;
+  cursor: default;
+  transition: all 0.1s ease;
+  white-space: nowrap;
+}
+.mention-pill:hover {
+  background: rgba(192, 132, 252, 0.25);
+  border-color: #c084fc;
+  transform: translateY(-0.5px);
+}
+
+/* === react-day-picker v9 caption / navigation overrides for glass modals === */
+.rdp-month_caption {
+  height: auto !important;
+  min-height: unset !important;
+  padding: 0 !important;
+  overflow: visible;
+  color: #f4f4f5;
+}
+
+.rdp-root {
+  color: #f4f4f5;
+}
+
+.rdp-month_caption button {
+  min-height: 32px !important;
+  min-width: 32px !important;
+}
+
+.rdp-month_caption select option {
+  background: #111114;
+  color: #f4f4f5;
+}
+
+/* Improved TipTap placeholder (targets the configured emptyEditorClass) */
+.ProseMirror.is-editor-empty p:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #71717a;
+  pointer-events: none;
+  height: 0;
+}
+.ProseMirror.is-editor-empty p:first-child {
+  margin: 0;
+}
+
+/* === react-day-picker v9 calendar (DateTimePicker) — reliable grid + dark glass ===
+   Fixes vertical list (correct keys + button sizing) and prevents modal stretch.
+   Overrides the mobile 44px global button rule only for the tight calendar.
+*/
+.rdp-month_grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.rdp-day_button {
+  height: 40px;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1;
+  transition: all 0.1s ease;
+  user-select: none;
+}
+
+.rdp-day_button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.rdp-selected .rdp-day_button {
+  background-color: #c084fc !important;
+  color: #000 !important;
+  font-weight: 600;
+}
+
+.rdp-today:not(.rdp-selected) .rdp-day_button {
+  border: 1px solid rgba(192, 132, 252, 0.55);
+  color: #c084fc;
+  font-weight: 500;
+}
+
+.rdp-outside .rdp-day_button {
+  color: rgba(113, 113, 122, 0.35);
+  opacity: 0.65;
+}
+
+@media (max-width: 768px) {
+  .rdp-day_button {
+    min-height: 40px !important;
+    height: 40px !important;
+    width: 40px !important;
+  }
+}
+
+/* ============================================
+   MOBILE NATIVE EXPERIENCE COMPLETION (Agent 17)
+   Bottom sheets, swipe gestures, haptics feedback, sync indicators, perf
+   Additive only — desktop untouched. All gated by @media or mobile checks.
+   ============================================ */
+
+/* Mobile Bottom Sheet System (replaces centered modals on phones) */
+@media (max-width: 768px) {
+  .mobile-bottom-sheet {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    max-height: 92dvh;
+    border-radius: 20px 20px 0 0 !important;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
+    overflow: hidden;
+    will-change: transform;
+    touch-action: pan-y;
+  }
+
+  .sheet-backdrop {
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+  }
+
+  .sheet-drag-handle {
+    width: 36px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 999px;
+    margin: 12px auto 8px;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .sheet-drag-handle:active {
+    background: var(--neon-purple);
+  }
+
+  /* Ensure TaskModal content fills sheet nicely on mobile */
+  .mobile-bottom-sheet .glass {
+    border-radius: 20px 20px 0 0;
+    border: none;
+    max-height: 92dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mobile-bottom-sheet .p-6 {
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 12px));
+  }
+}
+
+/* Swipe-to-complete / actions on task rows (gesture container) */
+.swipe-container {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y; /* allow vertical scroll, capture horizontal for gestures */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.swipe-action-bg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 0 20px;
+  transition: opacity 0.1s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.swipe-action-bg.complete {
+  left: 0;
+  right: 50%;
+  background: linear-gradient(to right, #00c853, #00ff9f);
+  justify-content: flex-start;
+  padding-left: 24px;
+}
+
+.swipe-action-bg.actions {
+  left: 50%;
+  right: 0;
+  background: linear-gradient(to left, #ff3366, #ff6b6b);
+  justify-content: flex-end;
+  padding-right: 24px;
+}
+
+/* Sync / offline status indicators (mobile-friendly, tappable) */
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  touch-action: manipulation;
+  min-height: 28px;
+}
+
+.sync-indicator.online {
+  color: #00ff9f;
+  border-color: rgba(0, 255, 159, 0.2);
+}
+
+.sync-indicator.offline {
+  color: #ff9500;
+  background: rgba(255, 149, 0, 0.08);
+  border-color: rgba(255, 149, 0, 0.25);
+}
+
+.sync-indicator.syncing {
+  color: var(--neon-purple);
+}
+
+.sync-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Performance & battery mobile optimizations */
+@media (max-width: 768px) {
+  .task-row,
+  .glass,
+  button,
+  .bottom-nav-item,
+  .fab {
+    /* Reduce paint/composite cost on low-end devices during scrolls/gestures */
+    will-change: auto;
+  }
+
+  .swipe-container {
+    /* Critical for smooth horizontal gesture without vertical interference */
+    touch-action: pan-y;
+  }
+
+  /* Passive-friendly scroll areas (lists) */
+  .main-content,
+  .space-y-1 {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Extra press feedback for native buttons (haptics companion) */
+@media (max-width: 768px) {
+  .btn:active,
+  button:active,
+  .task-row:active,
+  .bottom-nav-item:active,
+  .fab:active {
+    transform: scale(0.985);
+    transition-duration: 60ms;
+  }
+}
+
+/* Agent 27: Pull-to-refresh (mobile lists) — native feel spinner + threshold */
+.pull-to-refresh-indicator {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(17,17,20,0.95);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.1s, transform 0.1s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.pull-to-refresh-indicator.visible {
+  opacity: 1;
+  top: 8px;
+}
+.pull-to-refresh-indicator.refreshing {
+  top: 8px;
+  opacity: 1;
+}
+.pull-to-refresh-indicator .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--neon-purple);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

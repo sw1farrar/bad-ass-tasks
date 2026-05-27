@@ -1,0 +1,283 @@
+﻿
+> bad-ass-tasks@0.1.0 build
+> next build
+
+   Γû▓ Next.js 15.2.4
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+node.exe : 
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Failed to compile.
+
+./app/page.tsx
+5:16  Warning: 'Search' is defined but never used.  @typescript-eslint/no-unused-vars
+8:3  Warning: 'GitBranch' is defined but never used.  @typescript-eslint/no-unused-vars
+51:10  Warning: 'useShallow' is defined but never used.  @typescript-eslint/no-unused-vars
+52:16  Warning: 'Note' is defined but never used.  @typescript-eslint/no-unused-vars
+53:29  Warning: 'getPriorityColor' is defined but never used.  @typescript-eslint/no-unused-vars
+53:177  Warning: 'generateRecurringInstances' is defined but never used.  @typescript-eslint/no-unused-vars
+53:210  Warning: 'RecurringInstanceInfo' is defined but never used.  @typescript-eslint/no-unused-vars
+55:10  Warning: 'logger' is defined but never used.  @typescript-eslint/no-unused-vars
+67:27  Warning: 'buildKnowledgeGraph' is defined but never used.  @typescript-eslint/no-unused-vars
+67:48  Warning: 'suggestLinksForNote' is defined but never used.  @typescript-eslint/no-unused-vars
+67:69  Warning: 'suggestLinksForTask' is defined but never used.  @typescript-eslint/no-unused-vars
+304:5  Warning: 'initializeAuth' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+326:5  Warning: 'isOnline' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+327:5  Warning: 'isSyncing' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+328:5  Warning: 'pendingSyncCount' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+329:5  Warning: 'lastSyncAt' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+347:5  Warning: 'setupWorkspaceRealtime' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+364:5  Warning: 'notificationPrefs' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+365:5  Warning: 'updateNotificationPrefs' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+417:44  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+427:56  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+436:59  Warning: React Hook useMemo has unnecessary dependencies: 'taskFilter' and 'tasks'. Either exclude them or 
+remove the dependency array.  react-hooks/exhaustive-deps
+453:6  Warning: React Hook useEffect has a missing dependency: 'getTodayTasks'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+488:43  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+493:6  Warning: React Hook useEffect has missing dependencies: 'currentView' and 'setView'. Either include them or 
+remove the dependency array.  react-hooks/exhaustive-deps
+532:13  Warning: 'wasPulling' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+558:6  Warning: React Hook useEffect has a missing dependency: 'getTodayTasks'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+665:6  Warning: React Hook useEffect has missing dependencies: 'handleComplete' and 'selectTask'. Either include them 
+or remove the dependency array.  react-hooks/exhaustive-deps
+726:37  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+930:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+930:44  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1015:64  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1017:117  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1086:83  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1087:75  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1361:68  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1413:68  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1416:204  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1465:108  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1494:79  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1628:69  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1813:20  Warning: 'e' is defined but never used.  @typescript-eslint/no-unused-vars
+2222:89  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2340:60  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2426:37  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2443:38  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2444:34  Warning: 'err' is defined but never used.  @typescript-eslint/no-unused-vars
+2461:53  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2470:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2471:36  Warning: 'e' is defined but never used.  @typescript-eslint/no-unused-vars
+2481:83  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2494:137  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2540:50  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2545:70  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2558:32  Warning: 'e' is defined but never used.  @typescript-eslint/no-unused-vars
+2561:52  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2651:70  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3059:58  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3067:60  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3109:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3117:50  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3125:70  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3127:52  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3302:45  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3303:114  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3308:47  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3308:120  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3351:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3357:35  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./components/AIChatPanel.tsx
+14:3  Warning: 'generateSubtaskDecompositionAI' is defined but never used.  @typescript-eslint/no-unused-vars
+119:73  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+120:65  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./components/AuthModal.tsx
+120:14  Warning: 'err' is defined but never used.  @typescript-eslint/no-unused-vars
+120:19  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./components/CommandPalette.tsx
+3:17  Warning: 'useEffect' is defined but never used.  @typescript-eslint/no-unused-vars
+13:18  Warning: 'generateWeeklyBriefing' is defined but never used.  @typescript-eslint/no-unused-vars
+46:5  Warning: 'toggleCommandPalette' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./components/ErrorBoundary.tsx
+4:41  Warning: 'Copy' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/KnowledgeGraph.tsx
+5:49  Warning: 'ZoomIn' is defined but never used.  @typescript-eslint/no-unused-vars
+7:73  Warning: 'HybridSearchResult' is defined but never used.  @typescript-eslint/no-unused-vars
+235:58  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+235:78  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./components/TaskModal.tsx
+4:35  Warning: 'User' is defined but never used.  @typescript-eslint/no-unused-vars
+575:32  Warning: 'e' is defined but never used.  @typescript-eslint/no-unused-vars
+598:156  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+601:38  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+604:39  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+604:77  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+659:35  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./components/TipTapEditor.tsx
+26:3  Warning: 'Hash' is defined but never used.  @typescript-eslint/no-unused-vars
+30:3  Warning: 'Clock' is defined but never used.  @typescript-eslint/no-unused-vars
+134:60  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+334:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+336:25  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+338:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+657:6  Warning: React Hook useMemo has a missing dependency: 'slashCommandsBase'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+807:11  Warning: 'off' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1055:60  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1058:78  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1062:36  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1062:56  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1067:59  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1068:35  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1068:55  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1265:216  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./lib/data/hybridStore.ts
+16:103  Warning: 'NotificationPrefs' is defined but never used.  @typescript-eslint/no-unused-vars
+149:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+151:26  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+198:47  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+209:37  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+209:43  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+363:7  Error: 'queue' is never reassigned. Use 'const' instead.  prefer-const
+388:62  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+411:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+411:80  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+417:64  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+431:62  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+445:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+445:80  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+457:64  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+484:51  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+487:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+600:30  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+601:31  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+602:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+603:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+603:64  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+604:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+604:66  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+626:62  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+654:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+655:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+656:34  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+657:34  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+657:66  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+658:35  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+658:68  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+685:30  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+686:31  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+687:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+688:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+688:64  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+689:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+689:66  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+715:33  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+741:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+747:56  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+758:34  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+771:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+858:18  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+962:62  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1045:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1051:56  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1061:34  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1074:32  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1142:29  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1163:62  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1219:47  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1273:29  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1293:70  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1317:64  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1397:29  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1460:26  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1468:65  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1520:28  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1530:38  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1614:52  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1639:52  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1667:68  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1782:46  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1806:16  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1808:56  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1832:24  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1833:24  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1838:30  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1839:30  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1865:31  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1872:19  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1887:31  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1894:19  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2013:7  Error: 'existingTaskTitles' is never reassigned. Use 'const' instead.  prefer-const
+2014:7  Error: 'existingNoteTitles' is never reassigned. Use 'const' instead.  prefer-const
+2037:30  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2038:34  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2042:12  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2076:161  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2092:63  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2099:71  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2105:71  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./lib/logger.ts
+34:5  Error: 'reporters' is never reassigned. Use 'const' instead.  prefer-const
+133:53  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+134:24  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+179:53  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+180:24  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+199:18  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+200:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+224:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+225:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+226:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+226:71  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+240:51  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+241:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+249:53  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+257:50  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./lib/supabase/server.ts
+16:70  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./lib/utils.ts
+145:11  Error: 'u' is never reassigned. Use 'const' instead.  prefer-const
+235:7  Error: 'cursor' is never reassigned. Use 'const' instead.  prefer-const
+536:9  Warning: 'lower' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+798:20  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1052:9  Error: 'title' is never reassigned. Use 'const' instead.  prefer-const
+1329:65  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1371:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1400:41  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1435:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1521:13  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1522:14  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1581:39  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1595:41  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1616:96  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1616:118  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1662:108  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1665:25  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1666:15  Warning: 'workspaceId' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1666:28  Warning: 'workspace_id' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1686:16  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1690:68  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1691:70  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1863:9  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1864:3  Warning: 'allTasks' is assigned a value but never used. Allowed unused args must match /^_/u.  
+@typescript-eslint/no-unused-vars
+1865:3  Warning: 'allNotes' is assigned a value but never used. Allowed unused args must match /^_/u.  
+@typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: 
+https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules

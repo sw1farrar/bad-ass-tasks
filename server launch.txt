@@ -1,0 +1,2 @@
+cd "C:\Grok Build Projects\Bad Ass Tasks"
+npm run dev

@@ -1,0 +1,52 @@
+{
+  "name": "Bad Ass Tasks",
+  "short_name": "BadAss",
+  "description": "Get shit done. Beautifully.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "orientation": "any",
+  "categories": ["productivity", "utilities", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icon-192.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "description": "Focus on what matters today",
+      "url": "/?view=today&source=pwa",
+      "icons": [{ "src": "/icon-192.jpg", "sizes": "192x192" }]
+    },
+    {
+      "name": "All Tasks",
+      "short_name": "Tasks",
+      "description": "View and manage all tasks",
+      "url": "/?view=tasks&source=pwa",
+      "icons": [{ "src": "/icon-192.jpg", "sizes": "192x192" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icon-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Bad Ass Tasks on mobile"
+    }
+  ]
+}

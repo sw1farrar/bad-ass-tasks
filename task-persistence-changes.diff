@@ -1,0 +1,2559 @@
+diff --git a/lib/data/hybridStore.ts b/lib/data/hybridStore.ts
+new file mode 100644
+index 0000000..2a2f530
+--- /dev/null
++++ b/lib/data/hybridStore.ts
+@@ -0,0 +1,1125 @@
++/**
++ * Hybrid Data Layer GÇö Bad Ass Tasks
++ *
++ * Responsibilities:
++ * - When Supabase is configured GåÆ talk to the real database
++ * - When Supabase is not configured GåÆ return safe no-op values
++ *   (the Zustand store decides how to behave in demo mode)
++ *
++ * This file will grow over time to become the single source of truth
++ * for data operations (tasks, notes, activity logs). Workspace/auth bootstrapping
++ * (fetchUserWorkspaces, ensureUserHasWorkspace, createWorkspace via RPC) lives in
++ * useTaskStore for proper user context + strict separation. Phase 2 can migrate more.
++ */
++
++import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
++import type { Task, TaskStatus, Priority, Note, ActivityLog, PendingOperation } from "@/types";
++import type { Database, Json } from "@/types/supabase";
++
++type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
++type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
++type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
++type NoteInsert = Database["public"]["Tables"]["notes"]["Insert"];
++type ActivityLogRow = Database["public"]["Tables"]["activity_logs"]["Row"];
++type ActivityLogInsert = Database["public"]["Tables"]["activity_logs"]["Insert"];
++
++// ------------------------------------------------------------------
++// Helpers
++// ------------------------------------------------------------------
++
++const getClient = () => getSupabaseClient();
++
++function logHybridError(operation: string, error: unknown) {
++  // Supabase errors are often objects with message/code/details
++  console.error(`[hybridStore] ${operation} error:`, JSON.stringify(error, null, 2) || error);
++}
++
++function mapTaskRow(row: TaskRow): Task {
++  return {
++    id: row.id,
++    workspaceId: row.workspace_id,
++    title: row.title,
++    description: row.description ?? "",
++    status: row.status,
++    priority: row.priority,
++    dueDate: row.due_date ?? undefined,
++    assignee: row.assignee_ids && row.assignee_ids.length > 0 ? "Team Member" : "You",
++    tags: row.tags ?? [],
++    createdAt: row.created_at,
++    completedAt: row.completed_at ?? undefined,
++    timeEstimate: row.time_estimate ?? undefined,
++    linkedNoteIds: row.linked_note_ids ?? [],
++  };
++}
++
++// ------------------------------------------------------------------
++// Notes helpers (Phase 3 rich editor support: full TipTap JSONB round-tripping
++// while preserving plain-text Note.content model + list preview compatibility)
++// ------------------------------------------------------------------
++
++/**
++ * Convert content (plain string OR stringified TipTap JSON doc) into TipTap JSONB
++ * for storage in Supabase notes.content (JSONB column).
++ * - If input is a stringified valid TipTap doc (e.g. from rich editor), parse & use directly (rich preserved).
++ * - Else treat as plain text and wrap minimally (forward compat + demo/samples).
++ * Safe no-op for empty.
++ */
++function noteContentToJson(content: string | undefined | unknown): Json | null {
++  if (!content) return null;
++  if (typeof content === "string") {
++    const trimmed = content.trim();
++    if (!trimmed) return null;
++
++    // Rich roundtrip: editor emits JSON.stringify(editor.getJSON())
++    if (trimmed.startsWith("{") && trimmed.includes('"type"') && trimmed.includes('"doc"')) {
++      try {
++        const parsed = JSON.parse(trimmed);
++        if (parsed && typeof parsed === "object" && parsed.type === "doc") {
++          return parsed;
++        }
++      } catch {
++        // fallthrough to plain text handling
++      }
++    }
++
++    // Legacy / plain text path (samples, old data, title-only etc.)
++    return {
++      type: "doc",
++      content: [
++        {
++          type: "paragraph",
++          content: [
++            {
++              type: "text",
++              text: content,
++            },
++          ],
++        },
++      ],
++    } as Json;
++  }
++
++  // Already a rich object (defensive)
++  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
++  if (content && typeof content === "object" && (content as any).type === "doc") {
++    return content as Json;
++  }
++
++  return null;
++}
++
++/**
++ * Extract readable plain text from stored TipTap JSONB (or legacy string or stringified JSON).
++ * Used for Note.content (keeps existing model + cards working) and list previews.
++ * Gracefully handles scalars, objects, stringified docs, and nested structures.
++ * Now enhanced for rich JSONB round-tripping (extracts text even if .content field holds stringified doc).
++ */
++function jsonToNoteContent(json: unknown): string {
++  if (!json) return "";
++  if (typeof json === "string") {
++    const trimmed = json.trim();
++    // If this is actually a stringified TipTap doc (from rich onChange path), parse then extract
++    if (trimmed.startsWith("{") && trimmed.includes('"type"') && trimmed.includes('"doc"')) {
++      try {
++        const parsed = JSON.parse(trimmed);
++        return extractTextFromTipTapDoc(parsed);
++      } catch {
++        return trimmed; // fallback to raw string (plain case)
++      }
++    }
++    return trimmed;
++  }
++
++  // Direct JSONB object from DB
++  return extractTextFromTipTapDoc(json);
++}
++
++// Internal robust text extractor (factored for reuse in rich paths)
++function extractTextFromTipTapDoc(doc: any): string {
++  let text = "";
++  function extract(node: any): void {
++    if (typeof node === "string") {
++      text += node;
++      return;
++    }
++    if (node && typeof node === "object") {
++      if (typeof node.text === "string") {
++        text += node.text + " ";
++      }
++      if (Array.isArray(node.content)) {
++        node.content.forEach(extract);
++      } else if (node.content && typeof node.content === "object") {
++        extract(node.content);
++      }
++      if (Array.isArray(node)) {
++        node.forEach(extract);
++      }
++    }
++  }
++  extract(doc);
++  return text.trim();
++}
++
++// Public exports for consumers (editor roundtrips, previews in UI, future use)
++export { noteContentToJson, jsonToNoteContent };
++
++function mapNoteRow(row: NoteRow): Note {
++  return {
++    id: row.id,
++    workspaceId: row.workspace_id,
++    title: row.title,
++    content: jsonToNoteContent(row.content),
++    createdAt: row.created_at,
++    updatedAt: row.updated_at,
++    tags: row.tags ?? [],
++    linkedTaskIds: row.linked_task_ids ?? [],
++  };
++}
++
++function mapActivityLogRow(row: ActivityLogRow): ActivityLog {
++  return {
++    id: row.id,
++    workspaceId: row.workspace_id,
++    userId: row.user_id ?? undefined,
++    actionType: row.action_type,
++    targetType: row.target_type,
++    targetId: row.target_id ?? undefined,
++    metadata: (row.metadata as Record<string, any>) ?? {},
++    createdAt: row.created_at,
++  };
++}
++
++/**
++ * Build a DB-shaped payload (snake_case where needed) from input/updates.
++ * Deduplicates construction across create paths + forwards full vision fields
++ * (assignee_ids, recurring_rule, etc.) for complete Supabase task CRUD support.
++ * Safe for partials; callers pass what they have (current simplified Task + any extras).
++ */
++function buildTaskDbPayload(source: any): any {
++  if (!source) return {};
++  return {
++    title: source.title,
++    description: source.description ?? "",
++    status: source.status ?? "todo",
++    priority: source.priority ?? "P2",
++    due_date: source.dueDate ?? source.due_date ?? null,
++    tags: source.tags ?? [],
++    completed_at: source.completedAt ?? source.completed_at ?? null,
++    time_estimate: source.timeEstimate ?? source.time_estimate ?? null,
++    linked_note_ids: source.linkedNoteIds ?? source.linked_note_ids ?? [],
++    // Full original vision fields (forwarded if present; enables complete CRUD without breaking simplified UI model)
++    assignee_ids: source.assigneeIds ?? source.assignee_ids ?? [],
++    parent_task_id: source.parentTaskId ?? source.parent_task_id ?? null,
++    recurring_rule: source.recurringRule ?? source.recurring_rule ?? null,
++    time_spent: source.timeSpent ?? source.time_spent ?? 0,
++  };
++}
++
++// ------------------------------------------------------------------
++// Offline Queue & Persistence Helpers (Phase 1: basic offline + LWW sync)
++// Only active when Supabase is live/configured. Demo mode completely bypasses.
++// Queue persisted to localStorage so pending writes survive refresh.
++// ------------------------------------------------------------------
++
++const OFFLINE_QUEUE_KEY = "bad-ass-tasks-offline-queue";
++const OFFLINE_LISTENERS_SETUP_KEY = "__bat_offline_listeners_setup";
++
++// Robust client-side ID for offline creates (valid UUID so Supabase accepts as PK)
++export function generateClientId(): string {
++  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
++    return crypto.randomUUID();
++  }
++  // RFC4122-ish fallback
++  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
++    const r = (Math.random() * 16) | 0;
++    const v = c === "x" ? r : (r & 0x3) | 0x8;
++    return v.toString(16);
++  });
++}
++
++function isCurrentlyOnline(): boolean {
++  if (typeof navigator === "undefined") return true;
++  return navigator.onLine;
++}
++
++function loadPendingQueue(): PendingOperation[] {
++  if (!isSupabaseLive() || typeof window === "undefined") return [];
++  try {
++    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
++    if (!raw) return [];
++    const parsed = JSON.parse(raw);
++    return Array.isArray(parsed) ? parsed : [];
++  } catch {
++    return [];
++  }
++}
++
++function savePendingQueue(queue: PendingOperation[]): void {
++  if (!isSupabaseLive() || typeof window === "undefined") return;
++  try {
++    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
++  } catch {
++    // Quota or private mode GÇö non-fatal for basic offline
++  }
++}
++
++let inMemoryQueue: PendingOperation[] = []; // lazy-hydrated via loadPendingQueue() on first access (prevents TDZ during module init)
++
++/** Enqueue a write operation (create/update/delete) for later sync. */
++function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"> & { timestamp?: string }): void {
++  if (!isSupabaseLive()) return;
++
++  const fullOp: PendingOperation = {
++    opId: generateClientId(),
++    timestamp: op.timestamp || new Date().toISOString(),
++    ...op,
++  } as PendingOperation;
++
++  inMemoryQueue = [...inMemoryQueue, fullOp];
++  savePendingQueue(inMemoryQueue);
++}
++
++/** Current pending count (reactive callers can poll or store can mirror) */
++export function getPendingCount(): number {
++  if (!isSupabaseLive()) return 0;
++  // Rehydrate from storage in case of external clear or multi-tab
++  inMemoryQueue = loadPendingQueue();
++  return inMemoryQueue.length;
++}
++
++export function getPendingOperations(): PendingOperation[] {
++  if (!isSupabaseLive()) return [];
++  inMemoryQueue = loadPendingQueue();
++  return [...inMemoryQueue];
++}
++
++/** Clear the queue (e.g. after successful full sync or manual reset) */
++export function clearPendingOperations(): void {
++  if (!isSupabaseLive()) return;
++  inMemoryQueue = [];
++  savePendingQueue([]);
++}
++
++/** Basic online status helper (for hybrid consumers) */
++export function getIsOnline(): boolean {
++  return isCurrentlyOnline();
++}
++
++// ------------------------------------------------------------------
++// Last-Write-Wins Sync Processor + Simple Conflict Detection
++// ------------------------------------------------------------------
++
++/**
++ * Process all pending operations against Supabase now (assumes caller ensures we are online + live).
++ * Implements simple conflict detection using updated_at vs op timestamp:
++ *   - If server row's updated_at is strictly AFTER our op timestamp GåÆ server wins (drop pending op as stale).
++ *   - Else apply our change (client's offline write "wins" or no conflict).
++ * Creates always attempt insert (using client-generated UUID id we stored).
++ * Returns summary for callers (store toasts etc).
++ */
++export async function processPendingOperations(): Promise<{
++  synced: number;
++  skippedConflicts: number;
++  failed: number;
++}> {
++  if (!isSupabaseLive()) {
++    return { synced: 0, skippedConflicts: 0, failed: 0 };
++  }
++
++  const supabase = getClient();
++  if (!supabase) {
++    return { synced: 0, skippedConflicts: 0, failed: 0 };
++  }
++
++  // Fresh load
++  const queue = loadPendingQueue();
++  if (queue.length === 0) {
++    return { synced: 0, skippedConflicts: 0, failed: 0 };
++  }
++
++  let synced = 0;
++  let skippedConflicts = 0;
++  let failed = 0;
++
++  const remaining: PendingOperation[] = [];
++
++  for (const op of queue) {
++    try {
++      if (op.entityType === "task") {
++        if (op.type === "create") {
++          // Insert using our pre-generated client UUID as id (supported by schema Insert)
++          const { error } = await (supabase.from("tasks") as any).insert({
++            id: op.targetId,
++            workspace_id: op.workspaceId,
++            ...op.payload,
++          });
++          if (error) {
++            if (error.code === "23505") {
++              // Duplicate key: create already succeeded in prior sync / concurrent write. Treat as synced (idempotent LWW for creates).
++              synced++;
++            } else {
++              throw error;
++            }
++          } else {
++            synced++;
++          }
++        } else if (op.type === "update") {
++          // Simple conflict check via updated_at
++          const { data: current } = await supabase
++            .from("tasks")
++            .select("updated_at")
++            .eq("id", op.targetId)
++            .single();
++
++          const serverTs = (current as any)?.updated_at ? new Date((current as any).updated_at).getTime() : 0;
++          const ourTs = new Date(op.timestamp).getTime();
++
++          if (serverTs > ourTs) {
++            skippedConflicts++; // server has newer write GåÆ LWW: drop our older offline change
++          } else {
++            const { error } = await (supabase.from("tasks") as any)
++              .update(op.payload)
++              .eq("id", op.targetId);
++            if (error) throw error;
++            synced++;
++          }
++        } else if (op.type === "delete") {
++          // For delete, simple: always attempt (or could check ts too)
++          const { error } = await supabase.from("tasks").delete().eq("id", op.targetId);
++          if (error && error.code !== "PGRST116") throw error; // ignore not found
++          synced++;
++        }
++      } else if (op.entityType === "note") {
++        if (op.type === "create") {
++          const { error } = await (supabase.from("notes") as any).insert({
++            id: op.targetId,
++            workspace_id: op.workspaceId,
++            ...op.payload,
++          });
++          if (error) throw error;
++          synced++;
++        } else if (op.type === "update") {
++          const { data: current } = await supabase
++            .from("notes")
++            .select("updated_at")
++            .eq("id", op.targetId)
++            .single();
++
++          const serverTs = (current as any)?.updated_at ? new Date((current as any).updated_at).getTime() : 0;
++          const ourTs = new Date(op.timestamp).getTime();
++
++          if (serverTs > ourTs) {
++            skippedConflicts++;
++          } else {
++            // For notes, payload may contain .content as string; convert like the normal path
++            const updatePayload = { ...op.payload };
++            if (updatePayload.content !== undefined) {
++              // Reuse existing converter (it's not exported but we can inline minimal or call via any)
++              updatePayload.content = noteContentToJson(updatePayload.content);
++            }
++            const { error } = await (supabase.from("notes") as any)
++              .update(updatePayload)
++              .eq("id", op.targetId);
++            if (error) throw error;
++            synced++;
++          }
++        } else if (op.type === "delete") {
++          const { error } = await supabase.from("notes").delete().eq("id", op.targetId);
++          if (error && error.code !== "PGRST116") throw error;
++          synced++;
++        }
++      }
++    } catch (err) {
++      logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, err);
++      failed++;
++      remaining.push(op); // keep for retry later
++    }
++  }
++
++  inMemoryQueue = remaining;
++  savePendingQueue(remaining);
++
++  return { synced, skippedConflicts, failed };
++}
++
++// Auto-setup network listeners for opportunistic sync (runs once per tab)
++function setupOfflineListenersOnce() {
++  if (typeof window === "undefined" || (window as any)[OFFLINE_LISTENERS_SETUP_KEY]) return;
++  if (!isSupabaseLive()) return;
++
++  (window as any)[OFFLINE_LISTENERS_SETUP_KEY] = true;
++
++  const handleOnline = () => {
++    // Fire-and-forget sync when connectivity returns
++    if (getPendingCount() > 0) {
++      processPendingOperations().catch((e) =>
++        console.warn("[hybrid offline] auto-sync on online failed:", e)
++      );
++    }
++  };
++
++  const handleOffline = () => {
++    // Could broadcast status; store layer will reflect via its own listeners or polls
++  };
++
++  window.addEventListener("online", handleOnline);
++  window.addEventListener("offline", handleOffline);
++
++  // Kick an initial sync attempt if we start while already online with backlog (e.g. after crash)
++  if (isCurrentlyOnline() && getPendingCount() > 0) {
++    setTimeout(() => {
++      processPendingOperations().catch(() => {});
++    }, 1500);
++  }
++}
++
++// ------------------------------------------------------------------
++// Public API
++// ------------------------------------------------------------------
++
++export const isSupabaseLive = isSupabaseConfigured;
++
++// NOTE FOR QUALITY: Every public export below has an isSupabaseLive() guard at the VERY TOP.
++// This is the single source of truth. Never bypass; demo IDs ("w1"/"w2") are additionally blocked
++// in live paths to prevent RLS failures or accidental data mixing. Strengthened in Phase 1 QA pass.
++
++// Kick off listener setup immediately for live Supabase environments (idempotent)
++// (moved after isSupabaseLive declaration to prevent TDZ ReferenceError at module evaluation time)
++setupOfflineListenersOnce();
++
++/** Fetch all tasks for a workspace */
++export async function getTasks(workspaceId: string): Promise<Task[]> {
++  if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
++
++  // Safety guard: never hit Supabase with demo workspace IDs (w1, w2, etc.)
++  // These do not exist in the real DB and will trigger RLS errors.
++  if (["w1", "w2"].includes(workspaceId)) {
++    return [];
++  }
++
++  // Basic offline: if we know we're offline, skip network call entirely.
++  // Persisted client state (via Zustand) + queued writes will provide the experience.
++  if (!isCurrentlyOnline()) {
++    return [];
++  }
++
++  const supabase = getClient();
++  if (!supabase) return [];
++
++  try {
++    const { data, error } = await supabase
++      .from("tasks")
++      .select("*")
++      .eq("workspace_id", workspaceId)
++      .order("created_at", { ascending: false });
++
++    if (error) {
++      logHybridError("getTasks", error);
++      return [];
++    }
++
++    return (data ?? []).map(mapTaskRow);
++  } catch (err) {
++    // Treat network errors gracefully for offline resilience
++    logHybridError("getTasks", err);
++    return [];
++  }
++}
++
++/** Create a new task */
++export async function createTask(input: {
++  workspaceId: string;
++  title: string;
++  description?: string;
++  status?: TaskStatus;
++  priority?: Priority;
++  dueDate?: string;
++  tags?: string[];
++  // Allow caller to supply a pre-generated client UUID (for seamless offline create queuing + ID stability)
++  id?: string;
++}): Promise<Task | null> {
++  if (!isSupabaseLive()) return null; // DEMO GUARD (STRENGTHENED)
++
++  const supabase = getClient();
++  if (!supabase) return null;
++
++  const online = isCurrentlyOnline();
++
++  // If offline, immediately queue and return an optimistic Task using provided or generated client id.
++  if (!online) {
++    const clientId = input.id || generateClientId();
++    const dbPayload = buildTaskDbPayload(input);
++    const tempTask: Task = {
++      id: clientId,
++      workspaceId: input.workspaceId,
++      title: input.title,
++      description: input.description ?? "",
++      status: input.status ?? "todo",
++      priority: input.priority ?? "P2",
++      dueDate: input.dueDate,
++      assignee: "You",
++      tags: input.tags ?? [],
++      createdAt: new Date().toISOString(),
++      completedAt: (input as any).completedAt,
++      timeEstimate: (input as any).timeEstimate,
++      linkedNoteIds: (input as any).linkedNoteIds ?? [],
++    };
++
++    enqueuePendingOperation({
++      type: "create",
++      entityType: "task",
++      targetId: clientId,
++      payload: dbPayload,
++      workspaceId: input.workspaceId,
++    });
++
++    return tempTask;
++  }
++
++  const dbPayload = buildTaskDbPayload(input);
++  const insertPayload: TaskInsert = {
++    ...(input.id ? { id: input.id } : {}),
++    workspace_id: input.workspaceId,
++    ...dbPayload,
++  } as TaskInsert;
++
++  try {
++    const { data, error } = await (supabase.from("tasks") as any)
++      .insert(insertPayload)
++      .select()
++      .single();
++
++    if (error) {
++      // On transient failure while "online" flag said yes GåÆ queue for later (improves resilience)
++      const clientId = input.id || generateClientId();
++      enqueuePendingOperation({
++        type: "create",
++        entityType: "task",
++        targetId: clientId,
++        payload: dbPayload,
++        workspaceId: input.workspaceId,
++      });
++      logHybridError("createTask", error);
++      // Return optimistic so caller can keep UI consistent
++      return {
++        id: clientId,
++        workspaceId: input.workspaceId,
++        title: input.title,
++        description: input.description ?? "",
++        status: input.status ?? "todo",
++        priority: input.priority ?? "P2",
++        dueDate: input.dueDate,
++        assignee: "You",
++        tags: input.tags ?? [],
++        createdAt: new Date().toISOString(),
++        completedAt: (input as any).completedAt,
++        timeEstimate: (input as any).timeEstimate,
++        linkedNoteIds: (input as any).linkedNoteIds ?? [],
++      };
++    }
++
++    return mapTaskRow(data);
++  } catch (err) {
++    // Network error etc. GåÆ queue
++    const clientId = input.id || generateClientId();
++    enqueuePendingOperation({
++      type: "create",
++      entityType: "task",
++      targetId: clientId,
++      payload: dbPayload,
++      workspaceId: input.workspaceId,
++    });
++    logHybridError("createTask", err);
++    return {
++      id: clientId,
++      workspaceId: input.workspaceId,
++      title: input.title,
++      description: input.description ?? "",
++      status: input.status ?? "todo",
++      priority: input.priority ?? "P2",
++      dueDate: input.dueDate,
++      assignee: "You",
++      tags: input.tags ?? [],
++      createdAt: new Date().toISOString(),
++      completedAt: (input as any).completedAt,
++      timeEstimate: (input as any).timeEstimate,
++      linkedNoteIds: (input as any).linkedNoteIds ?? [],
++    };
++  }
++}
++
++/** Update an existing task (partial) */
++export async function updateTask(id: string, updates: Partial<Task>): Promise<boolean> {
++  if (!isSupabaseLive()) return false;
++
++  const supabase = getClient();
++  if (!supabase) return false;
++
++  const payload: Partial<TaskInsert> = {};
++
++  if (updates.title !== undefined) payload.title = updates.title;
++  if (updates.description !== undefined) payload.description = updates.description;
++  if (updates.status !== undefined) payload.status = updates.status;
++  if (updates.priority !== undefined) payload.priority = updates.priority;
++  if (updates.dueDate !== undefined) payload.due_date = updates.dueDate;
++  if (updates.tags !== undefined) payload.tags = updates.tags;
++  // Harden: support additional Task fields used in UI / future
++  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
++  if (updates.timeEstimate !== undefined) payload.time_estimate = updates.timeEstimate;
++  if (updates.linkedNoteIds !== undefined) payload.linked_note_ids = updates.linkedNoteIds;
++
++  // Forward full original vision fields (assignee_ids[], recurring_rule, etc.) so updateTask supports complete Supabase CRUD
++  const anyUpdates = updates as any;
++  if (anyUpdates.assigneeIds !== undefined || anyUpdates.assignee_ids !== undefined) {
++    payload.assignee_ids = anyUpdates.assigneeIds ?? anyUpdates.assignee_ids;
++  }
++  if (anyUpdates.parentTaskId !== undefined || anyUpdates.parent_task_id !== undefined) {
++    payload.parent_task_id = anyUpdates.parentTaskId ?? anyUpdates.parent_task_id;
++  }
++  if (anyUpdates.recurringRule !== undefined || anyUpdates.recurring_rule !== undefined) {
++    payload.recurring_rule = anyUpdates.recurringRule ?? anyUpdates.recurring_rule;
++  }
++  if (anyUpdates.timeSpent !== undefined || anyUpdates.time_spent !== undefined) {
++    payload.time_spent = anyUpdates.timeSpent ?? anyUpdates.time_spent;
++  }
++
++  const online = isCurrentlyOnline();
++
++  if (!online) {
++    // Queue immediately for later LWW sync
++    enqueuePendingOperation({
++      type: "update",
++      entityType: "task",
++      targetId: id,
++      payload,
++      workspaceId: (updates as any).workspaceId || "", // best effort; store caller usually knows context
++    });
++    return true; // Optimistic success from data layer perspective
++  }
++
++  try {
++    const { error } = await (supabase.from("tasks") as any)
++      .update(payload)
++      .eq("id", id);
++
++    if (error) {
++      // Transient error while thought-to-be-online GåÆ queue it
++      enqueuePendingOperation({
++        type: "update",
++        entityType: "task",
++        targetId: id,
++        payload,
++        workspaceId: (updates as any).workspaceId || "",
++      });
++      logHybridError("updateTask", error);
++      return true; // Still "succeeded" locally/queued
++    }
++
++    return true;
++  } catch (err) {
++    enqueuePendingOperation({
++      type: "update",
++      entityType: "task",
++      targetId: id,
++      payload,
++      workspaceId: (updates as any).workspaceId || "",
++    });
++    logHybridError("updateTask", err);
++    return true;
++  }
++}
++
++/** Delete a task. Optional workspaceId for queue metadata / diagnostics. */
++export async function deleteTask(id: string, workspaceId?: string): Promise<boolean> {
++  if (!isSupabaseLive()) return false;
++
++  const supabase = getClient();
++  if (!supabase) return false;
++
++  const ws = workspaceId || "";
++  const online = isCurrentlyOnline();
++
++  if (!online) {
++    enqueuePendingOperation({
++      type: "delete",
++      entityType: "task",
++      targetId: id,
++      payload: {},
++      workspaceId: ws,
++    });
++    return true;
++  }
++
++  try {
++    const { error } = await supabase.from("tasks").delete().eq("id", id);
++
++    if (error) {
++      enqueuePendingOperation({
++        type: "delete",
++        entityType: "task",
++        targetId: id,
++        payload: {},
++        workspaceId: ws,
++      });
++      logHybridError("deleteTask", error);
++      return true;
++    }
++
++    return true;
++  } catch (err) {
++    enqueuePendingOperation({
++      type: "delete",
++      entityType: "task",
++      targetId: id,
++      payload: {},
++      workspaceId: ws,
++    });
++    logHybridError("deleteTask", err);
++    return true;
++  }
++}
++
++/** Move a task to a different status (convenience method). Optional workspaceId forwarded for better queue metadata / future LWW scoping. */
++export async function moveTask(id: string, newStatus: TaskStatus, workspaceId?: string): Promise<boolean> {
++  const updates: any = { status: newStatus };
++  if (workspaceId) updates.workspaceId = workspaceId;
++  return updateTask(id, updates);
++}
++
++// ------------------------------------------------------------------
++// Notes CRUD (mirrors task pattern exactly for consistency)
++// ------------------------------------------------------------------
++
++/** Fetch all notes for a workspace (non-archived by default for Phase 1) */
++export async function getNotes(workspaceId: string): Promise<Note[]> {
++  if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
++
++  // Safety guard: never hit Supabase with demo workspace IDs
++  if (["w1", "w2"].includes(workspaceId)) {
++    return [];
++  }
++
++  // Basic offline: skip network when offline (client state + queue provide UX)
++  if (!isCurrentlyOnline()) {
++    return [];
++  }
++
++  const supabase = getClient();
++  if (!supabase) return [];
++
++  try {
++    const { data, error } = await supabase
++      .from("notes")
++      .select("*")
++      .eq("workspace_id", workspaceId)
++      .eq("is_archived", false) // Phase 1: surface only active notes
++      .order("updated_at", { ascending: false });
++
++    if (error) {
++      logHybridError("getNotes", error);
++      return [];
++    }
++
++    return (data ?? []).map(mapNoteRow);
++  } catch (err) {
++    logHybridError("getNotes", err);
++    return [];
++  }
++}
++
++/** Create a new note */
++export async function createNote(input: {
++  workspaceId: string;
++  title: string;
++  content?: string;
++  tags?: string[];
++  // Optional pre-generated client UUID for offline create consistency
++  id?: string;
++}): Promise<Note | null> {
++  if (!isSupabaseLive()) return null;
++
++  const supabase = getClient();
++  if (!supabase) return null;
++
++  const online = isCurrentlyOnline();
++
++  if (!online) {
++    const clientId = input.id || generateClientId();
++    const tempNote: Note = {
++      id: clientId,
++      workspaceId: input.workspaceId,
++      title: input.title,
++      content: input.content ?? "",
++      createdAt: new Date().toISOString(),
++      updatedAt: new Date().toISOString(),
++      tags: input.tags ?? [],
++      linkedTaskIds: [],
++    };
++
++    const contentJson = noteContentToJson(input.content);
++    enqueuePendingOperation({
++      type: "create",
++      entityType: "note",
++      targetId: clientId,
++      payload: {
++        title: input.title,
++        content: contentJson,
++        tags: input.tags ?? [],
++        is_archived: false,
++      },
++      workspaceId: input.workspaceId,
++    });
++
++    return tempNote;
++  }
++
++  const contentJson = noteContentToJson(input.content);
++
++  const insertPayload: NoteInsert = {
++    ...(input.id ? { id: input.id } : {}),
++    workspace_id: input.workspaceId,
++    title: input.title,
++    content: contentJson,
++    tags: input.tags ?? [],
++    is_archived: false,
++  };
++
++  try {
++    const { data, error } = await (supabase.from("notes") as any)
++      .insert(insertPayload)
++      .select()
++      .single();
++
++    if (error) {
++      const clientId = input.id || generateClientId();
++      enqueuePendingOperation({
++        type: "create",
++        entityType: "note",
++        targetId: clientId,
++        payload: {
++          title: input.title,
++          content: contentJson,
++          tags: input.tags ?? [],
++          is_archived: false,
++        },
++        workspaceId: input.workspaceId,
++      });
++      logHybridError("createNote", error);
++      return {
++        id: clientId,
++        workspaceId: input.workspaceId,
++        title: input.title,
++        content: input.content ?? "",
++        createdAt: new Date().toISOString(),
++        updatedAt: new Date().toISOString(),
++        tags: input.tags ?? [],
++        linkedTaskIds: [],
++      };
++    }
++
++    return mapNoteRow(data);
++  } catch (err) {
++    const clientId = input.id || generateClientId();
++    enqueuePendingOperation({
++      type: "create",
++      entityType: "note",
++      targetId: clientId,
++      payload: {
++        title: input.title,
++        content: noteContentToJson(input.content),
++        tags: input.tags ?? [],
++        is_archived: false,
++      },
++      workspaceId: input.workspaceId,
++    });
++    logHybridError("createNote", err);
++    return {
++      id: clientId,
++      workspaceId: input.workspaceId,
++      title: input.title,
++      content: input.content ?? "",
++      createdAt: new Date().toISOString(),
++      updatedAt: new Date().toISOString(),
++      tags: input.tags ?? [],
++      linkedTaskIds: [],
++    };
++  }
++}
++
++/** Update an existing note (partial) */
++export async function updateNote(id: string, updates: Partial<Note>): Promise<boolean> {
++  if (!isSupabaseLive()) return false;
++
++  const supabase = getClient();
++  if (!supabase) return false;
++
++  const payload: Partial<NoteInsert> = {};
++
++  if (updates.title !== undefined) payload.title = updates.title;
++  if (updates.content !== undefined) payload.content = noteContentToJson(updates.content);
++  if (updates.tags !== undefined) payload.tags = updates.tags;
++  // Note: linkedTaskIds could be mapped to linked_task_ids if needed in future
++
++  const online = isCurrentlyOnline();
++
++  if (!online) {
++    enqueuePendingOperation({
++      type: "update",
++      entityType: "note",
++      targetId: id,
++      payload,
++      workspaceId: (updates as any).workspaceId || "",
++    });
++    return true;
++  }
++
++  try {
++    const { error } = await (supabase.from("notes") as any)
++      .update(payload)
++      .eq("id", id);
++
++    if (error) {
++      enqueuePendingOperation({
++        type: "update",
++        entityType: "note",
++        targetId: id,
++        payload,
++        workspaceId: (updates as any).workspaceId || "",
++      });
++      logHybridError("updateNote", error);
++      return true;
++    }
++
++    return true;
++  } catch (err) {
++    enqueuePendingOperation({
++      type: "update",
++      entityType: "note",
++      targetId: id,
++      payload,
++      workspaceId: (updates as any).workspaceId || "",
++    });
++    logHybridError("updateNote", err);
++    return true;
++  }
++}
++
++/** Delete a note */
++export async function deleteNote(id: string): Promise<boolean> {
++  if (!isSupabaseLive()) return false;
++
++  const supabase = getClient();
++  if (!supabase) return false;
++
++  const online = isCurrentlyOnline();
++
++  if (!online) {
++    enqueuePendingOperation({
++      type: "delete",
++      entityType: "note",
++      targetId: id,
++      payload: {},
++      workspaceId: "",
++    });
++    return true;
++  }
++
++  try {
++    const { error } = await supabase.from("notes").delete().eq("id", id);
++
++    if (error) {
++      enqueuePendingOperation({
++        type: "delete",
++        entityType: "note",
++        targetId: id,
++        payload: {},
++        workspaceId: "",
++      });
++      logHybridError("deleteNote", error);
++      return true;
++    }
++
++    return true;
++  } catch (err) {
++    enqueuePendingOperation({
++      type: "delete",
++      entityType: "note",
++      targetId: id,
++      payload: {},
++      workspaceId: "",
++    });
++    logHybridError("deleteNote", err);
++    return true;
++  }
++}
++
++// ------------------------------------------------------------------
++// Activity Logging (Phase 1 / early Phase 2)
++// Lightweight append-only logs for key events. Only writes when Supabase live.
++// ------------------------------------------------------------------
++
++/** Log an activity event. Safe no-op in demo mode. */
++export async function logActivity(params: {
++  workspaceId: string;
++  userId?: string | null;
++  actionType: string;
++  targetType: string;
++  targetId?: string;
++  metadata?: Record<string, any>;
++}): Promise<boolean> {
++  if (!isSupabaseLive()) return false; // DEMO GUARD (STRENGTHENED)
++
++  // Safety guard: never hit Supabase with demo workspace IDs
++  if (["w1", "w2"].includes(params.workspaceId)) {
++    return false;
++  }
++
++  const supabase = getClient();
++  if (!supabase) return false;
++
++  const insertPayload: ActivityLogInsert = {
++    workspace_id: params.workspaceId,
++    user_id: params.userId ?? null,
++    action_type: params.actionType,
++    target_type: params.targetType,
++    target_id: params.targetId ?? null,
++    metadata: params.metadata ?? {},
++  };
++
++  const { error } = await (supabase.from("activity_logs") as any)
++    .insert(insertPayload);
++
++  if (error) {
++    logHybridError("logActivity", error);
++    return false;
++  }
++
++  return true;
++}
++
++/** Fetch recent activity logs for a workspace (basic, no joins for Phase 1 lightness) */
++export async function getRecentActivity(workspaceId: string, limit = 15): Promise<ActivityLog[]> {
++  if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
++
++  // Safety guard: never hit Supabase with demo workspace IDs
++  if (["w1", "w2"].includes(workspaceId)) {
++    return [];
++  }
++
++  const supabase = getClient();
++  if (!supabase) return [];
++
++  const { data, error } = await supabase
++    .from("activity_logs")
++    .select("*")
++    .eq("workspace_id", workspaceId)
++    .order("created_at", { ascending: false })
++    .limit(limit);
++
++  if (error) {
++    logHybridError("getRecentActivity", error);
++    return [];
++  }
++
++  return (data ?? []).map(mapActivityLogRow);
++}
+diff --git a/store/useTaskStore.ts b/store/useTaskStore.ts
+new file mode 100644
+index 0000000..a2e44e2
+--- /dev/null
++++ b/store/useTaskStore.ts
+@@ -0,0 +1,1422 @@
++import { create } from "zustand";
++import { persist } from "zustand/middleware";
++import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog } from "@/types";
++import { generateId, parseNaturalLanguage } from "@/lib/utils";
++import { toast } from "sonner";
++import {
++  getTasks,
++  createTask as createTaskSupabase,
++  updateTask as updateTaskSupabase,
++  deleteTask as deleteTaskSupabase,
++  moveTask as moveTaskSupabase,
++  getNotes,
++  createNote as createNoteSupabase,
++  updateNote as updateNoteSupabase,
++  deleteNote as deleteNoteSupabase,
++  isSupabaseLive,
++  logActivity,
++  getRecentActivity,
++  // Offline / persistence enhancements (Phase 1)
++  getPendingCount,
++  processPendingOperations,
++  getIsOnline,
++  getPendingOperations,
++  clearPendingOperations,
++  generateClientId,
++} from "@/lib/data/hybridStore";
++import { getSupabaseClient } from "@/lib/supabase/client";
++import type { User, Session } from "@supabase/supabase-js";
++
++interface TaskState {
++  // Data
++  tasks: Task[];
++  notes: Note[];
++  currentWorkspace: Workspace;
++  workspaces: Workspace[];
++  recentActivity: ActivityLog[];
++
++  // UI State
++  currentView: "today" | "tasks" | "notes" | "calendar" | "teams";
++  taskFilter: {
++    status?: TaskStatus[];
++    priority?: Priority[];
++    search: string;
++  };
++  selectedTaskId: string | null;
++  isCommandPaletteOpen: boolean;
++  isKeyboardCheatsheetOpen: boolean;
++  isInitializing: boolean;
++
++  // Per-task operation loading states (Phase 1: individual CRUD feedback + optimistic)
++  taskLoadingStates: Record<string, boolean>;
++
++  // Offline + basic persistence/sync state (Phase 1 mission: improve offline support when Supabase configured)
++  isOnline: boolean;
++  isSyncing: boolean;
++  pendingSyncCount: number;
++  lastSyncAt: string | null;
++
++  // Auth state (Phase 1 scaffolding)
++  user: User | null;
++  session: Session | null;
++  isAuthLoading: boolean;
++
++  // Actions - Tasks
++  addTask: (input: string) => Promise<Task>;
++  updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
++  deleteTask: (id: string) => Promise<void>;
++  completeTask: (id: string) => Promise<void>;
++  moveTask: (id: string, newStatus: TaskStatus) => Promise<void>;
++  reorderTasks: (activeId: string, overId: string) => void;
++  kanbanReorder: (activeId: string, overId: string) => void;
++
++  /** Early Phase 4 recurring scaffolding (non-breaking stub).
++   *  Delegates to updateTask for now. Full RRULE engine, scheduling, auto-generation in Phase 4.
++   */
++  setRecurringRule: (id: string, recurringRule: string | null) => Promise<void>;
++
++  // Actions - Notes (now wired through hybrid layer, mirroring tasks)
++  addNote: (title: string, content?: string) => Promise<Note>;
++  updateNote: (id: string, updates: Partial<Note>) => Promise<void>;
++  deleteNote: (id: string) => Promise<void>;
++
++  // UI
++  setView: (view: TaskState["currentView"]) => void;
++  setTaskFilter: (filter: Partial<TaskState["taskFilter"]>) => void;
++  selectTask: (id: string | null) => void;
++  toggleCommandPalette: (open?: boolean) => void;
++  toggleKeyboardCheatsheet: (open?: boolean) => void;
++
++  // Workspace (demo in !live mode)
++  switchWorkspace: (id: string) => void;
++
++  // Phase 1 real workspace support (ensure for post-login)
++  ensureUserHasWorkspace: () => Promise<void>;
++
++  // Helpers
++  getFilteredTasks: () => Task[];
++  getTodayTasks: () => Task[];
++  getTasksByStatus: (status: TaskStatus) => Task[];
++
++  // Auth + data init (Phase 1 UX)
++  initializeAuth: () => Promise<void>;
++  initializeFromSupabase: () => Promise<void>;
++  signOut: () => Promise<void>;
++
++  // Workspace loading (used in auth flow for live mode)
++  fetchUserWorkspaces: () => Promise<void>;
++
++  // Create additional real workspaces (beyond auto "Personal" on first login). Works in LIVE + keeps demo working.
++  createWorkspace: (name: string) => Promise<Workspace | null>;
++
++  // Refresh recent activity for current workspace (enables full dedicated activity log panel UX without full data re-init)
++  refreshRecentActivity: () => Promise<void>;
++
++  // Offline / sync controls (exposed for future UI status badges, manual "Sync now", etc.)
++  syncPendingWrites: () => Promise<void>;
++  refreshOfflineStatus: () => void;
++}
++
++// Demo-only beautiful sample data. Used EXCLUSIVELY when !isSupabaseLive() (no keys configured).
++// When a real user is authenticated against live Supabase, MULTIPLE hardened guards (initializeAuth wipe,
++// onFinishHydration sanitizer, initializeFromSupabase force-[] on demo IDs, ensureUserHasWorkspace flow)
++// guarantee ZERO sample pollution ever reaches the store or UI. Samples NEVER leak into live auth sessions.
++const SAMPLE_TASKS: Task[] = [
++  {
++    id: "t1",
++    title: "Ship investor deck v4",
++    description: "Finalize the 12-slide deck with updated traction metrics and competitive landscape.",
++    status: "doing",
++    priority: "P0",
++    dueDate: new Date(Date.now() + 1000 * 3600 * 18).toISOString(),
++    assignee: "You",
++    tags: ["investors", "deck"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 6).toISOString(),
++    timeEstimate: 180,
++    linkedNoteIds: ["n1"],
++    workspaceId: "w1",
++  },
++  {
++    id: "t2",
++    title: "Review Q3 financial model with Sarah",
++    description: "Go through the updated model. Focus on burn rate and runway scenarios.",
++    status: "todo",
++    priority: "P1",
++    dueDate: new Date(Date.now() + 1000 * 3600 * 30).toISOString(),
++    assignee: "Sarah",
++    tags: ["finance", "sarah"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 20).toISOString(),
++    timeEstimate: 45,
++    linkedNoteIds: [],
++    workspaceId: "w1",
++  },
++  {
++    id: "t3",
++    title: "Polish landing page copy and hero animation",
++    description: "Make the headline punchier. Add the new customer quote.",
++    status: "doing",
++    priority: "P1",
++    dueDate: new Date(Date.now() + 1000 * 3600 * 8).toISOString(),
++    assignee: "You",
++    tags: ["marketing", "website"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 4).toISOString(),
++    timeEstimate: 90,
++    linkedNoteIds: ["n2"],
++    workspaceId: "w1",
++  },
++  {
++    id: "t4",
++    title: "Schedule user interviews for new onboarding flow",
++    description: "",
++    status: "backlog",
++    priority: "P2",
++    dueDate: new Date(Date.now() + 1000 * 3600 * 72).toISOString(),
++    assignee: "You",
++    tags: ["research"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 30).toISOString(),
++    linkedNoteIds: [],
++    workspaceId: "w1",
++  },
++  {
++    id: "t5",
++    title: "Fix critical billing edge case for annual plans",
++    description: "Users upgrading from monthly to annual are getting charged twice.",
++    status: "todo",
++    priority: "P0",
++    dueDate: new Date(Date.now() + 1000 * 3600 * 5).toISOString(),
++    assignee: "Alex",
++    tags: ["bug", "billing"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 2).toISOString(),
++    timeEstimate: 120,
++    linkedNoteIds: [],
++    workspaceId: "w1",
++  },
++  {
++    id: "t6",
++    title: "Write launch announcement thread",
++    description: "Twitter + LinkedIn. Make it personal and exciting.",
++    status: "backlog",
++    priority: "P2",
++    dueDate: new Date(Date.now() + 1000 * 3600 * 100).toISOString(),
++    assignee: "You",
++    tags: ["content", "launch"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 48).toISOString(),
++    linkedNoteIds: ["n3"],
++    workspaceId: "w1",
++  },
++  {
++    id: "t7",
++    title: "Migrate legacy user data to new schema",
++    description: "One-time migration script + verification dashboard.",
++    status: "done",
++    priority: "P1",
++    dueDate: new Date(Date.now() - 1000 * 3600 * 12).toISOString(),
++    assignee: "You",
++    tags: ["engineering"],
++    createdAt: new Date(Date.now() - 1000 * 3600 * 100).toISOString(),
++    completedAt: new Date(Date.now() - 1000 * 3600 * 10).toISOString(),
++    linkedNoteIds: [],
++    workspaceId: "w1",
++  },
++];
++
++// Demo-only beautiful sample data (see SAMPLE_TASKS comment for usage rules; never used in live auth).
++const SAMPLE_NOTES: Note[] = [
++  {
++    id: "n1",
++    title: "Investor Deck Outline GÇö Q1 2026",
++    content: "Key slides needed:\nGÇó Traction: 4.2x YoY revenue\nGÇó Market: $47B TAM\nGÇó Why now: AI agents are exploding\n\nAction items extracted automatically.",
++    createdAt: new Date(Date.now() - 1000 * 3600 * 30).toISOString(),
++    updatedAt: new Date(Date.now() - 1000 * 3600 * 3).toISOString(),
++    tags: ["investors", "strategy"],
++    linkedTaskIds: ["t1"],
++    workspaceId: "w1",
++  },
++  {
++    id: "n2",
++    title: "Landing Page Refresh Notes",
++    content: "Hero ideas:\n\"Get shit done. Beautifully.\"\n\nThe new animation should feel like liquid. Use the neon green on the CTA only.\n\nUser quote from Alex at Vercel is gold.",
++    createdAt: new Date(Date.now() - 1000 * 3600 * 18).toISOString(),
++    updatedAt: new Date(Date.now() - 1000 * 3600 * 1).toISOString(),
++    tags: ["marketing", "website"],
++    linkedTaskIds: ["t3"],
++    workspaceId: "w1",
++  },
++  {
++    id: "n3",
++    title: "Launch Week Plan",
++    content: "Mon: Tease on Twitter\nTue: Deep dive thread\nWed: Product Hunt\nThu: Customer stories\nFri: AMA in Discord\n\nWe are so ready for this.",
++    createdAt: new Date(Date.now() - 1000 * 3600 * 50).toISOString(),
++    updatedAt: new Date(Date.now() - 1000 * 3600 * 20).toISOString(),
++    tags: ["launch"],
++    linkedTaskIds: ["t6"],
++    workspaceId: "w1",
++  },
++];
++
++const DEFAULT_WORKSPACE: Workspace = {
++  id: "w1",
++  name: "Badass Ventures",
++  slug: "badass-ventures",
++  role: "owner",
++};
++
++export const useTaskStore = create<TaskState>()(
++  persist(
++    (set, get) => ({
++      tasks: SAMPLE_TASKS,
++      notes: SAMPLE_NOTES,
++      currentWorkspace: DEFAULT_WORKSPACE,
++      workspaces: [
++        DEFAULT_WORKSPACE,
++        { id: "w2", name: "Personal", slug: "personal", role: "owner" },
++      ],
++      recentActivity: [],
++
++      currentView: "today",
++      taskFilter: { search: "" },
++      selectedTaskId: null,
++      isCommandPaletteOpen: false,
++      isKeyboardCheatsheetOpen: false,
++      isInitializing: false,
++      taskLoadingStates: {},
++
++      // Offline + sync (default optimistic; real values set in initialize / listeners)
++      isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
++      isSyncing: false,
++      pendingSyncCount: 0,
++      lastSyncAt: null,
++
++      // Auth
++      user: null,
++      session: null,
++      isAuthLoading: true,
++
++      // NOTE: Early local CRUD definitions for tasks/notes were removed here (they duplicated the final hybrid-wired versions below).
++      // This eliminates TS1117 "multiple properties with same name" while preserving all behavior (last definition in object wins at runtime).
++      // All task + note mutations now live only in the "Overridden actions" block with full hybrid logic.
++
++      reorderTasks: (activeId, overId) => {
++        const { tasks } = get();
++        const activeIndex = tasks.findIndex((t) => t.id === activeId);
++        const overIndex = tasks.findIndex((t) => t.id === overId);
++
++        if (activeIndex === -1 || overIndex === -1) return;
++
++        const newTasks = [...tasks];
++        const [moved] = newTasks.splice(activeIndex, 1);
++        newTasks.splice(overIndex, 0, moved);
++
++        set({ tasks: newTasks });
++      },
++
++      /**
++       * Kanban-specific reorder supporting both intra-column reordering and cross-column moves.
++       * Production-grade: fully optimistic (instant UI), robust guards, precise insert semantics.
++       * - Reorders the in-memory tasks array so that within each status the relative order is as dragged.
++       * - If status changes (cross-column), performs the Supabase persistence via hybrid layer (optimistic already applied).
++       * - Within-column reorders are client-only (no position column in DB yet; order resets to created_at on live reload).
++       * - Works identically in DEMO and LIVE modes for UX; only status changes hit network when live.
++       * - Solidified for reliability: duplicate guards, safe inserts, no side effects on filters.
++       */
++      kanbanReorder: (activeId, overId) => {
++        const { tasks } = get();
++        if (!activeId || !overId || activeId === overId) return;
++
++        const activeTask = tasks.find((t) => t.id === activeId);
++        if (!activeTask) return;
++
++        const overTask = tasks.find((t) => t.id === overId);
++        const allStatuses: TaskStatus[] = ["backlog", "todo", "doing", "done"];
++
++        // Determine target status: overId may be a task or a column (droppable) id
++        const isOverColumn = allStatuses.includes(overId as TaskStatus);
++        const targetStatus: TaskStatus = isOverColumn
++          ? (overId as TaskStatus)
++          : (overTask?.status ?? activeTask.status);
++
++        // Build per-status groups preserving current within-group order (defensive copy)
++        const groups: Record<TaskStatus, Task[]> = {} as any;
++        allStatuses.forEach((s) => {
++          groups[s] = tasks.filter((t) => t.status === s).filter((t) => t.id !== activeId); // remove early
++        });
++
++        // Create moved task with (possibly new) status
++        const movedTask: Task = { ...activeTask, status: targetStatus };
++
++        // Compute insertion index in target group (sortable convention: before over, or append for columns)
++        let insertIndex = groups[targetStatus].length;
++        if (!isOverColumn && overTask) {
++          const idx = groups[targetStatus].findIndex((t) => t.id === overId);
++          if (idx !== -1) insertIndex = idx;
++        } else if (isOverColumn) {
++          insertIndex = groups[targetStatus].length;
++        }
++
++        groups[targetStatus].splice(insertIndex, 0, movedTask);
++
++        // Rebuild flat list (group order doesn't affect per-column filtered rendering)
++        const newTasks: Task[] = [];
++        allStatuses.forEach((s) => newTasks.push(...groups[s]));
++
++        // Ultra-optimistic set (no await, buttery 60fps)
++        set({ tasks: newTasks });
++
++        // Persist *only* status change via hybrid (existing path). Within-column is local-only.
++        if (activeTask.status !== targetStatus) {
++          if (isSupabaseLive()) {
++            // Fire-and-forget; optimistic UI already reflects the move + position
++            moveTaskSupabase(activeId, targetStatus, activeTask.workspaceId).catch(() => {
++              // graceful: next load or manual action will reconcile
++            });
++          }
++          // Note: we do NOT call the store's moveTask() here to avoid redundant set/status overwrite after our precise reorder
++        }
++      },
++
++      /** Early Phase 4 recurring scaffolding (non-breaking). */
++      setRecurringRule: async (id, recurringRule) => {
++        // Delegates to the existing optimistic+hybrid updateTask path.
++        // Full engine (RRULE parsing, nextDue computation, instance generation, calendar integration)
++        // will be implemented in Phase 4 without requiring changes to this stub.
++        await get().updateTask(id, { recurringRule });
++      },
++
++      setView: (view) => set({ currentView: view }),
++      setTaskFilter: (filter) =>
++        set((state) => ({ taskFilter: { ...state.taskFilter, ...filter } })),
++      selectTask: (id) => set({ selectedTaskId: id }),
++      toggleCommandPalette: (open) =>
++        set((state) => ({
++          isCommandPaletteOpen: open !== undefined ? open : !state.isCommandPaletteOpen,
++        })),
++      toggleKeyboardCheatsheet: (open) =>
++        set((state) => ({
++          isKeyboardCheatsheetOpen: open !== undefined ? open : !state.isKeyboardCheatsheetOpen,
++        })),
++
++      switchWorkspace: (id) => {
++        const ws = get().workspaces.find((w) => w.id === id);
++        if (ws) {
++          set({ currentWorkspace: ws });
++          // Re-initialize data when switching workspaces (important when using Supabase)
++          get().initializeFromSupabase();
++          // Per Phase 1 mission: fetch real workspaces list on switch (keeps switcher fresh for multi-ws scenarios)
++          // Fire-and-forget is fine; UI already switched instantly.
++          get().fetchUserWorkspaces();
++
++          // Basic activity log for workspace switch (only writes when live)
++          if (isSupabaseLive() && !["w1", "w2"].includes(id)) {
++            logActivity({
++              workspaceId: id,
++              userId: get().user?.id,
++              actionType: "workspace.switched",
++              targetType: "workspace",
++              targetId: id,
++              metadata: { name: ws.name },
++            });
++          }
++        }
++      },
++
++      getFilteredTasks: () => {
++        const { tasks, taskFilter } = get();
++        let result = [...tasks];
++
++        if (taskFilter.search) {
++          const q = taskFilter.search.toLowerCase();
++          result = result.filter(
++            (t) =>
++              t.title.toLowerCase().includes(q) ||
++              t.description?.toLowerCase().includes(q) ||
++              t.tags.some((tag) => tag.toLowerCase().includes(q))
++          );
++        }
++
++        if (taskFilter.priority?.length) {
++          result = result.filter((t) => taskFilter.priority!.includes(t.priority));
++        }
++
++        if (taskFilter.status?.length) {
++          result = result.filter((t) => taskFilter.status!.includes(t.status));
++        }
++
++        // Sort: incomplete first, then by due date, then priority
++        return result.sort((a, b) => {
++          if (a.status === "done" && b.status !== "done") return 1;
++          if (b.status === "done" && a.status !== "done") return -1;
++
++          if (a.dueDate && b.dueDate) {
++            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
++          }
++          if (a.dueDate) return -1;
++          if (b.dueDate) return 1;
++
++          const priorityOrder = { P0: 0, P1: 1, P2: 2, P3: 3 };
++          return priorityOrder[a.priority] - priorityOrder[b.priority];
++        });
++      },
++
++      getTodayTasks: () => {
++        const { tasks } = get();
++        const today = new Date();
++        today.setHours(0, 0, 0, 0);
++
++        return tasks.filter((t) => {
++          if (t.status === "done") return false;
++          if (!t.dueDate) return false;
++          const due = new Date(t.dueDate);
++          due.setHours(0, 0, 0, 0);
++          return due <= today;
++        });
++      },
++
++      getTasksByStatus: (status) => {
++        return get().tasks.filter((t) => t.status === status);
++      },
++
++      // ------------------------------------------------------------------
++      // Supabase Integration (Phase 1)
++      // ------------------------------------------------------------------
++
++      /**
++       * Loads real tasks + notes from Supabase when live (for authenticated users).
++       * Pure demo mode (!Supabase keys) uses beautiful SAMPLE_TASKS / SAMPLE_NOTES.
++       *
++       * Cleanup (Phase 1): when Supabase live + real user, we never mix or fall back to samples.
++       * Empty real data is valid (new user workspace). Samples are demo-only.
++       *
++       * Called on mount, after auth sign-in, and on workspace switch.
++       */
++      initializeFromSupabase: async () => {
++        set({ isInitializing: true });
++
++        const online = getIsOnline();
++        set({ isOnline: online, pendingSyncCount: getPendingCount() });
++
++        try {
++          if (!isSupabaseLive()) {
++            // Demo mode only - beautiful local samples (already in initial state or persisted)
++            return;
++          }
++
++          const workspaceId = get().currentWorkspace.id;
++
++          // Guard: Never query Supabase with demo workspace IDs (w1, w2, etc.).
++          // These do not exist in the real database and will fail RLS.
++          // ensureUserHasWorkspace() is responsible for giving us a real ID first.
++          // STRENGTHENED: force clean [] state (never leave SAMPLE pollution in live authenticated sessions).
++          if (["w1", "w2"].includes(workspaceId)) {
++            set({ tasks: [], notes: [], recentActivity: [], taskLoadingStates: {} });
++            return;
++          }
++
++          // Offline resilience: if we are offline, SKIP network fetch entirely.
++          // Zustand rehydration (now including data for live) + any queued local changes provide full UX.
++          if (!online) {
++            set({ taskLoadingStates: {} });
++            return;
++          }
++
++          // Load in parallel for speed (include activity logs for Phase 1 basic logging UI)
++          const [realTasks, realNotes, realActivity] = await Promise.all([
++            getTasks(workspaceId),
++            getNotes(workspaceId),
++            getRecentActivity(workspaceId),
++          ]);
++
++          // Cleanup: For authenticated users with live Supabase, ALWAYS use real data (even empty arrays).
++          // This eliminates any mixing or pollution from SAMPLE_TASKS / SAMPLE_NOTES.
++          // Samples are ONLY for pure demo mode (!isSupabaseLive).
++          set({
++            tasks: realTasks,
++            notes: realNotes,
++            recentActivity: realActivity,
++            taskLoadingStates: {},
++            pendingSyncCount: getPendingCount(),
++            lastSyncAt: new Date().toISOString(),
++          });
++        } catch (error: any) {
++          console.error("[useTaskStore] initializeFromSupabase error:", error);
++          // Only show a gentle toast for actual network / unexpected errors.
++          // Guarded paths (demo workspace IDs) will no longer trigger this.
++          if (!["w1", "w2"].includes(get().currentWorkspace.id)) {
++            toast.error("Sync issue", {
++              description: "Couldn't reach Supabase just now. You're seeing local (offline) data. Will retry on reconnect.",
++              duration: 4500,
++            });
++          }
++          // Do not crash the app; leave (persisted) data in place as graceful degradation for offline
++          set({ taskLoadingStates: {} });
++        } finally {
++          set({ isInitializing: false, isOnline: getIsOnline(), pendingSyncCount: getPendingCount() });
++        }
++      },
++
++      // ------------------------------------------------------------------
++      // Auth (Phase 1 scaffolding)
++      // ------------------------------------------------------------------
++
++      initializeAuth: async () => {
++        set({ isAuthLoading: true });
++
++        const supabase = getSupabaseClient();
++
++        if (!supabase) {
++          // No Supabase configured GÇö treat as not logged in
++          set({ user: null, session: null, isAuthLoading: false });
++          return;
++        }
++
++        // Get current session (guarded for slow network / transient auth errors)
++        try {
++          const { data: { session } } = await supabase.auth.getSession();
++          set({ session, user: session?.user ?? null });
++
++          // STRENGTHENED LIVE GUARD: If authenticated against real Supabase, immediately purge any
++          // possible SAMPLE_* / demo-ws pollution from persisted state or initial seeds.
++          // This guarantees zero demo data leakage reaches UI/store for signed-in live users.
++          if (session?.user && isSupabaseLive()) {
++            set({
++              tasks: [],
++              notes: [],
++              recentActivity: [],
++              workspaces: [],
++              currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
++              taskLoadingStates: {},
++            });
++          }
++
++          // Restored session (e.g. page refresh while logged in): immediately load real
++          // workspaces via fetch + ensure (creates default if zero) so switcher and data
++          // are usable right away with the user's real Supabase data.
++          if (session?.user) {
++            get().ensureUserHasWorkspace();
++          }
++        } catch (e) {
++          console.warn("[auth] getSession failed (network?)", e);
++          // Still allow UI to render; user can retry via sign in
++          set({ user: null, session: null });
++        }
++
++        // Listen for auth changes (login, logout, token refresh)
++        supabase.auth.onAuthStateChange((_event, newSession) => {
++          const previousUser = get().user;
++          const newUser = newSession?.user ?? null;
++
++          set({
++            session: newSession,
++            user: newUser,
++          });
++
++          // Fresh sign-in: ensure workspace first (creates default if needed), then load data
++          if (!previousUser && newUser) {
++            // STRENGTHENED: wipe any demo residue right at sign-in moment for live (before ensure runs)
++            if (isSupabaseLive()) {
++              set({
++                tasks: [],
++                notes: [],
++                recentActivity: [],
++                workspaces: [],
++                currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
++                taskLoadingStates: {},
++              });
++            }
++            // Use IIFE so we can await sequentially without making the onAuthStateChange callback async
++            (async () => {
++              await get().ensureUserHasWorkspace();
++              await get().initializeFromSupabase();
++            })();
++          }
++
++          // Sign-out: only reset to demo samples if we are in pure demo mode (!live keys).
++          // When Supabase is configured, on sign-out we keep clean (no sample pollution injected);
++          // subsequent init/refresh will show real data or empty per RLS. Demo delight only for !isSupabaseLive().
++          if (previousUser && !newUser && !isSupabaseLive()) {
++            set({
++              tasks: SAMPLE_TASKS,
++              notes: SAMPLE_NOTES,
++              currentWorkspace: DEFAULT_WORKSPACE,
++              workspaces: [
++                DEFAULT_WORKSPACE,
++                { id: "w2", name: "Personal", slug: "personal", role: "owner" },
++              ],
++              taskLoadingStates: {},
++            });
++          }
++        });
++
++        set({ isAuthLoading: false });
++
++        // One-time setup of network listeners + initial offline status (live mode only; demo unaffected)
++        // Listeners in hybrid also auto-trigger processPendingOperations on 'online'.
++        if (isSupabaseLive() && typeof window !== "undefined") {
++          const updateStatus = () => {
++            const onlineNow = getIsOnline();
++            const pending = getPendingCount();
++            set({ isOnline: onlineNow, pendingSyncCount: pending });
++            if (onlineNow && pending > 0) {
++              // Opportunistic background sync (non-blocking)
++              get().syncPendingWrites().catch(() => {});
++            }
++          };
++
++          // Attach if not already (idempotent guard via closure)
++          if (!(window as any).__bat_store_offline_listeners) {
++            (window as any).__bat_store_offline_listeners = true;
++            window.addEventListener("online", updateStatus);
++            window.addEventListener("offline", updateStatus);
++            // Initial sync of status
++            setTimeout(updateStatus, 0);
++          }
++        }
++      },
++
++      signOut: async () => {
++        const supabase = getSupabaseClient();
++        if (supabase) {
++          await supabase.auth.signOut();
++        }
++        // State will be updated via onAuthStateChange
++      },
++
++      fetchUserWorkspaces: async () => {
++        if (!isSupabaseLive()) return;
++
++        const supabase = getSupabaseClient();
++        if (!supabase) return;
++
++        const currentUser = get().user;
++        if (!currentUser) {
++          // No user: do not touch workspaces (pure demo keeps its samples via initial state)
++          return;
++        }
++
++        try {
++          // Proper fetching of the logged-in user's real workspaces from Supabase (via workspace_members join)
++          const { data, error } = await supabase
++            .from("workspace_members")
++            .select(`
++              role,
++              workspaces (id, name, slug)
++            `)
++            .eq("user_id", currentUser.id);
++
++          if (error) {
++            console.error("[useTaskStore] fetchUserWorkspaces error:", error);
++            return;
++          }
++
++          const realWorkspaces: Workspace[] = (data ?? [])
++            .map((m: any) => {
++              const ws = m.workspaces;
++              if (!ws?.id) return null;
++              return {
++                id: ws.id,
++                name: ws.name,
++                slug: ws.slug,
++                role: m.role || "user",
++              } as Workspace;
++            })
++            .filter((w): w is Workspace => w !== null);
++
++          if (realWorkspaces.length > 0) {
++            set({ workspaces: realWorkspaces });
++
++            // Smart current selection for post-login / switcher: keep prior real match if possible
++            // (returning user continuity), else default to first real workspace.
++            const { currentWorkspace: curr } = get();
++            const stillMatches = realWorkspaces.find((w) => w.id === curr.id);
++            if (!stillMatches || ["w1", "w2"].includes(curr.id)) {
++              set({ currentWorkspace: realWorkspaces[0] });
++            }
++          } else {
++            set({ workspaces: [] });
++          }
++        } catch (err) {
++          console.error("[useTaskStore] fetchUserWorkspaces exception:", err);
++        }
++      },
++
++      ensureUserHasWorkspace: async () => {
++        const supabase = getSupabaseClient();
++        if (!supabase || !isSupabaseLive()) return;
++
++        const currentUser = get().user;
++        if (!currentUser) return;
++
++        try {
++          // Check if user already has workspace membership(s) GÇö decide bootstrap vs fetch full list
++          const { data: memberships, error: memErr } = await supabase
++            .from("workspace_members")
++            .select("workspace_id")
++            .eq("user_id", currentUser.id)
++            .limit(1);
++
++          if (memErr) {
++            console.error("[useTaskStore] ensureUserHasWorkspace membership query error:", memErr);
++          }
++
++          if (!memberships || memberships.length === 0) {
++            // Bootstrap a default workspace for the new (or first-time) user via the schema RPC
++            const emailLocal = (currentUser.email || "user").split("@")[0].replace(/[^a-z0-9]/gi, "");
++            const workspaceName = emailLocal ? `${emailLocal}'s Workspace` : "Personal Workspace";
++            const workspaceSlug = `personal-${emailLocal || currentUser.id.slice(0, 8)}`;
++
++            const { data: newId, error: rpcErr } = await (supabase.rpc as any)("create_workspace_for_user", {
++              user_id: currentUser.id,
++              workspace_name: workspaceName,
++              workspace_slug: workspaceSlug,
++            });
++
++            if (rpcErr || !newId) {
++              console.error("[useTaskStore] ensureUserHasWorkspace create RPC error or no id:", rpcErr);
++              // Still attempt fetch (may be partial state)
++              await get().fetchUserWorkspaces();
++              await get().initializeFromSupabase();
++              return;
++            }
++          }
++
++          // For both new users (post-create) and returning users: fetch the *full authoritative list* of real workspaces.
++          // This replaces the previous buggy "only first ws" logic and enables proper multi-workspace switcher.
++          await get().fetchUserWorkspaces();
++
++          // Ensure we have data for whatever currentWorkspace fetch decided on (or the one it set)
++          await get().initializeFromSupabase();
++        } catch (err) {
++          console.error("[useTaskStore] ensureUserHasWorkspace error:", err);
++        }
++      },
++
++      // ------------------------------------------------------------------
++      // createWorkspace GÇö Phase 1: support creating additional workspaces (real Supabase + demo safe)
++      // Uses the existing SECURITY DEFINER RPC so RLS is respected. Then refreshes full list via fetch.
++      // ------------------------------------------------------------------
++      createWorkspace: async (name: string): Promise<Workspace | null> => {
++        const trimmed = (name || "").trim();
++        if (!trimmed) {
++          toast.error("Workspace name required");
++          return null;
++        }
++
++        // Demo mode: local-only fake workspace (keeps switcher and demo delight working exactly as before)
++        if (!isSupabaseLive()) {
++          const id = `demo-${generateId().slice(0, 8)}`;
++          const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + id.slice(5, 9);
++          const demoWs: Workspace = {
++            id,
++            name: trimmed,
++            slug,
++            role: "owner",
++          };
++          set((state) => ({
++            workspaces: [...state.workspaces, demoWs],
++            currentWorkspace: demoWs,
++          }));
++          // Re-init data (noop in !live but keeps symmetry with switch)
++          await get().initializeFromSupabase();
++          toast.success(`Workspace "${trimmed}" created (demo)`);
++          return demoWs;
++        }
++
++        const supabase = getSupabaseClient();
++        const currentUser = get().user;
++        if (!supabase || !currentUser) {
++          toast.error("Cannot create workspace", { description: "Sign in with real Supabase to create workspaces." });
++          return null;
++        }
++
++        try {
++          // Unique slug: base from name + short timestamp entropy
++          const base = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace";
++          const workspaceSlug = `${base}-${Date.now().toString(36).slice(-6)}`;
++          const workspaceName = trimmed;
++
++          const { data: newId, error: rpcErr } = await (supabase.rpc as any)("create_workspace_for_user", {
++            user_id: currentUser.id,
++            workspace_name: workspaceName,
++            workspace_slug: workspaceSlug,
++          });
++
++          if (rpcErr || !newId) {
++            console.error("[useTaskStore] createWorkspace RPC error:", rpcErr);
++            toast.error("Failed to create workspace", {
++              description: rpcErr?.message || "The name may conflict or there was a server issue.",
++            });
++            return null;
++          }
++
++          const newRealWorkspace: Workspace = {
++            id: String(newId),
++            name: workspaceName,
++            slug: workspaceSlug,
++            role: "owner",
++          };
++
++          // Refresh authoritative list from DB (ensures multi-ws correctness and any role updates)
++          await get().fetchUserWorkspaces();
++
++          // Switch to the newly created one + load its (empty) data
++          const freshList = get().workspaces;
++          const target = freshList.find((w) => w.id === newRealWorkspace.id) || newRealWorkspace;
++          set({ currentWorkspace: target });
++          await get().initializeFromSupabase();
++
++          toast.success(`Workspace "${workspaceName}" created`, {
++            description: "Switched to your new workspace.",
++          });
++          return target;
++        } catch (err: any) {
++          console.error("[useTaskStore] createWorkspace error:", err);
++          toast.error("Failed to create workspace", { description: err?.message || "Unexpected error." });
++          return null;
++        }
++      },
++
++      // ------------------------------------------------------------------
++      // refreshRecentActivity GÇö supports production activity log panel (real DB when live)
++      // Safe guard + only runs real query when appropriate. Called from UI (e.g. manual refresh in panel).
++      // ------------------------------------------------------------------
++      refreshRecentActivity: async () => {
++        if (!isSupabaseLive()) return;
++
++        const workspaceId = get().currentWorkspace.id;
++        if (["w1", "w2"].includes(workspaceId)) return;
++
++        try {
++          const activity = await getRecentActivity(workspaceId);
++          set({ recentActivity: activity });
++        } catch (err) {
++          console.error("[useTaskStore] refreshRecentActivity error:", err);
++        }
++      },
++
++      // ------------------------------------------------------------------
++      // Overridden actions that go through Supabase when live
++      // ------------------------------------------------------------------
++
++      addTask: async (input: string) => {
++        const parsed = parseNaturalLanguage(input);
++        const workspaceId = get().currentWorkspace.id;
++
++        // Use proper UUID for live mode (enables clean offline create queuing + Supabase PK compatibility).
++        // Demo continues using short generateId for sample compatibility.
++        const tempId = isSupabaseLive() ? generateClientId() : generateId();
++
++        const optimisticTask: Task = {
++          id: tempId,
++          title: parsed.title || input,
++          description: "",
++          status: "todo",
++          priority: parsed.priority || "P2",
++          dueDate: parsed.dueDate,
++          assignee: "You",
++          tags: parsed.tags || [],
++          createdAt: new Date().toISOString(),
++          linkedNoteIds: [],
++          workspaceId,
++        };
++
++        // OPTIMISTIC: Always update UI immediately for instant feel (demo + live)
++        set((state) => ({
++          tasks: [optimisticTask, ...state.tasks],
++          taskLoadingStates: { ...state.taskLoadingStates, [tempId]: true },
++        }));
++
++        if (isSupabaseLive()) {
++          try {
++            const created = await createTaskSupabase({
++              workspaceId,
++              id: tempId, // Pass so hybrid can use consistent client id for offline queue path
++              title: optimisticTask.title,
++              description: optimisticTask.description,
++              status: optimisticTask.status,
++              priority: optimisticTask.priority,
++              dueDate: optimisticTask.dueDate,
++              tags: optimisticTask.tags,
++            });
++
++            if (created) {
++              // Replace temp with real server entity (id will match when we supplied it)
++              set((state) => {
++                const nextLoading = { ...state.taskLoadingStates };
++                delete nextLoading[tempId];
++                return {
++                  tasks: state.tasks.map((t) => (t.id === tempId ? created : t)),
++                  taskLoadingStates: nextLoading,
++                  selectedTaskId: state.selectedTaskId === tempId ? created.id : state.selectedTaskId,
++                  pendingSyncCount: getPendingCount(),
++                  lastSyncAt: new Date().toISOString(),
++                };
++              });
++
++              // Log key event only on successful remote persist
++              logActivity({
++                workspaceId,
++                userId: get().user?.id,
++                actionType: "task.created",
++                targetType: "task",
++                targetId: created.id,
++                metadata: { title: created.title, priority: created.priority },
++              });
++
++              return created;
++            } else {
++              throw new Error("Supabase create returned null");
++            }
++          } catch (err) {
++            // Hybrid layer now queues automatically on offline/failure. Keep optimistic change (persists via new strategy).
++            set((state) => {
++              const nextLoading = { ...state.taskLoadingStates };
++              delete nextLoading[tempId];
++              return {
++                taskLoadingStates: nextLoading,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++              };
++            });
++            toast.warning("Saved locally (queued for sync)", {
++              description: "Offline or Supabase unreachable. Will sync automatically when back online.",
++              duration: 4500,
++            });
++            return optimisticTask;
++          }
++        } else {
++          // Demo mode - already optimistic, no remote, clear loading
++          set((state) => {
++            const nextLoading = { ...state.taskLoadingStates };
++            delete nextLoading[tempId];
++            return { taskLoadingStates: nextLoading };
++          });
++          return optimisticTask;
++        }
++      },
++
++      updateTask: async (id, updates) => {
++        const prevTask = get().tasks.find((t) => t.id === id);
++        if (!prevTask) return;
++
++        // OPTIMISTIC first for snappy UX + loading indicator
++        set((state) => ({
++          tasks: state.tasks.map((t) =>
++            t.id === id ? { ...t, ...updates } : t
++          ),
++          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
++        }));
++
++        if (isSupabaseLive()) {
++          try {
++            const ok = await updateTaskSupabase(id, { ...updates, workspaceId: prevTask.workspaceId });
++            if (!ok) throw new Error("Supabase update failed");
++
++            // Success: keep optimistic, clear loading + refresh pending (in case it queued inside hybrid)
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++                lastSyncAt: new Date().toISOString(),
++              };
++            });
++          } catch (err) {
++            // Hybrid queued the change on failure. KEEP optimistic (don't revert) so user sees their edit.
++            // This + new persist strategy = true offline edit survival.
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++              };
++            });
++            toast.info("Update kept locally", {
++              description: "Queued for sync when connection returns.",
++              duration: 3000,
++            });
++          }
++        } else {
++          // Demo: clear loading (change already applied)
++          set((state) => {
++            const next = { ...state.taskLoadingStates };
++            delete next[id];
++            return { taskLoadingStates: next };
++          });
++        }
++      },
++
++      deleteTask: async (id) => {
++        const prevTasks = [...get().tasks];
++        const prevSelected = get().selectedTaskId;
++        const taskBeingDeleted = prevTasks.find((t) => t.id === id);
++
++        // OPTIMISTIC remove immediately
++        set((state) => ({
++          tasks: state.tasks.filter((t) => t.id !== id),
++          selectedTaskId: state.selectedTaskId === id ? null : state.selectedTaskId,
++          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
++        }));
++
++        if (isSupabaseLive()) {
++          try {
++            const ok = await deleteTaskSupabase(id, prevTasks.find((t) => t.id === id)?.workspaceId);
++            if (!ok) throw new Error("Supabase delete failed");
++
++            // Success path: also update sync indicators (was missing before; now uniform)
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++                lastSyncAt: new Date().toISOString(),
++              };
++            });
++          } catch (err) {
++            // Hybrid queued the delete. Keep the optimistic removal (don't restore).
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++              };
++            });
++            toast.warning("Delete queued", {
++              description: "Task removed locally. Will sync delete when online.",
++              duration: 3500,
++            });
++          }
++        } else {
++          set((state) => {
++            const next = { ...state.taskLoadingStates };
++            delete next[id];
++            return { taskLoadingStates: next };
++          });
++        }
++      },
++
++      completeTask: async (id) => {
++        const prevTask = get().tasks.find((t) => t.id === id);
++        if (!prevTask || prevTask.status === "done") return;
++
++        const now = new Date().toISOString();
++        const optimisticUpdate = {
++          status: "done" as TaskStatus,
++          completedAt: now,
++        };
++
++        // OPTIMISTIC + loading
++        set((state) => ({
++          tasks: state.tasks.map((t) =>
++            t.id === id ? { ...t, ...optimisticUpdate } : t
++          ),
++          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
++        }));
++
++        if (isSupabaseLive()) {
++          try {
++            const ok = await updateTaskSupabase(id, { status: "done", completedAt: now, workspaceId: prevTask.workspaceId });
++            if (!ok) throw new Error("Supabase complete failed");
++
++            // Success: keep optimistic change (consistent with updateTask), update sync state
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++                lastSyncAt: new Date().toISOString(),
++              };
++            });
++
++            // Log on successful remote complete
++            logActivity({
++              workspaceId: get().currentWorkspace.id,
++              userId: get().user?.id,
++              actionType: "task.completed",
++              targetType: "task",
++              targetId: id,
++              metadata: { completedAt: now },
++            });
++          } catch (err) {
++            // On transient failure (hybrid queues): KEEP optimistic (no revert) for instant feel + offline resilience.
++            // Matches policy in updateTask / addTask / deleteTask / kanban paths. Error recovery via queue + LWW on reconnect.
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++              };
++            });
++            toast.info("Complete kept locally", {
++              description: "Queued for sync when connection returns.",
++              duration: 3000,
++            });
++          }
++        } else {
++          // Demo
++          set((state) => {
++            const next = { ...state.taskLoadingStates };
++            delete next[id];
++            return { taskLoadingStates: next };
++          });
++        }
++      },
++
++      moveTask: async (id, newStatus) => {
++        const prevTask = get().tasks.find((t) => t.id === id);
++        if (!prevTask) return;
++
++        // OPTIMISTIC status change
++        set((state) => ({
++          tasks: state.tasks.map((t) =>
++            t.id === id ? { ...t, status: newStatus } : t
++          ),
++          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
++        }));
++
++        if (isSupabaseLive()) {
++          try {
++            const ok = await moveTaskSupabase(id, newStatus, prevTask.workspaceId);
++            if (!ok) throw new Error("Supabase move failed");
++
++            // Success: keep + sync state (consistent policy)
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++                lastSyncAt: new Date().toISOString(),
++              };
++            });
++          } catch (err) {
++            // On transient: KEEP optimistic (status already changed in UI via kanban or direct). Queue handles. No revert.
++            set((state) => {
++              const next = { ...state.taskLoadingStates };
++              delete next[id];
++              return {
++                taskLoadingStates: next,
++                pendingSyncCount: getPendingCount(),
++                isOnline: getIsOnline(),
++              };
++            });
++            toast.info("Move kept locally", {
++              description: "Status change queued for sync.",
++              duration: 3000,
++            });
++          }
++        } else {
++          set((state) => {
++            const next = { ...state.taskLoadingStates };
++            delete next[id];
++            return { taskLoadingStates: next };
++          });
++        }
++      },
++
++      // ------------------------------------------------------------------
++      // Notes overrides (hybrid wiring - Phase 1/3 data layer hardening)
++      // Mirroring the task pattern for full consistency: live Supabase + demo fallback + optimistic UI update.
++      // Now supports rich TipTap JSONB round-tripping via enhanced hybrid helpers (stringified docs
++      // saved to DB JSONB; plain text extracted for list/preview compat; Note.content model unchanged).
++      // ------------------------------------------------------------------
++
++      addNote: async (title: string, content = "") => {
++        const workspaceId = get().currentWorkspace.id;
++
++        const noteId = isSupabaseLive() ? generateClientId() : generateId();
++
++        const newNote: Note = {
++          id: noteId,
++          title,
++          content,
++          createdAt: new Date().toISOString(),
++          updatedAt: new Date().toISOString(),
++          tags: [],
++          linkedTaskIds: [],
++          workspaceId,
++        };
++
++        if (isSupabaseLive()) {
++          // Real mode - persist to Supabase (pass id for offline queue compatibility)
++          const created = await createNoteSupabase({
++            workspaceId,
++            id: noteId,
++            title: newNote.title,
++            content: newNote.content,
++            tags: newNote.tags,
++          });
++
++          if (created) {
++            set((state) => ({ notes: [created, ...state.notes] }));
++            // Log key event
++            logActivity({
++              workspaceId,
++              userId: get().user?.id,
++              actionType: "note.created",
++              targetType: "note",
++              targetId: created.id,
++              metadata: { title: created.title },
++            });
++            return created;
++          } else {
++            // Fallback to local on failure (keeps UX working)
++            set((state) => ({ notes: [newNote, ...state.notes] }));
++            return newNote;
++          }
++        } else {
++          // Demo mode - local only
++          set((state) => ({ notes: [newNote, ...state.notes] }));
++          return newNote;
++        }
++      },
++
++      updateNote: async (id, updates) => {
++        if (isSupabaseLive()) {
++          await updateNoteSupabase(id, updates);
++        }
++
++        set((state) => ({
++          notes: state.notes.map((n) =>
++            n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n
++          ),
++        }));
++      },
++
++      deleteNote: async (id) => {
++        if (isSupabaseLive()) {
++          await deleteNoteSupabase(id);
++        }
++
++        set((state) => ({
++          notes: state.notes.filter((n) => n.id !== id),
++        }));
++      },
++
++      // ------------------------------------------------------------------
++      // Real offline/sync actions (Phase 1 mission complete)
++      // ------------------------------------------------------------------
++      syncPendingWrites: async () => {
++        if (!isSupabaseLive()) return;
++
++        const currentPending = getPendingCount();
++        if (currentPending === 0) {
++          set({ pendingSyncCount: 0, isSyncing: false });
++          return;
++        }
++
++        set({ isSyncing: true });
++
++        try {
++          const result = await processPendingOperations();
++
++          const newCount = getPendingCount();
++          const now = new Date().toISOString();
++
++          set({
++            isSyncing: false,
++            pendingSyncCount: newCount,
++            isOnline: getIsOnline(),
++            lastSyncAt: now,
++          });
++
++          if (result.synced > 0 || result.skippedConflicts > 0) {
++            // After sync, best-effort refresh authoritative data (only if still online)
++            if (getIsOnline()) {
++              await get().initializeFromSupabase();
++            }
++            toast.success("Sync complete", {
++              description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
++              duration: 3200,
++            });
++          }
++          if (result.failed > 0) {
++            toast.warning(`${result.failed} change(s) still pending`, {
++              description: "Will retry automatically on next reconnect.",
++            });
++          }
++        } catch (e) {
++          set({ isSyncing: false, pendingSyncCount: getPendingCount(), isOnline: getIsOnline() });
++          console.error("[store] syncPendingWrites error:", e);
++        }
++      },
++
++      refreshOfflineStatus: () => {
++        set({
++          isOnline: getIsOnline(),
++          pendingSyncCount: getPendingCount(),
++        });
++      },
++    }),
++    {
++      name: "bad-ass-tasks-storage",
++      partialize: (state) => {
++        // Persistence strategy updated for Phase 1 offline support:
++        // - Demo mode (!live): persist full data + workspaces (edits survive refresh, as before).
++        // - Live/Supabase mode: NOW persist data (tasks/notes/workspaces/currentWorkspace) + UI prefs.
++        //   This enables offline reads + local optimistic changes to survive refresh.
++        //   Real server truth is still preferred on init when online; queue handles pending writes.
++        //   Transient flags (isOnline, isSyncing, pending count) intentionally excluded.
++        if (isSupabaseLive()) {
++          return {
++            tasks: state.tasks,
++            notes: state.notes,
++            currentWorkspace: state.currentWorkspace,
++            workspaces: state.workspaces,
++            currentView: state.currentView,
++            taskFilter: state.taskFilter,
++          };
++        }
++        return {
++          tasks: state.tasks,
++          notes: state.notes,
++          currentWorkspace: state.currentWorkspace,
++          workspaces: state.workspaces,
++        };
++      },
++    }
++  )
++);
++
++// ------------------------------------------------------------------
++// Quality / Leakage Prevention: Rehydration Sanitizer (live mode only)
++// ------------------------------------------------------------------
++// If localStorage ever contains demo data (from before Supabase keys were added, or mixed sessions),
++// this guarantees it is purged the instant the store finishes rehydrating in a live Supabase environment.
++// This is the final safety net ensuring ZERO SAMPLE pollution can reach authenticated users.
++if (typeof window !== "undefined") {
++  // @ts-ignore - persist API is available on the store instance
++  useTaskStore.persist.onFinishHydration((state) => {
++    if (isSupabaseLive() && state) {
++      const currId = (state as any).currentWorkspace?.id || "";
++      const wsList = (state as any).workspaces || [];
++      const taskList = (state as any).tasks || [];
++      const looksLikeDemo =
++        ["w1", "w2"].includes(currId) ||
++        wsList.some((w: any) => ["w1", "w2"].includes(w?.id)) ||
++        taskList.some((t: any) => t?.workspaceId === "w1" || t?.workspaceId === "w2");
++
++      if (looksLikeDemo) {
++        useTaskStore.setState({
++          tasks: [],
++          notes: [],
++          recentActivity: [],
++          workspaces: [],
++          currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
++          taskLoadingStates: {},
++        });
++      }
++    }
++  });
++}

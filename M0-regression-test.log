@@ -1,0 +1,1189 @@
+﻿
+> bad-ass-tasks@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.4 C:/Grok Build Projects/Bad Ass Tasks
+
+ Γ¥» tests/SupabaseSetupBanner.test.tsx (5 tests | 4 failed) 113ms
+   ├ù SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, conditional render + dismiss) > renders the banner when !isSupabaseConfigured() and not dismissed 69ms
+     ΓåÆ Unable to find an accessible element with the role "button" and name `/Dismiss for now/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Create free Supabase project":
+  [36m<a[39m
+    [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+    [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+    [33mtarget[39m=[32m"_blank"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Dismiss Supabase setup banner for now":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+    [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+  [36m/>[39m
+
+  Name "Dismiss Supabase setup banner":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+    [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+   Γ£ô SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, conditional render + dismiss) > does not render (returns null) when isSupabaseConfigured() is true 1ms
+   ├ù SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, conditional render + dismiss) > dismisses the banner on "Dismiss for now" button click (hides and stays hidden) 14ms
+     ΓåÆ Unable to find an accessible element with the role "button" and name `/Dismiss for now/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Create free Supabase project":
+  [36m<a[39m
+    [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+    [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+    [33mtarget[39m=[32m"_blank"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Dismiss Supabase setup banner for now":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+    [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+  [36m/>[39m
+
+  Name "Dismiss Supabase setup banner":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+    [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+   ├ù SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, conditional render + dismiss) > also dismisses via the Γ£ò close button (aria-label) 12ms
+     ΓåÆ Found multiple elements with the role "button" and name `/Dismiss Supabase setup banner/i`
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<button[39m
+  [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+  [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+[36m>[39m
+  [0mDismiss for now[0m
+[36m</button>[39m
+
+Ignored nodes: comments, script, style
+[36m<button[39m
+  [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+  [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+[36m>[39m
+  [0mΓ£ò[0m
+[36m</button>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+   ├ù SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, conditional render + dismiss) > re-render after dismiss still respects internal dismissed state (no re-show without remount/config change) 15ms
+     ΓåÆ Unable to find an accessible element with the role "button" and name `/Dismiss for now/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Create free Supabase project":
+  [36m<a[39m
+    [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+    [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+    [33mtarget[39m=[32m"_blank"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Dismiss Supabase setup banner for now":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+    [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+  [36m/>[39m
+
+  Name "Dismiss Supabase setup banner":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+    [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ Γ¥» tests/useTaskStore.test.ts (12 tests | 7 failed) 10ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > delegates isSupabaseLive to the hybrid export (controlled in tests) 2ms
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > key actions early-return safely in !live (demo) ΓÇö no hybrid calls, state preserved as demo 3ms
+     ΓåÆ useTaskStore.getState(...).fetchUserWorkspaces is not a function
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > demo workspace IDs ("w1", "w2") + !live block realtime/setup and fetch paths 0ms
+     ΓåÆ useTaskStore.getState(...).setupWorkspaceRealtime is not a function
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > initializeAuth (demo): sets loading false, user/session null, no live listeners 0ms
+     ΓåÆ useTaskStore.getState(...).initializeAuth is not a function
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > fetchUserWorkspaces (demo): early return, zero hybrid workspace calls 1ms
+     ΓåÆ useTaskStore.getState(...).fetchUserWorkspaces is not a function
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > syncPendingWrites (demo): early return, no process call, state unchanged 0ms
+     ΓåÆ useTaskStore.getState(...).syncPendingWrites is not a function
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > setupWorkspaceRealtime (demo): no-op, no subscribe call 0ms
+     ΓåÆ useTaskStore.getState(...).setupWorkspaceRealtime is not a function
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > live-controlled paths (forced mock): actions delegate to spies and update state (skeleton coverage) 1ms
+     ΓåÆ useTaskStore.getState(...).syncPendingWrites is not a function
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > zustand store basics + persist guard compatibility (M0 skeleton) > getState / setState work for test resets 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > zustand store basics + persist guard compatibility (M0 skeleton) > demo samples / state not polluted across tests (reset hygiene) 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > zustand store basics + persist guard compatibility (M0 skeleton) > toast mock is wired (actions that toast in live paths are safe) 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > consumer mocking pattern (for RTL component tests / other consumers) > documents the vi.mock pattern for hybridStore + sonner + client (used by SupabaseSetupBanner.test etc.) 0ms
+stdout | tests/utils.test.ts > observability foundation (Agent 33) > logger has new production methods
+[BadAssTasks:INFO] 2026-05-25T20:19:06.299Z Error monitoring initialized (global handlers + buffer + reporter hooks active)
+[BadAssTasks:INFO] 2026-05-25T20:19:06.300Z Performance monitoring initialized (native Web Vitals + long tasks + custom metrics)
+[BadAssTasks:METRIC] test_metric=123 { foo: 'bar' }
+
+stdout | tests/hybridStore.test.ts > hybridStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, queue/LWW, realtime, demo stripping) > realtime subscriptions (subscribeToWorkspaceRealtime) > creates postgres_changes channels with correct filters + invokes handlers + returns working cleanup when live + valid ws
+[realtime] tasks subscribed for workspace live-ws-xyz
+[realtime] notes subscribed for workspace live-ws-xyz
+
+ Γ¥» tests/utils.test.ts (19 tests | 2 failed) 21ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > parses basic title and default priority 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > detects P0/urgent/ASAP priority 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > detects dates (today, tomorrow, friday, next week) 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > extracts @tags and strips from title 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > returns null for falsy 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > labels today correctly 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > labels past as overdue with date 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > getPriorityColor > returns CSS var or color for each priority 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > cn (tailwind-merge + clsx) > merges classes correctly 4ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > parses weekly with BYDAY and count 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > parses monthly until 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > returns null for invalid 0ms
+   ├ù utils ΓÇö recurring engine (production reliability + edge cases) > getRecurringLabel > produces human labels 7ms
+     ΓåÆ expected 'Every 3 dailys' to contain 'Every 3 days'
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getNextRecurringDue + exceptions + end conditions > advances correctly for daily 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getNextRecurringDue + exceptions + end conditions > respects exceptions 0ms
+   ├ù utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange (bounded, exceptions, COUNT) > generates bounded occurrences 1ms
+     ΓåÆ expected 0 to be greater than 0
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange (bounded, exceptions, COUNT) > honors COUNT end 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getRecurrenceEndDescription > describes end conditions 0ms
+   Γ£ô observability foundation (Agent 33) > logger has new production methods 3ms
+ Γ£ô tests/hybridStore.test.ts (11 tests) 7ms
+ Γ¥» tests/TipTapEditor.test.tsx (4 tests | 4 failed) 37ms
+   ├ù TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > renders without throwing (smoke) in demo mode 24ms
+     ΓåÆ expected [Function] to not throw an error but 'TypeError: editor.isActive is not a fΓÇª' was thrown
+   ├ù TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > renders the mocked editor content surface 6ms
+     ΓåÆ editor.isActive is not a function
+   ├ù TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > accepts and wires onChange prop (smoke; real calls exercised by mocked useEditor stub) 3ms
+     ΓåÆ editor.isActive is not a function
+   ├ù TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > respects demo context (isSupabaseLive false does not affect basic render) 2ms
+     ΓåÆ editor.isActive is not a function
+node.exe : 
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 17 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  tests/SupabaseSetupBanner.test.tsx > SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, 
+conditional render + dismiss) > renders the banner when !isSupabaseConfigured() and not dismissed
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/Dismiss for now/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Create free Supabase project":
+  [36m<a[39m
+    [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+    [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+    [33mtarget[39m=[32m"_blank"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Dismiss Supabase setup banner for now":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+    [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+  [36m/>[39m
+
+  Name "Dismiss Supabase setup banner":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+    [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, 
+auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ Γ¥» Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ Γ¥» tests/SupabaseSetupBanner.test.tsx:49:19
+     47| 
+     48|     // CTA buttons present
+     49|     expect(screen.getByRole('button', { name: /Dismiss for now/i })).tΓÇª
+       |                   ^
+     50|     expect(screen.getByText(/Create free Supabase project/i)).toBeInThΓÇª
+     51|   });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/17]ΓÄ»
+
+ FAIL  tests/SupabaseSetupBanner.test.tsx > SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, 
+conditional render + dismiss) > dismisses the banner on "Dismiss for now" button click (hides and stays hidden)
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/Dismiss for now/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Create free Supabase project":
+  [36m<a[39m
+    [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+    [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+    [33mtarget[39m=[32m"_blank"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Dismiss Supabase setup banner for now":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+    [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+  [36m/>[39m
+
+  Name "Dismiss Supabase setup banner":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+    [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, 
+auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ Γ¥» Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ Γ¥» tests/SupabaseSetupBanner.test.tsx:64:31
+     62|     render(<SupabaseSetupBanner />);
+     63| 
+     64|     const dismissBtn = screen.getByRole('button', { name: /Dismiss forΓÇª
+       |                               ^
+     65|     fireEvent.click(dismissBtn);
+     66| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/17]ΓÄ»
+
+ FAIL  tests/SupabaseSetupBanner.test.tsx > SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, 
+conditional render + dismiss) > also dismisses via the Γ£ò close button (aria-label)
+TestingLibraryElementError: Found multiple elements with the role "button" and name `/Dismiss Supabase setup banner/i`
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<button[39m
+  [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+  [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+[36m>[39m
+  [0mDismiss for now[0m
+[36m</button>[39m
+
+Ignored nodes: comments, script, style
+[36m<button[39m
+  [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+  [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+[36m>[39m
+  [0mΓ£ò[0m
+[36m</button>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or 
+`findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, 
+auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ Γ¥» Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ Γ¥» getElementError node_modules/@testing-library/dom/dist/query-helpers.js:20:35
+ Γ¥» getMultipleElementsFoundError node_modules/@testing-library/dom/dist/query-helpers.js:23:10
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:55:13
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ Γ¥» tests/SupabaseSetupBanner.test.tsx:75:29
+     73|     render(<SupabaseSetupBanner />);
+     74| 
+     75|     const closeBtn = screen.getByRole('button', { name: /Dismiss SupabΓÇª
+       |                             ^
+     76|     fireEvent.click(closeBtn);
+     77| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[3/17]ΓÄ»
+
+ FAIL  tests/SupabaseSetupBanner.test.tsx > SupabaseSetupBanner ΓÇö M0 RTL hygiene surface test (demo-only, 
+conditional render + dismiss) > re-render after dismiss still respects internal dismissed state (no re-show without 
+remount/config change)
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/Dismiss for now/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Create free Supabase project":
+  [36m<a[39m
+    [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+    [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+    [33mtarget[39m=[32m"_blank"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Dismiss Supabase setup banner for now":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+    [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+  [36m/>[39m
+
+  Name "Dismiss Supabase setup banner":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+    [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] max-w-xl w-full mx-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"glass border border-[#c084fc]/30 rounded-2xl px-6 py-4 text-sm shadow-2xl"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-start gap-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-[#c084fc] text-xl mt-0.5"[39m
+          [36m>[39m
+            [0m≡ƒÜÇ[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"font-semibold text-[#c084fc]"[39m
+            [36m>[39m
+              [0mReady for real data & auth?[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-[#a1a1aa] mt-1 text-[13px]"[39m
+            [36m>[39m
+              [0mThis is currently running in beautiful local demo mode. Connect Supabase to unlock real-time sync, 
+auth, workspaces, and persistence across devices.[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 flex gap-2 text-xs"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33mclass[39m=[32m"btn btn-primary text-xs px-4 py-1.5"[39m
+                [33mhref[39m=[32m"https://supabase.com/dashboard"[39m
+                [33mtarget[39m=[32m"_blank"[39m
+              [36m>[39m
+                [0mCreate free Supabase project[0m
+              [36m</a>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Dismiss Supabase setup banner for now"[39m
+                [33mclass[39m=[32m"btn btn-ghost text-xs px-3"[39m
+              [36m>[39m
+                [0mDismiss for now[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mt-3 text-[11px] text-[#71717a]"[39m
+            [36m>[39m
+              [0m1. Create project ΓåÆ 2. Copy URL + anon key into [0m
+              [36m<code>[39m
+                [0m.env.local[0m
+              [36m</code>[39m
+              [0m ΓåÆ 3. Run the schema in [0m
+              [36m<code>[39m
+                [0msupabase/schema.sql[0m
+              [36m</code>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Dismiss Supabase setup banner"[39m
+            [33mclass[39m=[32m"text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 
+focus:ring-white/30"[39m
+          [36m>[39m
+            [0mΓ£ò[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ Γ¥» Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ Γ¥» node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ Γ¥» tests/SupabaseSetupBanner.test.tsx:84:31
+     82|     const { rerender } = render(<SupabaseSetupBanner />);
+     83| 
+     84|     const dismissBtn = screen.getByRole('button', { name: /Dismiss forΓÇª
+       |                               ^
+     85|     fireEvent.click(dismissBtn);
+     86| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[4/17]ΓÄ»
+
+ FAIL  tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > renders 
+without throwing (smoke) in demo mode
+AssertionError: expected [Function] to not throw an error but 'TypeError: editor.isActive is not a fΓÇª' was thrown
+
+- Expected: 
+undefined
+
++ Received: 
+"TypeError: editor.isActive is not a function"
+
+ Γ¥» tests/TipTapEditor.test.tsx:89:12
+     87|         />
+     88|       );
+     89|     }).not.toThrow();
+       |            ^
+     90|   });
+     91| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[5/17]ΓÄ»
+
+ FAIL  tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > renders 
+the mocked editor content surface
+ FAIL  tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > accepts 
+and wires onChange prop (smoke; real calls exercised by mocked useEditor stub)
+ FAIL  tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > respects 
+demo context (isSupabaseLive false does not affect basic render)
+TypeError: editor.isActive is not a function
+ Γ¥» TipTapEditor components/TipTapEditor.tsx:868:28
+    866|         <ToolbarButton
+    867|           onClick={() => editor.chain().focus().toggleBold().run()}
+    868|           isActive={editor.isActive("bold")}
+       |                            ^
+    869|           title="Bold (ΓîÿB)"
+    870|         >
+ Γ¥» Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ Γ¥» renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ Γ¥» updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ Γ¥» beginWork node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ Γ¥» runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ Γ¥» performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ Γ¥» workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ Γ¥» renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+ Γ¥» performWorkOnRoot node_modules/react-dom/cjs/react-dom-client.development.js:16583:35
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[6/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > 
+key actions early-return safely in !live (demo) ΓÇö no hybrid calls, state preserved as demo
+TypeError: useTaskStore.getState(...).fetchUserWorkspaces is not a function
+ Γ¥» tests/useTaskStore.test.ts:187:37
+    185|     it('key actions early-return safely in !live (demo) ΓÇö no hybrid caΓÇª
+    186|       // fetchUserWorkspaces
+    187|       await useTaskStore.getState().fetchUserWorkspaces();
+       |                                     ^
+    188|       expect(mockHybrid.getWorkspaceMembers).not.toHaveBeenCalled();
+    189|       expect(useTaskStore.getState().workspaces.length).toBeGreaterThaΓÇª
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[7/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > 
+demo workspace IDs ("w1", "w2") + !live block realtime/setup and fetch paths
+TypeError: useTaskStore.getState(...).setupWorkspaceRealtime is not a function
+ Γ¥» tests/useTaskStore.test.ts:208:31
+    206| 
+    207|     it('demo workspace IDs ("w1", "w2") + !live block realtime/setup aΓÇª
+    208|       useTaskStore.getState().setupWorkspaceRealtime();
+       |                               ^
+    209|       expect(mockHybrid.subscribeToWorkspaceRealtime).not.toHaveBeenCaΓÇª
+    210| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[8/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) 
+ΓÇö delegation verified > initializeAuth (demo): sets loading false, user/session null, no live listeners
+TypeError: useTaskStore.getState(...).initializeAuth is not a function
+ Γ¥» tests/useTaskStore.test.ts:229:37
+    227| 
+    228|     it('initializeAuth (demo): sets loading false, user/session null, ΓÇª
+    229|       await useTaskStore.getState().initializeAuth();
+       |                                     ^
+    230| 
+    231|       const state = useTaskStore.getState();
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[9/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) 
+ΓÇö delegation verified > fetchUserWorkspaces (demo): early return, zero hybrid workspace calls
+TypeError: useTaskStore.getState(...).fetchUserWorkspaces is not a function
+ Γ¥» tests/useTaskStore.test.ts:239:37
+    237| 
+    238|     it('fetchUserWorkspaces (demo): early return, zero hybrid workspacΓÇª
+    239|       await useTaskStore.getState().fetchUserWorkspaces();
+       |                                     ^
+    240|       expect(mockHybrid.getWorkspaceMembers).not.toHaveBeenCalled();
+    241|       expect(mockHybrid.getWorkspaceInvites).not.toHaveBeenCalled();
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[10/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) 
+ΓÇö delegation verified > syncPendingWrites (demo): early return, no process call, state unchanged
+TypeError: useTaskStore.getState(...).syncPendingWrites is not a function
+ Γ¥» tests/useTaskStore.test.ts:246:37
+    244|     it('syncPendingWrites (demo): early return, no process call, stateΓÇª
+    245|       const before = useTaskStore.getState().isSyncing;
+    246|       await useTaskStore.getState().syncPendingWrites();
+       |                                     ^
+    247|       expect(mockHybrid.processPendingOperations).not.toHaveBeenCalledΓÇª
+    248|       expect(useTaskStore.getState().isSyncing).toBe(before);
+
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[11/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) 
+ΓÇö delegation verified > setupWorkspaceRealtime (demo): no-op, no subscribe call
+TypeError: useTaskStore.getState(...).setupWorkspaceRealtime is not a function
+ Γ¥» tests/useTaskStore.test.ts:252:31
+    250| 
+    251|     it('setupWorkspaceRealtime (demo): no-op, no subscribe call', () =ΓÇª
+    252|       useTaskStore.getState().setupWorkspaceRealtime();
+       |                               ^
+    253|       expect(mockHybrid.subscribeToWorkspaceRealtime).not.toHaveBeenCaΓÇª
+    254|       expect(mockHybrid.getWorkspacePresenceChannel).not.toHaveBeenCalΓÇª
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[12/17]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) 
+ΓÇö delegation verified > live-controlled paths (forced mock): actions delegate to spies and update state (skeleton 
+coverage)
+TypeError: useTaskStore.getState(...).syncPendingWrites is not a function
+ Γ¥» tests/useTaskStore.test.ts:262:37
+    260| 
+    261|       // sync in live (empty queue path)
+    262|       await useTaskStore.getState().syncPendingWrites();
+       |                                     ^
+    263|       expect(mockHybrid.processPendingOperations).toHaveBeenCalled();
+ Test Files  4 failed | 1 passed (5)
+      Tests  17 failed | 34 passed (51)
+   Start at  13:19:04
+   Duration  2.04s (transform 453ms, setup 1.06s, collect 3.80s, tests 188ms, environment 1.96s, prepare 849ms)
+
+    264| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[13/17]ΓÄ»
+
+ FAIL  tests/utils.test.ts > utils ΓÇö recurring engine (production reliability + edge cases) > getRecurringLabel > 
+produces human labels
+AssertionError: expected 'Every 3 dailys' to contain 'Every 3 days'
+
+Expected: "Every 3 days"
+Received: "Every 3 dailys"
+
+ Γ¥» tests/utils.test.ts:116:58
+    114|     it('produces human labels', () => {
+    115|       expect(getRecurringLabel('FREQ=WEEKLY;BYDAY=MO')).toContain('WeeΓÇª
+    116|       expect(getRecurringLabel('FREQ=DAILY;INTERVAL=3')).toContain('EvΓÇª
+       |                                                          ^
+    117|       expect(getRecurringLabel(null)).toBe('');
+    118|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[14/17]ΓÄ»
+
+ FAIL  tests/utils.test.ts > utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange 
+(bounded, exceptions, COUNT) > generates bounded occurrences
+AssertionError: expected 0 to be greater than 0
+ Γ¥» tests/utils.test.ts:141:26
+    139|       const anchor = new Date('2026-05-01').toISOString();
+    140|       const occ = getOccurrencesInRange(anchor, 'FREQ=WEEKLY;BYDAY=MO'ΓÇª
+    141|       expect(occ.length).toBeGreaterThan(0);
+       |                          ^
+    142|       expect(occ.length).toBeLessThanOrEqual(10);
+    143|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[15/17]ΓÄ»
+

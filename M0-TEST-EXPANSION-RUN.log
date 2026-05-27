@@ -1,0 +1,211 @@
+﻿
+> bad-ass-tasks@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.4 C:/Grok Build Projects/Bad Ass Tasks
+
+ Γ£ô tests/SupabaseSetupBanner.test.tsx (5 tests) 98ms
+node.exe : stderr | tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton 
+(guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, 
+realtime setup) ΓÇö delegation verified > live-controlled paths (forced mock): actions delegate to spies and update 
+state (skeleton coverage)
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (stderr | tests/...leton coverage):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[store] syncPendingWrites error: TypeError: Cannot read properties of undefined (reading 'synced')
+    at Object.syncPendingWrites (C:\Grok Build Projects\Bad Ass Tasks\store\useTaskStore.ts:1577:22)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at C:\Grok Build Projects\Bad Ass Tasks\tests\useTaskStore.test.ts:261:7
+    at file:///C:/Grok%20Build%20Projects/Bad%20Ass%20Tasks/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20
+
+stdout | tests/utils.test.ts > observability foundation (Agent 33) > logger has new production methods
+[BadAssTasks:INFO] 2026-05-25T20:27:24.374Z Error monitoring initialized (global handlers + buffer + reporter hooks active)
+[BadAssTasks:INFO] 2026-05-25T20:27:24.375Z Performance monitoring initialized (native Web Vitals + long tasks + custom metrics)
+[BadAssTasks:METRIC] test_metric=123 { foo: 'bar' }
+
+ Γ¥» tests/utils.test.ts (19 tests | 2 failed) 26ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > parses basic title and default priority 2ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > detects P0/urgent/ASAP priority 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > detects dates (today, tomorrow, friday, next week) 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > extracts @tags and strips from title 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > returns null for falsy 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > labels today correctly 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > labels past as overdue with date 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > getPriorityColor > returns CSS var or color for each priority 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > cn (tailwind-merge + clsx) > merges classes correctly 4ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > parses weekly with BYDAY and count 1ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > parses monthly until 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > returns null for invalid 0ms
+   ├ù utils ΓÇö recurring engine (production reliability + edge cases) > getRecurringLabel > produces human labels 6ms
+     ΓåÆ expected 'Every 3 dailys' to contain 'Every 3 days'
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getNextRecurringDue + exceptions + end conditions > advances correctly for daily 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getNextRecurringDue + exceptions + end conditions > respects exceptions 0ms
+   ├ù utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange (bounded, exceptions, COUNT) > generates bounded occurrences 1ms
+     ΓåÆ expected 0 to be greater than 0
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange (bounded, exceptions, COUNT) > honors COUNT end 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getRecurrenceEndDescription > describes end conditions 0ms
+   Γ£ô observability foundation (Agent 33) > logger has new production methods 4ms
+ Γ¥» tests/useTaskStore.test.ts (24 tests | 1 failed) 22ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > delegates isSupabaseLive to the hybrid export (controlled in tests) 3ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > key actions early-return safely in !live (demo) ΓÇö no hybrid calls, state preserved as demo 2ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > isSupabaseLive + demo guards (DEMO INVARIANT ΓÇö non-negotiable) > demo workspace IDs ("w1", "w2") + !live block realtime/setup and fetch paths 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > initializeAuth (demo): sets loading false, user/session null, no live listeners 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > fetchUserWorkspaces (demo): early return, zero hybrid workspace calls 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > syncPendingWrites (demo): early return, no process call, state unchanged 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > setupWorkspaceRealtime (demo): no-op, no subscribe call 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core Phase 1 actions (initializeAuth, fetch, sync, realtime setup) ΓÇö delegation verified > live-controlled paths (forced mock): actions delegate to spies and update state (skeleton coverage) 7ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > zustand store basics + persist guard compatibility (M0 skeleton) > getState / setState work for test resets 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > zustand store basics + persist guard compatibility (M0 skeleton) > demo samples / state not polluted across tests (reset hygiene) 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > zustand store basics + persist guard compatibility (M0 skeleton) > toast mock is wired (actions that toast in live paths are safe) 0ms
+   ├ù useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > addTask (demo): optimistic local add, uses generateClientId, no hybrid createTask call 2ms
+     ΓåÆ expected "spy" to be called at least once
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > addTask (demo w1/w2): still succeeds locally, never leaks to hybrid 1ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > updateTask (demo): updates local state, no hybrid updateTask call 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > deleteTask (demo): removes from local state, no hybrid delete call 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > switchWorkspace (demo): updates currentWorkspace + workspaces list preserved, blocks realtime 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > ensureUserHasWorkspace (demo): safe no-op / preserves demo ws, no live calls 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > fetchUserWorkspaces (demo): early return guard, zero hybrid calls (post-drift fix) 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > initializeAuth (demo): sets loading false + null user, no client side effects beyond guard 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > syncPendingWrites (demo): early return, no processPendingOperations 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > setupWorkspaceRealtime + teardown (demo + w1/w2): complete no-op, no subscribe or channel 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > getFilteredTasks / getTodayTasks / getTasksByStatus (demo): return correct slices from local state 0ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, workspace bootstrap, realtime no-op) > toggleCommandPalette / setView / selectTask (demo UI actions): update state correctly 1ms
+   Γ£ô useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid delegation, auth/workspace flows, zustand state) > consumer mocking pattern (for RTL component tests / other consumers) > documents the vi.mock pattern for hybridStore + sonner + client (used by SupabaseSetupBanner.test etc.) 0ms
+stdout | tests/hybridStore.test.ts > hybridStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, queue/LWW, realtime, demo stripping) > realtime subscriptions (subscribeToWorkspaceRealtime) > creates postgres_changes channels with correct filters + invokes handlers + returns working cleanup when live + valid ws
+[realtime] tasks subscribed for workspace live-ws-xyz
+[realtime] notes subscribed for workspace live-ws-xyz
+
+ Γ£ô tests/hybridStore.test.ts (11 tests) 15ms
+stderr | tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > renders 
+without throwing (smoke) in demo mode
+A component is `contentEditable` and contains `children` managed by React. It is now your responsibility to guarantee 
+that none of those nodes are unexpectedly modified or duplicated. This is probably not intentional.
+
+stderr | tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > renders 
+the mocked editor content surface
+A component is `contentEditable` and contains `children` managed by React. It is now your responsibility to guarantee 
+that none of those nodes are unexpectedly modified or duplicated. This is probably not intentional.
+
+stderr | tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > accepts 
+and wires onChange prop (smoke; real calls exercised by mocked useEditor stub)
+A component is `contentEditable` and contains `children` managed by React. It is now your responsibility to guarantee 
+that none of those nodes are unexpectedly modified or duplicated. This is probably not intentional.
+
+stderr | tests/TipTapEditor.test.tsx > TipTapEditor ΓÇö M0 simple RTL smoke test (heavily mocked, demo-only) > 
+respects demo context (isSupabaseLive false does not affect basic render)
+A component is `contentEditable` and contains `children` managed by React. It is now your responsibility to guarantee 
+that none of those nodes are unexpectedly modified or duplicated. This is probably not intentional.
+
+ Γ£ô tests/TipTapEditor.test.tsx (4 tests) 75ms
+stderr | tests/CommandPalette.test.tsx > CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) 
+> renders when open=true and shows core command groups + input
+`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+
+If you want to hide the `DialogTitle`, you can wrap it with our VisuallyHidden component.
+
+For more information, see https://radix-ui.com/primitives/docs/components/dialog
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | tests/CommandPalette.test.tsx > CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) 
+> search / typing in input updates query and shows empty state for no matches
+`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+
+If you want to hide the `DialogTitle`, you can wrap it with our VisuallyHidden component.
+
+For more information, see https://radix-ui.com/primitives/docs/components/dialog
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | tests/CommandPalette.test.tsx > CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) 
+> create task via palette command triggers addTask + closes palette (demo path)
+`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+
+If you want to hide the `DialogTitle`, you can wrap it with our VisuallyHidden component.
+
+For more information, see https://radix-ui.com/primitives/docs/components/dialog
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+ Γ¥» tests/CommandPalette.test.tsx (3 tests | 3 failed) 173ms
+   ├ù CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) > renders when open=true and shows core command groups + input 116ms
+     ΓåÆ ResizeObserver is not defined
+   ├ù CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) > search / typing in input updates query and shows empty state for no matches 30ms
+     ΓåÆ ResizeObserver is not defined
+   ├ù CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) > create task via palette command triggers addTask + closes palette (demo path) 25ms
+     ΓåÆ ResizeObserver is not defined
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 6 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  tests/CommandPalette.test.tsx > CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) > 
+renders when open=true and shows core command groups + input
+ FAIL  tests/CommandPalette.test.tsx > CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) > 
+search / typing in input updates query and shows empty state for no matches
+ FAIL  tests/CommandPalette.test.tsx > CommandPalette ΓÇö M0 basic RTL tests (open, search, create task via palette) > 
+create task via palette command triggers addTask + closes palette (demo path)
+ReferenceError: ResizeObserver is not defined
+ Γ¥» ../../Grok%20Build%20Projects/Bad%20Ass%20Tasks/node_modules/cmdk/dist/index.mjs:1:8384
+ Γ¥» Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:25989:20
+ Γ¥» runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ Γ¥» commitHookEffectListMount node_modules/react-dom/cjs/react-dom-client.development.js:13249:29
+ Γ¥» commitHookPassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:13336:11
+ Γ¥» commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15484:13
+ Γ¥» recursivelyTraversePassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:15439:11
+ Γ¥» commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15718:11
+ Γ¥» recursivelyTraversePassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:15439:11
+ Γ¥» commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15718:11
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/6]ΓÄ»
+
+ FAIL  tests/useTaskStore.test.ts > useTaskStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, hybrid 
+delegation, auth/workspace flows, zustand state) > core data flows (add/update/delete optimistic/queue in demo, 
+workspace bootstrap, realtime no-op) > addTask (demo): optimistic local add, uses generateClientId, no hybrid 
+createTask call
+AssertionError: expected "spy" to be called at least once
+ Γ¥» tests/useTaskStore.test.ts:308:43
+    306|       expect(task?.title).toContain('Ship M0 tests');
+    307|       expect(useTaskStore.getState().tasks.length).toBe(initialCount +ΓÇª
+    308|       expect(mockHybrid.generateClientId).toHaveBeenCalled();
+       |                                           ^
+    309|       expect(mockHybrid.createTask).not.toHaveBeenCalled(); // demo shΓÇª
+    310|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/6]ΓÄ»
+
+ FAIL  tests/utils.test.ts > utils ΓÇö recurring engine (production reliability + edge cases) > getRecurringLabel > 
+produces human labels
+AssertionError: expected 'Every 3 dailys' to contain 'Every 3 days'
+
+Expected: "Every 3 days"
+Received: "Every 3 dailys"
+
+ Γ¥» tests/utils.test.ts:116:58
+    114|     it('produces human labels', () => {
+    115|       expect(getRecurringLabel('FREQ=WEEKLY;BYDAY=MO')).toContain('WeeΓÇª
+    116|       expect(getRecurringLabel('FREQ=DAILY;INTERVAL=3')).toContain('EvΓÇª
+       |                                                          ^
+    117|       expect(getRecurringLabel(null)).toBe('');
+    118|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[3/6]ΓÄ»
+
+ FAIL  tests/utils.test.ts > utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange 
+(bounded, exceptions, COUNT) > generates bounded occurrences
+AssertionError: expected 0 to be greater than 0
+ Γ¥» tests/utils.test.ts:141:26
+    139|       const anchor = new Date('2026-05-01').toISOString();
+    140|       const occ = getOccurrencesInRange(anchor, 'FREQ=WEEKLY;BYDAY=MO'ΓÇª
+    141|       expect(occ.length).toBeGreaterThan(0);
+       |                          ^
+    142|       expect(occ.length).toBeLessThanOrEqual(10);
+    143|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[4/6]ΓÄ»
+
+
+ Test Files  3 failed | 3 passed (6)
+      Tests  6 failed | 60 passed (66)
+   Start at  13:27:21
+   Duration  2.83s (transform 699ms, setup 1.90s, collect 6.54s, tests 409ms, environment 3.08s, prepare 1.06s)
+

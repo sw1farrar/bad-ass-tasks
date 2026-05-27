@@ -1,0 +1,5 @@
+/**
+ * Teams API barrel.
+ */
+
+export {};

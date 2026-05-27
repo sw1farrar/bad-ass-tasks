@@ -1,0 +1,84 @@
+﻿
+> bad-ass-tasks@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.4 C:/Grok Build Projects/Bad Ass Tasks
+
+stdout | tests/hybridStore.test.ts > hybridStore ΓÇö M0 demo-only mock-heavy verification skeleton (guards, queue/LWW, realtime, demo stripping) > realtime subscriptions (subscribeToWorkspaceRealtime) > creates postgres_changes channels with correct filters + invokes handlers + returns working cleanup when live + valid ws
+[realtime] tasks subscribed for workspace live-ws-xyz
+[realtime] notes subscribed for workspace live-ws-xyz
+
+ Γ£ô tests/hybridStore.test.ts (11 tests) 6ms
+stdout | tests/utils.test.ts > observability foundation (Agent 33) > logger has new production methods
+[BadAssTasks:INFO] 2026-05-25T20:17:59.229Z Error monitoring initialized (global handlers + buffer + reporter hooks active)
+[BadAssTasks:INFO] 2026-05-25T20:17:59.229Z Performance monitoring initialized (native Web Vitals + long tasks + custom metrics)
+[BadAssTasks:METRIC] test_metric=123 { foo: 'bar' }
+
+ Γ¥» tests/utils.test.ts (19 tests | 2 failed) 17ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > parses basic title and default priority 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > detects P0/urgent/ASAP priority 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > detects dates (today, tomorrow, friday, next week) 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > parseNaturalLanguage > extracts @tags and strips from title 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > returns null for falsy 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > labels today correctly 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > formatDueDate > labels past as overdue with date 1ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > getPriorityColor > returns CSS var or color for each priority 0ms
+   Γ£ô utils ΓÇö core pure functions (production reliability) > cn (tailwind-merge + clsx) > merges classes correctly 3ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > parses weekly with BYDAY and count 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > parses monthly until 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > parseRecurringRule / generateRecurringRule roundtrip > returns null for invalid 0ms
+   ├ù utils ΓÇö recurring engine (production reliability + edge cases) > getRecurringLabel > produces human labels 4ms
+     ΓåÆ expected 'Every 3 dailys' to contain 'Every 3 days'
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getNextRecurringDue + exceptions + end conditions > advances correctly for daily 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getNextRecurringDue + exceptions + end conditions > respects exceptions 0ms
+   ├ù utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange (bounded, exceptions, COUNT) > generates bounded occurrences 1ms
+     ΓåÆ expected 0 to be greater than 0
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange (bounded, exceptions, COUNT) > honors COUNT end 0ms
+   Γ£ô utils ΓÇö recurring engine (production reliability + edge cases) > getRecurrenceEndDescription > describes end conditions 0ms
+   Γ£ô observability foundation (Agent 33) > logger has new production methods 4ms
+node.exe : 
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 2 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  tests/utils.test.ts > utils ΓÇö recurring engine (production reliability + edge cases) > getRecurringLabel > 
+produces human labels
+AssertionError: expected 'Every 3 dailys' to contain 'Every 3 days'
+
+Expected: "Every 3 days"
+Received: "Every 3 dailys"
+
+ Γ¥» tests/utils.test.ts:116:58
+    114|     it('produces human labels', () => {
+    115|       expect(getRecurringLabel('FREQ=WEEKLY;BYDAY=MO')).toContain('WeeΓÇª
+    116|       expect(getRecurringLabel('FREQ=DAILY;INTERVAL=3')).toContain('EvΓÇª
+       |                                                          ^
+    117|       expect(getRecurringLabel(null)).toBe('');
+    118|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/2]ΓÄ»
+
+ FAIL  tests/utils.test.ts > utils ΓÇö recurring engine (production reliability + edge cases) > getOccurrencesInRange 
+(bounded, exceptions, COUNT) > generates bounded occurrences
+AssertionError: expected 0 to be greater than 0
+ Γ¥» tests/utils.test.ts:141:26
+    139|       const anchor = new Date('2026-05-01').toISOString();
+    140|       const occ = getOccurrencesInRange(anchor, 'FREQ=WEEKLY;BYDAY=MO'ΓÇª
+    141|       expect(occ.length).toBeGreaterThan(0);
+       |                          ^
+    142|       expect(occ.length).toBeLessThanOrEqual(10);
+    143|     });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/2]ΓÄ»
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 28 passed (30)
+   Start at  13:17:57
+   Duration  1.80s (transform 156ms, setup 364ms, collect 1.65s, tests 23ms, environment 731ms, prepare 399ms)
+

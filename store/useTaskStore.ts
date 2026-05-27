@@ -1,0 +1,3066 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType } from "@/types";
+import { generateId, parseNaturalLanguage } from "@/lib/utils";
+import { toast } from "sonner";
+import {
+  getTasks,
+  createTask as createTaskSupabase,
+  updateTask as updateTaskSupabase,
+  deleteTask as deleteTaskSupabase,
+  moveTask as moveTaskSupabase,
+  getNotes,
+  createNote as createNoteSupabase,
+  updateNote as updateNoteSupabase,
+  deleteNote as deleteNoteSupabase,
+  isSupabaseLive,
+  logActivity,
+  getRecentActivity,
+  // Offline / persistence enhancements (Phase 1)
+  getPendingCount,
+  processPendingOperations,
+  getIsOnline,
+  getPendingOperations,
+  clearPendingOperations,
+  generateClientId,
+  // Phase 2 collaboration foundations
+  getWorkspaceMembers,
+  getWorkspaceInvites,
+  createInvite,
+  acceptInvite,
+  updateMemberRole,
+  removeMember,
+  revokeInvite,
+  sendInviteEmail,
+  updateWorkspace,
+  deleteWorkspace,
+  updateMyProfile, // self profile (name + location)
+  searchPotentialTeammates, // new: multi-field (name/username/location/city) search for empty-owner invite UX (RPC-backed, RLS-safe)
+  subscribeToWorkspaceRealtime,
+  getWorkspacePresenceChannel,
+  // Comments (Agent 14 realtime collab)
+  getComments,
+  createComment,
+  // Agent 18: Admin/Export/Import/Templates/Stats + enhanced audit logging
+  getWorkspaceStats,
+  exportWorkspaceData,
+  importWorkspaceData,
+  getTemplates,
+  logTemplateAction,
+  ADMIN_TEMPLATE_LIBRARY,
+  getStaticTemplates,
+  templateToTaskPayload,
+  templateToNotePayload,
+  hasTemplateTag,
+  // Agent 31: Notifications foundation (in-app + email for mentions/comments/invites/assignments/deadlines)
+  getUserNotifications,
+  createNotification,
+  markNotificationsRead,
+  getUnreadNotificationCount,
+  sendNotificationEmail,
+  extractMentions,
+  deleteNotification,
+  clearAllNotifications,
+} from "@/lib/data/hybridStore";
+import { getSupabaseClient } from "@/lib/supabase/client";
+import type { User, Session } from "@supabase/supabase-js";
+
+// Agent 30: deterministic fun user color for live cursors / presence avatars (no deps)
+function getUserColor(userIdOrEmail: string): string {
+  const palette = ['#00ff9f', '#c084fc', '#ff6b6b', '#60a5fa', '#fbbf24', '#34d399'];
+  let hash = 0;
+  for (let i = 0; i < userIdOrEmail.length; i++) hash = (hash * 31 + userIdOrEmail.charCodeAt(i)) | 0;
+  return palette[Math.abs(hash) % palette.length];
+}
+
+interface TaskState {
+  // Data
+  tasks: Task[];
+  notes: Note[];
+  currentWorkspace: Workspace;
+  workspaces: Workspace[];
+  recentActivity: ActivityLog[];
+
+  // UI State
+  currentView: "today" | "tasks" | "notes" | "calendar" | "teams";
+  taskFilter: {
+    status?: TaskStatus[];
+    priority?: Priority[];
+    search: string;
+    // Agent 13: recurring-aware filtering
+    recurring?: "all" | "only" | "none";
+  };
+  selectedTaskId: string | null;
+  isCommandPaletteOpen: boolean;
+  isKeyboardCheatsheetOpen: boolean;
+  isInitializing: boolean;
+
+  // Per-task operation loading states (Phase 1: individual CRUD feedback + optimistic)
+  taskLoadingStates: Record<string, boolean>;
+
+  // Offline + basic persistence/sync state (Phase 1 mission: improve offline support when Supabase configured)
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingSyncCount: number;
+  lastSyncAt: string | null;
+
+  // Auth state (Phase 1 scaffolding)
+  user: User | null;
+  session: Session | null;
+  isAuthLoading: boolean;
+
+  // Phase 2 collaboration state
+  members: WorkspaceMember[];
+  invites: WorkspaceInvite[];
+  onlineUsers: Array<{ userId: string; email?: string; presenceRef?: string; view?: string; editingItemId?: string; editingItemType?: 'task' | 'note' }>;
+  isLoadingMembers: boolean;
+  // Comments (Agent 14)
+  comments: Comment[];
+  isLoadingComments: boolean;
+
+  // Agent 31: Notification center state (bell + list, realtime, prefs)
+  notifications: Notification[];
+  unreadNotifCount: number;
+  isLoadingNotifications: boolean;
+  notificationPrefs: NotificationPrefs | null;
+
+  // Agent 30: Live collab polish - remote cursors/selection for live cursors in editor + views, conflicts
+  remoteCursors: Array<{ userId: string; email?: string; itemId?: string; itemType?: 'task' | 'note'; from: number; to: number; color?: string }>;
+  activeConflicts: Record<string, { itemId: string; itemType: 'task' | 'note'; remoteUser: string; remoteUpdatedAt: string; remotePreview?: string }>;
+
+  // Live collaborative editing (lightweight broadcast on presence channel + optimistic apply)
+  // Source of truth remains postgres_changes + LWW. This is for "while typing" feel only.
+  liveEditing: Record<string, { userId: string; email?: string; itemType: 'task' | 'note'; lastUpdatedAt: string }>;
+
+  // Realtime presence polish (Agent 14): update meta for cross-view / per-item indicators
+  updatePresenceMeta: (meta?: { view?: string; editingItemId?: string; editingItemType?: 'task' | 'note' }) => void;
+
+  // Agent 30: broadcast cursor/selection + conflict helpers (builds on existing presence channel)
+  updateCursorPosition: (itemType?: 'task' | 'note', itemId?: string, from?: number, to?: number) => void;
+  clearCursorPosition: () => void;
+  resolveConflict: (itemId: string, keepLocal: boolean) => Promise<void>;
+  startDemoPresenceSimulator: () => void; // Agent 30: delightful simulated live collab in demo mode
+
+  // Live collab (lightweight broadcast) - Slice 1 foundation
+  broadcastLiveTaskEdit: (taskId: string, updates: { title?: string; description?: string }) => void;
+  broadcastLiveNoteContent: (noteId: string, content: string) => void;
+
+  // Actions - Tasks
+  addTask: (input: string) => Promise<Task | null>;
+  updateTask: (id: string, updates: Partial<Task>) => Promise<boolean | null>;
+  deleteTask: (id: string) => Promise<boolean | null>;
+  completeTask: (id: string) => Promise<boolean | null>;
+  moveTask: (id: string, newStatus: TaskStatus) => Promise<boolean | null>;
+  reorderTasks: (activeId: string, overId: string) => void;
+  kanbanReorder: (activeId: string, overId: string) => void;
+
+  /** Early Phase 4 recurring scaffolding (non-breaking stub).
+   *  Delegates to updateTask for now. Full RRULE engine, scheduling, auto-generation in Phase 4.
+   */
+  setRecurringRule: (id: string, recurringRule: string | null) => Promise<boolean | null>;
+
+  // Actions - Notes (now wired through hybrid layer, mirroring tasks)
+  addNote: (title: string, content?: string) => Promise<Note | null>;
+  updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
+  deleteNote: (id: string) => Promise<boolean | null>;
+
+  // UI
+  setView: (view: TaskState["currentView"]) => void;
+  setTaskFilter: (filter: Partial<TaskState["taskFilter"]>) => void;
+  selectTask: (id: string | null) => void;
+  toggleCommandPalette: (open?: boolean) => void;
+  toggleKeyboardCheatsheet: (open?: boolean) => void;
+
+  // Workspace (demo in !live mode)
+  switchWorkspace: (id: string) => void;
+
+  // Phase 1 real workspace support (ensure for post-login)
+  ensureUserHasWorkspace: () => Promise<void>;
+
+  // Helpers
+  getFilteredTasks: () => Task[];
+  getTodayTasks: () => Task[];
+  getTasksByStatus: (status: TaskStatus) => Task[];
+
+  // Auth + data init (Phase 1 UX)
+  initializeAuth: () => Promise<void>;
+  initializeFromSupabase: () => Promise<void>;
+  signOut: () => Promise<void>;
+
+  // Workspace loading (used in auth flow for live mode)
+  fetchUserWorkspaces: () => Promise<void>;
+
+  // Create additional real workspaces (beyond auto "Personal" on first login). Works in LIVE + keeps demo working.
+  createWorkspace: (name: string) => Promise<Workspace | null>;
+
+  // Refresh recent activity for current workspace (enables full dedicated activity log panel UX without full data re-init)
+  refreshRecentActivity: () => Promise<void>;
+
+  // Offline / sync controls (exposed for future UI status badges, manual "Sync now", etc.)
+  syncPendingWrites: () => Promise<void>;
+  refreshOfflineStatus: () => void;
+
+  // Phase 2: Collaboration actions (members, invites, realtime wiring)
+  fetchMembers: () => Promise<void>;
+  fetchInvites: () => Promise<void>;
+  sendInvite: (email?: string, role?: "owner" | "admin" | "user", invitedUserId?: string) => Promise<string | null>; // returns inviteId or null
+  acceptInviteLink: (inviteId: string) => Promise<string | null>; // returns wsId
+  changeMemberRole: (userId: string, newRole: "owner" | "admin" | "user") => Promise<boolean>;
+  removeWorkspaceMember: (userId: string) => Promise<boolean>;
+  // Profile self-edit (name, username/handle, location). Personal, RLS-protected.
+  updateMyProfile: (updates: { fullName?: string; username?: string; location?: string }) => Promise<boolean>;
+  // Teammate search for invite (name/username/location/city/email) - empty owner state only, RPC-backed
+  searchPotentialTeammates: (query: string, currentWorkspaceId?: string) => Promise<Array<{ id: string; fullName?: string; username?: string; location?: string; email?: string; avatarUrl?: string }>>;
+  revokeInvite: (inviteId: string) => Promise<boolean>; // new for invite flow
+  resendInvite: (inviteId: string) => Promise<boolean>; // resend UX: create fresh invite (same email/role, new expiry) then revoke old. Small increment.
+  declineReceivedInvite: (inviteId: string) => Promise<boolean>; // recipient declines → fully removes the invite for everyone
+  exitWorkspace: (workspaceId?: string) => Promise<boolean>; // self-service offboarding (world-class symmetric exit)
+  updateWorkspaceDetails: (updates: { name?: string; slug?: string }) => Promise<boolean>;
+  deleteCurrentWorkspace: () => Promise<boolean>;
+  setupWorkspaceRealtime: () => void; // wires subs + presence (idempotent per ws)
+  teardownWorkspaceRealtime: () => void;
+
+  // Comments (Agent 14 realtime + @mentions polish)
+  fetchComments: (target: { taskId?: string; noteId?: string }) => Promise<void>;
+  addComment: (content: string, target: { taskId?: string; noteId?: string; parentCommentId?: string }) => Promise<boolean>;
+
+  // Agent 31: Notifications (bell center, realtime, prefs, email for key events)
+  fetchNotifications: (unreadOnly?: boolean) => Promise<void>;
+  markNotifRead: (idOrIds: string | string[]) => Promise<void>;
+  markAllNotifsRead: () => Promise<void>;
+  refreshUnreadCount: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<boolean>;
+  clearAllNotifications: () => Promise<boolean>;
+  updateNotificationPrefs: (updates: Partial<NotificationPrefs>) => Promise<void>;
+
+  // Agent 18: Team/Admin dashboard, export/import, templates, stats + audit
+  getWorkspaceStats: () => Promise<any>;
+  exportWorkspace: (format: "json" | "csv" | "md" | "all") => Promise<void>;
+  importWorkspaceData: (parsed: { tasks?: any[]; notes?: any[] }, options?: { conflictStrategy?: "append" | "skip-dupe-titles" }) => Promise<{ importedTasks: number; importedNotes: number; skippedTasks?: number; skippedNotes?: number }>;
+  getTemplates: () => Promise<{ taskTemplates: Task[]; noteTemplates: Note[] }>;
+  applyTemplate: (tpl: any) => Promise<any>;
+  saveCurrentAsTemplate: (type: "task" | "note", id: string) => Promise<void>;
+  getAdminTemplateLibrary: () => any[];
+}
+
+// Demo-only beautiful sample data. Used EXCLUSIVELY when !isSupabaseLive() (no keys configured).
+// When a real user is authenticated against live Supabase, MULTIPLE hardened guards (initializeAuth wipe,
+// onFinishHydration sanitizer, initializeFromSupabase force-[] on demo IDs, ensureUserHasWorkspace flow)
+// guarantee ZERO sample pollution ever reaches the store or UI. Samples NEVER leak into live auth sessions.
+const SAMPLE_TASKS: Task[] = [
+  {
+    id: "t1",
+    title: "Ship investor deck v4",
+    description: "Finalize the 12-slide deck with updated traction metrics and competitive landscape.",
+    status: "doing",
+    priority: "P0",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 18).toISOString(),
+    assignee: "You",
+    tags: ["investors", "deck"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 6).toISOString(),
+    timeEstimate: 180,
+    linkedNoteIds: ["n1"],
+    workspaceId: "w1",
+  },
+  {
+    id: "t2",
+    title: "Review Q3 financial model with Sarah",
+    description: "Go through the updated model. Focus on burn rate and runway scenarios.",
+    status: "todo",
+    priority: "P1",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 30).toISOString(),
+    assignee: "Sarah",
+    tags: ["finance", "sarah"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 20).toISOString(),
+    timeEstimate: 45,
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+  {
+    id: "t3",
+    title: "Polish landing page copy and hero animation",
+    description: "Make the headline punchier. Add the new customer quote.",
+    status: "doing",
+    priority: "P1",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 8).toISOString(),
+    assignee: "You",
+    tags: ["marketing", "website"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 4).toISOString(),
+    timeEstimate: 90,
+    linkedNoteIds: ["n2"],
+    workspaceId: "w1",
+  },
+  {
+    id: "t4",
+    title: "Schedule user interviews for new onboarding flow",
+    description: "",
+    status: "backlog",
+    priority: "P2",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 72).toISOString(),
+    assignee: "You",
+    tags: ["research"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 30).toISOString(),
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+  {
+    id: "t5",
+    title: "Fix critical billing edge case for annual plans",
+    description: "Users upgrading from monthly to annual are getting charged twice.",
+    status: "todo",
+    priority: "P0",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 5).toISOString(),
+    assignee: "Alex",
+    tags: ["bug", "billing"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 2).toISOString(),
+    timeEstimate: 120,
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+  {
+    id: "t6",
+    title: "Write launch announcement thread",
+    description: "Twitter + LinkedIn. Make it personal and exciting.",
+    status: "backlog",
+    priority: "P2",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 100).toISOString(),
+    assignee: "You",
+    tags: ["content", "launch"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 48).toISOString(),
+    linkedNoteIds: ["n3"],
+    workspaceId: "w1",
+  },
+  {
+    id: "t7",
+    title: "Migrate legacy user data to new schema",
+    description: "One-time migration script + verification dashboard.",
+    status: "done",
+    priority: "P1",
+    dueDate: new Date(Date.now() - 1000 * 3600 * 12).toISOString(),
+    assignee: "You",
+    tags: ["engineering"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 100).toISOString(),
+    completedAt: new Date(Date.now() - 1000 * 3600 * 10).toISOString(),
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+  // Agent 13 demo samples for recurring engine (never leak to live)
+  {
+    id: "t8",
+    title: "Weekly team sync & metrics review",
+    description: "Recurring every Monday. Use calendar to skip or drag series.",
+    status: "todo",
+    priority: "P2",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 24).toISOString(),
+    assignee: "You",
+    tags: ["recurring", "team"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 50).toISOString(),
+    recurringRule: "FREQ=WEEKLY;BYDAY=MO",
+    exceptionDates: [],
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+  {
+    id: "t9",
+    title: "Monthly finance close",
+    description: "End of month recurring (demo with one skipped occurrence).",
+    status: "todo",
+    priority: "P1",
+    dueDate: new Date(Date.now() + 1000 * 3600 * 72).toISOString(),
+    assignee: "Sarah",
+    tags: ["finance", "recurring"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 100).toISOString(),
+    recurringRule: "FREQ=MONTHLY",
+    exceptionDates: [new Date(Date.now() + 1000 * 3600 * 24 * 10).toISOString().slice(0,10)], // example skipped
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+];
+
+// Demo-only beautiful sample data (see SAMPLE_TASKS comment for usage rules; never used in live auth).
+const SAMPLE_NOTES: Note[] = [
+  {
+    id: "n1",
+    title: "Investor Deck Outline — Q1 2026",
+    content: "Key slides needed:\n• Traction: 4.2x YoY revenue\n• Market: $47B TAM\n• Why now: AI agents are exploding\n\nAction items extracted automatically.",
+    createdAt: new Date(Date.now() - 1000 * 3600 * 30).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 3600 * 3).toISOString(),
+    tags: ["investors", "strategy"],
+    linkedTaskIds: ["t1"],
+    workspaceId: "w1",
+  },
+  {
+    id: "n2",
+    title: "Landing Page Refresh Notes",
+    content: "Hero ideas:\n\"Get shit done. Beautifully.\"\n\nThe new animation should feel like liquid. Use the neon green on the CTA only.\n\nUser quote from Alex at Vercel is gold.",
+    createdAt: new Date(Date.now() - 1000 * 3600 * 18).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 3600 * 1).toISOString(),
+    tags: ["marketing", "website"],
+    linkedTaskIds: ["t3"],
+    workspaceId: "w1",
+  },
+  {
+    id: "n3",
+    title: "Launch Week Plan",
+    content: "Mon: Tease on Twitter\nTue: Deep dive thread\nWed: Product Hunt\nThu: Customer stories\nFri: AMA in Discord\n\nWe are so ready for this.",
+    createdAt: new Date(Date.now() - 1000 * 3600 * 50).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 3600 * 20).toISOString(),
+    tags: ["launch"],
+    linkedTaskIds: ["t6"],
+    workspaceId: "w1",
+  },
+];
+
+const DEFAULT_WORKSPACE: Workspace = {
+  id: "w1",
+  name: "Badass Ventures",
+  slug: "badass-ventures",
+  role: "owner",
+};
+
+export const useTaskStore = create<TaskState>()(
+  persist(
+    (set, get) => ({
+      tasks: SAMPLE_TASKS,
+      notes: SAMPLE_NOTES,
+      currentWorkspace: DEFAULT_WORKSPACE,
+      workspaces: [
+        DEFAULT_WORKSPACE,
+        { id: "w2", name: "Personal", slug: "personal", role: "owner" },
+      ],
+      recentActivity: [],
+
+      // Phase 2 collab defaults
+      members: [],
+      invites: [],
+      onlineUsers: [],
+      isLoadingMembers: false,
+      comments: [],
+      isLoadingComments: false,
+
+      // Agent 31 notifications defaults
+      notifications: [],
+      unreadNotifCount: 0,
+      isLoadingNotifications: false,
+      notificationPrefs: null,
+
+      // Agent 30 live collab
+      remoteCursors: [],
+      activeConflicts: {},
+      liveEditing: {},
+
+      currentView: "today",
+      taskFilter: { search: "" },
+      selectedTaskId: null,
+      isCommandPaletteOpen: false,
+      isKeyboardCheatsheetOpen: false,
+      isInitializing: false,
+      taskLoadingStates: {},
+
+      // Offline + sync (default optimistic; real values set in initialize / listeners)
+      isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+      isSyncing: false,
+      pendingSyncCount: 0,
+      lastSyncAt: null,
+
+      // Auth
+      user: null,
+      session: null,
+      isAuthLoading: true,
+
+      // NOTE: Early local CRUD definitions for tasks/notes were removed here (they duplicated the final hybrid-wired versions below).
+      // This eliminates TS1117 "multiple properties with same name" while preserving all behavior (last definition in object wins at runtime).
+      // All task + note mutations now live only in the "Overridden actions" block with full hybrid logic.
+
+      // Realtime notifications helper (defined early so it can be used during auth restore + new sign-in)
+      _setupUserNotificationsRealtime: (userId: string) => {
+        const supabase = getSupabaseClient();
+        if (!supabase || !isSupabaseLive()) return;
+
+        const existing = (get() as any)._notificationsChannel;
+        if (existing) {
+          supabase.removeChannel(existing).catch(() => {});
+        }
+
+        const channel = supabase
+          .channel(`user-notifs-${userId}`)
+          .on(
+            'postgres_changes' as any,
+            {
+              event: '*',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${userId}`,
+            },
+            (payload: any) => {
+              try {
+                const eventType = payload.eventType;
+                const row = payload.new || payload.old;
+                if (!row) return;
+
+                const current = get().notifications || [];
+
+                if (eventType === 'INSERT') {
+                  const mapped = {
+                    id: row.id,
+                    workspaceId: row.workspace_id,
+                    userId: row.user_id,
+                    type: row.type,
+                    title: row.title,
+                    message: row.message,
+                    link: row.link ?? undefined,
+                    readAt: row.read_at ?? undefined,
+                    createdAt: row.created_at,
+                    metadata: row.metadata ?? {},
+                  };
+                  if (!current.some((n: any) => n.id === mapped.id)) {
+                    set({ notifications: [mapped, ...current] });
+                    if (mapped.type === 'invite') {
+                      get().refreshUnreadCount?.().catch(() => {});
+                      // Safety net for the persistent banner
+                      get().fetchNotifications?.(false).catch(() => {});
+                    }
+                  }
+                } else if (eventType === 'DELETE') {
+                  // Robust payload handling (DELETE often delivers only partial old row without REPLICA IDENTITY FULL)
+                  const deletedId = (payload.old && payload.old.id) || (row && row.id);
+                  if (deletedId) {
+                    set({ notifications: current.filter((n: any) => n.id !== deletedId) });
+                  }
+
+                  // Strong banner-specific logging even on partial payloads
+                  const meta = (payload.old && payload.old.metadata) || (row && row.metadata) || {};
+                  if ((row && row.type === 'invite') || meta.invite_id) {
+                    console.log('[realtime] Received DELETE for invite notification (invite_id:', meta.invite_id || 'unknown', ') — clearing banner + forcing authoritative refetch');
+                  }
+
+                  // Always force authoritative refetch after any DELETE (per expert consensus on fragility)
+                  get().fetchNotifications?.(false).catch(() => {});
+                  get().refreshUnreadCount?.().catch(() => {});
+                }
+              } catch (e) {
+                console.warn('[realtime] notification change failed', e);
+              }
+            }
+          )
+          .subscribe((status: string) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('[realtime] notifications live for user', userId);
+            }
+          });
+
+        (get() as any)._notificationsChannel = channel;
+      },
+
+      reorderTasks: (activeId, overId) => {
+        const { tasks } = get();
+        const activeIndex = tasks.findIndex((t) => t.id === activeId);
+        const overIndex = tasks.findIndex((t) => t.id === overId);
+
+        if (activeIndex === -1 || overIndex === -1) return;
+
+        const newTasks = [...tasks];
+        const [moved] = newTasks.splice(activeIndex, 1);
+        newTasks.splice(overIndex, 0, moved);
+
+        set({ tasks: newTasks });
+      },
+
+      /**
+       * Kanban-specific reorder supporting both intra-column reordering and cross-column moves.
+       * Production-grade: fully optimistic (instant UI), robust guards, precise insert semantics.
+       * - Reorders the in-memory tasks array so that within each status the relative order is as dragged.
+       * - If status changes (cross-column), performs the Supabase persistence via hybrid layer (optimistic already applied).
+       * - Within-column reorders are client-only (no position column in DB yet; order resets to created_at on live reload).
+       * - Works identically in DEMO and LIVE modes for UX; only status changes hit network when live.
+       * - Solidified for reliability: duplicate guards, safe inserts, no side effects on filters.
+       */
+      kanbanReorder: (activeId, overId) => {
+        const { tasks } = get();
+        if (!activeId || !overId || activeId === overId) return;
+
+        const activeTask = tasks.find((t) => t.id === activeId);
+        if (!activeTask) return;
+
+        const overTask = tasks.find((t) => t.id === overId);
+        const allStatuses: TaskStatus[] = ["backlog", "todo", "doing", "done"];
+
+        // Determine target status: overId may be a task or a column (droppable) id
+        const isOverColumn = allStatuses.includes(overId as TaskStatus);
+        const targetStatus: TaskStatus = isOverColumn
+          ? (overId as TaskStatus)
+          : (overTask?.status ?? activeTask.status);
+
+        // Build per-status groups preserving current within-group order (defensive copy)
+        const groups: Record<TaskStatus, Task[]> = {} as any;
+        allStatuses.forEach((s) => {
+          groups[s] = tasks.filter((t) => t.status === s).filter((t) => t.id !== activeId); // remove early
+        });
+
+        // Create moved task with (possibly new) status
+        const movedTask: Task = { ...activeTask, status: targetStatus };
+
+        // Compute insertion index in target group (sortable convention: before over, or append for columns)
+        let insertIndex = groups[targetStatus].length;
+        if (!isOverColumn && overTask) {
+          const idx = groups[targetStatus].findIndex((t) => t.id === overId);
+          if (idx !== -1) insertIndex = idx;
+        } else if (isOverColumn) {
+          insertIndex = groups[targetStatus].length;
+        }
+
+        groups[targetStatus].splice(insertIndex, 0, movedTask);
+
+        // Rebuild flat list (group order doesn't affect per-column filtered rendering)
+        const newTasks: Task[] = [];
+        allStatuses.forEach((s) => newTasks.push(...groups[s]));
+
+        // Ultra-optimistic set (no await, buttery 60fps)
+        set({ tasks: newTasks });
+
+        // Persist *only* status change via hybrid (existing path). Within-column is local-only.
+        if (activeTask.status !== targetStatus) {
+          if (isSupabaseLive()) {
+            // Fire-and-forget; optimistic UI already reflects the move + position
+            moveTaskSupabase(activeId, targetStatus, activeTask.workspaceId).catch(() => {
+              // graceful: next load or manual action will reconcile
+            });
+          }
+          // Note: we do NOT call the store's moveTask() here to avoid redundant set/status overwrite after our precise reorder
+        }
+      },
+
+      /** Recurring + exceptions (Agent 8 foundation + Agent 13 production extensions).
+       *  Delegates to updateTask (now supports exceptionDates too). Engine handles skip/break client-side.
+       */
+      setRecurringRule: async (id, recurringRule) => {
+        return await get().updateTask(id, { recurringRule });
+      },
+
+      setView: (view) => {
+        set({ currentView: view });
+        // Realtime presence: update meta so collaborators see where you are (across views)
+        get().updatePresenceMeta({ view });
+      },
+      setTaskFilter: (filter) =>
+        set((state) => ({ taskFilter: { ...state.taskFilter, ...filter } })),
+      selectTask: (id) => {
+        set({ selectedTaskId: id });
+        // Update presence for per-task editing/viewing indicators
+        get().updatePresenceMeta({ editingItemId: id || undefined, editingItemType: id ? 'task' : undefined });
+      },
+      toggleCommandPalette: (open) =>
+        set((state) => ({
+          isCommandPaletteOpen: open !== undefined ? open : !state.isCommandPaletteOpen,
+        })),
+      toggleKeyboardCheatsheet: (open) =>
+        set((state) => ({
+          isKeyboardCheatsheetOpen: open !== undefined ? open : !state.isKeyboardCheatsheetOpen,
+        })),
+
+      switchWorkspace: (id) => {
+        const ws = get().workspaces.find((w) => w.id === id);
+        if (ws) {
+          // Teardown prior realtime before switching context
+          get().teardownWorkspaceRealtime();
+
+          set({ currentWorkspace: ws, members: [], invites: [], onlineUsers: [] });
+          // Re-initialize data when switching workspaces (important when using Supabase)
+          get().initializeFromSupabase();
+          // Per Phase 1 mission: fetch real workspaces list on switch (keeps switcher fresh for multi-ws scenarios)
+          // Fire-and-forget is fine; UI already switched instantly.
+          get().fetchUserWorkspaces();
+
+          // Phase 2: load collab data + wire realtime for the new workspace
+          if (isSupabaseLive() && !["w1", "w2"].includes(id)) {
+            get().fetchMembers();
+            get().fetchInvites();
+            get().fetchNotifications?.().catch(() => {});
+            // Setup realtime + presence *immediately* for real-time "Online in this workspace" (no artificial delay)
+            get().setupWorkspaceRealtime();
+
+            logActivity({
+              workspaceId: id,
+              userId: get().user?.id,
+              actionType: "workspace.switched",
+              targetType: "workspace",
+              targetId: id,
+              metadata: { name: ws.name },
+            });
+          }
+        }
+      },
+
+      getFilteredTasks: () => {
+        const { tasks, taskFilter } = get();
+        let result = [...tasks];
+
+        if (taskFilter.search) {
+          const q = taskFilter.search.toLowerCase();
+          result = result.filter(
+            (t) =>
+              t.title.toLowerCase().includes(q) ||
+              t.description?.toLowerCase().includes(q) ||
+              t.tags.some((tag) => tag.toLowerCase().includes(q))
+          );
+        }
+
+        if (taskFilter.priority?.length) {
+          result = result.filter((t) => taskFilter.priority!.includes(t.priority));
+        }
+
+        if (taskFilter.status?.length) {
+          result = result.filter((t) => taskFilter.status!.includes(t.status));
+        }
+
+        // Agent 13 recurring-aware filter (non-breaking; "only" = has rule, "none" = no rule)
+        if (taskFilter.recurring && taskFilter.recurring !== "all") {
+          if (taskFilter.recurring === "only") {
+            result = result.filter((t) => !!t.recurringRule);
+          } else if (taskFilter.recurring === "none") {
+            result = result.filter((t) => !t.recurringRule);
+          }
+        }
+
+        // Sort: incomplete first, then by due date, then priority
+        return result.sort((a, b) => {
+          if (a.status === "done" && b.status !== "done") return 1;
+          if (b.status === "done" && a.status !== "done") return -1;
+
+          if (a.dueDate && b.dueDate) {
+            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+          }
+          if (a.dueDate) return -1;
+          if (b.dueDate) return 1;
+
+          const priorityOrder = { P0: 0, P1: 1, P2: 2, P3: 3 };
+          return priorityOrder[a.priority] - priorityOrder[b.priority];
+        });
+      },
+
+      getTodayTasks: () => {
+        const { tasks, taskFilter } = get();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let result = tasks.filter((t) => {
+          if (t.status === "done") return false;
+          if (!t.dueDate) return false;
+          const due = new Date(t.dueDate);
+          due.setHours(0, 0, 0, 0);
+          return due <= today;
+        });
+
+        // Agent 13: make recurring filter affect Today view too (recurring-aware across app)
+        if (taskFilter.recurring && taskFilter.recurring !== "all") {
+          if (taskFilter.recurring === "only") {
+            result = result.filter((t) => !!t.recurringRule);
+          } else if (taskFilter.recurring === "none") {
+            result = result.filter((t) => !t.recurringRule);
+          }
+        }
+
+        return result;
+      },
+
+      getTasksByStatus: (status) => {
+        return get().tasks.filter((t) => t.status === status);
+      },
+
+      // ------------------------------------------------------------------
+      // Supabase Integration (Phase 1)
+      // ------------------------------------------------------------------
+
+      /**
+       * Loads real tasks + notes from Supabase when live (for authenticated users).
+       * Pure demo mode (!Supabase keys) uses beautiful SAMPLE_TASKS / SAMPLE_NOTES.
+       *
+       * Cleanup (Phase 1): when Supabase live + real user, we never mix or fall back to samples.
+       * Empty real data is valid (new user workspace). Samples are demo-only.
+       *
+       * Called on mount, after auth sign-in, and on workspace switch.
+       */
+      initializeFromSupabase: async () => {
+        set({ isInitializing: true });
+
+        const online = getIsOnline();
+        set({ isOnline: online, pendingSyncCount: getPendingCount() });
+
+        try {
+          if (!isSupabaseLive()) {
+            // Demo mode only - beautiful local samples (already in initial state or persisted)
+            return;
+          }
+
+          const workspaceId = get().currentWorkspace.id;
+
+          // Guard: Never query Supabase with invalid or demo workspace IDs.
+          // An empty string (or w1/w2) will cause "invalid input syntax for type uuid" errors.
+          // ensureUserHasWorkspace() + fetchUserWorkspaces() are responsible for setting a real ID first.
+          if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) {
+            set({ tasks: [], notes: [], recentActivity: [], taskLoadingStates: {} });
+            return;
+          }
+
+          // Offline resilience: if we are offline, SKIP network fetch entirely.
+          // Zustand rehydration (now including data for live) + any queued local changes provide full UX.
+          if (!online) {
+            set({ taskLoadingStates: {} });
+            return;
+          }
+
+          // Load in parallel for speed (include activity logs for Phase 1 basic logging UI)
+          const [realTasks, realNotes, realActivity] = await Promise.all([
+            getTasks(workspaceId),
+            getNotes(workspaceId),
+            getRecentActivity(workspaceId),
+          ]);
+
+          // Cleanup: For authenticated users with live Supabase, ALWAYS use real data (even empty arrays).
+          // This eliminates any mixing or pollution from SAMPLE_TASKS / SAMPLE_NOTES.
+          // Samples are ONLY for pure demo mode (!isSupabaseLive).
+          set({
+            tasks: realTasks,
+            notes: realNotes,
+            recentActivity: realActivity,
+            taskLoadingStates: {},
+            pendingSyncCount: getPendingCount(),
+            lastSyncAt: new Date().toISOString(),
+          });
+
+          // Phase 2: after data load for a real ws, fetch collab + start realtime subs + presence
+          if (isSupabaseLive() && !["w1", "w2"].includes(workspaceId)) {
+            get().fetchMembers();
+            get().fetchInvites();
+            // Agent 31: auto-load notifications (including cross-ws 'invite' rows) so global
+            // recipient banners + bell badge populate immediately for the logged-in user without requiring
+            // manual bell open. Fire-and-forget safe.
+            get().fetchNotifications?.().catch(() => {});
+            // Setup realtime + presence *immediately* for real-time "Online in this workspace" (no artificial delay)
+            get().setupWorkspaceRealtime();
+          }
+        } catch (error: any) {
+          console.error("[useTaskStore] initializeFromSupabase error:", error);
+          // Only show a gentle toast for actual network / unexpected errors.
+          // Guarded paths (demo workspace IDs) will no longer trigger this.
+          if (!["w1", "w2"].includes(get().currentWorkspace.id)) {
+            toast.error("Sync issue", {
+              description: "Couldn't reach Supabase just now. You're seeing local (offline) data. Will retry on reconnect.",
+              duration: 4500,
+            });
+          }
+          // Do not crash the app; leave (persisted) data in place as graceful degradation for offline
+          set({ taskLoadingStates: {} });
+        } finally {
+          set({ isInitializing: false, isOnline: getIsOnline(), pendingSyncCount: getPendingCount() });
+        }
+      },
+
+      // ------------------------------------------------------------------
+      // Auth (Phase 1 scaffolding)
+      // ------------------------------------------------------------------
+
+      initializeAuth: async () => {
+        set({ isAuthLoading: true });
+
+        const supabase = getSupabaseClient();
+
+        if (!supabase) {
+          // No Supabase configured — treat as not logged in
+          set({ user: null, session: null, isAuthLoading: false });
+          return;
+        }
+
+        // Get current session (guarded for slow network / transient auth errors)
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          set({ session, user: session?.user ?? null });
+
+          // STRENGTHENED LIVE GUARD: If authenticated against real Supabase, immediately purge any
+          // possible SAMPLE_* / demo-ws pollution from persisted state or initial seeds.
+          // This guarantees zero demo data leakage reaches UI/store for signed-in live users.
+          if (session?.user && isSupabaseLive()) {
+            set({
+              tasks: [],
+              notes: [],
+              recentActivity: [],
+              workspaces: [],
+              currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
+              taskLoadingStates: {},
+            });
+          }
+
+          // Restored session (e.g. page refresh while logged in): immediately load real
+          // workspaces via fetch + ensure (creates default if zero) so switcher and data
+          // are usable right away with the user's real Supabase data.
+          if (session?.user) {
+            get().ensureUserHasWorkspace();
+          }
+
+          // Also set up notifications realtime on restored session (page load while logged in)
+          if (session?.user?.id && isSupabaseLive()) {
+            (get() as any)._setupUserNotificationsRealtime(session.user.id);
+          }
+        } catch (e) {
+          console.warn("[auth] getSession failed (network?)", e);
+          // Still allow UI to render; user can retry via sign in
+          set({ user: null, session: null });
+        }
+
+        // Listen for auth changes (login, logout, token refresh)
+        supabase.auth.onAuthStateChange((_event, newSession) => {
+          const previousUser = get().user;
+          const newUser = newSession?.user ?? null;
+
+          set({
+            session: newSession,
+            user: newUser,
+          });
+
+          // Fresh sign-in: ensure workspace first (creates default if needed), then load data
+          if (!previousUser && newUser) {
+            // STRENGTHENED: wipe any demo residue right at sign-in moment for live (before ensure runs)
+            if (isSupabaseLive()) {
+              set({
+                tasks: [],
+                notes: [],
+                recentActivity: [],
+                workspaces: [],
+                currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
+                taskLoadingStates: {},
+              });
+            }
+            // Use IIFE so we can await sequentially without making the onAuthStateChange callback async
+            (async () => {
+              await get().ensureUserHasWorkspace();
+              await get().initializeFromSupabase();
+
+              if (isSupabaseLive() && newUser?.id) {
+                (get() as any)._setupUserNotificationsRealtime(newUser.id);
+              }
+            })();
+          }
+
+          // Sign-out: only reset to demo samples if we are in pure demo mode (!live keys).
+          // When Supabase is configured, on sign-out we keep clean (no sample pollution injected);
+          // subsequent init/refresh will show real data or empty per RLS. Demo delight only for !isSupabaseLive().
+          if (previousUser && !newUser && !isSupabaseLive()) {
+            set({
+              tasks: SAMPLE_TASKS,
+              notes: SAMPLE_NOTES,
+              currentWorkspace: DEFAULT_WORKSPACE,
+              workspaces: [
+                DEFAULT_WORKSPACE,
+                { id: "w2", name: "Personal", slug: "personal", role: "owner" },
+              ],
+              taskLoadingStates: {},
+            });
+          }
+
+          // Teardown notifications realtime channel on signout
+          if (previousUser && !newUser) {
+            const supabase = getSupabaseClient();
+            const ch = (get() as any)._notificationsChannel;
+            if (supabase && ch) {
+              supabase.removeChannel(ch).catch(() => {});
+              (get() as any)._notificationsChannel = null;
+            }
+          }
+        });
+
+        set({ isAuthLoading: false });
+
+        // One-time setup of network listeners + initial offline status (live mode only; demo unaffected)
+        // Listeners in hybrid also auto-trigger processPendingOperations on 'online'.
+        if (isSupabaseLive() && typeof window !== "undefined") {
+          const updateStatus = () => {
+            const onlineNow = getIsOnline();
+            const pending = getPendingCount();
+            set({ isOnline: onlineNow, pendingSyncCount: pending });
+            if (onlineNow && pending > 0) {
+              // Opportunistic background sync (non-blocking)
+              get().syncPendingWrites().catch(() => {});
+            }
+          };
+
+          // Attach if not already (idempotent guard via closure)
+          if (!(window as any).__bat_store_offline_listeners) {
+            (window as any).__bat_store_offline_listeners = true;
+            window.addEventListener("online", updateStatus);
+            window.addEventListener("offline", updateStatus);
+            // Initial sync of status
+            setTimeout(updateStatus, 0);
+          }
+
+          // Presence reliability (real-time workspace online list):
+          // - Instant meta refresh on tab visible/focus (reconnect after sleep/background/switch)
+          // - Explicit untrack on unload for fast "disappear" when leaving the site/ws context
+          if (!(window as any).__bat_presence_reliability_listeners) {
+            (window as any).__bat_presence_reliability_listeners = true;
+            const refreshPresenceMeta = () => {
+              try {
+                const ws = get().currentWorkspace;
+                if (ws?.id && isSupabaseLive() && !["w1", "w2"].includes(ws.id)) {
+                  get().updatePresenceMeta();
+                }
+              } catch {}
+            };
+            const onVisibility = () => {
+              if (document.visibilityState === "visible") {
+                refreshPresenceMeta();
+              }
+            };
+            const onUnload = () => {
+              try {
+                const pres = (get() as any)._presenceChannel;
+                if (pres) {
+                  pres.untrack().catch(() => {});
+                }
+              } catch {}
+            };
+            document.addEventListener("visibilitychange", onVisibility);
+            window.addEventListener("focus", refreshPresenceMeta);
+            window.addEventListener("beforeunload", onUnload, { once: true });
+            window.addEventListener("pagehide", onUnload, { once: true });
+            (window as any).__bat_presence_handlers = { onVisibility, refreshPresenceMeta, onUnload };
+          }
+        }
+      },
+
+      signOut: async () => {
+        get().teardownWorkspaceRealtime();
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          await supabase.auth.signOut();
+        }
+        // State (incl. clearing collab) will be updated via onAuthStateChange
+      },
+
+      fetchUserWorkspaces: async () => {
+        if (!isSupabaseLive()) return;
+
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
+        const currentUser = get().user;
+        if (!currentUser) {
+          // No user: do not touch workspaces (pure demo keeps its samples via initial state)
+          return;
+        }
+
+        try {
+          // Proper fetching of the logged-in user's real workspaces from Supabase (via workspace_members join)
+          const { data, error } = await supabase
+            .from("workspace_members")
+            .select(`
+              role,
+              workspaces (id, name, slug)
+            `)
+            .eq("user_id", currentUser.id);
+
+          if (error) {
+            console.error("[useTaskStore] fetchUserWorkspaces error:", error);
+            return;
+          }
+
+          const realWorkspaces: Workspace[] = (data ?? [])
+            .map((m: any) => {
+              const ws = m.workspaces;
+              if (!ws?.id) return null;
+              return {
+                id: ws.id,
+                name: ws.name,
+                slug: ws.slug,
+                role: m.role || "user",
+              } as Workspace;
+            })
+            .filter((w): w is Workspace => w !== null);
+
+          if (realWorkspaces.length > 0) {
+            set({ workspaces: realWorkspaces });
+
+            // Determine what currentWorkspace should be after refresh
+            const { currentWorkspace: curr } = get();
+            const stillThere = realWorkspaces.find((w) => w.id === curr.id);
+
+            if (stillThere) {
+              // Keep the same workspace but use the fresh data from the database
+              // (important after rename, slug change, role change, etc.)
+              set({ currentWorkspace: stillThere });
+            } else {
+              // First load, deleted workspace, or was a demo workspace → pick the first real one
+              set({ currentWorkspace: realWorkspaces[0] });
+            }
+          } else {
+            set({ workspaces: [] });
+          }
+        } catch (err) {
+          console.error("[useTaskStore] fetchUserWorkspaces exception:", err);
+        }
+      },
+
+      ensureUserHasWorkspace: async () => {
+        const supabase = getSupabaseClient();
+        if (!supabase || !isSupabaseLive()) return;
+
+        const currentUser = get().user;
+        if (!currentUser) return;
+
+        try {
+          // Check if user already has workspace membership(s) — decide bootstrap vs fetch full list
+          const { data: memberships, error: memErr } = await supabase
+            .from("workspace_members")
+            .select("workspace_id")
+            .eq("user_id", currentUser.id)
+            .limit(1);
+
+          if (memErr) {
+            console.error("[useTaskStore] ensureUserHasWorkspace membership query error:", memErr);
+          }
+
+          if (!memberships || memberships.length === 0) {
+            // Bootstrap a default workspace for the new (or first-time) user via the schema RPC
+            const emailLocal = (currentUser.email || "user").split("@")[0].replace(/[^a-z0-9]/gi, "");
+            const workspaceName = emailLocal ? `${emailLocal}'s Workspace` : "Personal Workspace";
+            const workspaceSlug = `personal-${emailLocal || currentUser.id.slice(0, 8)}`;
+
+            const { data: newId, error: rpcErr } = await (supabase.rpc as any)("create_workspace_for_user", {
+              user_id: currentUser.id,
+              workspace_name: workspaceName,
+              workspace_slug: workspaceSlug,
+            });
+
+            if (rpcErr || !newId) {
+              console.error("[useTaskStore] ensureUserHasWorkspace create RPC error or no id:", rpcErr);
+              // Still attempt fetch (may be partial state)
+              await get().fetchUserWorkspaces();
+              await get().initializeFromSupabase();
+              return;
+            }
+          }
+
+          // For both new users (post-create) and returning users: fetch the *full authoritative list* of real workspaces.
+          // This replaces the previous buggy "only first ws" logic and enables proper multi-workspace switcher.
+          await get().fetchUserWorkspaces();
+
+          // Ensure we have data for whatever currentWorkspace fetch decided on (or the one it set)
+          await get().initializeFromSupabase();
+        } catch (err) {
+          console.error("[useTaskStore] ensureUserHasWorkspace error:", err);
+        }
+      },
+
+      // ------------------------------------------------------------------
+      // createWorkspace — Phase 1: support creating additional workspaces (real Supabase + demo safe)
+      // Uses the existing SECURITY DEFINER RPC so RLS is respected. Then refreshes full list via fetch.
+      // ------------------------------------------------------------------
+      createWorkspace: async (name: string): Promise<Workspace | null> => {
+        const trimmed = (name || "").trim();
+        if (!trimmed) {
+          toast.error("Workspace name required");
+          return null;
+        }
+
+        // Demo mode: local-only fake workspace (keeps switcher and demo delight working exactly as before)
+        if (!isSupabaseLive()) {
+          const id = `demo-${generateId().slice(0, 8)}`;
+          const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + id.slice(5, 9);
+          const demoWs: Workspace = {
+            id,
+            name: trimmed,
+            slug,
+            role: "owner",
+          };
+          set((state) => ({
+            workspaces: [...state.workspaces, demoWs],
+            currentWorkspace: demoWs,
+          }));
+          // Re-init data (noop in !live but keeps symmetry with switch)
+          await get().initializeFromSupabase();
+          toast.success(`Workspace "${trimmed}" created (demo)`);
+          return demoWs;
+        }
+
+        const supabase = getSupabaseClient();
+        const currentUser = get().user;
+        if (!supabase || !currentUser) {
+          toast.error("Cannot create workspace", { description: "Sign in with real Supabase to create workspaces." });
+          return null;
+        }
+
+        try {
+          // Unique slug: base from name + short timestamp entropy
+          const base = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace";
+          const workspaceSlug = `${base}-${Date.now().toString(36).slice(-6)}`;
+          const workspaceName = trimmed;
+
+          const { data: newId, error: rpcErr } = await (supabase.rpc as any)("create_workspace_for_user", {
+            user_id: currentUser.id,
+            workspace_name: workspaceName,
+            workspace_slug: workspaceSlug,
+          });
+
+          if (rpcErr || !newId) {
+            console.error("[useTaskStore] createWorkspace RPC error:", rpcErr);
+            toast.error("Failed to create workspace", {
+              description: rpcErr?.message || "The name may conflict or there was a server issue.",
+            });
+            return null;
+          }
+
+          const newRealWorkspace: Workspace = {
+            id: String(newId),
+            name: workspaceName,
+            slug: workspaceSlug,
+            role: "owner",
+          };
+
+          // Refresh authoritative list from DB (ensures multi-ws correctness and any role updates)
+          await get().fetchUserWorkspaces();
+
+          // Switch to the newly created one + load its (empty) data
+          const freshList = get().workspaces;
+          const target = freshList.find((w) => w.id === newRealWorkspace.id) || newRealWorkspace;
+          set({ currentWorkspace: target });
+          await get().initializeFromSupabase();
+
+          toast.success(`Workspace "${workspaceName}" created`, {
+            description: "Switched to your new workspace.",
+          });
+          return target;
+        } catch (err: any) {
+          console.error("[useTaskStore] createWorkspace error:", err);
+          toast.error("Failed to create workspace", { description: err?.message || "Unexpected error." });
+          return null;
+        }
+      },
+
+      // ------------------------------------------------------------------
+      // refreshRecentActivity — supports production activity log panel (real DB when live)
+      // Safe guard + only runs real query when appropriate. Called from UI (e.g. manual refresh in panel).
+      // ------------------------------------------------------------------
+      refreshRecentActivity: async () => {
+        if (!isSupabaseLive()) return;
+
+        const workspaceId = get().currentWorkspace.id;
+        if (["w1", "w2"].includes(workspaceId)) return;
+
+        try {
+          const activity = await getRecentActivity(workspaceId);
+          set({ recentActivity: activity });
+        } catch (err) {
+          console.error("[useTaskStore] refreshRecentActivity error:", err);
+        }
+      },
+
+      // ------------------------------------------------------------------
+      // Overridden actions that go through Supabase when live
+      // ------------------------------------------------------------------
+
+      addTask: async (input: string) => {
+        const parsed = parseNaturalLanguage(input);
+        let workspaceId = get().currentWorkspace.id;
+
+        // Safety guard for live mode: never create against demo workspace IDs.
+        // If we somehow have a demo ID while live, try to correct to a real one.
+        if (isSupabaseLive() && ["w1", "w2"].includes(workspaceId)) {
+          await get().fetchUserWorkspaces();
+          const realWs = get().workspaces.find((w) => w.id && !["w1", "w2"].includes(w.id));
+          if (realWs) {
+            set({ currentWorkspace: realWs });
+            workspaceId = realWs.id;
+          } else {
+            toast.error("No real workspace available in LIVE mode. Please create one first.");
+            return null;
+          }
+        }
+
+        // Use proper UUID for live mode (enables clean offline create queuing + Supabase PK compatibility).
+        // Demo continues using short generateId for sample compatibility.
+        const tempId = isSupabaseLive() ? generateClientId() : generateId();
+
+        const optimisticTask: Task = {
+          id: tempId,
+          title: parsed.title || input,
+          description: "",
+          status: "todo",
+          priority: parsed.priority || "P2",
+          dueDate: parsed.dueDate,
+          assignee: "You",
+          tags: parsed.tags || [],
+          createdAt: new Date().toISOString(),
+          linkedNoteIds: [],
+          workspaceId,
+          recurringRule: (parsed as any).recurringRule ?? undefined,
+          exceptionDates: (parsed as any).exceptionDates ?? undefined,
+        };
+
+        // OPTIMISTIC: Always update UI immediately for instant feel (demo + live)
+        set((state) => ({
+          tasks: [optimisticTask, ...state.tasks],
+          taskLoadingStates: { ...state.taskLoadingStates, [tempId]: true },
+        }));
+
+        if (isSupabaseLive()) {
+          try {
+            const created = await createTaskSupabase({
+              workspaceId,
+              id: tempId, // Pass so hybrid can use consistent client id for offline queue path
+              title: optimisticTask.title,
+              description: optimisticTask.description,
+              status: optimisticTask.status,
+              priority: optimisticTask.priority,
+              dueDate: optimisticTask.dueDate,
+              tags: optimisticTask.tags,
+              // recurring + exceptions forwarding (Agent 13, built on Agent 8)
+              ...(optimisticTask.recurringRule ? { recurringRule: optimisticTask.recurringRule } : {}),
+              ...(optimisticTask.exceptionDates && optimisticTask.exceptionDates.length ? { exceptionDates: optimisticTask.exceptionDates } : {}),
+            } as any);
+
+            if (created) {
+              // Replace temp with real server entity (id will match when we supplied it)
+              set((state) => {
+                const nextLoading = { ...state.taskLoadingStates };
+                delete nextLoading[tempId];
+                return {
+                  tasks: state.tasks.map((t) => (t.id === tempId ? created : t)),
+                  taskLoadingStates: nextLoading,
+                  selectedTaskId: state.selectedTaskId === tempId ? created.id : state.selectedTaskId,
+                  pendingSyncCount: getPendingCount(),
+                  lastSyncAt: new Date().toISOString(),
+                };
+              });
+
+              // Log key event only on successful remote persist
+              logActivity({
+                workspaceId,
+                userId: get().user?.id,
+                actionType: "task.created",
+                targetType: "task",
+                targetId: created.id,
+                metadata: { title: created.title, priority: created.priority },
+              });
+
+              return created;
+            } else {
+              throw new Error("Supabase create returned null");
+            }
+          } catch (err) {
+            // Hybrid layer now queues automatically on offline/failure. Keep optimistic change (persists via new strategy).
+            set((state) => {
+              const nextLoading = { ...state.taskLoadingStates };
+              delete nextLoading[tempId];
+              return {
+                taskLoadingStates: nextLoading,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+              };
+            });
+            toast.warning("Saved locally (queued for sync)", {
+              description: "Offline or Supabase unreachable. Will sync automatically when back online.",
+              duration: 4500,
+            });
+            return optimisticTask;
+          }
+        } else {
+          // Demo mode - already optimistic, no remote, clear loading
+          set((state) => {
+            const nextLoading = { ...state.taskLoadingStates };
+            delete nextLoading[tempId];
+            return { taskLoadingStates: nextLoading };
+          });
+          return optimisticTask;
+        }
+      },
+
+      updateTask: async (id, updates) => {
+        const prevTask = get().tasks.find((t) => t.id === id);
+        if (!prevTask) return null;
+
+        // OPTIMISTIC first for snappy UX + loading indicator
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === id ? { ...t, ...updates } : t
+          ),
+          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
+        }));
+
+        if (isSupabaseLive()) {
+          try {
+            const ok = await updateTaskSupabase(id, { ...updates, workspaceId: prevTask.workspaceId });
+            if (!ok) throw new Error("Supabase update failed");
+
+            // Success: keep optimistic, clear loading + refresh pending (in case it queued inside hybrid)
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+                lastSyncAt: new Date().toISOString(),
+              };
+            });
+            return true;
+          } catch (err) {
+            // Hybrid queued the change on failure. KEEP optimistic (don't revert) so user sees their edit.
+            // This + new persist strategy = true offline edit survival.
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+              };
+            });
+            toast.info("Update kept locally", {
+              description: "Queued for sync when connection returns.",
+              duration: 3000,
+            });
+            return null;
+          }
+        } else {
+          // Demo: clear loading (change already applied)
+          set((state) => {
+            const next = { ...state.taskLoadingStates };
+            delete next[id];
+            return { taskLoadingStates: next };
+          });
+          return true;
+        }
+      },
+
+      deleteTask: async (id) => {
+        const prevTasks = [...get().tasks];
+        const prevSelected = get().selectedTaskId;
+        const taskBeingDeleted = prevTasks.find((t) => t.id === id);
+
+        // OPTIMISTIC remove immediately
+        set((state) => ({
+          tasks: state.tasks.filter((t) => t.id !== id),
+          selectedTaskId: state.selectedTaskId === id ? null : state.selectedTaskId,
+          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
+        }));
+
+        if (isSupabaseLive()) {
+          try {
+            const ok = await deleteTaskSupabase(id, prevTasks.find((t) => t.id === id)?.workspaceId);
+            if (!ok) throw new Error("Supabase delete failed");
+
+            // Success path: also update sync indicators (was missing before; now uniform)
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+                lastSyncAt: new Date().toISOString(),
+              };
+            });
+            return true;
+          } catch (err) {
+            // Hybrid queued the delete. Keep the optimistic removal (don't restore).
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+              };
+            });
+            toast.warning("Delete queued", {
+              description: "Task removed locally. Will sync delete when online.",
+              duration: 3500,
+            });
+            return null;
+          }
+        } else {
+          set((state) => {
+            const next = { ...state.taskLoadingStates };
+            delete next[id];
+            return { taskLoadingStates: next };
+          });
+          return true;
+        }
+      },
+
+      completeTask: async (id) => {
+        const prevTask = get().tasks.find((t) => t.id === id);
+        if (!prevTask || prevTask.status === "done") return null;
+
+        const now = new Date().toISOString();
+        const optimisticUpdate = {
+          status: "done" as TaskStatus,
+          completedAt: now,
+        };
+
+        // OPTIMISTIC + loading
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === id ? { ...t, ...optimisticUpdate } : t
+          ),
+          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
+        }));
+
+        if (isSupabaseLive()) {
+          try {
+            const ok = await updateTaskSupabase(id, { status: "done", completedAt: now, workspaceId: prevTask.workspaceId });
+            if (!ok) throw new Error("Supabase complete failed");
+
+            // Success: keep optimistic change (consistent with updateTask), update sync state
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+                lastSyncAt: new Date().toISOString(),
+              };
+            });
+
+            // Log on successful remote complete
+            logActivity({
+              workspaceId: get().currentWorkspace.id,
+              userId: get().user?.id,
+              actionType: "task.completed",
+              targetType: "task",
+              targetId: id,
+              metadata: { completedAt: now },
+            });
+            return true;
+          } catch (err) {
+            // On transient failure (hybrid queues): KEEP optimistic (no revert) for instant feel + offline resilience.
+            // Matches policy in updateTask / addTask / deleteTask / kanban paths. Error recovery via queue + LWW on reconnect.
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+              };
+            });
+            toast.info("Complete kept locally", {
+              description: "Queued for sync when connection returns.",
+              duration: 3000,
+            });
+            return null;
+          }
+        } else {
+          // Demo
+          set((state) => {
+            const next = { ...state.taskLoadingStates };
+            delete next[id];
+            return { taskLoadingStates: next };
+          });
+          return true;
+        }
+      },
+
+      moveTask: async (id, newStatus) => {
+        const prevTask = get().tasks.find((t) => t.id === id);
+        if (!prevTask) return null;
+
+        // OPTIMISTIC status change
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === id ? { ...t, status: newStatus } : t
+          ),
+          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
+        }));
+
+        if (isSupabaseLive()) {
+          try {
+            const ok = await moveTaskSupabase(id, newStatus, prevTask.workspaceId);
+            if (!ok) throw new Error("Supabase move failed");
+
+            // Success: keep + sync state (consistent policy)
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+                lastSyncAt: new Date().toISOString(),
+              };
+            });
+            return true;
+          } catch (err) {
+            // On transient: KEEP optimistic (status already changed in UI via kanban or direct). Queue handles. No revert.
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return {
+                taskLoadingStates: next,
+                pendingSyncCount: getPendingCount(),
+                isOnline: getIsOnline(),
+              };
+            });
+            toast.info("Move kept locally", {
+              description: "Status change queued for sync.",
+              duration: 3000,
+            });
+            return null;
+          }
+        } else {
+          set((state) => {
+            const next = { ...state.taskLoadingStates };
+            delete next[id];
+            return { taskLoadingStates: next };
+          });
+          return true;
+        }
+      },
+
+      // ------------------------------------------------------------------
+      // Notes overrides (hybrid wiring - Phase 1/3 data layer hardening)
+      // Mirroring the task pattern for full consistency: live Supabase + demo fallback + optimistic UI update.
+      // Now supports rich TipTap JSONB round-tripping via enhanced hybrid helpers (stringified docs
+      // saved to DB JSONB; plain text extracted for list/preview compat; Note.content model unchanged).
+      // ------------------------------------------------------------------
+
+      addNote: async (title: string, content = "") => {
+        let workspaceId = get().currentWorkspace.id;
+
+        // Safety guard for live mode (same as addTask)
+        if (isSupabaseLive() && ["w1", "w2"].includes(workspaceId)) {
+          await get().fetchUserWorkspaces();
+          const realWs = get().workspaces.find((w) => w.id && !["w1", "w2"].includes(w.id));
+          if (realWs) {
+            set({ currentWorkspace: realWs });
+            workspaceId = realWs.id;
+          } else {
+            toast.error("No real workspace available in LIVE mode. Please create one first.");
+            return null;
+          }
+        }
+
+        const noteId = isSupabaseLive() ? generateClientId() : generateId();
+
+        const newNote: Note = {
+          id: noteId,
+          title,
+          content,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: [],
+          linkedTaskIds: [],
+          workspaceId,
+        };
+
+        if (isSupabaseLive()) {
+          // Real mode - persist to Supabase (pass id for offline queue compatibility)
+          const created = await createNoteSupabase({
+            workspaceId,
+            id: noteId,
+            title: newNote.title,
+            content: newNote.content,
+            tags: newNote.tags,
+          });
+
+          if (created) {
+            set((state) => ({ notes: [created, ...state.notes] }));
+            // Log key event
+            logActivity({
+              workspaceId,
+              userId: get().user?.id,
+              actionType: "note.created",
+              targetType: "note",
+              targetId: created.id,
+              metadata: { title: created.title },
+            });
+            return created;
+          } else {
+            // Fallback to local on failure (keeps UX working)
+            set((state) => ({ notes: [newNote, ...state.notes] }));
+            return newNote;
+          }
+        } else {
+          // Demo mode - local only
+          set((state) => ({ notes: [newNote, ...state.notes] }));
+          return newNote;
+        }
+      },
+
+      updateNote: async (id, updates) => {
+        if (isSupabaseLive()) {
+          await updateNoteSupabase(id, updates);
+        }
+
+        set((state) => ({
+          notes: state.notes.map((n) =>
+            n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n
+          ),
+        }));
+        return true;
+      },
+
+      deleteNote: async (id) => {
+        if (isSupabaseLive()) {
+          await deleteNoteSupabase(id);
+        }
+
+        set((state) => ({
+          notes: state.notes.filter((n) => n.id !== id),
+        }));
+        return true;
+      },
+
+      // ------------------------------------------------------------------
+      // Real offline/sync actions (Phase 1 mission complete)
+      // ------------------------------------------------------------------
+      syncPendingWrites: async () => {
+        if (!isSupabaseLive()) return;
+
+        const currentPending = getPendingCount();
+        if (currentPending === 0) {
+          set({ pendingSyncCount: 0, isSyncing: false });
+          return;
+        }
+
+        set({ isSyncing: true });
+
+        try {
+          const result = await processPendingOperations();
+
+          const newCount = getPendingCount();
+          const now = new Date().toISOString();
+
+          set({
+            isSyncing: false,
+            pendingSyncCount: newCount,
+            isOnline: getIsOnline(),
+            lastSyncAt: now,
+          });
+
+          if (result.synced > 0 || result.skippedConflicts > 0) {
+            // After sync, best-effort refresh authoritative data (only if still online)
+            if (getIsOnline()) {
+              await get().initializeFromSupabase();
+            }
+            toast.success("Sync complete", {
+              description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
+              duration: 3200,
+            });
+          }
+          if (result.failed > 0) {
+            toast.warning(`${result.failed} change(s) still pending`, {
+              description: "Will retry automatically on next reconnect.",
+            });
+          }
+        } catch (e) {
+          set({ isSyncing: false, pendingSyncCount: getPendingCount(), isOnline: getIsOnline() });
+          console.error("[store] syncPendingWrites error:", e);
+        }
+      },
+
+      refreshOfflineStatus: () => {
+        set({
+          isOnline: getIsOnline(),
+          pendingSyncCount: getPendingCount(),
+        });
+      },
+
+      // ------------------------------------------------------------------
+      // Phase 2 Collaboration implementations (demo/live separated, role-aware in UI layer)
+      // ------------------------------------------------------------------
+
+      fetchMembers: async () => {
+        const wsId = get().currentWorkspace.id;
+        if (!wsId || ["w1", "w2"].includes(wsId)) {
+          set({ members: [], isLoadingMembers: false });
+          return;
+        }
+        set({ isLoadingMembers: true });
+        try {
+          const members = await getWorkspaceMembers(wsId);
+          set({ members, isLoadingMembers: false });
+        } catch (e) {
+          console.error("[store] fetchMembers error", e);
+          set({ isLoadingMembers: false });
+        }
+      },
+
+      fetchInvites: async () => {
+        const wsId = get().currentWorkspace.id;
+        if (!isSupabaseLive() || !wsId || ["w1", "w2"].includes(wsId)) {
+          set({ invites: [] });
+          return;
+        }
+        try {
+          const invs = await getWorkspaceInvites(wsId);
+          set({ invites: invs });
+        } catch (e) {
+          console.error("[store] fetchInvites error", e);
+        }
+      },
+
+      sendInvite: async (email, role = "user", invitedUserId) => {
+        const wsId = get().currentWorkspace.id;
+        const currentRole = get().currentWorkspace.role;
+        const currentUserId = get().user?.id;
+
+        const supabaseClient = getSupabaseClient();
+        if (!isSupabaseLive() || !wsId || ["w1", "w2"].includes(wsId) || !supabaseClient) {
+          toast.info("Invites are a live Supabase feature (demo is single-user)");
+          return null;
+        }
+        if (!["owner", "admin"].includes(currentRole)) {
+          toast.error("Only owners and admins can invite members");
+          return null;
+        }
+
+        const inviteId = await createInvite(wsId, email, role);
+        console.log("[DEBUG] sendInvite returned:", inviteId);
+
+        if (inviteId) {
+          // Enrich the invite row with invited_user_id + invited_by (when coming from search)
+          if (invitedUserId && currentUserId) {
+            try {
+              const { error: enrichErr } = await (supabaseClient.from('workspace_invites') as any)
+                .update({ 
+                  invited_user_id: invitedUserId, 
+                  invited_by: currentUserId 
+                })
+                .eq('id', inviteId);
+              if (enrichErr) {
+                console.warn("[store] Failed to enrich workspace_invites with invited_user_id/invited_by", enrichErr);
+              } else {
+                console.log("[DEBUG] sendInvite enriched invite row with invited_user_id", invitedUserId);
+              }
+            } catch (e) {
+              console.warn("[store] Failed to enrich workspace_invites with invited_user_id/invited_by (exception)", e);
+            }
+          }
+
+          await get().fetchInvites();
+          toast.success("Invite created", { description: "Share the link with your teammate." });
+
+          // Create notification for the recipient (powers bell + global banner).
+          // Note: direct insert may be constrained by RLS until policy updated for pre-membership invite targets.
+          if (invitedUserId) {
+            try {
+              const wsName = get().currentWorkspace.name;
+
+              // Prefer a human-friendly name (username > full_name > email) for the recipient's notification.
+              // We do a quick profiles lookup so the bell + banner show "@username" or the real name instead of raw email.
+              let senderDisplayName = get().user?.email || 'Someone';
+              let senderFullName = '';
+              let senderUsername = '';
+              if (currentUserId) {
+                try {
+                  const { data: prof } = await supabaseClient
+                    .from('profiles')
+                    .select('username, full_name')
+                    .eq('id', currentUserId)
+                    .single();
+                  if (prof) {
+                    senderFullName = prof.full_name || '';
+                    senderUsername = prof.username || '';
+                    if (senderUsername) senderDisplayName = `@${senderUsername}`;
+                    else if (senderFullName) senderDisplayName = senderFullName;
+                  }
+                } catch {
+                  // fall back to email silently
+                }
+              }
+
+              const notifPayload = {
+                user_id: invitedUserId,
+                workspace_id: wsId,
+                type: 'invite',
+                title: 'Workspace Invite',
+                message: `${senderDisplayName} invited you to join "${wsName}"`,
+                link: `/teams`,
+                metadata: {
+                  invite_id: inviteId,
+                  workspace_id: wsId,
+                  workspace_name: wsName,
+                  invited_by: currentUserId,
+                  invited_by_name: senderDisplayName,
+                  invited_by_full_name: senderFullName,
+                  invited_by_username: senderUsername,
+                  role: role,
+                },
+              };
+              const { data: notifData, error: notifErr } = await (supabaseClient.from('notifications') as any).insert(notifPayload);
+              if (notifErr) {
+                console.warn("[store] Failed to create invite notification (RLS or schema?)", notifErr, "payload:", notifPayload);
+              } else {
+                console.log("[DEBUG] sendInvite created recipient notification for", invitedUserId, "notif:", notifData);
+                // Optimistically surface in sender's notifs list too (in case they view it)
+                try { get().fetchNotifications?.().catch(() => {}); } catch {}
+              }
+            } catch (e) {
+              console.warn("[store] Failed to create invite notification (exception)", e);
+            }
+          }
+
+          // Email scaffolding (unchanged)
+          if (email) {
+            const wsName = get().currentWorkspace.name;
+            sendInviteEmail(wsId, inviteId, email, wsName).catch(() => {});
+          }
+        } else {
+          toast.error("Failed to create invite");
+          console.warn("[DEBUG] sendInvite did NOT return an id. Invite creation likely failed.");
+        }
+        return inviteId;
+      },
+
+      acceptInviteLink: async (inviteId) => {
+        if (!isSupabaseLive()) {
+          toast.info("Invite accept is live-only");
+          return null;
+        }
+        const wsId = await acceptInvite(inviteId);
+        if (wsId) {
+          toast.success("Invite accepted! Switching workspace...");
+          // Refresh workspaces + switch
+          await get().fetchUserWorkspaces();
+          // Switch to it
+          const fresh = get().workspaces.find((w) => w.id === wsId);
+          if (fresh) {
+            get().switchWorkspace(wsId); // will trigger init
+          } else {
+            await get().fetchUserWorkspaces();
+          }
+          await get().fetchMembers();
+
+          // Best-effort: ensure this user has a profiles row so their name shows up
+          // nicely in the members list for everyone (instead of raw UUIDs).
+          try {
+            const supabase = getSupabaseClient();
+            const me = get().user;
+            if (supabase && me?.id) {
+              await supabase.from('profiles').upsert({ id: me.id }, { onConflict: 'id' });
+            }
+          } catch {}
+
+          // World-class: ensure any powering invite notification is cleaned via central helper
+          try {
+            const { cleanupInviteEverywhere } = await import("@/lib/data/hybridStore");
+            await cleanupInviteEverywhere(inviteId, 'accepted').catch(() => {});
+          } catch {}
+        } else {
+          toast.error("Could not accept invite (invalid/expired?)");
+        }
+        return wsId;
+      },
+
+      changeMemberRole: async (userId, newRole) => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        if (!["owner", "admin"].includes(myRole)) {
+          toast.error("Insufficient permissions");
+          return false;
+        }
+        if (userId === get().user?.id) {
+          toast.error("Cannot change your own role here");
+          return false;
+        }
+        // Safety: prevent demoting the last owner (protect workspace from lockout)
+        const currentMembers = get().members || [];
+        const target = currentMembers.find((m) => m.userId === userId);
+        if (target?.role === "owner" && newRole !== "owner") {
+          const ownerCount = currentMembers.filter((m) => m.role === "owner").length;
+          if (ownerCount <= 1) {
+            toast.error("Cannot demote the last owner — workspace would become unmanageable");
+            return false;
+          }
+        }
+        const ok = await updateMemberRole(wsId, userId, newRole);
+        if (ok) {
+          await get().fetchMembers();
+          toast.success(`Role updated to ${newRole}`);
+        } else {
+          toast.error("Failed to update role");
+        }
+        return ok;
+      },
+
+      removeWorkspaceMember: async (userId) => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        if (!["owner", "admin"].includes(myRole)) {
+          toast.error("Only owners/admins can remove members");
+          return false;
+        }
+        if (userId === get().user?.id) {
+          toast.error("You cannot remove yourself");
+          return false;
+        }
+        // Safety: prevent removing the last owner (protect workspace from lockout / orphaning)
+        const currentMembers = get().members || [];
+        const target = currentMembers.find((m) => m.userId === userId);
+        if (target?.role === "owner") {
+          const ownerCount = currentMembers.filter((m) => m.role === "owner").length;
+          if (ownerCount <= 1) {
+            toast.error("Cannot remove the last owner of the workspace");
+            return false;
+          }
+        }
+        const ok = await removeMember(wsId, userId);
+        if (ok) {
+          await get().fetchMembers();
+          // World-class: refresh invites + notifications so owner sees clean state immediately
+          // (removed user's pending invites and any assignment notifs are gone)
+          await Promise.all([
+            get().fetchInvites?.().catch(() => {}),
+            get().fetchNotifications?.().catch(() => {}),
+          ]);
+          toast.success("Member removed");
+        } else {
+          toast.error("Failed to remove member");
+        }
+        return ok;
+      },
+
+      /**
+       * Self-service exit from the current (or specified) workspace.
+       * World-class symmetric path: any member can leave (last-owner protected server-side).
+       * Instantly cleans membership + related notifications.
+       */
+      exitWorkspace: async (targetWorkspaceId) => {
+        const wsId = targetWorkspaceId || get().currentWorkspace?.id;
+        if (!wsId) {
+          toast.error("No workspace to exit");
+          return false;
+        }
+        const currentUserId = get().user?.id;
+        if (!currentUserId) return false;
+
+        // Optimistic: immediately remove self from local members list
+        const prevMembers = get().members || [];
+        set({ members: prevMembers.filter((m) => m.userId !== currentUserId) });
+
+        try {
+          const ok = await (await import("@/lib/data/hybridStore")).exitWorkspace(wsId);
+          if (ok) {
+            // Refresh authoritative state
+            await get().fetchUserWorkspaces?.().catch(() => {});
+            await get().fetchMembers?.().catch(() => {});
+            await get().fetchNotifications?.().catch(() => {});
+
+            // If we just left the current workspace, switch to another one
+            if (wsId === get().currentWorkspace?.id) {
+              const remaining = get().workspaces || [];
+              if (remaining.length > 0) {
+                get().switchWorkspace(remaining[0].id);
+              }
+            }
+
+            toast.success("You have left the workspace");
+            return true;
+          } else {
+            // Rollback optimistic change
+            set({ members: prevMembers });
+            toast.error("Failed to exit workspace (you may be the last owner)");
+            return false;
+          }
+        } catch (e) {
+          set({ members: prevMembers });
+          console.error("[exitWorkspace] error", e);
+          toast.error("Failed to exit workspace");
+          return false;
+        }
+      },
+
+      updateMyProfile: async (updates) => {
+        if (!isSupabaseLive()) {
+          toast.info("Profile editing is a live Supabase feature (demo mode is read-only)");
+          return false;
+        }
+        const ok = await updateMyProfile(updates);
+        if (ok) {
+          await get().fetchMembers(); // refresh list so fullName updates everywhere (members, comments, etc.)
+          toast.success("Profile updated");
+        } else {
+          toast.error("Failed to save profile");
+        }
+        return ok;
+      },
+
+      searchPotentialTeammates: async (query, currentWorkspaceId) => {
+        // Thin wrapper: hybrid already has full guards + RPC call. No extra toasts here (caller in UI decides UX).
+        if (!isSupabaseLive()) return [];
+        return await searchPotentialTeammates(query, currentWorkspaceId);
+      },
+
+      /**
+       * Called when an owner/admin clicks Revoke on an invite in their "Invites sent" list.
+       * Goals:
+       *  - Delete the invite row
+       *  - Clean up any associated notification(s) so the recipient's banner disappears
+       *  - Refresh both invites and notifications lists
+       */
+      revokeInvite: async (inviteId) => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        if (!["owner", "admin"].includes(myRole)) {
+          toast.error("Only owners/admins can revoke invites");
+          return false;
+        }
+        const ok = await revokeInvite(wsId, inviteId);
+        if (ok) {
+          await get().fetchInvites();
+          await get().fetchNotifications?.().catch(() => {});
+          toast.success("Invite revoked", { description: "Recipient should no longer see the banner." });
+        } else {
+          toast.error("Failed to revoke invite");
+        }
+        return ok;
+      },
+
+      /**
+       * Called when the recipient clicks Decline on the persistent invite banner.
+       * Goals:
+       *  - Remove the notification for this recipient (so banner + bell clear for them)
+       *  - Attempt to remove the invite row (so it disappears from sender's list too)
+       *  - Use optimistic UI + fallback fetch for best UX
+       */
+      declineReceivedInvite: async (inviteId) => {
+        const currentUserId = get().user?.id;
+        if (!currentUserId) {
+          console.error("[decline] No current user id");
+          return false;
+        }
+
+        console.log("[decline] Declining invite", inviteId, "for user", currentUserId);
+
+        // Optimistically remove from local state immediately (so UI feels responsive)
+        const currentNotifs = get().notifications || [];
+        const filtered = currentNotifs.filter((n: any) => {
+          return !(n.type === "invite" && n.metadata?.invite_id === inviteId);
+        });
+        set({ notifications: filtered });
+
+        try {
+          // World-class central helper (prefers atomic RPCs, strong fallbacks)
+          const ok = await (await import("@/lib/data/hybridStore")).cleanupInviteEverywhere(inviteId, 'declined');
+
+          await get().fetchNotifications?.().catch(() => {});
+          await get().fetchInvites?.().catch(() => {});
+
+          if (ok) {
+            toast.success("Invite declined");
+            return true;
+          } else {
+            toast.error("Failed to decline invite (cleanup incomplete)");
+            return false;
+          }
+        } catch (e) {
+          console.error("[declineReceivedInvite] unexpected error", e);
+          await get().fetchNotifications?.().catch(() => {});
+          toast.error("Failed to decline invite");
+          return false;
+        }
+      },
+
+      resendInvite: async (inviteId) => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        if (!["owner", "admin"].includes(myRole)) {
+          toast.error("Only owners/admins can resend invites");
+          return false;
+        }
+        const currentInvites = get().invites || [];
+        const target = currentInvites.find((i) => i.id === inviteId);
+        if (!target) {
+          toast.error("Invite not found in pending list");
+          return false;
+        }
+        // Create fresh (same email/role if any; gets new 14d expiry via RPC)
+        const newId = await createInvite(wsId, target.email, target.role);
+        if (!newId) {
+          toast.error("Failed to create replacement invite");
+          return false;
+        }
+        // Revoke the old one (now superseded)
+        const revoked = await revokeInvite(wsId, inviteId);
+        await get().fetchInvites();
+        if (revoked) {
+          toast.success("Invite resent", { description: "New link generated (old one revoked)." });
+        } else {
+          // Still succeeded in creating new; old may be stale but ok
+          toast.success("New invite created", { description: "Old invite may still be valid until manually revoked." });
+        }
+        return true;
+      },
+
+      // Comments impl (Agent 14)
+      fetchComments: async (target) => {
+        set({ isLoadingComments: true });
+        try {
+          const list = await getComments(target);
+          set({ comments: list, isLoadingComments: false });
+        } catch {
+          set({ isLoadingComments: false });
+        }
+      },
+      addComment: async (content, target) => {
+        const wsId = get().currentWorkspace.id;
+        const user = get().user;
+        if (!content.trim()) return false;
+        // Optimistic add
+        const tempId = `c_${Date.now()}`;
+        const optimistic: Comment = {
+          id: tempId,
+          content: content.trim(),
+          userId: user?.id || "me",
+          taskId: target.taskId,
+          noteId: target.noteId,
+          parentCommentId: target.parentCommentId,
+          createdAt: new Date().toISOString(),
+          userEmail: user?.email || undefined,
+        };
+        set({ comments: [...(get().comments || []), optimistic] });
+
+        const created = await createComment({
+          content: content.trim(),
+          taskId: target.taskId,
+          noteId: target.noteId,
+          parentCommentId: target.parentCommentId,
+          workspaceId: wsId,
+          userId: user?.id || null,
+        });
+
+        if (created) {
+          // Replace optimistic with real
+          set({
+            comments: (get().comments || []).map((c) => (c.id === tempId ? created : c)),
+          });
+          // Refresh activity if wired
+          get().refreshRecentActivity?.().catch(() => {});
+          return true;
+        } else {
+          // Rollback optimistic on fail
+          set({ comments: (get().comments || []).filter((c) => c.id !== tempId) });
+          toast.error("Failed to post comment (demo or live error)");
+          return false;
+        }
+      },
+
+      // Agent 31: Notification actions (full foundation: fetch, mark, count, prefs, realtime friendly)
+      fetchNotifications: async (unreadOnly = false) => {
+        const user = get().user;
+        // Fetch ALL notifications for the user (cross-workspace). This ensures 'invite' notifications
+        // (which target a ws the recipient may not yet be a member of) appear in the bell
+        // and drive global banners regardless of which workspace the recipient is currently viewing.
+        if (!user || !isSupabaseLive()) {
+          set({ notifications: [], isLoadingNotifications: false });
+          return;
+        }
+        set({ isLoadingNotifications: true });
+        try {
+          const notifs = await getUserNotifications(user.id, undefined, 50, unreadOnly);
+          const count = await getUnreadNotificationCount(user.id, undefined);
+          set({ notifications: notifs, unreadNotifCount: count, isLoadingNotifications: false });
+        } catch {
+          set({ isLoadingNotifications: false });
+        }
+      },
+      markNotifRead: async (idOrIds) => {
+        const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+        const ok = await markNotificationsRead(ids);
+        if (ok) {
+          set((state) => ({
+            notifications: state.notifications.map((n) =>
+              ids.includes(n.id) ? { ...n, readAt: new Date().toISOString() } : n
+            ),
+            unreadNotifCount: Math.max(0, state.unreadNotifCount - ids.length),
+          }));
+        }
+      },
+      markAllNotifsRead: async () => {
+        const unread = get().notifications.filter((n) => !n.readAt).map((n) => n.id);
+        if (unread.length === 0) return;
+        const ok = await markNotificationsRead(unread);
+        if (ok) {
+          set((state) => ({
+            notifications: state.notifications.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })),
+            unreadNotifCount: 0,
+          }));
+        }
+      },
+      deleteNotification: async (id) => {
+        const userId = get().user?.id;
+        if (!userId) return false;
+        const ok = await deleteNotification(id, userId);
+        if (ok) {
+          set((state) => {
+            const remaining = state.notifications.filter((n) => n.id !== id);
+            const unreadCount = remaining.filter((n) => !n.readAt).length;
+            return {
+              notifications: remaining,
+              unreadNotifCount: unreadCount,
+            };
+          });
+        }
+        return ok;
+      },
+      clearAllNotifications: async () => {
+        const userId = get().user?.id;
+        if (!userId) return false;
+        const ok = await clearAllNotifications(userId);
+        if (ok) {
+          set({ notifications: [], unreadNotifCount: 0 });
+        }
+        return ok;
+      },
+      refreshUnreadCount: async () => {
+        const user = get().user;
+        const wsId = get().currentWorkspace.id;
+        if (!user || !isSupabaseLive()) return;
+        const count = await getUnreadNotificationCount(user.id, wsId);
+        set({ unreadNotifCount: count });
+      },
+      updateNotificationPrefs: async (updates) => {
+        const current = get().notificationPrefs || {
+          email: true,
+          inApp: true,
+          types: { mention: true, comment: true, invite: true, task_assigned: true, deadline: true, activity: true },
+          perWorkspace: {},
+        } as NotificationPrefs;
+        const next = { ...current, ...updates, types: { ...current.types, ...(updates.types || {}) }, perWorkspace: { ...current.perWorkspace, ...(updates.perWorkspace || {}) } };
+        set({ notificationPrefs: next });
+        // Persist note: in full would update profile via hybrid. For foundation, local + toast.
+        toast.success("Notification preferences updated", { description: "Applied for this session (DB sync in future pass)." });
+        // Future: await updateProfileNotificationPrefs(next)
+      },
+
+      // Agent 18: real powerful exports (full data + all formats via utils), imports with conflict, apply now wired
+      getWorkspaceStats: async () => (await import("@/lib/data/hybridStore")).getWorkspaceStats(get().currentWorkspace.id),
+      exportWorkspace: async (format) => {
+        const ws = get().currentWorkspace;
+        const wsId = ws.id;
+        if (!isSupabaseLive() || ["w1", "w2"].includes(wsId)) {
+          toast.info("Exports require a live (non-demo) workspace");
+          return;
+        }
+        try {
+          const hybridMod = await import("@/lib/data/hybridStore");
+          const data = await hybridMod.exportWorkspaceData(wsId, { name: ws.name, slug: ws.slug });
+          if (!data) {
+            toast.error("Export data unavailable");
+            return;
+          }
+          const utils = await import("@/lib/utils");
+          const { downloadFile, exportToJSON, tasksToCSV, notesToCSV, membersToCSV, activityToCSV, exportToMarkdown } = utils;
+          const stamp = new Date().toISOString().slice(0, 10);
+          const base = ws.slug || "workspace";
+          let exported = 0;
+          if (format === "json" || format === "all") {
+            downloadFile(`${base}-full-${stamp}.json`, exportToJSON(data as any), "application/json");
+            exported++;
+          }
+          if (format === "csv" || format === "all") {
+            downloadFile(`${base}-tasks-${stamp}.csv`, tasksToCSV(data.tasks || []), "text/csv");
+            downloadFile(`${base}-notes-${stamp}.csv`, notesToCSV(data.notes || []), "text/csv");
+            if (data.members && data.members.length) downloadFile(`${base}-members-${stamp}.csv`, membersToCSV(data.members), "text/csv");
+            if (data.activity && data.activity.length) downloadFile(`${base}-activity-${stamp}.csv`, activityToCSV(data.activity), "text/csv");
+            exported++;
+          }
+          if (format === "md" || format === "all") {
+            downloadFile(`${base}-export-${stamp}.md`, exportToMarkdown(ws.name, data.tasks || [], data.notes || [], data.members || [], data.activity || []), "text/markdown");
+            exported++;
+          }
+          toast.success(`Exported ${exported} file(s) for ${format.toUpperCase()}`);
+        } catch (e) {
+          toast.error("Export failed — check console");
+          console.error(e);
+        }
+      },
+      importWorkspaceData: async (p, options) => (await import("@/lib/data/hybridStore")).importWorkspaceData(get().currentWorkspace.id, p, options),
+      getTemplates: async () => (await import("@/lib/data/hybridStore")).getTemplates(get().currentWorkspace.id),
+      applyTemplate: async (tpl) => {
+        const h = await import("@/lib/data/hybridStore");
+        const res = await h.applyTemplate?.(get().currentWorkspace.id, tpl);
+        // After apply (live), refresh to surface new items in UI immediately
+        if (res && isSupabaseLive() && !["w1", "w2"].includes(get().currentWorkspace.id)) {
+          setTimeout(() => get().initializeFromSupabase(), 120);
+        }
+        return res || null;
+      },
+      saveCurrentAsTemplate: async (type, id) => (await import("@/lib/data/hybridStore")).logTemplateAction?.(get().currentWorkspace.id, "saved", type, id),
+      getAdminTemplateLibrary: () => (ADMIN_TEMPLATE_LIBRARY || []),
+
+      updateWorkspaceDetails: async (updates) => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        if (myRole !== "owner") {
+          toast.error("Only workspace owners can edit settings");
+          return false;
+        }
+        const ok = await updateWorkspace(wsId, updates);
+        if (ok) {
+          // Refresh the authoritative list from the database
+          await get().fetchUserWorkspaces();
+
+          // Use the fresh object from the DB for the current workspace
+          const freshList = get().workspaces;
+          const updated = freshList.find((w) => w.id === wsId);
+
+          if (updated) {
+            set({ currentWorkspace: updated });
+          }
+
+          toast.success("Workspace updated");
+        } else {
+          toast.error("Failed to update workspace", {
+            description: "The change may have been blocked by permissions or a conflicting slug.",
+          });
+        }
+        return ok;
+      },
+
+      deleteCurrentWorkspace: async () => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        if (myRole !== "owner") {
+          toast.error("Only the workspace owner can delete it");
+          return false;
+        }
+        // Extra safety: confirm name match done in UI; here just call
+        const ok = await deleteWorkspace(wsId);
+        if (ok) {
+          toast.success("Workspace deleted");
+          // Refresh list and switch to another if available
+          await get().fetchUserWorkspaces();
+          const remaining = get().workspaces;
+          if (remaining.length > 0) {
+            get().switchWorkspace(remaining[0].id);
+          } else {
+            // Fallback to demo-ish (will be handled by ensure flow)
+            set({ currentWorkspace: { id: "", name: "No workspace", slug: "", role: "owner" } as Workspace });
+          }
+        } else {
+          toast.error("Failed to delete workspace");
+        }
+        return ok;
+      },
+
+      setupWorkspaceRealtime: () => {
+        const wsId = get().currentWorkspace.id;
+        if (!isSupabaseLive() || !wsId || ["w1", "w2"].includes(wsId)) return;
+
+        // Teardown old first
+        get().teardownWorkspaceRealtime();
+
+        const cleanup = subscribeToWorkspaceRealtime(wsId, {
+          onTaskChange: (payload) => {
+            // Smart update of local tasks list without full refetch (optimistic + live)
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const currentTasks = get().tasks;
+            if (eventType === "INSERT" && newRow) {
+              // Avoid dupes
+              if (!currentTasks.some((t) => t.id === newRow.id)) {
+                // Map lightly (reuse hybrid mapper logic via import? simple here)
+                const mapped = {
+                  id: newRow.id,
+                  workspaceId: newRow.workspace_id,
+                  title: newRow.title,
+                  description: newRow.description || "",
+                  status: newRow.status,
+                  priority: newRow.priority,
+                  dueDate: newRow.due_date || undefined,
+                  assignee: "You",
+                  tags: newRow.tags || [],
+                  createdAt: newRow.created_at,
+                  completedAt: newRow.completed_at || undefined,
+                  timeEstimate: newRow.time_estimate || undefined,
+                  linkedNoteIds: newRow.linked_note_ids || [],
+                } as Task;
+                set({ tasks: [mapped, ...currentTasks] });
+              }
+            } else if (eventType === "UPDATE" && newRow) {
+              // Agent 30: live conflict detection for concurrent edits (if selected/editing this item right now)
+              const st = get();
+              const isSelected = st.selectedTaskId === newRow.id;
+              const isEditing = st.onlineUsers?.some(u => u.editingItemId === newRow.id && u.userId !== (st.user?.id || 'me')) || isSelected;
+              const existing = currentTasks.find(t => t.id === newRow.id);
+              const remotePreview = newRow.title || '';
+
+              // Live collab polish: if we have a recent liveEditing signal for this task, the lightweight broadcast is already flowing — suppress the heavier conflict banner
+              const liveEdit = st.liveEditing?.[newRow.id];
+              const hasRecentLive = liveEdit && (Date.now() - new Date(liveEdit.lastUpdatedAt).getTime() < 8000);
+
+              if (isEditing && existing && !hasRecentLive && (existing.title !== (newRow.title || '') || existing.description !== (newRow.description || ''))) {
+                // Surface conflict UI (non blocking)
+                set((s) => ({
+                  activeConflicts: {
+                    ...s.activeConflicts,
+                    [newRow.id]: { itemId: newRow.id, itemType: 'task', remoteUser: 'collaborator', remoteUpdatedAt: newRow.updated_at || new Date().toISOString(), remotePreview }
+                  }
+                }));
+              }
+              set({
+                tasks: currentTasks.map((t) =>
+                  t.id === newRow.id
+                    ? {
+                        ...t,
+                        title: newRow.title ?? t.title,
+                        description: newRow.description ?? t.description,
+                        status: newRow.status ?? t.status,
+                        priority: newRow.priority ?? t.priority,
+                        dueDate: newRow.due_date ?? t.dueDate,
+                        tags: newRow.tags ?? t.tags,
+                        completedAt: newRow.completed_at ?? t.completedAt,
+                      }
+                    : t
+                ),
+              });
+            } else if (eventType === "DELETE" && oldRow) {
+              set({ tasks: currentTasks.filter((t) => t.id !== oldRow.id) });
+            }
+          },
+          onNoteChange: (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const currentNotes = get().notes;
+            if (eventType === "INSERT" && newRow) {
+              if (!currentNotes.some((n) => n.id === newRow.id)) {
+                const mapped: Note = {
+                  id: newRow.id,
+                  workspaceId: newRow.workspace_id,
+                  title: newRow.title,
+                  content: "", // will be refreshed on full load if rich needed; realtime for list is title-focused
+                  createdAt: newRow.created_at,
+                  updatedAt: newRow.updated_at,
+                  tags: newRow.tags || [],
+                  linkedTaskIds: newRow.linked_task_ids || [],
+                };
+                set({ notes: [mapped, ...currentNotes] });
+              }
+            } else if (eventType === "UPDATE" && newRow) {
+              // Agent 30: live conflict detection for concurrent note edits
+              const st = get();
+              const isSelected = (st as any).selectedNoteId === newRow.id; // note id tracked in page but approximate via editing
+              const editingOthers = (st.onlineUsers || []).some((u: any) => u.editingItemId === newRow.id && u.editingItemType === 'note' && u.userId !== (st.user?.id || 'me'));
+              const existing = currentNotes.find(n => n.id === newRow.id);
+
+              // Live collab polish: suppress conflict banner when live content broadcast is actively flowing
+              const liveEdit = st.liveEditing?.[newRow.id];
+              const hasRecentLive = liveEdit && (Date.now() - new Date(liveEdit.lastUpdatedAt).getTime() < 8000);
+
+              if ((isSelected || editingOthers) && existing && !hasRecentLive && existing.title !== (newRow.title || '')) {
+                set((s) => ({
+                  activeConflicts: {
+                    ...s.activeConflicts,
+                    [newRow.id]: { itemId: newRow.id, itemType: 'note', remoteUser: 'collaborator', remoteUpdatedAt: newRow.updated_at || new Date().toISOString(), remotePreview: newRow.title }
+                  }
+                }));
+              }
+              set({
+                notes: currentNotes.map((n) =>
+                  n.id === newRow.id
+                    ? { ...n, title: newRow.title ?? n.title, updatedAt: newRow.updated_at || n.updatedAt, tags: newRow.tags ?? n.tags }
+                    : n
+                ),
+              });
+            } else if (eventType === "DELETE" && oldRow) {
+              set({ notes: currentNotes.filter((n) => n.id !== oldRow.id) });
+            }
+          },
+          onInviteChange: (payload) => {
+            // When any invite changes (especially DELETE from recipient decline/accept),
+            // refresh the sender's list so "Invites sent" updates instantly.
+            const { eventType } = payload;
+            if (eventType === "DELETE" || eventType === "INSERT" || eventType === "UPDATE") {
+              get().fetchInvites?.().catch(() => {});
+            }
+          },
+          onMemberChange: (payload) => {
+            // When a member is added (accept), removed, or updated,
+            // refresh the members list so everyone sees the change instantly.
+            const { eventType, old: oldRow } = payload;
+
+            if (eventType === "INSERT" || eventType === "DELETE" || eventType === "UPDATE") {
+              get().fetchMembers?.().catch(() => {});
+            }
+
+            // Special handling for the removed user themselves
+            if (eventType === "DELETE" && oldRow) {
+              const currentUserId = get().user?.id;
+              const removedUserId = oldRow.user_id;
+
+              if (removedUserId === currentUserId) {
+                const removedWorkspaceId = oldRow.workspace_id;
+                const currentWs = get().currentWorkspace;
+
+                // Try to find a friendly name before we refresh the list
+                const wsList = get().workspaces || [];
+                const removedWs = wsList.find((w) => w.id === removedWorkspaceId);
+                const wsName = removedWs?.name || "a workspace";
+
+                toast(`You have been removed from ${wsName}`);
+
+                // Refresh the user's workspace list so they no longer see the removed workspace
+                get().fetchUserWorkspaces?.().catch(() => {});
+
+                if (removedWorkspaceId === currentWs?.id) {
+                  // We were actively viewing the workspace we were just removed from
+                  get().teardownWorkspaceRealtime?.();
+
+                  const remaining = (get().workspaces || []).filter((w) => w.id !== removedWorkspaceId);
+
+                  if (remaining.length > 0) {
+                    // Automatically switch the removed user to another workspace they still belong to
+                    get().switchWorkspace(remaining[0].id);
+                  } else {
+                    // No workspaces left — clear the current workspace state cleanly
+                    set({
+                      currentWorkspace: null,
+                      tasks: [],
+                      notes: [],
+                      members: [],
+                      invites: [],
+                      onlineUsers: [],
+                    });
+                  }
+                }
+              }
+            }
+          },
+        });
+
+        // Store cleanup for later teardown (simple closure capture via state flag)
+        (get() as any)._realtimeCleanup = cleanup;
+
+        // Basic presence (track self) + enhanced meta for view/item editing indicators (Agent 14 polish)
+        const presenceChannel = getWorkspacePresenceChannel(wsId);
+        if (presenceChannel) {
+          const user = get().user;
+          presenceChannel
+            .on("presence", { event: "sync" }, () => {
+              const state = presenceChannel.presenceState();
+              const userMap = new Map<string, any>();
+
+              Object.keys(state).forEach((key) => {
+                const presences = state[key] as any[];
+                presences.forEach((p) => {
+                  const userId = p.user_id || key;
+                  const existing = userMap.get(userId);
+
+                  // Keep the most recent presence per user (prefer ones with editing context)
+                  const currentTime = new Date(p.online_at || 0).getTime();
+                  const existingTime = existing ? new Date(existing.online_at || 0).getTime() : 0;
+
+                  if (!existing || currentTime > existingTime || (p.editingItemId && !existing.editingItemId)) {
+                    userMap.set(userId, {
+                      userId,
+                      email: p.email,
+                      presenceRef: key,
+                      view: p.currentView,
+                      editingItemId: p.editingItemId,
+                      editingItemType: p.editingItemType,
+                      online_at: p.online_at,
+                    });
+                  }
+                });
+              });
+
+              const users = Array.from(userMap.values());
+              set({ onlineUsers: users });
+            })
+            .on("presence", { event: "join" }, ({ key, newPresences }) => {
+              // lightweight; full sync above handles
+            })
+            // Agent 30: listen for live cursor/selection broadcasts + mentions/conflict signals on the shared presence channel (premium collab)
+            .on('broadcast', { event: 'cursor-update' }, ({ payload }) => {
+              if (!payload?.userId) return;
+              const selfId = get().user?.id || 'me';
+              if (payload.userId === selfId) return; // ignore echo
+              const color = payload.color || getUserColor(payload.userId);
+              set((s) => {
+                const filtered = (s.remoteCursors || []).filter(c => c.userId !== payload.userId);
+                return { remoteCursors: [...filtered, { ...payload, color }] };
+              });
+            })
+            .on('broadcast', { event: 'cursor-clear' }, ({ payload }) => {
+              if (!payload?.userId) return;
+              set((s) => ({ remoteCursors: (s.remoteCursors || []).filter(c => c.userId !== payload.userId) }));
+            })
+            .on('broadcast', { event: 'mention' }, ({ payload }) => {
+              // Enhance mentions realtime: toast if mentioned (demo + live)
+              const selfEmail = get().user?.email?.toLowerCase();
+              if (payload?.mentionedEmails?.some((e: string) => e?.toLowerCase() === selfEmail) || payload?.mentionedUserIds?.includes(get().user?.id)) {
+                toast(`🔔 Mentioned by ${payload.by || 'teammate'}`, { description: payload.preview || 'in a comment' });
+              }
+            })
+            // Live collab foundation (Slice 1): lightweight "while typing" broadcasts
+            .on('broadcast', { event: 'live-task-edit' }, ({ payload }) => {
+              if (!payload?.taskId || !payload?.userId) return;
+              const selfId = get().user?.id || 'me';
+              if (payload.userId === selfId) return; // ignore own echoes
+
+              // Update liveEditing indicator
+              set((s) => ({
+                liveEditing: {
+                  ...s.liveEditing,
+                  [payload.taskId]: {
+                    userId: payload.userId,
+                    email: payload.email,
+                    itemType: 'task',
+                    lastUpdatedAt: payload.ts || new Date().toISOString(),
+                  },
+                },
+              }));
+
+              // Optimistic apply only if this task is currently open/selected (avoid fighting local state)
+              const currentSelected = get().selectedTaskId;
+              if (currentSelected === payload.taskId) {
+                const updates: any = {};
+                if (payload.title !== undefined) updates.title = payload.title;
+                if (payload.description !== undefined) updates.description = payload.description;
+                if (Object.keys(updates).length > 0) {
+                  set((s) => ({
+                    tasks: s.tasks.map((t) =>
+                      t.id === payload.taskId ? { ...t, ...updates } : t
+                    ),
+                  }));
+                }
+              }
+            })
+            .on('broadcast', { event: 'live-note-content' }, ({ payload }) => {
+              if (!payload?.noteId || !payload?.userId || !payload?.content) return;
+              const selfId = get().user?.id || 'me';
+              if (payload.userId === selfId) return;
+
+              console.log('[live-collab] RECEIVED note content', { noteId: payload.noteId, fromUser: payload.userId });
+
+              set((s) => ({
+                liveEditing: {
+                  ...s.liveEditing,
+                  [payload.noteId]: {
+                    userId: payload.userId,
+                    email: payload.email,
+                    itemType: 'note',
+                    lastUpdatedAt: payload.ts || new Date().toISOString(),
+                  },
+                },
+              }));
+
+              // Optimistic apply only when the note is currently being viewed/edited
+              const currentNotes = get().notes;
+              const isViewingThisNote = currentNotes.some((n) => n.id === payload.noteId); // simple check; parent controls visibility
+              if (isViewingThisNote) {
+                set((s) => ({
+                  notes: s.notes.map((n) =>
+                    n.id === payload.noteId ? { ...n, content: payload.content } : n
+                  ),
+                }));
+              }
+            })
+            .subscribe(async (status) => {
+              if (status === "SUBSCRIBED") {
+                const st = get();
+                await presenceChannel.track({
+                  user_id: user?.id,
+                  email: user?.email,
+                  online_at: new Date().toISOString(),
+                  currentView: st.currentView,
+                  editingItemId: st.selectedTaskId || undefined,
+                  editingItemType: st.selectedTaskId ? 'task' : undefined,
+                }, { key: user?.id }); // Use user ID as presence key so multiple tabs from same user are handled better
+                // Initial meta refresh available via action
+                get().updatePresenceMeta();
+              }
+            });
+          (get() as any)._presenceChannel = presenceChannel;
+        }
+
+        // Agent 30: Excellent demo simulated presence (cursors, views, editing) - makes demo feel truly live & magical like Figma
+        const isDemo = !isSupabaseLive() || ["w1", "w2"].includes(wsId);
+        if (isDemo) {
+          get().startDemoPresenceSimulator?.();
+        }
+      },
+
+      teardownWorkspaceRealtime: () => {
+        const cleanup = (get() as any)._realtimeCleanup;
+        if (typeof cleanup === "function") {
+          cleanup();
+          delete (get() as any)._realtimeCleanup;
+        }
+        const pres = (get() as any)._presenceChannel;
+        if (pres) {
+          // Explicit untrack for instant leave signal (peers see user disappear immediately on ws switch / signout / close)
+          pres.untrack().catch(() => {});
+          pres.unsubscribe().catch(() => {});
+          delete (get() as any)._presenceChannel;
+        }
+        const t = (get() as any)._demoPresenceTimer;
+        if (t) { clearInterval(t); delete (get() as any)._demoPresenceTimer; }
+        set({ onlineUsers: [], remoteCursors: [], activeConflicts: {}, liveEditing: {} });
+      },
+
+      // Agent 14: refresh or update presence meta (view + editing item) for live indicators/cursors across views
+      updatePresenceMeta: (meta) => {
+        const pres = (get() as any)._presenceChannel;
+        if (!pres || !isSupabaseLive()) return;
+        const st = get();
+        const user = st.user;
+        const payload: any = {
+          user_id: user?.id,
+          email: user?.email,
+          online_at: new Date().toISOString(),
+          currentView: meta?.view ?? st.currentView,
+          editingItemId: meta?.editingItemId ?? st.selectedTaskId ?? undefined,
+          editingItemType: meta?.editingItemType ?? (st.selectedTaskId ? 'task' : undefined),
+        };
+        pres.track(payload, { key: user?.id }).catch(() => {});
+      },
+
+      // Agent 30: Update cursor/selection position - broadcasts via presence channel for live cursors in editor
+      updateCursorPosition: (itemType, itemId, from = 0, to = 0) => {
+        const pres = (get() as any)._presenceChannel;
+        const st = get();
+        const user = st.user;
+        if (!user) return;
+        // Always update local state for instant feel (self cursor not rendered)
+        // For remote, broadcast so others receive
+        const color = getUserColor(user.id || user.email || 'demo');
+        const cursor = { userId: user.id || 'me', email: user.email || undefined, itemId, itemType, from, to, color };
+        // Local mirror (for consistency, though self not shown in UI)
+        set((s) => ({ remoteCursors: [...(s.remoteCursors || []).filter(c => c.userId !== (user.id||'me')), cursor] }));
+        if (pres && isSupabaseLive()) {
+          pres.send({
+            type: 'broadcast',
+            event: 'cursor-update',
+            payload: { ...cursor, ts: Date.now() }
+          }).catch(() => {});
+        } else if (!isSupabaseLive() || ["w1","w2"].includes(st.currentWorkspace.id)) {
+          // Demo: echo to other simulated users? handled by simulator
+        }
+      },
+      clearCursorPosition: () => {
+        const user = get().user;
+        const uid = user?.id || 'me';
+        set((s) => ({ remoteCursors: (s.remoteCursors || []).filter(c => c.userId !== uid) }));
+        const pres = (get() as any)._presenceChannel;
+        if (pres) {
+          pres.send({ type: 'broadcast', event: 'cursor-clear', payload: { userId: uid } }).catch(() => {});
+        }
+      },
+
+      // ===== Live collaborative editing (lightweight broadcast foundation) =====
+      // These send small, frequent updates over the existing presence channel.
+      // Receivers apply optimistically only when the item is currently open.
+      // Full persistence still goes through normal updateTask / updateNote + postgres_changes + LWW.
+
+      broadcastLiveTaskEdit: (taskId, updates) => {
+        const pres = (get() as any)._presenceChannel;
+        const st = get();
+        const user = st.user;
+        if (!user || !isSupabaseLive() || ["w1", "w2"].includes(st.currentWorkspace.id)) return;
+
+        // For live collab broadcasts we are more permissive.
+        // This helps with same-user multi-tab testing.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+        const payload = {
+          taskId,
+          userId: user.id || 'me',
+          email: user.email,
+          title: updates.title,
+          description: updates.description,
+          ts: new Date().toISOString(),
+        };
+
+        if (pres) {
+          pres.send({
+            type: 'broadcast',
+            event: 'live-task-edit',
+            payload,
+          }).catch(() => {});
+        }
+
+        // Also keep our own liveEditing indicator fresh (so UI can show "You are editing")
+        set((s) => ({
+          liveEditing: {
+            ...s.liveEditing,
+            [taskId]: {
+              userId: user.id || 'me',
+              email: user.email,
+              itemType: 'task',
+              lastUpdatedAt: payload.ts,
+            },
+          },
+        }));
+      },
+
+      broadcastLiveNoteContent: (noteId, content) => {
+        const pres = (get() as any)._presenceChannel;
+        const st = get();
+        const user = st.user;
+        if (!user || !isSupabaseLive() || ["w1", "w2"].includes(st.currentWorkspace.id)) return;
+
+        // For live collab broadcasts we are more permissive than general presence.
+        // This allows testing with the same user in multiple tabs (presence often collapses same-user sessions to 1 entry).
+        // In production with real teammates this will almost always have > 1.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+        console.log('[live-collab] SENDING note content broadcast', { noteId, fromUser: user.id });
+
+        const payload = {
+          noteId,
+          userId: user.id || 'me',
+          email: user.email,
+          content,
+          ts: new Date().toISOString(),
+        };
+
+        if (pres) {
+          pres.send({
+            type: 'broadcast',
+            event: 'live-note-content',
+            payload,
+          }).catch(() => {});
+        }
+
+        set((s) => ({
+          liveEditing: {
+            ...s.liveEditing,
+            [noteId]: {
+              userId: user.id || 'me',
+              email: user.email,
+              itemType: 'note',
+              lastUpdatedAt: payload.ts,
+            },
+          },
+        }));
+      },
+
+      // Agent 30: resolve concurrent edit conflict (LWW aware + UI choice)
+      resolveConflict: async (itemId, keepLocal) => {
+        const conflicts = get().activeConflicts || {};
+        const conf = conflicts[itemId];
+        if (!conf) return;
+        if (keepLocal) {
+          // Force local to server (re-apply update)
+          if (conf.itemType === 'task') {
+            const t = get().tasks.find(t => t.id === itemId);
+            if (t) await get().updateTask(itemId, { title: t.title, description: t.description } as any);
+          } else {
+            const n = get().notes.find(n => n.id === itemId);
+            if (n) await get().updateNote(itemId, { title: n.title, content: n.content });
+          }
+        } else {
+          // Take remote: refetch item via init (simple)
+          await get().initializeFromSupabase?.();
+        }
+        set((s) => {
+          const next = { ... (s.activeConflicts || {}) };
+          delete next[itemId];
+          return { activeConflicts: next };
+        });
+        toast.success(keepLocal ? "Kept your version" : "Took collaborator's version");
+      },
+
+      // Agent 30: start (or restart) delightful simulated presence for demo workspaces - rotates views, editing, cursors, online users. Magical even without Supabase.
+      startDemoPresenceSimulator: () => {
+        const wsId = get().currentWorkspace.id;
+        if (typeof window === 'undefined') return;
+        // Clear any prior
+        if ((get() as any)._demoPresenceTimer) clearInterval((get() as any)._demoPresenceTimer);
+        const demoUsers = [
+          { userId: 'demo-alice', email: 'alice@demo.dev', name: 'Alice Chen' },
+          { userId: 'demo-bob', email: 'bob@demo.dev', name: 'Bob Rivera' },
+        ];
+        const views = ['today', 'tasks', 'notes', 'calendar', 'teams'] as const;
+        const itemPool = [...get().tasks.map(t => ({id: t.id, type:'task' as const})), ...get().notes.map(n => ({id: n.id, type:'note' as const})) ];
+        let tick = 0;
+        const timer = setInterval(() => {
+          tick++;
+          const online = demoUsers.map((u, i) => {
+            const v = views[(tick + i) % views.length];
+            const item = itemPool.length ? itemPool[(tick + i*2) % itemPool.length] : undefined;
+            return { userId: u.userId, email: u.email, presenceRef: u.userId, view: v, editingItemId: item?.id, editingItemType: item?.type };
+          });
+          set({ onlineUsers: online });
+          // Simulate some remote cursors in editor (for notes/tasks if selected)
+          const stNow = get();
+          const selNote = stNow.notes.find(n => n.id === (stNow as any).selectedNoteIdInDemo || (stNow as any).selectedNoteId ); // loose
+          if (selNote && tick % 3 === 0) {
+            const fakeCursor = { userId: demoUsers[0].userId, email: demoUsers[0].email, itemId: selNote.id, itemType: 'note' as const, from: 10 + (tick%40), to: 12 + (tick%40), color: getUserColor(demoUsers[0].userId) };
+            set((s) => ({ remoteCursors: [fakeCursor] }));
+          }
+          // Occasionally fake a conflict for polish demo (rare)
+          if (tick % 12 === 0 && stNow.selectedTaskId && get().tasks.find(t=>t.id===stNow.selectedTaskId)) {
+            // only surface if not already
+            if (!get().activeConflicts[stNow.selectedTaskId]) {
+              set((s) => ({ activeConflicts: { ...s.activeConflicts, [stNow.selectedTaskId!]: { itemId: stNow.selectedTaskId!, itemType: 'task', remoteUser: 'Alice Chen', remoteUpdatedAt: new Date().toISOString(), remotePreview: 'Updated title + desc' } } }));
+            }
+          }
+        }, 2800); // smooth live feel, not spammy
+        (get() as any)._demoPresenceTimer = timer;
+        // Seed initial
+        set({ onlineUsers: demoUsers.map((u,i) => ({ userId: u.userId, email: u.email, view: views[i%views.length] })) });
+      },
+    }),
+    {
+      name: "bad-ass-tasks-storage",
+      partialize: (state) => {
+        // Persistence strategy updated for Phase 1 offline support:
+        // - Demo mode (!live): persist full data + workspaces (edits survive refresh, as before).
+        // - Live/Supabase mode: NOW persist data (tasks/notes/workspaces/currentWorkspace) + UI prefs.
+        //   This enables offline reads + local optimistic changes to survive refresh.
+        //   Real server truth is still preferred on init when online; queue handles pending writes.
+        //   Transient flags (isOnline, isSyncing, pending count) intentionally excluded.
+        if (isSupabaseLive()) {
+          return {
+            tasks: state.tasks,
+            notes: state.notes,
+            currentWorkspace: state.currentWorkspace,
+            workspaces: state.workspaces,
+            currentView: state.currentView,
+            taskFilter: state.taskFilter,
+          };
+        }
+        return {
+          tasks: state.tasks,
+          notes: state.notes,
+          currentWorkspace: state.currentWorkspace,
+          workspaces: state.workspaces,
+        };
+      },
+    }
+  )
+);
+
+// ------------------------------------------------------------------
+// Quality / Leakage Prevention: Rehydration Sanitizer (live mode only)
+// ------------------------------------------------------------------
+// If localStorage ever contains demo data (from before Supabase keys were added, or mixed sessions),
+// this guarantees it is purged the instant the store finishes rehydrating in a live Supabase environment.
+// This is the final safety net ensuring ZERO SAMPLE pollution can reach authenticated users.
+if (typeof window !== "undefined") {
+  // @ts-ignore - persist API is available on the store instance
+  useTaskStore.persist.onFinishHydration((state) => {
+    if (isSupabaseLive() && state) {
+      const currId = (state as any).currentWorkspace?.id || "";
+      const wsList = (state as any).workspaces || [];
+      const taskList = (state as any).tasks || [];
+      const looksLikeDemo =
+        ["w1", "w2"].includes(currId) ||
+        wsList.some((w: any) => ["w1", "w2"].includes(w?.id)) ||
+        taskList.some((t: any) => t?.workspaceId === "w1" || t?.workspaceId === "w2");
+
+      if (looksLikeDemo) {
+        useTaskStore.setState({
+          tasks: [],
+          notes: [],
+          recentActivity: [],
+          workspaces: [],
+          currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
+          taskLoadingStates: {},
+        });
+      }
+    }
+  });
+}

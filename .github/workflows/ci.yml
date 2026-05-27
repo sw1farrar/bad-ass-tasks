@@ -1,0 +1,48 @@
+name: CI
+
+# M0 Demo-Only CI Workflow
+# Implemented per M0-CI-CD-Bootstrap-Agent charter (WAVE8-MASTER-PLAN.md)
+# and aligned with M0 hygiene runbooks / 2026 Testing Research.
+#
+# Triggers on PR and push.
+# Runs ONLY demo-tolerant commands from package.json (no live Supabase secrets, no prod paths).
+# E2E uses existing demo-tolerant smoke tests (explicitly filters Supabase errors).
+# See: docs/WAVE8-MASTER-PLAN.md (M0-CI-CD section), docs/M0-DOCS-RUNBOOKS-PROPOSAL.md (Section 2.2),
+# docs/AGENT-RESEARCH-2026-TESTING-DEPLOYMENT-CICD.md, playwright.config.ts, tests/e2e/smoke.spec.ts
+#
+# Success: gates typecheck/lint/test/e2e as baseline invariant for M0.
+# No coverage (no package script; future P1), no Vercel deploy job (M0 minimal, no secrets).
+# Ultra-minimal per decision: basic steps only.
+
+on: [push, pull_request]
+
+jobs:
+  demo-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (required for E2E on clean runner)
+        run: npx playwright install --with-deps
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (Vitest)
+        run: npm run test
+
+      - name: E2E (Playwright - demo mode only)
+        run: npm run test:e2e

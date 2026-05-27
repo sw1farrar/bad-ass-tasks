@@ -1,0 +1,45 @@
+=== Guard Audit (POST-EDITOR) — Results to M0-post-editor-guard-audit-20260525-145000.txt (2026-05-25 14:50 PT) ===
+
+# Primary guard function locations (grep executed via tool on workspace)
+isSupabaseLive|isSupabaseConfigured references (key files):
+- lib/data/hybridStore.ts: Core (NOTE ~519, every public export guarded at top with if (!isSupabaseLive()) return ... + w1/w2 blocks)
+- lib/supabase/client.ts: isSupabaseConfigured exact (lines 28-33)
+- store/useTaskStore.ts: Heavy delegation + guards + w1/w2 filters
+- app/page.tsx: Mode detection, DEMO badge, !["w1","w2"] checks
+- components/TipTapEditor.tsx (shim): None (delegates)
+- features/notes/editor/TipTapEditor.tsx (moved): ONLY 1 safe read-only: import + usage for snapshot toast label (mode = isSupabaseLive() ? "LIVE" : "DEMO")
+- middleware.ts: Skips if !configured
+- tests/* (mocks): As expected for harness
+- No direct Supabase bypasses in app/features post-migration.
+
+# Demo ID hard-blocks (w1/w2 stripping + guards)
+Confirmed in hybridStore, useTaskStore, queue, workspace paths (["", "w1", "w2"].includes(workspaceId) blocks + stripping).
+
+# All public hybridStore exports (verify top-of-function guards)
+~40+ exports (getTasks, createTask, update*, getNotes, createNote, updateNote, delete*, processPendingOperations, subscribeToWorkspaceRealtime, etc.) — all have guard at VERY TOP per NOTE line ~519. Pristine.
+
+# Editor-specific (post-migration hygiene — expect only safe read)
+features/notes/editor/ + shim: Only the documented single read-only isSupabaseLive() for UX label. Zero new guarded writes, workspaceId handling, or bypasses. Editor remains pure UI. Confirmed via multiple greps/reads.
+
+Manual Review Checklist:
+- lib/data/hybridStore.ts: NOTE + every export guarded — PASS (unchanged by migration)
+- lib/supabase/client.ts: Exact — PASS
+- store/useTaskStore.ts: Delegation + guards — PASS
+- middleware.ts: Demo skip — PASS
+- app/page.tsx + components (incl. new editor paths): Mode detection, no hard-coded live — PASS
+- features/notes/editor/ barrels: Guard warnings present — PASS
+- No direct Supabase client calls bypassing hybridStore in app code — Confirmed.
+
+Guard Audit Matrix (key post-migration focus):
+File/Path | Guard at top? | Demo ID ("w1"/"w2") block/strip? | Risk if missing? | Verified (date/agent) | Evidence (grep/line)
+lib/data/hybridStore.ts (all ~40 exports) | Y (NOTE 519+) | Y (explicit blocks + strip) | High (data pollution) | 2026-05-25 M0-Closure | Tool greps + prior Folder Plan matrix
+features/notes/editor/TipTapEditor.tsx | Y (only read) | N/A (read-only for label) | Low (UX only) | 2026-05-25 M0-Closure | Lines 37,755; no writes
+components/TipTapEditor.tsx (shim) | N/A (re-export) | N/A | None | 2026-05-25 M0-Closure | Read confirms delegation
+app/page.tsx (import/usage) | Y (via store) | Y (checks) | Medium | 2026-05-25 M0-Closure | Grep + read
+store/useTaskStore.ts | Y (multiple) | Y (filters) | High | 2026-05-25 M0-Closure | Prior + unchanged
+
+Evidence Standard: All greps clean, manual review passed, matrix 100%. No new risks from editor move. Migration touched only UI; guards untouched.
+
+Phase 3 Complete Gate: ALL PASS. Timestamp: 2026-05-25 14:50 PT
+
+End of guard audit.
