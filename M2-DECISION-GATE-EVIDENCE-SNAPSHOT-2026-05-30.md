@@ -130,3 +130,15 @@ Next steps in loop: address next highest-signal Gap (per Mapper), re-run full hy
 **Governance reminder (from source):** Preserve 100% of demo/live/hybrid invariants. Produce zero new console errors, zero new TS errors beyond the documented baseline, and honor the feature-folder monolith extraction. All changes must survive this exact hygiene + smoke + manual sequence before any handoff or fold.
 
 *Additive-only snapshot artifact. High-signal, scannable, immediately copy-paste ready for the user's Decision Gate message. Sourced directly from `DECISION-GATE-SMOKE-HYGIENE-COMMANDS.md` + timestamped run logs for accuracy.*
+
+---
+
+## Patch Wave 2026-05-30 10:26 (this Continue.)
+
+- **Patches applied:** 6 total (drag guards ×2 + 4 quick wins)
+- **Before/after numbers:** 20f/34p → 19f/35p → **15f/39p** (54 total)
+- **JSDOM dataTransfer errors eliminated:** 6 unhandled errors removed
+- **Post-patch smoke log:** [m2-smoke-post-patches-20260530-102604.log](m2-smoke-post-patches-20260530-102604.log)
+- **Current state:** Strongly improved. 15 failures remain (mostly Gap 1 sortOrder edge cases + a few Gap 3/5 NodeView contract tests). Ready for manual verification or final small wave.
+
+*Additive patch-wave entry. Appended under full governance; no regressions introduced.*
