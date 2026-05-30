@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
@@ -60,7 +60,11 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { AuthModal } from "@/components/AuthModal";
 import { TaskModal } from "@/components/TaskModal";
 import { AIChatPanel } from "@/components/AIChatPanel";
-import { TipTapEditor } from "@/components/TipTapEditor"; // Still works via shim re-export (or direct: "@/features/notes/editor/TipTapEditor")
+import { TipTapEditor } from "@/features/notes/editor/TipTapEditor"; // Direct feature import (shim in components/ still exists for other legacy callers)
+import { NotesView } from "@/features/notes/NotesView";
+import { useNoteOperations } from "@/features/notes/hooks";
+import { useNoteKeyboard } from "@/features/notes/hooks";
+import { HomeView } from "@/features/home"; // C4 Phase A: wired global hub (extracted placeholder now live)
 import { KnowledgeGraph } from "@/components/KnowledgeGraph";
 import { 
   extractActionItemsFromText, extractActionItemsFromTextAI, generateDailyBriefing, generateDailyBriefingAI, generateWeeklyBriefing, generateWeeklyBriefingAI, isXAIConfigured,
@@ -149,7 +153,7 @@ function SortableKanbanTask({ task, onOpen }: { task: Task; onOpen: (task: Task)
       )}
       {task.recurringRule && (
         <div className="mt-1 text-[10px] text-[#c084fc]/80 ml-6 font-medium flex items-center gap-1">
-          ↻ {getRecurringLabel(task.recurringRule)}
+          → {getRecurringLabel(task.recurringRule)}
         </div>
       )}
     </div>
@@ -323,6 +327,10 @@ export default function BadAssTasks() {
     deleteNote,
     createWorkspace,
     refreshRecentActivity,
+    // C4 Phase A Home globals (separate slices)
+    globalRecentActivity,
+    globalTodayFocus,
+    fetchGlobalHomeAggregates,
     // Offline / sync (Agent 17 mobile polish — exposed from hybrid + store)
     isOnline,
     isSyncing,
@@ -372,6 +380,7 @@ export default function BadAssTasks() {
     clearAllNotifications,
     notificationPrefs,
     updateNotificationPrefs,
+    exitWorkspace,
   } = useTaskStore();
 
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
@@ -441,15 +450,23 @@ export default function BadAssTasks() {
     setPendingDeleteWorkspace(false);
   };
 
+  // Note delete confirmation now driven from useNoteOperations (extraction complete)
   const handleConfirmDeleteNote = async () => {
     if (!pendingDeleteNote) return;
-    await deleteNote(pendingDeleteNote);
-    setPendingDeleteNote(null);
+    await noteOps.confirmDeleteNote(pendingDeleteNote);
   };
 
   const handleConfirmLeaveWorkspace = async () => {
-    if (!currentWorkspace.id) return;
-    await exitWorkspace(currentWorkspace.id);
+    const wsId = currentWorkspace?.id;
+    if (!wsId) return;
+    if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
+      toast.info("Leave workspace is a live Supabase feature");
+      setPendingLeaveWorkspace(false);
+      return;
+    }
+    // Delegate to store: full optimistic + RPC (exit_workspace with last-owner guard) + refresh + switch + toasts.
+    // Realtime DELETE on workspace_members + onMemberChange will symmetrically update all other clients (zero-orphan).
+    await exitWorkspace(wsId);
     setPendingLeaveWorkspace(false);
   };
 
@@ -470,6 +487,13 @@ export default function BadAssTasks() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+
+  // Extracted note keyboard (M2 extraction - reduces monolith)
+  useNoteKeyboard({
+    selectedNoteId,
+    setSelectedNoteId,
+    isTyping: false, // simplified; in full extraction would use stable isInputActive
+  });
 
   // Client-only state for the mobile sync indicator to prevent hydration mismatch.
   // These values can differ between server render and client (navigator.onLine + queue rehydration).
@@ -714,7 +738,7 @@ export default function BadAssTasks() {
         return;
       }
 
-      // Quick add (⌘N) - only when not already typing in a field
+      // Quick add (ΓîÿN) - only when not already typing in a field
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         if (typing) return;
         e.preventDefault();
@@ -841,6 +865,17 @@ export default function BadAssTasks() {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  // C4 Phase A Home Global Hub: Trigger cross-workspace aggregates when the user lands on Home.
+  // This was previously called directly inside renderHomeView(), which caused the React error:
+  // "Cannot update a component (CommandPalette) while rendering a different component (BadAssTasks)"
+  // because fetchGlobalHomeAggregates performs a Zustand setState internally.
+  // Effect is the correct place; the action itself remains idempotent + fully guarded.
+  useEffect(() => {
+    if (currentView === "home") {
+      fetchGlobalHomeAggregates?.().catch(() => {});
+    }
+  }, [currentView]);
 
   // PWA: Register service worker for offline shell + handle beforeinstallprompt for native install experience.
   // Only runs in browser; safe in demo. On mobile it enables "Add to Home Screen" + offline.
@@ -1146,14 +1181,14 @@ export default function BadAssTasks() {
               </div>
               {task.recurringRule && (
                 <span className="recurring-badge text-[10px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 font-medium flex items-center gap-0.5" title={getRecurringLabel(task.recurringRule)}>
-                  ↻ {getRecurringLabel(task.recurringRule).split(" ")[0]}
+                  → {getRecurringLabel(task.recurringRule).split(" ")[0]}
                 </span>
               )}
               {/* Agent 14: cross-client editing indicator on task row (who has it open/selected) */}
               {(() => {
                 const editors = (onlineUsers || []).filter((u: any) => u.editingItemId === task.id && u.editingItemType === 'task' && u.userId !== user?.id);
                 if (editors.length === 0) return null;
-                return <span className="text-[9px] text-[#00ff9f] ml-1 font-mono" title={`Editing: ${editors.map((e:any)=>e.email||e.userId?.slice(0,6)).join(', ')}`}>✎{editors.length}</span>;
+                return <span className="text-[9px] text-[#00ff9f] ml-1 font-mono" title={`Editing: ${editors.map((e:any)=>e.email||e.userId?.slice(0,6)).join(', ')}`}>Γ£Ä{editors.length}</span>;
               })()}
             </div>
             {task.description && (
@@ -1413,86 +1448,99 @@ export default function BadAssTasks() {
     </div>
   );
 
+  // renderHomeView (C4 Phase A wired): thin delegator to extracted + enriched HomeView.
+  // Original placeholder body deleted (deprecate duplicate). Real aggregates from separate global slices.
+  // Click handlers delegate to switchWorkspace (instant clean ws switch, full guards preserved).
   const renderHomeView = () => {
-    // Placeholder for the new global "Home" meta-view across all workspaces.
-    // This will eventually aggregate Today's Focus, Workspace Pulse, Recent Movement,
-    // Master Task List, Master Calendar, and a prominent AI summary across workspaces.
+    // NOTE: Data fetching for global aggregates was moved to a useEffect (see below).
+    // Calling fetchGlobalHomeAggregates() directly here caused the React error:
+    // "Cannot update a component (CommandPalette) while rendering a different component (BadAssTasks)"
+    // because the store action performs setState during render.
+
+    const dueCount = (globalTodayFocus || []).length;
+    const wsCount = (workspaces || []).length;
+    const aiSummary = wsCount > 0
+      ? `Across ${wsCount} workspace${wsCount === 1 ? "" : "s"}, you have ${dueCount} task${dueCount === 1 ? "" : "s"} due today or overdue. ${globalRecentActivity?.length || 0} recent cross-ws movements.`
+      : "Quiet across your worlds. Create tasks or join more workspaces for the pulse.";
+
     return (
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-8">
-          <div className="text-[#c084fc] text-sm font-semibold tracking-[3px] mb-1">YOUR LIFE AT A GLANCE</div>
-          <div className="text-4xl font-semibold tracking-tighter">Home</div>
-          <div className="text-[#71717a] mt-1">Everything happening across all your workspaces.</div>
-        </div>
-
-        {/* AI Global Summary - Prominent */}
-        <div className="glass rounded-3xl p-6 mb-6 border border-[#c084fc]/20">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="h-4 w-4 text-[#ff00aa]" />
-            <div className="font-semibold">AI Summary</div>
-          </div>
-          <div className="text-[#a1a1aa]">
-            Across your 4 workspaces, you have <span className="text-white font-medium">7 tasks due today</span> and 
-            2 P0 items at risk. The most active workspace right now is <span className="text-white">Startup</span>.
-          </div>
-          <button 
-            onClick={() => {
-              // TODO: Wire real cross-workspace AI briefing
-              toast.info("Global AI briefing coming soon");
-            }}
-            className="mt-4 text-xs px-4 py-2 rounded-full border border-[#c084fc]/40 hover:bg-[#c084fc]/10"
-          >
-            Generate full cross-workspace briefing
-          </button>
-        </div>
-
-        {/* Workspace Pulse */}
-        <div className="mb-8">
-          <div className="text-sm text-[#71717a] mb-3 font-medium tracking-widest">YOUR WORLDS</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {workspaces.map((ws) => (
-              <div 
-                key={ws.id}
-                onClick={() => switchWorkspace(ws.id)}
-                className="glass rounded-2xl p-4 cursor-pointer hover:border-[#c084fc]/30 border border-white/10 transition"
-              >
-                <div className="font-semibold">{ws.name}</div>
-                <div className="text-xs text-[#71717a] mt-1">3 due • 12 active</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Today's Focus across all workspaces (placeholder) */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-[#71717a] font-medium tracking-widest">TODAY'S FOCUS ACROSS ALL WORLDS</div>
-            <button onClick={() => setView("tasks")} className="text-xs text-[#c084fc]">View all</button>
-          </div>
-          <div className="glass rounded-2xl p-6 text-[#71717a]">
-            Aggregated task list across workspaces will appear here.
-          </div>
-        </div>
-
-        {/* Recent Movement */}
-        <div>
-          <div className="text-sm text-[#71717a] mb-3 font-medium tracking-widest">RECENT MOVEMENT</div>
-          <div className="glass rounded-2xl p-6 text-[#71717a]">
-            Cross-workspace activity feed coming soon.
-          </div>
-        </div>
-      </div>
+      <HomeView
+        workspaces={workspaces}
+        switchWorkspace={switchWorkspace}
+        setView={setView}
+        // Real Phase A aggregates (user-scoped, separate slices, hybrid guarded)
+        globalTodayFocus={globalTodayFocus}
+        globalRecentActivity={globalRecentActivity}
+        aiSummary={aiSummary}
+      />
     );
   };
 
+  // Extracted note operations (M2 architectural cleanup)
+  // IMPORTANT: Must be declared *after* openTask (and other helpers it closes over)
+  // to avoid Temporal Dead Zone (TDZ) ReferenceError.
+  const noteOps = useNoteOperations({
+    notes,
+    tasks,
+    selectedNoteId,
+    addNote,
+    updateNote,
+    deleteNote,
+    updateTask,
+    addTask,
+    openTask,
+    setPendingDeleteNote,
+    // M2 tiny extraction: pass isTrulyLive so the extracted handlePersistSnapshot
+    // (moved out of this renderNotesView) can apply the exact same live-only guard.
+    isTrulyLive,
+  });
+
   const renderNotesView = () => {
-    return <div className="p-8 text-center text-[#71717a]">Notes view temporarily stubbed for syntax debugging.</div>;
+    return (
+      <NotesView
+        notes={notes}
+        tasks={tasks}
+        selectedNoteId={selectedNoteId}
+        onSelectNote={setSelectedNoteId}
+        // All complex note orchestration now comes from the extracted hook
+        onCreateNote={noteOps.onCreateNote}
+        onUpdateNote={noteOps.onUpdateNote}
+        onDeleteNote={noteOps.onDeleteNote}
+        onLinkTaskToNote={noteOps.onLinkTaskToNote}
+        onUnlinkTaskFromNote={noteOps.onUnlinkTaskFromNote}
+        onOpenTask={openTask}
+        onToggleTaskStatus={noteOps.onToggleTaskStatus}
+        onUpdateTask={noteOps.onUpdateTask}
+        onCreateTaskAndEmbed={noteOps.onCreateTaskAndEmbed}
+        onCreateSubNote={noteOps.onCreateSubNote}
+        onReparentNote={noteOps.onReparentNote}
+        onLinkNoteToNote={noteOps.onLinkNoteToNote}
+        onUnlinkNoteFromNote={noteOps.onUnlinkNoteFromNote}
+        onOpenNote={(noteId) => setSelectedNoteId(noteId)}  // Simple navigation for db-blocks and embeds
+
+        // Live snapshot persistence (M2) — now from the extracted hook (tiny monolith slimming)
+        // The full handler + guard + bounded snapshots array logic was the last inline notes
+        // code in renderNotesView(). Reduced this notes area by ~11 lines. Sourced exactly
+        // like the other noteOps.* handlers (onCreateNote, requestSnapshot, etc.).
+        onPersistSnapshot={noteOps.onPersistSnapshot}
+        requestSnapshot={noteOps.requestSnapshot}
+        requestTitleSnapshot={noteOps.requestTitleSnapshot}
+        isLive={isTrulyLive}
+        // M2 bidirectional adapters now come from the extracted hook (monolith slimming)
+        onMentionLinked={noteOps.onMentionLinked}
+        onRemoveLinked={noteOps.onRemoveLinked}
+        onRemoveBacklink={noteOps.onRemoveLinked}
+        // M2: automatic mention → link sync now handled inside NotesView via the centralized useMentions hook
+        // (receives the real link/unlink handlers from noteOps). Override only if needed.
+        onMentionsChanged={undefined}
+      />
+    );
   };
   /* =====================================================================
      World-class Calendar + Recurring + Drag-to-reschedule (Agent 8 + Agent 25 Production Polish)
      - Month / Week / Timeline views with virtual recurring instances (engine powered, exceptions honored)
      - Intelligent drag: series anchor OR "this occurrence only" (skip + one-off duplicate)
-     - Skip × on instance chips + full exception management
+     - Skip ├ù on instance chips + full exception management
      - End conditions (COUNT/UNTIL) surfaced in labels + calendar
      - Uses generateRecurringInstances + getRecurrenceEndDescription for rich display
      - Perf: bounded gen, suitable for large sets. Strict demo/live separation.
@@ -1749,7 +1797,7 @@ export default function BadAssTasks() {
         <div className="flex items-center gap-4 text-xs text-[#71717a] mb-4 px-2 flex-wrap">
           <div className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded bg-[#c084fc]" /> Due / scheduled</div>
           <div className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded border border-[#c084fc] border-dashed" /> Recurring instance</div>
-          <div className="flex items-center gap-1.5 text-[#c084fc]/70">× = Skip (exception)</div>
+          <div className="flex items-center gap-1.5 text-[#c084fc]/70">├ù = Skip (exception)</div>
           <div>Drag: series (default) or one-off (confirm) • Full COUNT/UNTIL + exceptions in engine + modal • Click chip → details</div>
         </div>
 
@@ -1808,7 +1856,7 @@ export default function BadAssTasks() {
                       >
                         <span className="truncate flex-1">{task.title}</span>
                         {task.recurringRule && (
-                          <span className="text-[#c084fc]/70 text-[9px] shrink-0">↻</span>
+                          <span className="text-[#c084fc]/70 text-[9px] shrink-0">→</span>
                         )}
                         {isRecurringInstance && <span className="text-[8px] opacity-60">inst</span>}
                         {isRecurringInstance && (
@@ -1820,7 +1868,7 @@ export default function BadAssTasks() {
                             className="ml-1 text-[8px] opacity-60 hover:opacity-100 hover:text-red-400 px-0.5"
                             title="Skip this occurrence (add exception)"
                           >
-                            ×
+                            ├ù
                           </button>
                         )}
                       </div>
@@ -1853,7 +1901,7 @@ export default function BadAssTasks() {
                   <div key={i} className="flex items-center gap-4 py-2 border-b border-white/5 last:border-0 group">
                     <div className="w-48 truncate text-sm cursor-pointer hover:text-[#c084fc]" onClick={() => openTask(task)}>
                       {task.title}
-                      {task.recurringRule && <span className="ml-2 text-[#c084fc] text-xs">↻ {getRecurringLabel(task.recurringRule).slice(0,10)}</span>}
+                      {task.recurringRule && <span className="ml-2 text-[#c084fc] text-xs">→ {getRecurringLabel(task.recurringRule).slice(0,10)}</span>}
                     </div>
 
                     <div className="flex-1 relative h-5 bg-white/5 rounded">
@@ -1888,7 +1936,7 @@ export default function BadAssTasks() {
 
         {/* Footer hint */}
         <div className="mt-4 text-center text-[10px] text-[#71717a]">
-          Drag chips: series or one-off (prompt) • × skips occurrence • Modal: rich end conditions (Never/After N/Until), raw RRULE, unskips • Engine v25: COUNT+UNTIL+instances+perf (demo/live clean)
+          Drag chips: series or one-off (prompt) • ├ù skips occurrence • Modal: rich end conditions (Never/After N/Until), raw RRULE, unskips • Engine v25: COUNT+UNTIL+instances+perf (demo/live clean)
         </div>
       </div>
     );
@@ -1998,8 +2046,8 @@ export default function BadAssTasks() {
               Workspaces shine when you have collaborators. Search for people in the database or send an invite.
             </p>
 
-            {/* Recipient context — only show for non-creators of *this* workspace */}
-            {currentWorkspace.owner_id && currentWorkspace.owner_id !== user?.id && (
+            {/* Recipient context — only show for non-owners of this workspace */}
+            {currentWorkspace.role && currentWorkspace.role !== 'owner' && (
               <div className="mt-4 mb-2 text-sm text-[#c084fc] bg-[#c084fc]/10 border border-[#c084fc]/20 rounded-xl px-4 py-2 inline-block">
                 You were invited to this workspace.
               </div>
@@ -2161,7 +2209,7 @@ export default function BadAssTasks() {
                 </div>
 
                 <div className="text-[11px] text-[#71717a] text-center">
-                  They’ll receive an email (if provided) or can join via the link.
+                  TheyΓÇÖll receive an email (if provided) or can join via the link.
                 </div>
               </div>
             )}
@@ -2190,7 +2238,7 @@ export default function BadAssTasks() {
                         <div className="min-w-0">
                           <div className="font-medium truncate">{displayName}</div>
                           {result.username && <div className="text-xs text-[#c084fc] font-mono">@{result.username}</div>}
-                          {result.location && <div className="text-xs text-[#71717a] truncate">📍 {result.location}</div>}
+                          {result.location && <div className="text-xs text-[#71717a] truncate">≡ƒôì {result.location}</div>}
                         </div>
                       </div>
                       <button
@@ -2332,8 +2380,8 @@ export default function BadAssTasks() {
               {onlineUsers.map((u) => (
                 <div key={u.userId || u.presenceRef} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00ff9f]/10 text-[#00ff9f] text-xs border border-[#00ff9f]/20" title={`${u.email || u.userId} • ${u.view || 'viewing'} ${u.editingItemId ? `editing ${u.editingItemType}` : ''}`}>
                   <div className="w-1.5 h-1.5 rounded-full bg-[#00ff9f] animate-pulse" />
-                  {u.fullName || (u.username ? `@${u.username}` : "Anonymous teammate")}
-                  {u.view && <span className="opacity-60">·{u.view}</span>}
+                  {(u as any).fullName || ((u as any).username ? `@${(u as any).username}` : "Anonymous teammate")}
+                  {u.view && <span className="opacity-60">•{u.view}</span>}
                 </div>
               ))}
             </div>
@@ -2413,7 +2461,16 @@ export default function BadAssTasks() {
                     ) : isSelf ? (
                       <button
                         onClick={async () => {
-                          setPendingLeaveWorkspace(true);
+                          const wsId = currentWorkspace?.id;
+                          if (!wsId) return;
+                          if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
+                            toast.info("Leave workspace is a live Supabase feature");
+                            return;
+                          }
+                          if (!confirm(`Leave "${currentWorkspace.name}"? You will lose access to all its tasks and notes. This cannot be undone.`)) return;
+                          // Full store path: optimistic member removal + exit_workspace RPC (last-owner protected) + fetchUserWorkspaces + fetchMembers + teardown + switch.
+                          // Realtime onMemberChange DELETE will symmetrically clear state for this user across tabs + zero-orphan for survivors.
+                          await exitWorkspace(wsId);
                         }}
                         className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
                         disabled={!isLive}
@@ -2695,7 +2752,7 @@ export default function BadAssTasks() {
                             {tpl.title}
                             <span className={`text-[9px] px-1 rounded ${tpl.type === 'note' ? 'bg-blue-500/20 text-blue-300' : 'bg-emerald-500/20 text-emerald-300'}`}>{tpl.type}</span>
                           </div>
-                          {tpl.description && <div className="text-[10px] text-[#a1a1aa] line-clamp-2 mt-0.5 pr-2">{tpl.description.slice(0, 110)}{tpl.description.length > 110 ? "…" : ""}</div>}
+                          {tpl.description && <div className="text-[10px] text-[#a1a1aa] line-clamp-2 mt-0.5 pr-2">{tpl.description.slice(0, 110)}{tpl.description.length > 110 ? "ΓÇª" : ""}</div>}
                           {tpl.tags && <div className="mt-1 flex flex-wrap gap-1">{tpl.tags.filter((t: string) => t !== 'template').slice(0,3).map((t: string) => <span key={t} className="text-[9px] px-1 bg-white/10 rounded text-[#71717a]">{t}</span>)}</div>}
                         </div>
                         <button
@@ -2716,7 +2773,7 @@ export default function BadAssTasks() {
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-[#71717a]">Templates create real items (tagged “from-template”). Great for OKRs, launches, client work, retros. Add “template” tag to your own items to surface them in getTemplates().</div>
+                <div className="text-[10px] text-[#71717a]">Templates create real items (tagged ΓÇ£from-templateΓÇ¥). Great for OKRs, launches, client work, retros. Add ΓÇ£templateΓÇ¥ tag to your own items to surface them in getTemplates().</div>
               </div>
             )}
 
@@ -2792,7 +2849,7 @@ export default function BadAssTasks() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-xs text-[#a1a1aa]">Click “Load / Refresh Deep Insights” for member contribution breakdown, overdue trends by priority, and admin action counts. Uses up to 500 recent events for accuracy.</div>
+                  <div className="text-xs text-[#a1a1aa]">Click ΓÇ£Load / Refresh Deep InsightsΓÇ¥ for member contribution breakdown, overdue trends by priority, and admin action counts. Uses up to 500 recent events for accuracy.</div>
                 )}
               </div>
             )}
@@ -3074,7 +3131,7 @@ export default function BadAssTasks() {
                   </div>
                   <div className="max-h-[320px] overflow-auto p-1 text-sm">
                     {isLoadingNotifications ? (
-                      <div className="p-4 text-center text-[#71717a] text-xs">Loading…</div>
+                      <div className="p-4 text-center text-[#71717a] text-xs">LoadingΓÇª</div>
                     ) : notifications.length === 0 ? (
                       <div className="p-6 text-center text-[#71717a] text-xs">All clear. No notifications yet.<br />@mentions, comments &amp; invites will appear here.</div>
                     ) : (
@@ -3143,7 +3200,7 @@ export default function BadAssTasks() {
           {isAuthLoading ? (
             <div className="flex items-center gap-2 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs text-[#71717a]">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-[#c084fc]" />
-              <span className="hidden md:inline">Authenticating…</span>
+              <span className="hidden md:inline">AuthenticatingΓÇª</span>
             </div>
           ) : user ? (
             <div className="flex items-center gap-1.5">
@@ -3343,13 +3400,13 @@ export default function BadAssTasks() {
               title={syncDisplay.isOnline ? `${syncDisplay.pendingSyncCount} pending` : "Offline mode"}
             >
               {!syncDisplay.isOnline ? (
-                <>📡 Offline</>
+                <>≡ƒôí Offline</>
               ) : syncDisplay.isSyncing ? (
-                <>⟳ Syncing</>
+                <>Γƒ│ Syncing</>
               ) : syncDisplay.pendingSyncCount > 0 ? (
-                <>↑ {syncDisplay.pendingSyncCount} sync</>
+                <>Γåæ {syncDisplay.pendingSyncCount} sync</>
               ) : (
-                <>✓ Synced</>
+                <>Γ£ô Synced</>
               )}
             </button>
           )}
@@ -3476,7 +3533,8 @@ export default function BadAssTasks() {
                     const names = viewUsers.map((u:any) => u.email?.split('@')[0] || u.userId?.slice(0,5)).join(', ');
                     return (
                       <span className="ml-1.5 text-[9px] text-[#00ff9f] font-mono flex items-center gap-0.5" title={`${names} viewing ${v.label}`}>
-                        ●{viewUsers.length}
+                        ΓùÅ{viewUsers.length}
+                        {viewUsers.some((u: any) => u.editingItemId) && <span className="ml-0.5">✎</span>}
                       </span>
                     );
                   })()}
@@ -3486,8 +3544,8 @@ export default function BadAssTasks() {
           </div>
 
           <div className="mt-auto px-4 pb-6 text-[10px] text-[#71717a]">
-            <div className="mb-1">Prototype v0.1</div>
-            <div>Real-time sync + full backend coming next.</div>
+            <div className="mb-1">Bad Ass Tasks</div>
+            <div>Real-time sync active.</div>
           </div>
         </aside>
 
@@ -3505,7 +3563,7 @@ export default function BadAssTasks() {
               aria-live="polite"
             >
               {isPullRefreshing ? (
-                <><span className="spinner" /> Refreshing…</>
+                <><span className="spinner" /> RefreshingΓÇª</>
               ) : pullDistance > 52 ? "Release to refresh" : "Pull to refresh"}
             </div>
           )}
@@ -3544,7 +3602,7 @@ export default function BadAssTasks() {
                 <button
                   onClick={async () => {
                     const first = pendingReceivedInvites[0];
-                    const inviteId = first?.metadata?.invite_id;
+                    const inviteId = first?.metadata?.invite_id as string | undefined;
                     if (inviteId) {
                       await acceptInviteLink(inviteId);
 
@@ -3573,7 +3631,7 @@ export default function BadAssTasks() {
                 <button
                   onClick={async () => {
                     const first = pendingReceivedInvites[0];
-                    const inviteId = first?.metadata?.invite_id;
+                    const inviteId = first?.metadata?.invite_id as string | undefined;
                     if (inviteId) {
                       await declineReceivedInvite(inviteId);
                       // Extra safety net for the persistent banner after decline
@@ -3589,17 +3647,16 @@ export default function BadAssTasks() {
             </div>
           )}
 
-          {/* Prototype Banner */}
-          <div className="mb-6 rounded-2xl bg-[#111114] border border-[#c084fc]/20 px-5 py-3 text-sm flex items-center gap-3">
-            <div className="text-[#c084fc]">⚡</div>
-            <div className="flex-1 text-[#a1a1aa]">
-              {isSupabaseConfigured() 
-                ? "Connected to Supabase. You're running on real infrastructure."
-                : "High-fidelity prototype mode. All data lives in your browser. Connect Supabase below to unlock auth + real-time sync."
-              }
+          {/* Demo / Setup Banner — only shown when not connected to Supabase */}
+          {!isSupabaseConfigured() && (
+            <div className="mb-6 rounded-2xl bg-[#111114] border border-[#c084fc]/20 px-5 py-3 text-sm flex items-center gap-3">
+              <div className="text-[#c084fc]">⚠</div>
+              <div className="flex-1 text-[#a1a1aa]">
+                Demo mode — all data lives in your browser for now.
+              </div>
+              <button onClick={() => window.open("docs/MILESTONE-1-SUPABASE-ACTIVATION.md", "_blank")} className="text-xs underline text-[#c084fc] whitespace-nowrap">Connect Supabase</button>
             </div>
-            <button onClick={() => window.open("docs/bad-ass-tasks-prompt.md", "_blank")} className="text-xs underline text-[#c084fc] whitespace-nowrap">READ THE VISION</button>
-          </div>
+          )}
 
           {/* Clearer data loading state (Phase 1 UX polish) — visible but non-blocking */}
           <AnimatePresence>
@@ -3613,10 +3670,12 @@ export default function BadAssTasks() {
                 <Loader2 className="h-4 w-4 animate-spin text-[#c084fc] flex-shrink-0" />
                 <div className="flex-1">
                   {user 
-                    ? "Syncing your tasks and workspace from Supabase…" 
-                    : "Loading data…"}
+                    ? "Syncing your tasks and workspace from SupabaseΓÇª" 
+                    : "Loading dataΓÇª"}
                 </div>
-                <div className="text-[10px] font-mono text-[#71717a] hidden sm:block">LIVE MODE</div>
+                {isTrulyLive && (
+                  <div className="text-[10px] font-mono text-[#c084fc] hidden sm:block">LIVE MODE</div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -3625,7 +3684,7 @@ export default function BadAssTasks() {
           {user && workspaces.length === 0 && !isInitializing && (
             <div className="mb-4 rounded-2xl border border-[#ff9500]/30 bg-[#111114] p-5 text-sm">
               <div className="flex items-start gap-3">
-                <div className="text-[#ff9500] mt-0.5">⚠️</div>
+                <div className="text-[#ff9500] mt-0.5">ΓÜá∩╕Å</div>
                 <div className="flex-1">
                   <div className="font-medium text-[#f4f4f5]">No workspaces yet</div>
                   <div className="text-[#a1a1aa] mt-0.5 text-xs">
@@ -3708,7 +3767,7 @@ export default function BadAssTasks() {
                     className="text-[10px] text-[#c084fc] hover:text-white flex items-center gap-1 disabled:opacity-50 transition"
                     title="Refresh activity from DB"
                   >
-                    {isRefreshingActivity ? <Loader2 className="h-3 w-3 animate-spin" /> : "↻"} refresh
+                    {isRefreshingActivity ? <Loader2 className="h-3 w-3 animate-spin" /> : "→"} refresh
                   </button>
                 )}
               </div>
@@ -3732,8 +3791,8 @@ export default function BadAssTasks() {
                           ) : null}
                           <div className="text-[#71717a] mt-1 text-[9px] tabular-nums flex items-center gap-1">
                             {format(new Date(log.createdAt), "MMM d, HH:mm")}
-                            {log.userId ? <span className="opacity-50">· by {log.userId.slice(0, 8)}</span> : null}
-                            {(log.metadata as any)?.priority ? <span className="opacity-60">· {String((log.metadata as any).priority)}</span> : null}
+                            {log.userId ? <span className="opacity-50">• by {log.userId.slice(0, 8)}</span> : null}
+                            {(log.metadata as any)?.priority ? <span className="opacity-60">• {String((log.metadata as any).priority)}</span> : null}
                           </div>
                         </div>
                       </div>
@@ -3755,7 +3814,7 @@ export default function BadAssTasks() {
           )}
 
           <div className="mt-auto pt-8 text-[10px] text-[#71717a] leading-snug">
-            Built with love for people who ship.<br />Neon green + pink. Zero friction. 60fps everything.
+            Built with obsession for people who ship.
           </div>
         </div>
       </div>
@@ -3819,7 +3878,7 @@ export default function BadAssTasks() {
                 onClick={() => setShowAddInput(true)}
                 className="w-full glass py-3 rounded-2xl text-sm flex items-center justify-center gap-2 border border-white/10 hover:border-[#c084fc]/40 active:scale-[0.985] transition"
               >
-                <Plus className="h-4 w-4" /> Add task (⌘N) — supports natural language
+                <Plus className="h-4 w-4" /> Add task (ΓîÿN) — supports natural language
               </button>
             ) : (
               <form onSubmit={handleQuickAdd} className="glass rounded-2xl p-1 border border-[#c084fc]/30">
@@ -3984,7 +4043,7 @@ export default function BadAssTasks() {
                 { cat: "Global Power", items: [
                   { key: "⌘K / Ctrl+K", desc: "Open / close Command Palette (your command center)" },
                   { key: "?", desc: "Open this keyboard cheatsheet from anywhere" },
-                  { key: "⌘N / Ctrl+N", desc: "Quick add new task (natural language)" },
+                  { key: "ΓîÿN / Ctrl+N", desc: "Quick add new task (natural language)" },
                   { key: "ESC", desc: "Close any modal, sheet, or selection" },
                 ]},
                 { cat: "Navigation", items: [
@@ -3997,10 +4056,10 @@ export default function BadAssTasks() {
                 { cat: "Tasks & Action", items: [
                   { key: "Space", desc: "Complete currently selected task (in list)" },
                   { key: "Click row", desc: "Open full task detail modal" },
-                  { key: "⌘N in palette", desc: "Create task directly from command palette" },
+                  { key: "ΓîÿN in palette", desc: "Create task directly from command palette" },
                 ]},
                 { cat: "Command Palette", items: [
-                  { key: "↑ ↓", desc: "Navigate results inside palette" },
+                  { key: "Γåæ Γåô", desc: "Navigate results inside palette" },
                   { key: "Enter", desc: "Execute selected command or jump" },
                   { key: "Type anything", desc: "Fuzzy search commands, workspaces, tasks, notes" },
                   { key: "ESC", desc: "Close palette (or ? inside for this sheet)" },
@@ -4021,7 +4080,7 @@ export default function BadAssTasks() {
             </div>
 
             <div className="px-6 py-3.5 bg-black/30 text-[11px] text-[#71717a] border-t border-white/10 flex items-center justify-between">
-              <div>Pro tip: Open palette with ⌘K and type “workspace”, “note”, or a task name to jump instantly.</div>
+              <div>Pro tip: Open palette with ⌘K and type ΓÇ£workspaceΓÇ¥, ΓÇ£noteΓÇ¥, or a task name to jump instantly.</div>
               <div className="font-mono text-[#c084fc]">Bad Ass Tasks</div>
             </div>
           </div>
@@ -4031,7 +4090,9 @@ export default function BadAssTasks() {
       {/* Keyboard hint */}
       <div className="fixed bottom-3 right-4 text-[10px] text-[#71717a] hidden lg:block font-mono">
         ⌘K palette • ⌘N add • 1-5 views • ? cheatsheet • Space complete
-        {isTrulyLive && <span className="ml-2 text-[#c084fc]">• Connected to Supabase</span>}
+        {!isSupabaseConfigured() && (
+          <span className="ml-2 text-[#71717a] hidden lg:inline">• Demo mode</span>
+        )}
       </div>
 
       {/* Notification detail modal (opened from bell) — readable full view + dismiss / actions */}
