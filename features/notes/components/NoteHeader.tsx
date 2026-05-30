@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Star, History, Trash2 } from "lucide-react";
+import { Star, History, Trash2, Plus } from "lucide-react";
 
 interface NoteHeaderProps {
   selectedNote: any;
@@ -12,6 +12,9 @@ interface NoteHeaderProps {
   linkedTaskCount: number;
   /** Backlink count from single-source selector (useBacklinks.ts). Optional for non-regression. */
   backlinkCount?: number;
+
+  /** Optional: create a direct child under the currently viewed note (wired from the notes list header area). */
+  onCreateSubNote?: () => void;
 }
 
 /**
@@ -31,6 +34,7 @@ export function NoteHeader({
   historyCount,
   linkedTaskCount,
   backlinkCount,
+  onCreateSubNote,
 }: NoteHeaderProps) {
   const [localTitle, setLocalTitle] = useState(selectedNote.title);
 
@@ -67,6 +71,18 @@ export function NoteHeader({
         placeholder="Untitled Note"
       />
       <div className="flex items-center gap-2 shrink-0">
+        {onCreateSubNote && (
+          <button
+            onClick={onCreateSubNote}
+            className="text-xs text-[#c084fc] hover:text-white flex items-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg hover:bg-white/5 border border-[#c084fc]/20 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#c084fc]/60 focus-visible:outline-none"
+            title="Create a new sub-note under this note"
+            aria-label="Create sub-note"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Sub
+          </button>
+        )}
+
         {linkedTaskCount > 0 && (
           <div className="text-xs px-2 py-1 rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/20">
             {linkedTaskCount} linked task{linkedTaskCount > 1 ? "s" : ""}

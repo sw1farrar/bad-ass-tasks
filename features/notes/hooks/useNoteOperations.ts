@@ -206,14 +206,9 @@ export function useNoteOperations({
 
     const newId = createdNote.id;
 
+    // Only structural change needed now: parent link. Display order is pure recency (newest first)
+    // at every level — no sortOrder writes, no renormalization, no extra store churn.
     await updateNote(newId, { parentNoteId: parent });
-
-    // After structural mutation: give the new sub-note a clean end position (integer)
-    // + renormalize the full sibling group under parent for zero-drift stability.
-    const currentSibs = notes.filter(n => (n.parentNoteId || null) === parent);
-    const cleanEnd = currentSibs.length * 1000;
-    await updateNote(newId, { sortOrder: cleanEnd });
-    renormalizeSiblingsUnderParent(parent);
 
     return newId; // return the string ID, not the object
   };

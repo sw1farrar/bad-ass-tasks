@@ -7,28 +7,12 @@
 // Fixed 2026-05-29.
 
 import React, { useState } from "react";
-import { Plus, Trash2, Search, Star, Link as LinkIcon, X, ChevronDown, ChevronRight, GripVertical, History } from "lucide-react";
+import { Plus, Trash2, Search, Star, Link as LinkIcon, X, History } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
 import { LinkedTasksPanel, NoteHeader } from "./components";
 import { useNoteSearch, useMentions, useBacklinks, useNoteHistory, getBacklinkCount, getBacklinkNotes } from "./hooks";
 import { cn } from "@/lib/utils";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 interface NotesViewProps {
   notes: Note[];
@@ -51,7 +35,6 @@ interface NotesViewProps {
   // For live snapshot persistence (M2)
   onPersistSnapshot?: (noteId: string, snapshot: any) => void;
   onCreateSubNote?: (parentNoteId: string, title?: string) => Promise<string | null>; // Milestone 2 hierarchy
-  onReparentNote?: (draggedNoteId: string, targetNoteId: string) => void; // Drag to make child or reorder
   isLive: boolean;
 
   // M2: when a real mention is inserted in the editor, perform the actual link
@@ -88,7 +71,6 @@ export function NotesView({
   onToggleTaskStatus,
   onUpdateTask,
   onCreateSubNote,
-  onReparentNote,
   onOpenNote,
   onPersistSnapshot,
   isLive,
@@ -102,10 +84,12 @@ export function NotesView({
   requestTitleSnapshot,
 }: NotesViewProps) {
   const [isCreating, setIsCreating] = useState(false);
-  const [currentOverId, setCurrentOverId] = useState<string | null>(null); // for visual drop targets
 
-  // Expand/collapse state for hierarchy (default: everything expanded)
+  // "Open families" state: which notes currently have their direct children revealed in the list.
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+
+  // Used only to detect family switches for auto-collapsing the list when you leave a branch.
+  const lastRootRef = React.useRef<string | null>(null);
 
   // M2 Version History trigger (increment to tell editor to open panel)
   const [historyOpenTrigger, setHistoryOpenTrigger] = useState(0);
@@ -115,9 +99,6 @@ export function NotesView({
   // M2: history count owned internally (extracted from page.tsx orchestration)
   // Editor calls onHistoryChange; we pass count to header. No longer bubbles to monolith.
   const [historyCount, setHistoryCount] = useState(0);
-
-  // M2 stable sortOrder: ref for load-time norm idempotency (prevents repeated update storms on clean data)
-  const lastNormSigRef = React.useRef<string>('');
 
   // Extracted search logic (M2 extraction)
   const { searchQuery, setSearchQuery, filteredNotes, isSearching } = useNoteSearch(notes);
@@ -133,268 +114,232 @@ export function NotesView({
     onRequestTitleSnapshot: requestTitleSnapshot,
   });
 
-  // M2 ROBUST LOAD-TIME RENORMALIZATION (stable integer sortOrder - highest leverage gap)
-  // - On any notes load/change: group by parent, assign clean 0/1000/2000... steps to every sibling group
-  // - Uses onUpdateNote (hybrid/demo/live safe). Idempotent via sig ref (no storms/loops once clean).
-  // - Defensive: String() on ids, ?? fallbacks, no floats ever written here.
-  // - Complements the after-mutation helper in useNoteOperations (reparent/createSubNote paths).
-  // - After any mutation the next effect pass sees clean data and skips.
+  // Selection-driven family expansion (new model):
+  // - When you select a note, we reveal the direct children of it and all its ancestors
+  //   that have children (the active path / "family").
+  // - The family stays revealed ("kept expanded") as long as you stay within notes
+  //   that share the same root ancestor.
+  // - As soon as you select a note whose root ancestor is different, we collapse
+  //   the previous family and open the new one.
   React.useEffect(() => {
-    if (!notes || notes.length === 0 || typeof onUpdateNote !== 'function') return;
+    if (!selectedNoteId || !notes.length) return;
 
-    const byParent = new Map<string | null, Note[]>();
-    notes.forEach(note => {
-      const p = note.parentNoteId || null;
-      if (!byParent.has(p)) byParent.set(p, []);
-      byParent.get(p)!.push(note);
-    });
-
-    let anyDrift = false;
-    const sigParts: string[] = [];
-
-    byParent.forEach((siblings, pKey) => {
-      // Skip root-level notes entirely — the main flat notes list now uses pure recency sort (updatedAt/createdAt)
-      // and should never be touched by sortOrder normalization. This prevents the constant timestamp churn + re-sorting loop.
-      if (pKey === null) return;
-
-      const sorted = [...siblings].sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
-      // Build stable sig for this parent group (defensive slice for id safety)
-      const groupSig = sorted.map(s => `${String(s.id || '').slice(0, 8)}:${s.sortOrder ?? 'u'}`).join(',');
-      sigParts.push(`${pKey ?? 'root'}:${groupSig}`);
-
-      sorted.forEach((sib, idx) => {
-        const desired = idx * 1000;
-        const current = sib.sortOrder ?? -1;
-        if (current !== desired) {
-          anyDrift = true;
-          // Fire-and-forget update (store will cause re-render with fresh notes; effect re-runs but will be clean)
-          onUpdateNote(sib.id, { sortOrder: desired });
-        }
-      });
-    });
-
-    const newSig = sigParts.join('|');
-    if (!anyDrift) {
-      lastNormSigRef.current = newSig;
-    }
-  }, [notes, onUpdateNote]);
-
-  // Auto-expand all parents on initial load / when notes change (while not searching)
-  React.useEffect(() => {
-    if (isSearching) return;
-
-    const parentsWithChildren = new Set<string>();
-    notes.forEach(note => {
-      if (note.parentNoteId) {
-        parentsWithChildren.add(note.parentNoteId);
+    // Find the root ancestor of a note (walk up parentNoteId until null)
+    const getRoot = (startId: string): string => {
+      let cur: string | null = startId;
+      const seen = new Set<string>();
+      while (cur) {
+        if (seen.has(cur)) break;
+        seen.add(cur);
+        const n = notes.find(nn => nn.id === cur);
+        if (!n?.parentNoteId) return cur;
+        cur = n.parentNoteId;
       }
-    });
+      return startId;
+    };
 
-    if (parentsWithChildren.size > 0) {
-      setExpandedNotes(parentsWithChildren);
-    }
-  }, [notes, isSearching]);
+    // We no longer do an automatic blanket clear on family switch.
+    // The row click handlers now own the exact expand / "first return up the path collapses" semantics
+    // the user requested (points 1, 2, and the return-up rule).
+    // Keeping the ref updated is harmless and can be used for future debugging if needed.
+    const newRoot = getRoot(selectedNoteId || '');
+    lastRootRef.current = newRoot || null;
+  }, [selectedNoteId, notes]);
 
   const isExpanded = (noteId: string) => expandedNotes.has(noteId);
+
+  // Manual toggle for a note's direct children (called from the count badge).
+  const toggleExpansion = (noteId: string) => {
+    setExpandedNotes(prev => {
+      const next = new Set(prev);
+      if (next.has(noteId)) {
+        next.delete(noteId);
+      } else {
+        next.add(noteId);
+      }
+      return next;
+    });
+  };
+
+  // Pure helper: is `potentialAncestor` a proper ancestor of `descendant` in the current notes graph?
+  const isProperAncestor = (potentialAncestor: string, descendant: string, allNotes: Note[]): boolean => {
+    let cur: string | null = descendant;
+    const seen = new Set<string>();
+    while (cur) {
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      if (cur === potentialAncestor) return true;
+      const n = allNotes.find(nn => nn.id === cur);
+      cur = n?.parentNoteId || null;
+    }
+    return false;
+  };
+
+  // Active root for "cohesive family background" treatment.
+  // Any note whose root ancestor matches this gets the soft family styling.
+  const activeRootId = React.useMemo(() => {
+    if (!selectedNoteId) return null;
+    let cur: string | null = selectedNoteId;
+    const seen = new Set<string>();
+    while (cur) {
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      const n = notes.find(nn => nn.id === cur);
+      if (!n?.parentNoteId) return cur;
+      cur = n.parentNoteId;
+    }
+    return selectedNoteId;
+  }, [selectedNoteId, notes]);
 
   // NOTE: getBacklinkCount / getBacklinkNotes now come exclusively from the single-source
   // useBacklinks.ts selectors (imported above). No local duplication remains.
 
-  // DnD sensors for drag-to-reparent and reorder
-  // KeyboardSensor enables full keyboard accessibility for note tree (Space/Enter pick-up, Arrow keys move, Space/Enter drop, Esc cancel)
-  // This is high-impact low-risk polish for keyboard users (M2 accessibility goal).
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  // Helper to get all currently visible notes in render order (for DnD + keyboard nav).
-  // When searching: just the filtered list.
-  // When not searching: depth-first walk of the tree, respecting the current expanded state.
-  const getVisibleNotes = (): Note[] => {
-    if (searchQuery) {
-      // Dedupe even in search return path (SortableContext + list keys must be unique)
-      const seen = new Set<string>();
-      return filteredNotes.filter((n) => {
-        const k = String(n?.id || "");
-        if (!k || seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-    }
-
-    const visible: Note[] = [];
-
-    // Defensive dedupe by id (protects DnD item list + recursion even under transient store dups)
-    const seen = new Set<string>();
-    const dedupedSource = notes.filter((n) => {
-      const k = String(n?.id || "");
-      if (!k || seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-
-    // Build + sort children map locally (duplicates renderNoteTree's map for now;
-    // can be unified in a later polish pass).
-    const tempChildrenMap = new Map<string | null, Note[]>();
-    dedupedSource.forEach((note) => {
-      const p = note.parentNoteId || null;
-      if (!tempChildrenMap.has(p)) tempChildrenMap.set(p, []);
-      tempChildrenMap.get(p)!.push(note);
-    });
-    tempChildrenMap.forEach((list) => {
-      // M2: respect explicit sortOrder (now guaranteed stable integers via load renorm + after-mutation helper)
-      // Defensive numeric fallback + secondary updatedAt. No drift possible post-norm.
-      list.sort((a, b) => {
-        const soA = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        const soB = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        if (soA !== soB) return soA - soB;
-        const ta = new Date(a.updatedAt || a.createdAt).getTime();
-        const tb = new Date(b.updatedAt || b.createdAt).getTime();
-        return tb - ta;
-      });
-    });
-
-    const add = (pid: string | null) => {
-      const kids = tempChildrenMap.get(pid) || [];
-      kids.forEach((n) => {
-        visible.push(n);
-        if (isExpanded(n.id)) add(n.id);
-      });
-    };
-    add(null);
-    return visible;
-  };
-
-  const visibleNotesForDnD = getVisibleNotes();
-
-  // Simple sortable item for notes (supports reparent on drop + reorder)
-  function SortableNoteItem({
+  // Plain row renderer for the notes list (roots + revealed children of open families).
+  // No chevrons/arrows. Hierarchy is revealed on selection and stays open within a family.
+  // Small count indicator appears to the *right* of the title when a note has children.
+  function NoteListItem({
     note,
     isSelected,
     onSelect,
     onDelete,
     depth,
     hasChildren,
-    expanded,
-    onToggle,
-    onReparent,
-    isOver = false,
-    showDragHandle = true,
+    childCount,
+    onCreateSub,
+    isInActiveFamily,
+    onToggleChildren,
+    isOpen,
   }: {
     note: Note;
     isSelected: boolean;
     onSelect: (id: string) => void;
     onDelete: (id: string, e?: React.MouseEvent) => void;
     depth: number;
-    hasChildren: boolean;
-    expanded: boolean;
-    onToggle: (id: string, e: React.MouseEvent) => void;
-    onReparent: (draggedId: string, targetId: string) => void;
-    isOver?: boolean;
-    showDragHandle?: boolean;
+    hasChildren?: boolean;
+    childCount?: number;
+    onCreateSub?: (parentNoteId: string) => void;
+    isInActiveFamily?: boolean;
+    onToggleChildren?: (noteId: string) => void;
+    isOpen?: boolean;
   }) {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({ id: note.id });
-
-    const style: React.CSSProperties = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-      opacity: isDragging ? 0.6 : 1,
-    };
 
     const preview = note.title || "Untitled";
 
+    // Inside an open family the wrapper (in renderItemAndChildren) now provides the cohesive
+    // encompassing background. So non-selected rows inside a family get almost no extra bg —
+    // they just inherit the container. The selected row still gets its strong prominent highlight.
+    const familyRowClass = isInActiveFamily && !isSelected ? "bg-transparent" : "";
+
     return (
       <div
-        ref={setNodeRef}
-        style={{ ...style, marginLeft: `${depth * 14}px` }}
         className={cn(
           "group flex items-center justify-between gap-3 px-3 py-2.5 sm:py-3 rounded-xl cursor-pointer transition-colors border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/70 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a0a0f]",
           isSelected
             ? "bg-white/5 border-white/10"
             : "hover:bg-white/5 border-transparent",
-          isDragging && "shadow-2xl ring-1 ring-[#c084fc]/40",
-          isOver && "ring-2 ring-[#c084fc] bg-[#c084fc]/10 border-[#c084fc]/50 scale-[1.01] shadow-lg transition-all duration-150 relative before:absolute before:left-2 before:right-2 before:h-1 before:bg-[#c084fc] before:rounded before:-top-0.5 before:z-10"
+          familyRowClass
         )}
+        style={{ marginLeft: depth * 18 }}
         role="treeitem"
         aria-selected={isSelected}
-        aria-expanded={hasChildren ? expanded : undefined}
         aria-level={depth + 1}
-        aria-label={`${preview}${hasChildren ? (expanded ? ', expanded' : ', collapsed') : ''}${isSelected ? ', selected' : ''}`}
-        onClick={() => onSelect(note.id)}
-        onKeyDown={(e) => {
-          // Enhanced tree keyboard navigation + reordering support (mobile-keyboard task)
-          // ArrowLeft/Right: standard collapse/expand for tree items (a11y win)
-          if (hasChildren && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-            e.preventDefault();
-            const shouldExpand = e.key === "ArrowRight";
-            if ((shouldExpand && !expanded) || (!shouldExpand && expanded)) {
-              onToggle(note.id, e as any);
+        aria-label={`${preview}${childCount ? `, ${childCount} sub-notes` : ''}${isSelected ? ', selected' : ''}`}
+        onClick={() => {
+          // Capture the selection *before* we change it — this is the key to detecting "return up the current path".
+          const prevSelected = selectedNoteId;
+
+          onSelect(note.id);
+
+          if (childCount && childCount > 0) {
+            // Is the note we are clicking a proper ancestor of where we *were* a moment ago?
+            // This is exactly the "clicking back on the parent or any level above" case the user described.
+            const returningUpTheDrillPath =
+              !!prevSelected &&
+              prevSelected !== note.id &&
+              isProperAncestor(note.id, prevSelected, notes);
+
+            if (returningUpTheDrillPath) {
+              // First click back up the path after drilling down:
+              // - Select it (its content appears on the right — "only expose its contents")
+              // - Force-collapse its subtree (do not reveal children on this first return click)
+              setExpandedNotes(e => {
+                const n = new Set(e);
+                n.delete(note.id);
+                return n;
+              });
+              return;
             }
-            return;
+
+            // All other cases:
+            // - Clicking a different parent / sibling while in another branch → expand immediately (point 1)
+            // - Clicking a child for the first time → expand immediately (point 2)
+            // - Subsequent clicks on the same item (after the first return click) → normal toggle
+            toggleExpansion(note.id);
           }
-          // Space or Enter: toggle expand/collapse when item has children (standard tree a11y)
-          if (hasChildren && (e.key === " " || e.key === "Enter")) {
+        }}
+        onKeyDown={(e) => {
+          if ((e.key === " " || e.key === "Enter") && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            onToggle(note.id, e as any);
-            return;
-          }
-          // ArrowUp/Down: reordering via direct (KeyboardSensor dnd-kit also supported for full drag keyboard flow)
-          if ((e.key === "ArrowUp" || e.key === "ArrowDown") && onReparent) {
-            e.preventDefault();
-            const siblings = notes.filter(n => (n.parentNoteId || null) === (note.parentNoteId || null))
-              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-            const currentIdx = siblings.findIndex(n => n.id === note.id);
-            const targetIdx = e.key === "ArrowUp" ? currentIdx - 1 : currentIdx + 1;
-            if (targetIdx >= 0 && targetIdx < siblings.length) {
-              onReparent(note.id, siblings[targetIdx].id);
+
+            const prevSelected = selectedNoteId;
+            onSelect(note.id);
+
+            if (childCount && childCount > 0) {
+              const returningUpTheDrillPath =
+                !!prevSelected &&
+                prevSelected !== note.id &&
+                isProperAncestor(note.id, prevSelected, notes);
+
+              if (returningUpTheDrillPath) {
+                setExpandedNotes(e => {
+                  const n = new Set(e);
+                  n.delete(note.id);
+                  return n;
+                });
+                return;
+              }
+              toggleExpansion(note.id);
             }
           }
         }}
         tabIndex={0}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          {/* Drag Handle — only shown when allowed (main root notes list uses pure recency, no handles) */}
-          {showDragHandle && (
-            <div
-              {...listeners}
-              {...attributes}
-              className="cursor-grab active:cursor-grabbing text-[#71717a] hover:text-[#c084fc] focus-visible:text-[#c084fc] p-2 -ml-1 rounded hover:bg-white/10 focus-visible:bg-white/10 focus-visible:ring-1 focus-visible:ring-[#c084fc]/50 touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-              title="Drag to reorder or reparent (or use keyboard via dnd-kit)"
-              aria-label="Drag handle for reordering note"
-              role="button"
-              tabIndex={-1}
-            >
-              <GripVertical className="h-4 w-4" />
-            </div>
-          )}
-
-          {/* Chevron — 44px+ touch target friendly (WCAG / mobile HIG) */}
-          {hasChildren && (
-            <button
-              onClick={(e) => onToggle(note.id, e)}
-              className="p-2 -mx-1 text-[#71717a] hover:text-white focus-visible:text-white rounded hover:bg-white/10 focus-visible:bg-white/10 focus-visible:ring-1 focus-visible:ring-[#c084fc]/50 touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
-              aria-label={expanded ? "Collapse subtree" : "Expand subtree"}
-            >
-              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
-          )}
-
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-sm truncate">{preview}</div>
+            <div className="font-medium text-sm truncate flex items-center gap-1.5">
+              {preview}
+
+              {/* Clickable children count badge.
+                  - Shows how many direct children the note has.
+                  - Clicking it toggles visibility of those children (manual expand/collapse).
+                  - This is the primary way users control subtree visibility now that we removed persistent arrows. */}
+              {!!childCount && childCount > 0 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleChildren?.(note.id);
+                  }}
+                  className="ml-1 text-[10px] leading-none px-1.5 py-px rounded-full bg-white/5 text-[#71717a]/70 tabular-nums hover:bg-white/10 hover:text-[#c084fc] active:scale-[0.95] transition-all focus-visible:ring-1 focus-visible:ring-[#c084fc]/50"
+                  title={`Click to ${isOpen ? 'hide' : 'show'} ${childCount} sub-note${childCount === 1 ? '' : 's'}`}
+                >
+                  {childCount}
+                </button>
+              )}
+
+              {onCreateSub && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateSub(note.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-70 hover:opacity-100 p-1 -my-0.5 rounded hover:bg-white/10 focus-visible:bg-white/10 focus-visible:ring-1 focus-visible:ring-[#c084fc]/50 text-[#71717a] hover:text-[#c084fc] transition-all touch-manipulation"
+                  aria-label={`Create sub-note under ${preview}`}
+                  title="Create sub-note"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
             <div className="text-[10px] text-[#71717a] mt-0.5">
               {new Date(note.updatedAt || note.createdAt).toLocaleString([], {
                 month: "short",
@@ -458,19 +403,6 @@ export function NotesView({
     await onDeleteNote(id);
   };
 
-  const toggleExpand = (noteId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpandedNotes(prev => {
-      const next = new Set(prev);
-      if (next.has(noteId)) {
-        next.delete(noteId);
-      } else {
-        next.add(noteId);
-      }
-      return next;
-    });
-  };
-
   const openHistoryForSelected = () => {
     setHistoryOpenTrigger((n) => n + 1);
   };
@@ -487,16 +419,19 @@ export function NotesView({
     onUnlinkNoteFromNote,
   });
 
-  // Recursive tree renderer for proper hierarchy visualization.
-  // Now uses SortableNoteItem so that @dnd-kit drag-to-reparent and vertical reordering
-  // work in the normal (non-search) tree view, not just search mode.
+  // New renderer (selection-driven + sticky families):
+  // - Top level: only root notes (parentNoteId === null), pure recency.
+  // - Children of a note are only shown inline (indented) when that note is in expandedNotes
+  //   (populated by the selection effect above). Once revealed, they stay until you select
+  //   a note from a completely different root-level family.
+  // - No chevrons in the list. The small count badge to the right of the title is the signal.
   const renderNoteTree = (
     allNotes: Note[],
     selectedId: string | null,
     onSelect: (id: string | null) => void,
     onDelete: (id: string, e?: React.MouseEvent) => void
   ) => {
-    // Defensive dedupe by id before grouping (protects React keys in tree even if store ever has dups from races)
+    // Dedupe + build children map (same cheap work as before)
     const seen = new Set<string>();
     const deduped = allNotes.filter((n) => {
       const k = String(n?.id || "");
@@ -505,73 +440,98 @@ export function NotesView({
       return true;
     });
 
-    // Build a map of children for each parent (same as before)
     const childrenMap = new Map<string | null, Note[]>();
-
     deduped.forEach((note) => {
       const parent = note.parentNoteId || null;
       if (!childrenMap.has(parent)) childrenMap.set(parent, []);
       childrenMap.get(parent)!.push(note);
     });
 
-    // Root-level notes (the "main notes" flat list) → pure recency, no drag handles.
-    // Everything else (children inside the tree) keeps the existing sortOrder + drag behavior.
-    const rootNotes = childrenMap.get(null) || [];
-    rootNotes.sort((a, b) => {
-      const ta = new Date(a.updatedAt || a.createdAt).getTime();
-      const tb = new Date(b.updatedAt || b.createdAt).getTime();
-      return tb - ta;
-    });
-
-    // For non-root levels, keep the previous stable sortOrder logic
-    childrenMap.forEach((list, parentId) => {
-      if (parentId === null) return; // already handled above
+    // Recency within every sibling group
+    childrenMap.forEach((list) => {
       list.sort((a, b) => {
-        const soA = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        const soB = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        if (soA !== soB) return soA - soB;
-        const timeA = new Date(a.updatedAt || a.createdAt).getTime();
-        const timeB = new Date(b.updatedAt || b.createdAt).getTime();
-        return timeB - timeA;
+        const ta = new Date(a.updatedAt || a.createdAt).getTime();
+        const tb = new Date(b.updatedAt || b.createdAt).getTime();
+        return tb - ta;
       });
     });
 
-    const renderLevel = (parentId: string | null, depth: number): React.ReactNode => {
-      const children = childrenMap.get(parentId) || [];
-      if (children.length === 0) return null;
-
-      return children.map((note) => {
-        const isSelected = note.id === selectedId;
-        const hasChildren = (childrenMap.get(note.id) || []).length > 0;
-        const expanded = hasChildren && isExpanded(note.id);
-
-        return (
-          <React.Fragment key={note.id}>
-            <SortableNoteItem
-              note={note}
-              isSelected={isSelected}
-              onSelect={onSelect}
-              onDelete={onDelete}
-              depth={depth}
-              hasChildren={hasChildren}
-              expanded={expanded}
-              onToggle={toggleExpand}
-              onReparent={(draggedId, targetId) => {
-                onReparentNote?.(draggedId, targetId);
-              }}
-              isOver={currentOverId === note.id}
-              showDragHandle={depth > 0}
-            />
-
-            {/* Render children only if expanded — still recursive */}
-            {hasChildren && expanded && renderLevel(note.id, depth + 1)}
-          </React.Fragment>
-        );
-      });
+    // Helper: is this note part of the currently active open family?
+    const isInActiveFamily = (noteId: string): boolean => {
+      if (!activeRootId) return false;
+      let cur: string | null = noteId;
+      const seen = new Set<string>();
+      while (cur) {
+        if (seen.has(cur)) break;
+        seen.add(cur);
+        if (cur === activeRootId) return true;
+        const n = notes.find(nn => nn.id === cur);
+        cur = n?.parentNoteId || null;
+      }
+      return false;
     };
 
-    // Start from root notes (no parent)
-    return renderLevel(null, 0);
+    // Render a single note + its direct children (only if the note is "open").
+    // When a note has visible children (the family is open), we wrap the parent row
+    // + all its revealed descendants in a single cohesive container. This gives the
+    // "smoothly encompasses the entire family" effect the user requested.
+    const renderItemAndChildren = (note: Note, depth: number): React.ReactNode => {
+      const isSelected = note.id === selectedId;
+      const kids = childrenMap.get(note.id) || [];
+      const count = kids.length;
+      const showChildren = count > 0 && isExpanded(note.id);
+
+      const row = (
+        <NoteListItem
+          note={note}
+          isSelected={isSelected}
+          onSelect={onSelect}
+          onDelete={onDelete}
+          depth={depth}
+          hasChildren={count > 0}
+          childCount={count}
+          onCreateSub={onCreateSubNote ? (pid) => {
+            onCreateSubNote(pid).then((newId) => { if (newId) onSelect(newId); });
+          } : undefined}
+          isInActiveFamily={isInActiveFamily(note.id)}
+          onToggleChildren={toggleExpansion}
+          isOpen={isExpanded(note.id)}
+        />
+      );
+
+      if (!showChildren) {
+        return row;
+      }
+
+      // Open family → wrap in a soft container so the whole visible branch reads as one unit.
+      // The selected note inside will have its stronger highlight and stand out from the other family members.
+      return (
+        <div
+          key={note.id}
+          className="rounded-2xl bg-white/[0.02] border border-white/5 pl-1 py-1 -mx-1 mb-1"
+        >
+          {/* Subtle left accent bar for extra "this is one connected family" cohesion (premium touch) */}
+          <div className="border-l border-white/10 pl-2 -ml-1">
+            {row}
+            <div className="space-y-px">
+              {kids.map(child => (
+                <React.Fragment key={child.id}>
+                  {renderItemAndChildren(child, depth + 1)}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // Top level = only roots. Everything else appears inline under its parent when opened.
+    const roots = childrenMap.get(null) || [];
+    return roots.map(root => (
+      <React.Fragment key={root.id}>
+        {renderItemAndChildren(root, 0)}
+      </React.Fragment>
+    ));
   };
 
   return (
@@ -587,25 +547,6 @@ export function NotesView({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {selectedNoteId && onCreateSubNote && (
-              <button
-                onClick={async () => {
-                  setIsCreating(true);
-                  try {
-                    const newId = await onCreateSubNote(selectedNoteId, "New sub-note");
-                    if (newId) onSelectNote(newId);
-                  } finally {
-                    setIsCreating(false);
-                  }
-                }}
-                disabled={isCreating}
-                className="btn btn-secondary text-xs px-2.5 py-1.5 sm:py-1 flex items-center gap-1 disabled:opacity-50 touch-manipulation min-h-[36px] sm:min-h-[36px]"
-                title="Create sub-note under selected note"
-              >
-                <Plus className="h-3 w-3" />
-                Sub
-              </button>
-            )}
             <button
               onClick={handleCreateNote}
               disabled={isCreating}
@@ -647,86 +588,44 @@ export function NotesView({
             </div>
           )}
 
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragOver={(event) => {
-              setCurrentOverId(event.over ? String(event.over.id) : null);
-            }}
-            // Big step: stronger visual insertion feedback for intra-parent reordering
-            onDragMove={(event) => {
-              // Could add more sophisticated insertion line here in future
-            }}
-            onDragEnd={(event: DragEndEvent) => {
-              const { active, over } = event;
-              if (!over || active.id === over.id) return;
-
-              // M2: ultra-defensive String() + existence + equality guards (pairs with strengthened guards in useNoteOperations)
-              const draggedId = String(active.id || '').trim();
-              const targetId = String(over.id || '').trim();
-
-              if (!draggedId || !targetId || draggedId === targetId) {
-                console.warn('[Notes DnD] Invalid drag ids', { draggedId, targetId });
-                return;
-              }
-
-              // Extra safety: only allow reparent if both ids correspond to real notes (existence guard)
-              const draggedExists = notes.some(n => String(n.id) === draggedId);
-              const targetExists = notes.some(n => String(n.id) === targetId);
-              if (!draggedExists || !targetExists) {
-                console.warn('[Notes DnD] Drag ids do not match any note', { draggedId, targetId });
-                return;
-              }
-
-              setCurrentOverId(null);
-
-              if (draggedId !== targetId) {
-                // Optimistically expand the target so the user immediately sees their dragged note
-                // as a child (the store update will confirm it).
-                setExpandedNotes((prev) => {
-                  const next = new Set(prev);
-                  next.add(targetId);
-                  return next;
-                });
-
-                // Delegate to handler which now guarantees integer sortOrder via midpoint floor + full sibling renorm
-                onReparentNote?.(draggedId, targetId);
-              }
-            }}
-          >
-            <SortableContext
-              items={visibleNotesForDnD.map((n) => n.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {/* Render tree or flat list.
-                  Both branches now use SortableNoteItem so drag-to-reparent works everywhere. */}
-              {searchQuery ? (
-                // Use the already-deduplicated visible list (search path now safe for keys + dnd-kit)
-                visibleNotesForDnD.map((note) => {
-                  const isSelected = note.id === selectedNoteId;
-                  return (
-                    <SortableNoteItem
-                      key={note.id}
-                      note={note}
-                      isSelected={isSelected}
-                      onSelect={onSelectNote}
-                      onDelete={handleDeleteNote}
-                      depth={0}
-                      hasChildren={false}
-                      expanded={false}
-                      onToggle={() => {}}
-                      onReparent={(dragged, target) => {
-                        onReparentNote?.(dragged, target);
-                      }}
-                      showDragHandle={false}
-                    />
-                  );
-                })
-              ) : (
-                renderNoteTree(filteredNotes, selectedNoteId, onSelectNote, handleDeleteNote)
-              )}
-            </SortableContext>
-          </DndContext>
+          {/* Plain list (no DnD). Search = flat recency list. Normal = recursive tree with pure recency at every level. */}
+          {searchQuery ? (
+            // Search results: flat, pure recency (already sorted by useNoteSearch), deduped for safety
+            (() => {
+              const seen = new Set<string>();
+              const safe = filteredNotes.filter((n) => {
+                const k = String(n?.id || "");
+                if (!k || seen.has(k)) return false;
+                seen.add(k);
+                return true;
+              });
+              return safe.map((note) => {
+                const isSelected = note.id === selectedNoteId;
+                // In search we still show a flat list, but we can still show the count badge
+                const kids = notes.filter((n) => (n.parentNoteId || null) === note.id);
+                return (
+                  <NoteListItem
+                    key={note.id}
+                    note={note}
+                    isSelected={isSelected}
+                    onSelect={onSelectNote}
+                    onDelete={handleDeleteNote}
+                    depth={0}
+                    hasChildren={kids.length > 0}
+                    childCount={kids.length}
+                    onCreateSub={onCreateSubNote ? (pid) => {
+                      onCreateSubNote(pid).then((newId) => { if (newId) onSelectNote(newId); });
+                    } : undefined}
+                    isInActiveFamily={false}
+                    onToggleChildren={toggleExpansion}
+                    isOpen={false}
+                  />
+                );
+              });
+            })()
+          ) : (
+            renderNoteTree(filteredNotes, selectedNoteId, onSelectNote, handleDeleteNote)
+          )}
         </div>
       </div>
 
@@ -748,6 +647,9 @@ export function NotesView({
               historyCount={historyCount}
               linkedTaskCount={selectedNote.linkedTaskIds?.length || 0}
               backlinkCount={getBacklinkCount(notes, selectedNote.id)}
+              onCreateSubNote={onCreateSubNote ? () => {
+                onCreateSubNote(selectedNote.id).then((newId) => { if (newId) onSelectNote(newId); });
+              } : undefined}
             />
 
             <div className="flex-1 overflow-hidden">
