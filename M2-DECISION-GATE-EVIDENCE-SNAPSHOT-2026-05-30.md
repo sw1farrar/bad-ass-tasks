@@ -151,3 +151,21 @@ Next steps in loop: address next highest-signal Gap (per Mapper), re-run full hy
 - **E2E stage:** Still in progress at time of append (common long stage).
 
 *Additive hygiene-run entry. Appended under full M2 Decision Gate governance; no content changes to prior sections.*
+
+## Turbopack Cache Clear 2026-05-30 10:52 (this Continue.)
+
+- **Recurring error:** "Cannot find module '../chunks/ssr/[turbopack]_runtime.js'"
+- **Action:** Killed lingering node processes + force-deleted `.next` (2nd time today; known Windows Turbopack fragility in hygiene cycles).
+- **Result:** Clean slate for `npm run dev`.
+- **Governance:** Pure env hygiene for Decision Gate manual verify step; no code changes.
+
+*Additive turbopack-hygiene entry. Appended under full M2 Decision Gate governance; no code/content changes.*
+
+## Autonomy Mode Confirmed + Gate Hygiene 2026-05-30 10:57 (this Continue.)
+
+- **User directive:** Explicit "Continue" under maximum autonomy rules + M2 Decision Gate; user instructed to stop asking questions and proceed directly.
+- **Context:** Immediately follows the 10:52 `.next` wipe + fresh hygiene launch (Turbopack cache clear for clean `npm run dev` slate).
+- **Future policy:** All subsequent "Continue" commands will trigger parallel sub-agents + direct action with zero permission-seeking or clarification requests.
+- **Governance:** Purely additive log entry only. Full Decision Gate invariants, baselines, and no-code-change hygiene preserved.
+
+*Additive autonomy-confirmation entry. Appended per explicit max-autonomy user directive at the M2/C4 Decision Gate.*
