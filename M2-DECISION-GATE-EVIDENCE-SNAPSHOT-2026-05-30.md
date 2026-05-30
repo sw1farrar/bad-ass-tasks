@@ -142,3 +142,12 @@ Next steps in loop: address next highest-signal Gap (per Mapper), re-run full hy
 - **Current state:** Strongly improved. 15 failures remain (mostly Gap 1 sortOrder edge cases + a few Gap 3/5 NodeView contract tests). Ready for manual verification or final small wave.
 
 *Additive patch-wave entry. Appended under full governance; no regressions introduced.*
+
+## Hygiene Run 2026-05-30 10:31 (this Continue.)
+
+- **Timestamp:** 20260530-103142
+- **Status so far:** Typecheck = 22 pre-existing errors (baseline match), Lint completed (baseline warnings), Build completed, Unit test completed.
+- **Note:** Full 5-log set being captured in root for evidence.
+- **E2E stage:** Still in progress at time of append (common long stage).
+
+*Additive hygiene-run entry. Appended under full M2 Decision Gate governance; no content changes to prior sections.*
