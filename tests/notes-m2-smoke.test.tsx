@@ -21,6 +21,9 @@ vi.mock('lucide-react', () => ({
   FileText: () => React.createElement('span', { 'data-testid': 'icon-filetext' }),
   RefreshCw: () => React.createElement('span', { 'data-testid': 'icon-refresh' }),
   AlertTriangle: () => React.createElement('span', { 'data-testid': 'icon-alert' }),
+  Pencil: () => React.createElement('span', { 'data-testid': 'icon-pencil' }),
+  Check: () => React.createElement('span', { 'data-testid': 'icon-check' }),
+  X: () => React.createElement('span', { 'data-testid': 'icon-x' }),
 }));
 
 // Basic M2 smoke tests for core notes flows
@@ -652,7 +655,7 @@ describe('SyncedBlock basic insertion + lookup behavior (mocked M2)', () => {
     expect(screen.getByText(/This is the full content for sync preview/)).toBeInTheDocument();
     // Footer signals
     expect(screen.getByText(/SYNCED BLOCK/)).toBeInTheDocument();
-    expect(screen.getByText(/M2→M3 MVP/)).toBeInTheDocument();
+    expect(screen.getByText(/M2→M3/)).toBeInTheDocument();
     expect(screen.getByTestId('icon-refresh')).toBeInTheDocument();
   });
 
@@ -665,7 +668,7 @@ describe('SyncedBlock basic insertion + lookup behavior (mocked M2)', () => {
     render(<SyncedBlockNodeView {...missingProps} />);
     expect(screen.getByText('Referenced note not found')).toBeInTheDocument();
     expect(screen.getByTestId('icon-alert')).toBeInTheDocument();
-    expect(screen.getByText(/may have been deleted/)).toBeInTheDocument();
+    expect(screen.getByText(/deleted \/ inaccessible|was deleted/)).toBeInTheDocument();
   });
 
   it('insertion + navigation: clicking the source title in header calls onOpenNote with targetNoteId (lookup-driven open)', () => {
@@ -869,10 +872,10 @@ describe('M2 Targeted Regression (drag, picker, restore, export)', () => {
     render(<DatabaseBlockNodeView {...props} />);
     fireEvent.click(screen.getByText('Board'));
     const alphas = screen.getAllByText('Open Task Alpha');
-    const cardTitle = alphas.find((el) => el.closest('[draggable]'));
-    const card = cardTitle?.closest('[draggable]');
+    const cardTitle = alphas.find((el) => el.closest('[data-kanban-card]') || el.closest('[draggable]'));
+    const card = cardTitle?.closest('[data-kanban-card]') || cardTitle?.closest('[draggable]');
     const doingHeader = screen.getByText('DOING');
-    const doingCol = doingHeader.closest('div[class*="rounded-xl"]') || doingHeader.parentElement?.parentElement;
+    const doingCol = doingHeader.closest('[data-kanban-column]') || doingHeader.closest('div[class*="rounded-xl"]') || doingHeader.parentElement?.parentElement;
     fireEvent.dragStart(card!);
     fireEvent.dragOver(doingCol!);
     fireEvent.drop(doingCol!);
@@ -983,10 +986,10 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
     render(<DatabaseBlockNodeView {...props} />);
     fireEvent.click(screen.getByText('Board'));
     const alphas = screen.getAllByText('Open Task Alpha');
-    const cardTitle = alphas.find((el) => el.closest('[draggable]'));
-    const card = cardTitle?.closest('[draggable]');
+    const cardTitle = alphas.find((el) => el.closest('[data-kanban-card]') || el.closest('[draggable]'));
+    const card = cardTitle?.closest('[data-kanban-card]') || cardTitle?.closest('[draggable]');
     const todoHeader = screen.getByText('TODO');
-    const todoCol = todoHeader.closest('div[class*="rounded-xl"]') || todoHeader.parentElement?.parentElement;
+    const todoCol = todoHeader.closest('[data-kanban-column]') || todoHeader.closest('div[class*="rounded-xl"]') || todoHeader.parentElement?.parentElement;
     expect(() => {
       fireEvent.dragStart(card!);
       fireEvent.dragOver(todoCol!);
