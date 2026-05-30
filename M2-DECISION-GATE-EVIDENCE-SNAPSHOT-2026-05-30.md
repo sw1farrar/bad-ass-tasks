@@ -169,3 +169,11 @@ Next steps in loop: address next highest-signal Gap (per Mapper), re-run full hy
 - **Governance:** Purely additive log entry only. Full Decision Gate invariants, baselines, and no-code-change hygiene preserved.
 
 *Additive autonomy-confirmation entry. Appended per explicit max-autonomy user directive at the M2/C4 Decision Gate.*
+
+## Lucide + Matchers Stabilization + 11:01 Hygiene 2026-05-30 11:02 (this Continue.)
+
+- **4 test-only patches landed on this Continue:** `lucide-react` mock expanded (Pencil + full icon suite for icon rendering) + 3 matcher/robustness updates (Board view TODO header validation, DatabaseBlockNodeView test clarity, flexible `/Basic status filter/i` aria-label regex matcher) in `tests/notes-m2-smoke.test.tsx`. (Exact commits: 14eadbd, 0569c85, 13b7865, 34355a4.)
+- **Fresh hygiene run 20260530-110110:** Launched post-cache-clear (following 10:52 `.next` wipe + dev restart for Turbopack hygiene). All five stages executed; logs captured as `*-post-smoke-20260530-110110.log` (typecheck/lint/build/test/e2e).
+- **Current state:** Smoke file (`notes-m2-smoke.test.tsx`) updated with stabilized assertions; hygiene generating evidence under M2/C4 Decision Gate; gate remains active with baselines intact; user has not delivered decision phrase.
+
+*Additive stabilization-hygiene entry. Appended under full M2 Decision Gate governance; preserves all prior baselines, zero new errors introduced.*
