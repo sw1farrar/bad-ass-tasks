@@ -16,7 +16,7 @@
 **What it activates:** Parallel first-wave M3 agents focused on the highest-leverage M2→M3 bridges (Gaps 3 & 5 plus explicit §5 scaffolding from the Sign-off Checklist). Each agent receives narrow charters, exhaustive primary-file reading requirements, and the same iron governance rules.
 
 - **M3-1 (highest priority):** DatabaseBlock full production + hybrid server query/RPC engine. Builds directly on the delivered M2 MVP (interactive Board with intra/inter drag, queryConfig auto-persist, named saved views). Delivers stable result shapes, RLS/hybrid-aware queries, minimal working server query path or polished RPC stubs, and clear next-slice markers. Zero changes to existing M2 UI/drag/filters/views/persistence.
-- **M2-2:** SyncedBlock full bidirectional content sync production edges. Completes the M2 foundation with conflict handling, presence/cursor safety, and live sync across source and all embeds.
+- **M3-2:** SyncedBlock full bidirectional content sync production edges. Completes the M2 foundation with conflict handling, presence/cursor safety, and live sync across source and all embeds.
 - **M3-3 (optional, same wave if capacity allows):** Deeper AI editor integration (expands on M2 AI scaffolding + graph context).
 
 **Post-activation requirements:** Main thread produces consolidated summary + evidence; updates living handoff docs (WAVE8-MASTER-PLAN, MILESTONE-2-PROGRESS, SIGNOFF-CHECKLIST §5). **Full hygiene chain + M2 smoke (.tsx) + C4 manual surfaces must be re-run and pass before any fold or further M3 slices.**
