@@ -15,6 +15,16 @@ interface NoteHeaderProps {
 
   /** Optional: create a direct child under the currently viewed note (wired from the notes list header area). */
   onCreateSubNote?: () => void;
+
+  /**
+   * When true, immediately focus the title input and select its entire text.
+   * Used after creating a brand new note (top-level or sub) so the user can start typing the title right away.
+   * Parent is responsible for clearing this flag after the focus has occurred (via onTitleAutoFocusDone).
+   */
+  autoFocusTitle?: boolean;
+
+  /** Called once after we have performed the auto-focus + select for a newly created note. */
+  onTitleAutoFocusDone?: () => void;
 }
 
 /**
@@ -35,14 +45,31 @@ export function NoteHeader({
   linkedTaskCount,
   backlinkCount,
   onCreateSubNote,
+  autoFocusTitle,
+  onTitleAutoFocusDone,
 }: NoteHeaderProps) {
   const [localTitle, setLocalTitle] = useState(selectedNote.title);
+  const titleInputRef = React.useRef<HTMLInputElement>(null);
 
   // Sync local state when the selected note changes externally
   // (e.g. realtime collab from another user, or switching notes)
   useEffect(() => {
     setLocalTitle(selectedNote.title);
   }, [selectedNote.id, selectedNote.title]);
+
+  // Auto-focus + fully select the title input right after a new note is created.
+  // This lets the user immediately start typing a meaningful title without clicking.
+  useEffect(() => {
+    if (autoFocusTitle && titleInputRef.current) {
+      const rafId = requestAnimationFrame(() => {
+        titleInputRef.current?.focus();
+        titleInputRef.current?.select();
+        // Signal the parent that we're done so it can clear the one-shot flag.
+        onTitleAutoFocusDone?.();
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+  }, [autoFocusTitle, selectedNote.id, onTitleAutoFocusDone]);
 
   const commitTitle = () => {
     if (localTitle !== selectedNote.title) {
@@ -62,6 +89,7 @@ export function NoteHeader({
   return (
     <div className="px-4 sm:px-6 pt-4 pb-2 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
       <input
+        ref={titleInputRef}
         type="text"
         value={localTitle}
         onChange={(e) => setLocalTitle(e.target.value)}
@@ -74,12 +102,12 @@ export function NoteHeader({
         {onCreateSubNote && (
           <button
             onClick={onCreateSubNote}
-            className="text-xs text-[#c084fc] hover:text-white flex items-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg hover:bg-white/5 border border-[#c084fc]/20 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#c084fc]/60 focus-visible:outline-none"
+            className="text-xs text-[#c084fc] hover:text-white flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-[#c084fc]/10 border border-[#c084fc]/30 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#c084fc]/60 focus-visible:outline-none font-medium"
             title="Create a new sub-note under this note"
             aria-label="Create sub-note"
           >
             <Plus className="h-3.5 w-3.5" />
-            Sub
+            Sub-note
           </button>
         )}
 

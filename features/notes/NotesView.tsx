@@ -85,11 +85,13 @@ export function NotesView({
 }: NotesViewProps) {
   const [isCreating, setIsCreating] = useState(false);
 
+  // One-shot flag: when we create a note (top-level or sub), we set this to the new id.
+  // NoteHeader receives autoFocusTitle={true} for that id and will focus+select the title input,
+  // then call onTitleAutoFocusDone so we can clear the flag. This gives "create → start typing title" UX.
+  const [pendingAutoFocusTitleId, setPendingAutoFocusTitleId] = useState<string | null>(null);
+
   // "Open families" state: which notes currently have their direct children revealed in the list.
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
-
-  // Used only to detect family switches for auto-collapsing the list when you leave a branch.
-  const lastRootRef = React.useRef<string | null>(null);
 
   // M2 Version History trigger (increment to tell editor to open panel)
   const [historyOpenTrigger, setHistoryOpenTrigger] = useState(0);
@@ -114,38 +116,6 @@ export function NotesView({
     onRequestTitleSnapshot: requestTitleSnapshot,
   });
 
-  // Selection-driven family expansion (new model):
-  // - When you select a note, we reveal the direct children of it and all its ancestors
-  //   that have children (the active path / "family").
-  // - The family stays revealed ("kept expanded") as long as you stay within notes
-  //   that share the same root ancestor.
-  // - As soon as you select a note whose root ancestor is different, we collapse
-  //   the previous family and open the new one.
-  React.useEffect(() => {
-    if (!selectedNoteId || !notes.length) return;
-
-    // Find the root ancestor of a note (walk up parentNoteId until null)
-    const getRoot = (startId: string): string => {
-      let cur: string | null = startId;
-      const seen = new Set<string>();
-      while (cur) {
-        if (seen.has(cur)) break;
-        seen.add(cur);
-        const n = notes.find(nn => nn.id === cur);
-        if (!n?.parentNoteId) return cur;
-        cur = n.parentNoteId;
-      }
-      return startId;
-    };
-
-    // We no longer do an automatic blanket clear on family switch.
-    // The row click handlers now own the exact expand / "first return up the path collapses" semantics
-    // the user requested (points 1, 2, and the return-up rule).
-    // Keeping the ref updated is harmless and can be used for future debugging if needed.
-    const newRoot = getRoot(selectedNoteId || '');
-    lastRootRef.current = newRoot || null;
-  }, [selectedNoteId, notes]);
-
   const isExpanded = (noteId: string) => expandedNotes.has(noteId);
 
   // Manual toggle for a note's direct children (called from the count badge).
@@ -161,19 +131,25 @@ export function NotesView({
     });
   };
 
-  // Pure helper: is `potentialAncestor` a proper ancestor of `descendant` in the current notes graph?
-  const isProperAncestor = (potentialAncestor: string, descendant: string, allNotes: Note[]): boolean => {
-    let cur: string | null = descendant;
+  // Depth calculator for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
+  // Anything deeper is treated as max-depth for display and creation gating.
+  // Memoized on notes so it stays cheap and stable across renders.
+  const getNoteDepth = React.useCallback((noteId: string | null): number => {
+    if (!noteId) return 0;
+    let depth = 0;
+    let cur: string | null = noteId;
     const seen = new Set<string>();
     while (cur) {
       if (seen.has(cur)) break;
       seen.add(cur);
-      if (cur === potentialAncestor) return true;
-      const n = allNotes.find(nn => nn.id === cur);
-      cur = n?.parentNoteId || null;
+      const n = notes.find(nn => nn.id === cur);
+      if (!n?.parentNoteId) return depth;
+      depth += 1;
+      if (depth >= 2) return 2; // hard cap for "parent → child → grandchild only"
+      cur = n.parentNoteId;
     }
-    return false;
-  };
+    return Math.min(depth, 2);
+  }, [notes]);
 
   // Active root for "cohesive family background" treatment.
   // Any note whose root ancestor matches this gets the soft family styling.
@@ -205,7 +181,6 @@ export function NotesView({
     depth,
     hasChildren,
     childCount,
-    onCreateSub,
     isInActiveFamily,
     onToggleChildren,
     isOpen,
@@ -217,7 +192,6 @@ export function NotesView({
     depth: number;
     hasChildren?: boolean;
     childCount?: number;
-    onCreateSub?: (parentNoteId: string) => void;
     isInActiveFamily?: boolean;
     onToggleChildren?: (noteId: string) => void;
     isOpen?: boolean;
@@ -245,60 +219,40 @@ export function NotesView({
         aria-level={depth + 1}
         aria-label={`${preview}${childCount ? `, ${childCount} sub-notes` : ''}${isSelected ? ', selected' : ''}`}
         onClick={() => {
-          // Capture the selection *before* we change it — this is the key to detecting "return up the current path".
-          const prevSelected = selectedNoteId;
+          // "Was this already the selected note before this click?"
+          // This is the key signal for "the user is deliberately interacting with the *same* row again".
+          const wasAlreadySelected = selectedNoteId === note.id;
 
           onSelect(note.id);
 
           if (childCount && childCount > 0) {
-            // Is the note we are clicking a proper ancestor of where we *were* a moment ago?
-            // This is exactly the "clicking back on the parent or any level above" case the user described.
-            const returningUpTheDrillPath =
-              !!prevSelected &&
-              prevSelected !== note.id &&
-              isProperAncestor(note.id, prevSelected, notes);
-
-            if (returningUpTheDrillPath) {
-              // First click back up the path after drilling down:
-              // - Select it (its content appears on the right — "only expose its contents")
-              // - Force-collapse its subtree (do not reveal children on this first return click)
-              setExpandedNotes(e => {
-                const n = new Set(e);
-                n.delete(note.id);
-                return n;
-              });
-              return;
+            if (wasAlreadySelected) {
+              // Second (or subsequent) click on an already-selected note that has children.
+              // This is the user explicitly saying "toggle the children of this item".
+              // We only toggle on the *second* click so that coming back to a previously-expanded
+              // level after navigating elsewhere never surprises the user with a collapse.
+              toggleExpansion(note.id);
             }
-
-            // All other cases:
-            // - Clicking a different parent / sibling while in another branch → expand immediately (point 1)
-            // - Clicking a child for the first time → expand immediately (point 2)
-            // - Subsequent clicks on the same item (after the first return click) → normal toggle
-            toggleExpansion(note.id);
+            // First click on this note (new selection, switching families, returning up the path,
+            // or returning to a previously expanded branch after being "out of the tree"):
+            //   → Only select / view the note (content appears on the right).
+            //   → Leave every expanded/collapsed state in the entire tree exactly as the user had it.
+            // This is the rule the user requested: "if any level is expanded and the user navigates
+            // out of the tree, when they go back to it, it should not collapse on the first click."
           }
         }}
         onKeyDown={(e) => {
           if ((e.key === " " || e.key === "Enter") && !e.nativeEvent.isComposing) {
             e.preventDefault();
 
-            const prevSelected = selectedNoteId;
+            const wasAlreadySelected = selectedNoteId === note.id;
             onSelect(note.id);
 
             if (childCount && childCount > 0) {
-              const returningUpTheDrillPath =
-                !!prevSelected &&
-                prevSelected !== note.id &&
-                isProperAncestor(note.id, prevSelected, notes);
-
-              if (returningUpTheDrillPath) {
-                setExpandedNotes(e => {
-                  const n = new Set(e);
-                  n.delete(note.id);
-                  return n;
-                });
-                return;
+              if (wasAlreadySelected) {
+                toggleExpansion(note.id);
               }
-              toggleExpansion(note.id);
+              // Same "first click after navigating away = select only" rule for keyboard.
             }
           }
         }}
@@ -306,7 +260,7 @@ export function NotesView({
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-sm truncate flex items-center gap-1.5">
+            <div className="font-medium text-sm whitespace-normal break-words">
               {preview}
 
               {/* Clickable children count badge.
@@ -326,19 +280,9 @@ export function NotesView({
                 </button>
               )}
 
-              {onCreateSub && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateSub(note.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-70 hover:opacity-100 p-1 -my-0.5 rounded hover:bg-white/10 focus-visible:bg-white/10 focus-visible:ring-1 focus-visible:ring-[#c084fc]/50 text-[#71717a] hover:text-[#c084fc] transition-all touch-manipulation"
-                  aria-label={`Create sub-note under ${preview}`}
-                  title="Create sub-note"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {/* Inline hover "Sub" button removed per UX request.
+                  Sub-note creation is now only available from the prominent button
+                  in the main NoteHeader (next to the large title when a note is open). */}
             </div>
             <div className="text-[10px] text-[#71717a] mt-0.5">
               {new Date(note.updatedAt || note.createdAt).toLocaleString([], {
@@ -389,6 +333,7 @@ export function NotesView({
       const newId = await onCreateNote("Untitled Note");
       if (newId) {
         onSelectNote(newId);
+        setPendingAutoFocusTitleId(newId);
       }
     } finally {
       setIsCreating(false);
@@ -419,12 +364,14 @@ export function NotesView({
     onUnlinkNoteFromNote,
   });
 
-  // New renderer (selection-driven + sticky families):
-  // - Top level: only root notes (parentNoteId === null), pure recency.
-  // - Children of a note are only shown inline (indented) when that note is in expandedNotes
-  //   (populated by the selection effect above). Once revealed, they stay until you select
-  //   a note from a completely different root-level family.
-  // - No chevrons in the list. The small count badge to the right of the title is the signal.
+  // Renderer for the notes tree (3-level max: parent → child → grandchild).
+  // - Top level: only root notes (parentNoteId === null), pure recency sort.
+  // - A note's direct children are shown only when that note's id is in expandedNotes.
+  //   Expansion state is 100% user-driven (count badge click, or second click on an already-selected row).
+  //   The state is fully sticky: navigating away to any other note (even in a different family)
+  //   and coming back never collapses anything on the first click.
+  // - No chevrons/arrows. The small count badge to the right of the title is the explicit toggle affordance.
+  // - Grandchildren (depth 2) are always leaves.
   const renderNoteTree = (
     allNotes: Note[],
     selectedId: string | null,
@@ -476,8 +423,13 @@ export function NotesView({
     // + all its revealed descendants in a single cohesive container. This gives the
     // "smoothly encompasses the entire family" effect the user requested.
     const renderItemAndChildren = (note: Note, depth: number): React.ReactNode => {
+      if (depth > 2) return null; // hard safety — we only support parent / child / grandchild
+
       const isSelected = note.id === selectedId;
-      const kids = childrenMap.get(note.id) || [];
+
+      // Grandchildren (depth 2) are always leaves — even if legacy data has deeper descendants.
+      const rawKids = childrenMap.get(note.id) || [];
+      const kids = depth >= 2 ? [] : rawKids;
       const count = kids.length;
       const showChildren = count > 0 && isExpanded(note.id);
 
@@ -490,9 +442,6 @@ export function NotesView({
           depth={depth}
           hasChildren={count > 0}
           childCount={count}
-          onCreateSub={onCreateSubNote ? (pid) => {
-            onCreateSubNote(pid).then((newId) => { if (newId) onSelect(newId); });
-          } : undefined}
           isInActiveFamily={isInActiveFamily(note.id)}
           onToggleChildren={toggleExpansion}
           isOpen={isExpanded(note.id)}
@@ -508,18 +457,18 @@ export function NotesView({
       return (
         <div
           key={note.id}
-          className="rounded-2xl bg-white/[0.02] border border-white/5 pl-1 py-1 -mx-1 mb-1"
+          className="rounded-2xl bg-white/[0.02] border border-white/5 py-1 mb-1"
         >
-          {/* Subtle left accent bar for extra "this is one connected family" cohesion (premium touch) */}
-          <div className="border-l border-white/10 pl-2 -ml-1">
-            {row}
-            <div className="space-y-px">
-              {kids.map(child => (
-                <React.Fragment key={child.id}>
-                  {renderItemAndChildren(child, depth + 1)}
-                </React.Fragment>
-              ))}
-            </div>
+          {row}
+          {/* Subtle inset left accent for family cohesion — premium, no left-bias shift.
+              The accent sits inside the family container so root-level titles inside the family
+              align perfectly with root-level titles outside any family. */}
+          <div className="space-y-px pl-2.5 border-l border-white/10 ml-2.5">
+            {kids.map(child => (
+              <React.Fragment key={child.id}>
+                {renderItemAndChildren(child, depth + 1)}
+              </React.Fragment>
+            ))}
           </div>
         </div>
       );
@@ -538,7 +487,7 @@ export function NotesView({
     <div className="flex h-full overflow-hidden">
       {/* Notes List Sidebar — responsive width for mobile + tablet (low-risk polish) */}
       <div className="w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden">
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+        <div className="px-3 py-3 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="font-semibold tracking-tight">Notes</div>
             <div className="text-[10px] text-[#71717a] font-mono">
@@ -559,15 +508,15 @@ export function NotesView({
         </div>
 
         {/* Search */}
-        <div className="p-3 border-b border-white/10">
+        <div className="px-3 py-2 border-b border-white/10">
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#71717a]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b]" />
             <input
               type="text"
               placeholder="Search notes..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#111114] border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-[#c084fc]/40 touch-manipulation"
+              className="w-full bg-[#111114] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#c084fc]/40 focus:ring-1 focus:ring-[#c084fc]/20 transition-all touch-manipulation"
               aria-label="Search notes"
             />
           </div>
@@ -576,7 +525,7 @@ export function NotesView({
         {/* Notes List with Drag & Drop for reparenting + reordering */}
         {/* ARIA tree for keyboard + screen reader support (high-impact a11y polish) */}
         <div
-          className="flex-1 overflow-y-auto p-1.5 sm:p-2 space-y-1 touch-pan-y"
+          className="flex-1 overflow-y-auto px-3 py-2 space-y-1 touch-pan-y"
           role="tree"
           aria-label="Notes tree"
           aria-multiselectable="false"
@@ -613,9 +562,6 @@ export function NotesView({
                     depth={0}
                     hasChildren={kids.length > 0}
                     childCount={kids.length}
-                    onCreateSub={onCreateSubNote ? (pid) => {
-                      onCreateSubNote(pid).then((newId) => { if (newId) onSelectNote(newId); });
-                    } : undefined}
                     isInActiveFamily={false}
                     onToggleChildren={toggleExpansion}
                     isOpen={false}
@@ -633,24 +579,39 @@ export function NotesView({
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {selectedNote ? (
           <div className="flex-1 flex flex-col">
-            <NoteHeader
-              selectedNote={selectedNote}
-              onTitleChange={(value) => {
-                onUpdateNote(selectedNote.id, { title: value });
-                // Trigger a snapshot in the editor for this title change.
-                // Note: onTitleChange is now only called on blur/Enter (see NoteHeader).
-                // The TipTap body still uses real-time onChange for collaborative editing.
-                setLocalTitleSnapshotTrigger((n) => n + 1);
-              }}
-              onOpenHistory={openHistoryForSelected}
-              onDelete={() => handleDeleteNote(selectedNote.id)}
-              historyCount={historyCount}
-              linkedTaskCount={selectedNote.linkedTaskIds?.length || 0}
-              backlinkCount={getBacklinkCount(notes, selectedNote.id)}
-              onCreateSubNote={onCreateSubNote ? () => {
-                onCreateSubNote(selectedNote.id).then((newId) => { if (newId) onSelectNote(newId); });
-              } : undefined}
-            />
+            {/* Depth check for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
+                We only offer the "Sub-note" button when the selected note is not already a grandchild. */}
+            {(() => {
+              const selectedDepth = getNoteDepth(selectedNote.id);
+              const canCreateSub = !!onCreateSubNote && selectedDepth < 2;
+              return (
+                <NoteHeader
+                  selectedNote={selectedNote}
+                  onTitleChange={(value) => {
+                    onUpdateNote(selectedNote.id, { title: value });
+                    // Trigger a snapshot in the editor for this title change.
+                    // Note: onTitleChange is now only called on blur/Enter (see NoteHeader).
+                    // The TipTap body still uses real-time onChange for collaborative editing.
+                    setLocalTitleSnapshotTrigger((n) => n + 1);
+                  }}
+                  onOpenHistory={openHistoryForSelected}
+                  onDelete={() => handleDeleteNote(selectedNote.id)}
+                  historyCount={historyCount}
+                  linkedTaskCount={selectedNote.linkedTaskIds?.length || 0}
+                  backlinkCount={getBacklinkCount(notes, selectedNote.id)}
+                  onCreateSubNote={canCreateSub ? () => {
+                    onCreateSubNote(selectedNote.id).then((newId) => {
+                      if (newId) {
+                        onSelectNote(newId);
+                        setPendingAutoFocusTitleId(newId);
+                      }
+                    });
+                  } : undefined}
+                  autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
+                  onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
+                />
+              );
+            })()}
 
             <div className="flex-1 overflow-hidden">
               <TipTapEditor

@@ -200,6 +200,27 @@ export function useNoteOperations({
       return null;
     }
 
+    // Hierarchy limit: parent (0) → child (1) → grandchild (2). Nothing deeper.
+    // Walk upward from the intended parent to compute its depth (defensive, cheap).
+    let parentDepth = 0;
+    {
+      let cur: string | null = parent;
+      const seen = new Set<string>();
+      while (cur) {
+        if (seen.has(cur)) break;
+        seen.add(cur);
+        const n = notes.find(nn => nn.id === cur);
+        if (!n?.parentNoteId) break;
+        parentDepth += 1;
+        if (parentDepth >= 2) break;
+        cur = n.parentNoteId;
+      }
+    }
+    if (parentDepth >= 2) {
+      console.warn('[useNoteOperations] Refusing to create sub-note: parent is already at maximum depth (grandchild). Notes are limited to parent → child → grandchild only.');
+      return null;
+    }
+
     // addNote returns Note | null, not a string ID (M2 extraction contract)
     const createdNote = await addNote(title);
     if (!createdNote?.id) return null;
