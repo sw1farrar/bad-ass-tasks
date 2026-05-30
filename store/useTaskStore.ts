@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType } from "@/types";
 import { generateId, parseNaturalLanguage } from "@/lib/utils";
 import { toast } from "sonner";
@@ -52,6 +52,8 @@ import {
   templateToTaskPayload,
   templateToNotePayload,
   hasTemplateTag,
+  // C4 Phase A Home hub
+  getGlobalRecentActivity,
   // Agent 31: Notifications foundation (in-app + email for mentions/comments/invites/assignments/deadlines)
   getUserNotifications,
   createNotification,
@@ -64,6 +66,18 @@ import {
 } from "@/lib/data/hybridStore";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+
+// Safe storage for Zustand persist (prevents "storage unavailable" warnings during SSR / early hydration / Turbopack)
+const safeLocalStorage = createJSONStorage(() => {
+  if (typeof window === "undefined") {
+    return {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    };
+  }
+  return localStorage;
+});
 
 // Agent 30: deterministic fun user color for live cursors / presence avatars (no deps)
 function getUserColor(userIdOrEmail: string): string {
@@ -81,8 +95,12 @@ interface TaskState {
   workspaces: Workspace[];
   recentActivity: ActivityLog[];
 
+  // C4 Phase A: Home Global Workspace Hub - separate slices (never pollute per-ws state)
+  globalRecentActivity: ActivityLog[];
+  globalTodayFocus: Array<{ task: Task; workspaceId: string; workspaceName: string }>;
+
   // UI State
-  currentView: "today" | "tasks" | "notes" | "calendar" | "teams";
+  currentView: "home" | "today" | "tasks" | "notes" | "calendar" | "teams";
   taskFilter: {
     status?: TaskStatus[];
     priority?: Priority[];
@@ -112,7 +130,7 @@ interface TaskState {
   // Phase 2 collaboration state
   members: WorkspaceMember[];
   invites: WorkspaceInvite[];
-  onlineUsers: Array<{ userId: string; email?: string; presenceRef?: string; view?: string; editingItemId?: string; editingItemType?: 'task' | 'note' }>;
+  onlineUsers: Array<{ userId: string; email?: string; fullName?: string; username?: string; presenceRef?: string; view?: string; editingItemId?: string; editingItemType?: 'task' | 'note' }>;
   isLoadingMembers: boolean;
   // Comments (Agent 14)
   comments: Comment[];
@@ -241,6 +259,9 @@ interface TaskState {
   applyTemplate: (tpl: any) => Promise<any>;
   saveCurrentAsTemplate: (type: "task" | "note", id: string) => Promise<void>;
   getAdminTemplateLibrary: () => any[];
+
+  // C4-Exec-3 Phase A MVP: global Home hub separate slices (read-only aggregates)
+  fetchGlobalHomeAggregates: () => Promise<void>;
 }
 
 // Demo-only beautiful sample data. Used EXCLUSIVELY when !isSupabaseLive() (no keys configured).
@@ -430,6 +451,10 @@ export const useTaskStore = create<TaskState>()(
       ],
       recentActivity: [],
 
+      // C4 Phase A Home global (separate slices)
+      globalRecentActivity: [],
+      globalTodayFocus: [],
+
       // Phase 2 collab defaults
       members: [],
       invites: [],
@@ -449,7 +474,7 @@ export const useTaskStore = create<TaskState>()(
       activeConflicts: {},
       liveEditing: {},
 
-      currentView: "today",
+      currentView: "home",
       taskFilter: { search: "" },
       selectedTaskId: null,
       isCommandPaletteOpen: false,
@@ -1254,6 +1279,73 @@ export const useTaskStore = create<TaskState>()(
       },
 
       // ------------------------------------------------------------------
+      // C4-Exec-3 Phase A: fetchGlobalHomeAggregates (separate slices only)
+      // - Demo: lightweight synth for nice cross-ws feel using workspaces + samples
+      // - Live: member-scoped via new hybrid helper + existing guarded per-ws fns (bounded)
+      // - Always: strict isSupabaseLive guards + demo ws purge. Separate from current* slices.
+      // - Called on Home mount / manual refresh (light poll ok per charter)
+      // ------------------------------------------------------------------
+      fetchGlobalHomeAggregates: async () => {
+        const isLive = isSupabaseLive();
+        const wss = get().workspaces || [];
+        const userId = get().user?.id || "";
+
+        if (!isLive) {
+          // Demo synthesis (charter §5: synthesize multi-ws experience from samples/sim)
+          // Use available workspaces + existing tasks (samples mostly w1 but ws list has w2)
+          const demoFocus = (get().tasks || []).slice(0, 6).map((t, idx) => {
+            const ws = wss[idx % Math.max(1, wss.length)] || wss[0] || { id: "w1", name: "Demo" };
+            return {
+              task: { ...t },
+              workspaceId: ws.id,
+              workspaceName: ws.name,
+            };
+          });
+          // Light demo recent (cross-ws flavor)
+          const demoRecent: ActivityLog[] = wss.length > 0 ? [
+            { id: "g1", workspaceId: wss[0].id, actionType: "task.created", targetType: "task", metadata: { title: "Demo cross-ws item" }, createdAt: new Date(Date.now() - 1000*60*12).toISOString() },
+            { id: "g2", workspaceId: wss[Math.min(1, wss.length-1)].id, actionType: "note.updated", targetType: "note", metadata: { title: "Global note" }, createdAt: new Date(Date.now() - 1000*60*45).toISOString() },
+          ] as any : [];
+          set({ globalTodayFocus: demoFocus, globalRecentActivity: demoRecent });
+          return;
+        }
+
+        // LIVE path — strict guards (no demo ws ever)
+        try {
+          // Recent Movement via new dedicated member-scoped helper (VERY TOP guard inside)
+          let globalRecent: ActivityLog[] = [];
+          if (userId) {
+            globalRecent = await getGlobalRecentActivity(userId, 12);
+          }
+
+          // Today's Focus (grouped) — bounded parallel per-ws using existing guarded getTasks + filter
+          const focusItems: Array<{ task: Task; workspaceId: string; workspaceName: string }> = [];
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          for (const ws of wss.slice(0, 6)) { // hard cap for MVP perf
+            if (!ws.id || ["w1", "w2"].includes(ws.id)) continue;
+            try {
+              const wsTasks = await getTasks(ws.id); // already has VERY TOP + demo purge guard
+              const due = wsTasks
+                .filter((t: Task) => t.dueDate && new Date(t.dueDate) <= today && t.status !== "done")
+                .slice(0, 3)
+                .map((t: Task) => ({ task: t, workspaceId: ws.id, workspaceName: ws.name }));
+              focusItems.push(...due);
+            } catch { /* per-ws fail non-fatal */ }
+            if (focusItems.length >= 8) break;
+          }
+
+          set({
+            globalRecentActivity: globalRecent,
+            globalTodayFocus: focusItems.slice(0, 8),
+          });
+        } catch (err) {
+          console.error("[useTaskStore] fetchGlobalHomeAggregates live error:", err);
+          // graceful: leave prior (or empty)
+        }
+      },
+
+      // ------------------------------------------------------------------
       // Overridden actions that go through Supabase when live
       // ------------------------------------------------------------------
 
@@ -1664,7 +1756,11 @@ export const useTaskStore = create<TaskState>()(
           });
 
           if (created) {
-            set((state) => ({ notes: [created, ...state.notes] }));
+            set((state) => {
+              // Race-safe vs realtime INSERT handler: if the broadcast already added it, no-op.
+              if (state.notes.some((n) => n.id === created.id)) return {};
+              return { notes: [created, ...state.notes] };
+            });
             // Log key event
             logActivity({
               workspaceId,
@@ -1677,17 +1773,27 @@ export const useTaskStore = create<TaskState>()(
             return created;
           } else {
             // Fallback to local on failure (keeps UX working)
-            set((state) => ({ notes: [newNote, ...state.notes] }));
+            set((state) => {
+              if (state.notes.some((n) => n.id === newNote.id)) return {};
+              return { notes: [newNote, ...state.notes] };
+            });
             return newNote;
           }
         } else {
           // Demo mode - local only
-          set((state) => ({ notes: [newNote, ...state.notes] }));
+          set((state) => {
+            if (state.notes.some((n) => n.id === newNote.id)) return {};
+            return { notes: [newNote, ...state.notes] };
+          });
           return newNote;
         }
       },
 
       updateNote: async (id, updates) => {
+        if (typeof id !== 'string' || !id || id.length < 5) {
+          console.error('[BadAssTasks] store.updateNote called with invalid id (object leak?)', id);
+          return false;
+        }
         if (isSupabaseLive()) {
           await updateNoteSupabase(id, updates);
         }
@@ -1860,8 +1966,8 @@ export const useTaskStore = create<TaskState>()(
                     .eq('id', currentUserId)
                     .single();
                   if (prof) {
-                    senderFullName = prof.full_name || '';
-                    senderUsername = prof.username || '';
+                    senderFullName = (prof as any).full_name || '';
+                    senderUsername = (prof as any).username || '';
                     if (senderUsername) senderDisplayName = `@${senderUsername}`;
                     else if (senderFullName) senderDisplayName = senderFullName;
                   }
@@ -1938,7 +2044,7 @@ export const useTaskStore = create<TaskState>()(
             const supabase = getSupabaseClient();
             const me = get().user;
             if (supabase && me?.id) {
-              await supabase.from('profiles').upsert({ id: me.id }, { onConflict: 'id' });
+              await supabase.from('profiles').upsert({ id: me.id } as any, { onConflict: 'id' } as any);
             }
           } catch {}
 
@@ -2569,18 +2675,22 @@ export const useTaskStore = create<TaskState>()(
           onInviteChange: (payload) => {
             // When any invite changes (especially DELETE from recipient decline/accept),
             // refresh the sender's list so "Invites sent" updates instantly.
+            // Also refetch notifications for symmetric zero-orphan banner/bell clearance across all clients/tabs.
             const { eventType } = payload;
             if (eventType === "DELETE" || eventType === "INSERT" || eventType === "UPDATE") {
               get().fetchInvites?.().catch(() => {});
+              get().fetchNotifications?.().catch(() => {});
             }
           },
           onMemberChange: (payload) => {
             // When a member is added (accept), removed, or updated,
             // refresh the members list so everyone sees the change instantly.
+            // Also refetch notifications for banner zero-orphan on membership events.
             const { eventType, old: oldRow } = payload;
 
             if (eventType === "INSERT" || eventType === "DELETE" || eventType === "UPDATE") {
               get().fetchMembers?.().catch(() => {});
+              get().fetchNotifications?.().catch(() => {});
             }
 
             // Special handling for the removed user themselves
@@ -2614,7 +2724,7 @@ export const useTaskStore = create<TaskState>()(
                   } else {
                     // No workspaces left — clear the current workspace state cleanly
                     set({
-                      currentWorkspace: null,
+                      currentWorkspace: undefined,
                       tasks: [],
                       notes: [],
                       members: [],
@@ -3005,6 +3115,7 @@ export const useTaskStore = create<TaskState>()(
     }),
     {
       name: "bad-ass-tasks-storage",
+      storage: safeLocalStorage,
       partialize: (state) => {
         // Persistence strategy updated for Phase 1 offline support:
         // - Demo mode (!live): persist full data + workspaces (edits survive refresh, as before).

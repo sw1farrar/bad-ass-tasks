@@ -153,6 +153,10 @@ export function NotesView({
     const sigParts: string[] = [];
 
     byParent.forEach((siblings, pKey) => {
+      // Skip root-level notes entirely — the main flat notes list now uses pure recency sort (updatedAt/createdAt)
+      // and should never be touched by sortOrder normalization. This prevents the constant timestamp churn + re-sorting loop.
+      if (pKey === null) return;
+
       const sorted = [...siblings].sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
       // Build stable sig for this parent group (defensive slice for id safety)
       const groupSig = sorted.map(s => `${String(s.id || '').slice(0, 8)}:${s.sortOrder ?? 'u'}`).join(',');
@@ -212,14 +216,32 @@ export function NotesView({
   // When searching: just the filtered list.
   // When not searching: depth-first walk of the tree, respecting the current expanded state.
   const getVisibleNotes = (): Note[] => {
-    if (searchQuery) return filteredNotes;
+    if (searchQuery) {
+      // Dedupe even in search return path (SortableContext + list keys must be unique)
+      const seen = new Set<string>();
+      return filteredNotes.filter((n) => {
+        const k = String(n?.id || "");
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    }
 
     const visible: Note[] = [];
+
+    // Defensive dedupe by id (protects DnD item list + recursion even under transient store dups)
+    const seen = new Set<string>();
+    const dedupedSource = notes.filter((n) => {
+      const k = String(n?.id || "");
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
 
     // Build + sort children map locally (duplicates renderNoteTree's map for now;
     // can be unified in a later polish pass).
     const tempChildrenMap = new Map<string | null, Note[]>();
-    notes.forEach((note) => {
+    dedupedSource.forEach((note) => {
       const p = note.parentNoteId || null;
       if (!tempChildrenMap.has(p)) tempChildrenMap.set(p, []);
       tempChildrenMap.get(p)!.push(note);
@@ -474,10 +496,19 @@ export function NotesView({
     onSelect: (id: string | null) => void,
     onDelete: (id: string, e?: React.MouseEvent) => void
   ) => {
+    // Defensive dedupe by id before grouping (protects React keys in tree even if store ever has dups from races)
+    const seen = new Set<string>();
+    const deduped = allNotes.filter((n) => {
+      const k = String(n?.id || "");
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
     // Build a map of children for each parent (same as before)
     const childrenMap = new Map<string | null, Note[]>();
 
-    allNotes.forEach((note) => {
+    deduped.forEach((note) => {
       const parent = note.parentNoteId || null;
       if (!childrenMap.has(parent)) childrenMap.set(parent, []);
       childrenMap.get(parent)!.push(note);
@@ -670,7 +701,8 @@ export function NotesView({
               {/* Render tree or flat list.
                   Both branches now use SortableNoteItem so drag-to-reparent works everywhere. */}
               {searchQuery ? (
-                filteredNotes.map((note) => {
+                // Use the already-deduplicated visible list (search path now safe for keys + dnd-kit)
+                visibleNotesForDnD.map((note) => {
                   const isSelected = note.id === selectedNoteId;
                   return (
                     <SortableNoteItem
@@ -706,7 +738,9 @@ export function NotesView({
               selectedNote={selectedNote}
               onTitleChange={(value) => {
                 onUpdateNote(selectedNote.id, { title: value });
-                // Trigger a snapshot in the editor for this title change
+                // Trigger a snapshot in the editor for this title change.
+                // Note: onTitleChange is now only called on blur/Enter (see NoteHeader).
+                // The TipTap body still uses real-time onChange for collaborative editing.
                 setLocalTitleSnapshotTrigger((n) => n + 1);
               }}
               onOpenHistory={openHistoryForSelected}
