@@ -6,7 +6,7 @@
 // If you still see the error, you MUST hard-refresh + restart dev server + delete .next.
 // Fixed 2026-05-29.
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Plus, Trash2, Search, Star, Link as LinkIcon, X, History } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
@@ -116,6 +116,10 @@ export function NotesView({
     onRequestTitleSnapshot: requestTitleSnapshot,
   });
 
+  // Ref to the main scroll container of the selected note detail (editor + bottom panels).
+  // Used to auto-jump to the very top whenever the user selects a different note.
+  const detailScrollRef = React.useRef<HTMLDivElement>(null);
+
   const isExpanded = (noteId: string) => expandedNotes.has(noteId);
 
   // Manual toggle for a note's direct children (called from the count badge).
@@ -166,6 +170,15 @@ export function NotesView({
     }
     return selectedNoteId;
   }, [selectedNoteId, notes]);
+
+  // Auto-scroll the note detail area (TipTap editor + Linked Tasks/Notes panels) all the way
+  // to the top whenever the user selects a different note. This is the expected "I just opened
+  // this note, start reading from the top" behavior in world-class apps.
+  React.useEffect(() => {
+    if (selectedNoteId && detailScrollRef.current) {
+      detailScrollRef.current.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, [selectedNoteId]);
 
   // NOTE: getBacklinkCount / getBacklinkNotes now come exclusively from the single-source
   // useBacklinks.ts selectors (imported above). No local duplication remains.
@@ -626,13 +639,15 @@ export function NotesView({
                 This ensures long content and the Linked Tasks / Links panels are never cut off. */}
             {/* FIX: One scroll container for editor content + bottom panels.
                 Long notes and the Linked Tasks / Links sections will now scroll together. */}
-            <div className="flex-1 overflow-y-auto min-h-0">
+            <div ref={detailScrollRef} className="flex-1 overflow-y-auto min-h-0">
               <TipTapEditor
                 key={selectedNote.id}
                 noteId={selectedNote.id}
                 content={selectedNote.content}
                 onChange={(newContent) => {
-                  // Extra echo guard at the call site (belt + suspenders)
+                  // Smart guard: skip only if identical to last known server/client value.
+                  // Structural changes (new paragraphs via Enter, pasted images) are always emitted
+                  // immediately from the editor, so we must not drop them.
                   if (newContent === selectedNote.content) return;
                   onUpdateNote(selectedNote.id, { content: newContent });
                 }}
@@ -686,11 +701,9 @@ export function NotesView({
               <LinkedTasksPanel
                 selectedNote={selectedNote}
                 tasks={tasks}
-                notes={notes}
                 onLinkTaskToNote={onLinkTaskToNote}
                 onUnlinkTaskFromNote={onUnlinkTaskFromNote}
-                onLinkNoteToNote={onLinkNoteToNote}
-                onUnlinkNoteFromNote={onUnlinkNoteFromNote}
+                onCreateTaskAndLink={onCreateTaskAndEmbed}
               />
             </div>
           </div>

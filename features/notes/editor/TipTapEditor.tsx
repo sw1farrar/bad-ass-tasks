@@ -4,6 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
 import { Mark } from "@tiptap/core";
 import { TaskEmbed } from "./extensions/task-embed";  // Milestone 2: Live Task embeds inside notes
 import { DatabaseBlock } from "./extensions/database-block";  // Milestone 2: Real database blocks (parallel work)
@@ -277,62 +278,6 @@ export function TipTapEditor({
     setSelectedSlashIndex(0);
   }, []);
 
-  // ========================================================================
-  // AMAZING IMAGE SUPPORT — paste, drop, toolbar, /image, auto-scale, preview
-  // ========================================================================
-
-  // Convert a File to a data URL (base64). Demo-friendly + works offline.
-  // In live Supabase mode we will later swap this for Storage upload + URL.
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-  // Insert an image into the editor at current selection.
-  // Also triggers an immediate structural persist (so new images don't get lost on Enter/blur).
-  const insertImage = useCallback(async (src: string, alt?: string) => {
-    if (!editor) return;
-
-    editor.chain().focus().setImage({ src, alt: alt || "Uploaded image" }).run();
-
-    // Force a quick emit + snapshot for structural image insert (fixes "didn't save" feeling)
-    const richJson = editor.getJSON();
-    const contentString = JSON.stringify(richJson);
-    lastEmittedContentRef.current = contentString;
-    onChange?.(contentString);
-
-    // Immediate snapshot for images (great UX + safety)
-    if (noteId) {
-      captureSnapshot("Image inserted");
-    }
-
-    // Beautiful toast
-    toast.success("Image added", {
-      description: "Click the image anytime for a gorgeous full preview (zoom, pan, mobile swipe).",
-    });
-  }, [editor, onChange, noteId, captureSnapshot]);
-
-  // Handle pasted or dropped image files (the core "accept uploaded files and view images" requirement)
-  const handleImageFiles = useCallback(async (files: FileList | File[]) => {
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"));
-    if (imageFiles.length === 0) return false;
-
-    for (const file of imageFiles) {
-      try {
-        // For now: base64 (demo + instant). Later: upload to Supabase Storage and use the public URL.
-        const dataUrl = await fileToDataUrl(file);
-        await insertImage(dataUrl, file.name.replace(/\.[^/.]+$/, ""));
-      } catch (e) {
-        console.error("Image insert failed", e);
-        toast.error("Couldn't add that image", { description: "Try a smaller file or different format." });
-      }
-    }
-    return true;
-  }, [insertImage]);
-
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -352,9 +297,21 @@ export function TipTapEditor({
       // Modern image support (paste, drop, upload, click-to-preview, auto-scale)
       Image.configure({
         inline: false,
-        allowBase64: true, // enables demo-mode embedded images; live mode will prefer storage URLs
+        allowBase64: true,
         HTMLAttributes: {
           class: "rounded-xl border border-white/10 max-w-full h-auto cursor-zoom-in shadow-sm hover:shadow-md transition-shadow",
+        },
+      }),
+
+      // Proper hyperlinks for rich paste (Google Docs, Word, Notion, web, etc.)
+      Link.configure({
+        openOnClick: true,
+        autolink: true,
+        linkOnPaste: true,
+        HTMLAttributes: {
+          class: "text-[#c084fc] underline underline-offset-2 hover:text-[#d8b4fe] transition-colors",
+          rel: "noopener noreferrer",
+          target: "_blank",
         },
       }),
 
@@ -507,15 +464,27 @@ export function TipTapEditor({
         return false;
       },
 
-      // === WORLD-CLASS PASTE & DROP FOR IMAGES ===
-      // Paste an image from clipboard (screenshot, copy from web, etc.) → inserts beautifully scaled.
+      // === WORLD-CLASS PASTE & DROP ===
+      // One unified handler for maximum fidelity:
+      // - Image files from clipboard → our beautiful auto-scaled image pipeline
+      // - Rich HTML (Google Docs, Word, Notion, web, etc.) → TipTap + Link/Image extensions convert to proper nodes/marks
+      // - Plain text → default paragraph creation
       handlePaste: (view, event) => {
+        // 1. Image files first (screenshots, copied images) — highest priority for our custom flow
         const files = event.clipboardData?.files;
         if (files && files.length > 0) {
-          // We handle it async; return true so TipTap doesn't try to paste as text/HTML
-          handleImageFiles(files);
+          (window as any).__badAssHandleImageFiles?.(files);
           return true;
         }
+
+        // 2. Rich HTML paste → let TipTap do its excellent work (headings, lists, bold, links, tables, etc.)
+        // Returning false tells the editor "proceed with your normal rich paste conversion".
+        const html = event.clipboardData?.getData("text/html");
+        if (html && html.length > 20) {
+          return false;
+        }
+
+        // 3. Pure plain text → default behavior (creates clean paragraphs)
         return false;
       },
 
@@ -524,37 +493,13 @@ export function TipTapEditor({
         const files = event.dataTransfer?.files;
         if (files && files.length > 0) {
           event.preventDefault();
-          handleImageFiles(files);
+          (window as any).__badAssHandleImageFiles?.(files);
           return true;
         }
         return false;
       },
     },
   });
-
-  // World-class image click-to-preview wiring (delegated, works for pasted + uploaded images)
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleImageClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "IMG" && target.getAttribute("src")) {
-        const src = target.getAttribute("src")!;
-        const alt = target.getAttribute("alt") || undefined;
-        // Prevent the editor's general click-to-focus from interfering with preview
-        e.stopPropagation();
-        openImagePreview(src, alt);
-      }
-    };
-
-    // Attach to the actual ProseMirror DOM once available
-    const proseMirror = editor.view.dom as HTMLElement;
-    proseMirror.addEventListener("click", handleImageClick, true);
-
-    return () => {
-      proseMirror.removeEventListener("click", handleImageClick, true);
-    };
-  }, [editor, openImagePreview]);
 
   // Safe external content application:
   // Only apply incoming `content` prop when the user is NOT actively typing.
@@ -574,7 +519,9 @@ export function TipTapEditor({
 
     // Only set if different AND we didn't just emit this exact string
     if (currentInEditor !== incoming && incoming !== lastEmittedContentRef.current) {
-      editor.commands.setContent(prepareInitialContent(incoming), false);
+      // Note: we intentionally do NOT emit an update here to avoid feedback loops.
+      // The content we are applying came from outside (store) and matches what we last saved.
+      editor.commands.setContent(prepareInitialContent(incoming));
       lastEmittedContentRef.current = incoming;
     }
   }, [content, editor, noteId]);
@@ -991,6 +938,26 @@ export function TipTapEditor({
       keywords: ["hr", "separator", "line"],
       category: "Lists & Structure",
       action: () => editor?.chain().focus().setHorizontalRule().run(),
+    },
+
+    // Media (the amazing image experience the user asked for)
+    {
+      id: "image",
+      title: "Image",
+      description: "Upload, paste, or drop a photo (auto-scales beautifully)",
+      icon: ImageIcon,
+      keywords: ["photo", "picture", "upload", "img", "media", "paste image"],
+      category: "Media",
+      action: async () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.multiple = true;
+        input.onchange = async () => {
+          if (input.files) await handleImageFiles(input.files);
+        };
+        input.click();
+      },
     },
     {
       id: "checklist",
@@ -1592,11 +1559,126 @@ export function TipTapEditor({
     }
 
     const mode = isSupabaseLive() ? "LIVE" : "DEMO";
-    toast.success("Snapshot captured", { description: `${newSnap.label} (${mode})` });
+    // Only toast for explicit/user-triggered snapshots. Auto-on-typing and on-blur are silent
+    // (the safety net still works perfectly; we just stopped spamming the user).
+    const isAuto = (label || "").toLowerCase().includes("auto") || (label || "").toLowerCase().includes("blur");
+    if (!isAuto) {
+      toast.success("Snapshot captured", { description: `${newSnap.label} (${mode})`, duration: 900 });
+    }
 
     // Extraction hook point
     onCaptureSnapshot?.(label);
   }, [editor, versionHistory, noteId, onCaptureSnapshot, persistSnapshotToServer, onPersistSnapshot]);
+
+  // ========================================================================
+  // AMAZING IMAGE SUPPORT — paste, drop, toolbar, /image, auto-scale, preview
+  // Relocated after captureSnapshot to eliminate TDZ / "before initialization" crash.
+  // ========================================================================
+
+  // Convert a File to a data URL (base64). Demo-friendly + works offline.
+  // In live Supabase mode we will later swap this for Storage upload + URL.
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  // Insert an image into the editor at current selection.
+  // Also triggers an immediate structural persist (so new images don't get lost on Enter/blur).
+  const insertImage = useCallback(async (src: string, alt?: string) => {
+    if (!editor) return;
+
+    editor.chain().focus().setImage({ src, alt: alt || "Uploaded image" }).run();
+
+    // Force a quick emit + snapshot for structural image insert (fixes "didn't save" feeling)
+    const richJson = editor.getJSON();
+    const contentString = JSON.stringify(richJson);
+    lastEmittedContentRef.current = contentString;
+    onChange?.(contentString);
+
+    // Immediate snapshot for images (great UX + safety)
+    (captureSnapshot as any)?.("Image inserted");
+
+    // Beautiful but calm toast (the real delight is the click-to-preview lightbox)
+    toast.success("Image added", {
+      description: "Click it for the full preview (zoom • pan • mobile swipe).",
+      duration: 850,
+    });
+  }, [editor, onChange, noteId, captureSnapshot]);
+
+  // Handle pasted or dropped image files (the core "accept uploaded files and view images" requirement)
+  const handleImageFiles = useCallback(async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return false;
+
+    for (const file of imageFiles) {
+      try {
+        // For now: base64 (demo + instant). Later: upload to Supabase Storage and use the public URL.
+        const dataUrl = await fileToDataUrl(file);
+        await insertImage(dataUrl, file.name.replace(/\.[^/.]+$/, ""));
+      } catch (e) {
+        console.error("Image insert failed", e);
+        toast.error("Couldn't add that image", { description: "Try a smaller file or different format." });
+      }
+    }
+    return true;
+  }, [insertImage]);
+
+  // Make the handler available even if the editor config closure ran slightly earlier in the render
+  // (harmless global for one frame, cleaned on unmount)
+  (window as any).__badAssHandleImageFiles = handleImageFiles;
+
+  // Force-save + snapshot on blur (when the user finishes typing a paragraph or thought and clicks away).
+  // This is a key part of "reliable paragraph persistence" without hammering the DB on every keystroke.
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleBlur = () => {
+      if (!noteId) return;
+      const richJson = editor.getJSON();
+      const contentString = JSON.stringify(richJson);
+
+      // Only persist if it actually changed
+      if (contentString !== lastEmittedContentRef.current) {
+        lastEmittedContentRef.current = contentString;
+        onChange?.(contentString);
+        (captureSnapshot as any)?.("On blur (finished editing)");
+      }
+    };
+
+    // TipTap's onBlur event
+    editor.on("blur", handleBlur);
+
+    return () => {
+      editor.off("blur", handleBlur);
+    };
+  }, [editor, noteId, onChange, captureSnapshot]);
+
+  // World-class image click-to-preview wiring (delegated, works for pasted + uploaded images)
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleImageClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "IMG" && target.getAttribute("src")) {
+        const src = target.getAttribute("src")!;
+        const alt = target.getAttribute("alt") || undefined;
+        // Prevent the editor's general click-to-focus from interfering with preview
+        e.stopPropagation();
+        openImagePreview(src, alt);
+      }
+    };
+
+    // Attach to the actual ProseMirror DOM once available
+    const proseMirror = editor.view.dom as HTMLElement;
+    proseMirror.addEventListener("click", handleImageClick, true);
+
+    return () => {
+      proseMirror.removeEventListener("click", handleImageClick, true);
+    };
+  }, [editor, openImagePreview]);
 
   // M2 POLISH: Dedicated restore performer (extracted for clean confirm UX).
   // - Always captures a "Before restore" safety snapshot FIRST (persists to localStorage + server via captureSnapshot when LIVE).

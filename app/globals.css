@@ -1164,3 +1164,49 @@ body {
 .database-block-node :focus-visible {
   outline-color: #c084fc;
 }
+
+/* ============================================
+   Modern, Calm, Tiny Sonner Toasts (Bad Ass Edition)
+   - Bottom-right so they never fight the main content or notes area
+   - Glassmorphism matching the rest of the UI
+   - Very compact (tiny padding, small text, short life)
+   - No close button by default (they auto-dismiss fast)
+   ============================================ */
+
+.sonner-toast {
+  font-size: 12.5px !important;
+  line-height: 1.35 !important;
+  padding: 7px 11px 7px 11px !important;
+  border-radius: 10px !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 6px 16px -4px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04) inset !important;
+  max-width: 280px !important;
+  min-height: 32px !important;
+}
+
+.sonner-toast [data-title] {
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+}
+
+.sonner-toast [data-description] {
+  font-size: 11px !important;
+  margin-top: 1px !important;
+  opacity: 0.85 !important;
+}
+
+/* Subtle neon accent on success toasts only (keeps them calm) */
+.sonner-toast[data-type="success"] {
+  border-color: rgba(192, 132, 252, 0.18) !important;
+}
+
+/* Errors stay visible but still tiny */
+.sonner-toast[data-type="error"] {
+  border-color: rgba(255, 51, 102, 0.25) !important;
+}
+
+/* Tighter stacking so multiple quick toasts don't dominate */
+.sonner-toaster {
+  --gap: 6px !important;
+}
