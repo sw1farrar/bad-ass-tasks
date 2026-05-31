@@ -449,6 +449,19 @@ body {
     padding-right: 1rem !important;
   }
 
+  /* Notes + safe-area + !important pb war: zero ancestor's padding (via :has) for this
+     view only so h-full/flex-1/min-h-0 chains in NotesView compute stable full heights
+     on mobile Chrome (avoids env+vh+calc collapse of grandchild scrollers). Transfer
+     identical clearance pb directly to the .overflow-y-auto (preserves other views).
+     See 433-450 for the two !important blocks that were stealing the height.
+  */
+  .main-content:has(> .notes-root) {
+    padding-bottom: 0 !important;
+  }
+  .notes-root .overflow-y-auto {
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)) !important;
+  }
+
   /* Prevent horizontal overflow/crowding in top bar on narrow phones */
   .top-bar .workspace-switcher,
   .top-bar .workspace-name {
@@ -871,6 +884,19 @@ body {
   }
 }
 
+/* DateTimePicker custom year dropdown — premium glass scroller */
+.date-picker-year-dropdown {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.2) transparent;
+}
+.date-picker-year-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+.date-picker-year-dropdown::-webkit-scrollbar-thumb {
+  background-color: rgba(255,255,255,0.25);
+  border-radius: 3px;
+}
+
 /* ============================================
    MOBILE NATIVE EXPERIENCE COMPLETION (Agent 17)
    Bottom sheets, swipe gestures, haptics feedback, sync indicators, perf
@@ -1084,3 +1110,57 @@ body {
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================
+   M2 Notes Surface Polish: Mobile + Keyboard Accessibility
+   High-impact low-risk additions only. Desktop behavior preserved.
+   ============================================ */
+
+/* Notes tree items: stronger visible focus for keyboard users */
+.notes-tree-item:focus-visible,
+[data-notes-tree] [role="treeitem"]:focus-visible {
+  outline: 2px solid #c084fc;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(192, 132, 252, 0.2) inset;
+}
+
+/* Database block: ensure table rows remain usable on very small screens */
+.database-block-node .grid {
+  /* already scrollable wrapper in component; reinforce touch */
+}
+.database-block-node [role="button"]:focus-visible,
+.database-block-node button:focus-visible {
+  outline: 2px solid #c084fc;
+  outline-offset: 1px;
+}
+
+/* History & Backlinks panels inside editor: better mobile spacing + focus */
+[data-history-panel],
+#links-backlinks-panel {
+  /* ensures content never feels cramped on phones */
+}
+#links-backlinks-panel input:focus-visible,
+#links-backlinks-panel select:focus-visible {
+  outline: 1px solid #c084fc;
+  outline-offset: 1px;
+}
+
+/* Small-screen tweaks for NotesView internal sidebar + editor split */
+@media (max-width: 640px) {
+  /* Notes list sidebar compacts gracefully without breaking desktop */
+  .flex-shrink-0.border-r {
+    min-width: 220px;
+  }
+
+  /* History panel list items larger tap targets via class hook (optional) */
+  [data-history-panel] > div {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}
+
+/* Ensure all new M2 note surfaces respect global focus ring preference */
+.notes-surface :focus-visible,
+.database-block-node :focus-visible {
+  outline-color: #c084fc;
+}

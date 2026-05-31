@@ -493,9 +493,9 @@ export function NotesView({
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden notes-root">
       {/* Notes List Sidebar — responsive width for mobile + tablet (low-risk polish) */}
-      <div className="w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden">
+      <div className="w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden min-h-0">
         <div className="px-3 py-3 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="font-semibold tracking-tight">Notes</div>
@@ -587,7 +587,7 @@ export function NotesView({
       {/* Editor Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {selectedNote ? (
-          <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-h-0">
             {/* Depth check for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
                 We only offer the "Sub-note" button when the selected note is not already a grandchild. */}
             {(() => {

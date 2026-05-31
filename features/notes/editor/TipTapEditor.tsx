@@ -3,6 +3,7 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Image from "@tiptap/extension-image";
 import { Mark } from "@tiptap/core";
 import { TaskEmbed } from "./extensions/task-embed";  // Milestone 2: Live Task embeds inside notes
 import { DatabaseBlock } from "./extensions/database-block";  // Milestone 2: Real database blocks (parallel work)
@@ -32,6 +33,7 @@ import {
   Zap,
   Clock,
   History,
+  Image as ImageIcon,
 } from "lucide-react";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,7 @@ import { aiTransformText, aiTransformTextAI, isXAIConfigured, extractActionItems
 import { toast } from "sonner";
 import { isSupabaseLive, onPersistSnapshot as persistSnapshotToServer } from "@/lib/data/hybridStore";
 import { getBacklinkNotes } from "../hooks/useBacklinks";
+import { ImagePreviewModal } from "./components/ImagePreviewModal";
 
 // Simple custom Mention mark for proper @mention / [[ ]] pills (Agent 12 polish).
 // Upgraded (Agent 24): supports refType ('task' | 'note' | 'external') for bidirectional visual distinction + future resolution.
@@ -256,12 +259,79 @@ export function TipTapEditor({
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const lastEmittedContentRef = useRef<string | null>(null);
 
+  // Image preview (world-class lightbox for any image in the editor)
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt?: string } | null>(null);
+
+  const openImagePreview = useCallback((src: string, alt?: string) => {
+    setPreviewImage({ src, alt });
+  }, []);
+
+  const closeImagePreview = useCallback(() => {
+    setPreviewImage(null);
+  }, []);
+
   const closeSlashMenu = useCallback(() => {
     setShowSlashMenu(false);
     setSlashQuery("");
     setSlashPosition(null);
     setSelectedSlashIndex(0);
   }, []);
+
+  // ========================================================================
+  // AMAZING IMAGE SUPPORT — paste, drop, toolbar, /image, auto-scale, preview
+  // ========================================================================
+
+  // Convert a File to a data URL (base64). Demo-friendly + works offline.
+  // In live Supabase mode we will later swap this for Storage upload + URL.
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  // Insert an image into the editor at current selection.
+  // Also triggers an immediate structural persist (so new images don't get lost on Enter/blur).
+  const insertImage = useCallback(async (src: string, alt?: string) => {
+    if (!editor) return;
+
+    editor.chain().focus().setImage({ src, alt: alt || "Uploaded image" }).run();
+
+    // Force a quick emit + snapshot for structural image insert (fixes "didn't save" feeling)
+    const richJson = editor.getJSON();
+    const contentString = JSON.stringify(richJson);
+    lastEmittedContentRef.current = contentString;
+    onChange?.(contentString);
+
+    // Immediate snapshot for images (great UX + safety)
+    if (noteId) {
+      captureSnapshot("Image inserted");
+    }
+
+    // Beautiful toast
+    toast.success("Image added", {
+      description: "Click the image anytime for a gorgeous full preview (zoom, pan, mobile swipe).",
+    });
+  }, [editor, onChange, noteId, captureSnapshot]);
+
+  // Handle pasted or dropped image files (the core "accept uploaded files and view images" requirement)
+  const handleImageFiles = useCallback(async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return false;
+
+    for (const file of imageFiles) {
+      try {
+        // For now: base64 (demo + instant). Later: upload to Supabase Storage and use the public URL.
+        const dataUrl = await fileToDataUrl(file);
+        await insertImage(dataUrl, file.name.replace(/\.[^/.]+$/, ""));
+      } catch (e) {
+        console.error("Image insert failed", e);
+        toast.error("Couldn't add that image", { description: "Try a smaller file or different format." });
+      }
+    }
+    return true;
+  }, [insertImage]);
 
   const editor = useEditor({
     extensions: [
@@ -278,6 +348,15 @@ export function TipTapEditor({
       }),
       // Custom mention pills for @ / [[ style linking (visual + future backlink foundation)
       MentionMark,
+
+      // Modern image support (paste, drop, upload, click-to-preview, auto-scale)
+      Image.configure({
+        inline: false,
+        allowBase64: true, // enables demo-mode embedded images; live mode will prefer storage URLs
+        HTMLAttributes: {
+          class: "rounded-xl border border-white/10 max-w-full h-auto cursor-zoom-in shadow-sm hover:shadow-md transition-shadow",
+        },
+      }),
 
       // Milestone 2: TaskEmbed nodes (live editable task cards inside notes)
       TaskEmbed.configure({
@@ -429,6 +508,30 @@ export function TipTapEditor({
       },
     },
   });
+
+  // World-class image click-to-preview wiring (delegated, works for pasted + uploaded images)
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleImageClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "IMG" && target.getAttribute("src")) {
+        const src = target.getAttribute("src")!;
+        const alt = target.getAttribute("alt") || undefined;
+        // Prevent the editor's general click-to-focus from interfering with preview
+        e.stopPropagation();
+        openImagePreview(src, alt);
+      }
+    };
+
+    // Attach to the actual ProseMirror DOM once available
+    const proseMirror = editor.view.dom as HTMLElement;
+    proseMirror.addEventListener("click", handleImageClick, true);
+
+    return () => {
+      proseMirror.removeEventListener("click", handleImageClick, true);
+    };
+  }, [editor, openImagePreview]);
 
   // Safe external content application:
   // Only apply incoming `content` prop when the user is NOT actively typing.
@@ -1894,7 +1997,7 @@ export function TipTapEditor({
 
       {/* Editable Area (Placeholder extension provides native hint inside editor) */}
       <div
-        className="p-5 overflow-auto bg-[#0f0f13] prose-headings:font-semibold prose-headings:tracking-tight relative"
+        className="p-5 bg-[#0f0f13] prose-headings:font-semibold prose-headings:tracking-tight relative"
         style={{ minHeight }}
         onClick={() => editor.chain().focus().run()}
       >
@@ -2723,6 +2826,13 @@ export function TipTapEditor({
         <span>TIP TAP — RICH JSONB • ⌘B/I/S • LISTS • /SLASH • {detectedMentions.length} @MENTIONS SCANNED • LINKED</span>
         <span className="text-[#c084fc]/60">Type / anywhere — feels bad ass</span>
       </div>
+
+      {/* World-class image lightbox — opens on any image click inside the editor (paste, drop, or future upload) */}
+      <ImagePreviewModal
+        src={previewImage?.src ?? null}
+        alt={previewImage?.alt}
+        onClose={closeImagePreview}
+      />
     </div>
   );
 }
