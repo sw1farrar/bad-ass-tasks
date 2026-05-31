@@ -622,7 +622,11 @@ export function NotesView({
               );
             })()}
 
-            <div className="flex-1 overflow-hidden">
+            {/* FIX: Single scrollable container for the entire note detail (editor + panels).
+                This ensures long content and the Linked Tasks / Links panels are never cut off. */}
+            {/* FIX: One scroll container for editor content + bottom panels.
+                Long notes and the Linked Tasks / Links sections will now scroll together. */}
+            <div className="flex-1 overflow-y-auto min-h-0">
               <TipTapEditor
                 key={selectedNote.id}
                 noteId={selectedNote.id}
@@ -677,18 +681,18 @@ export function NotesView({
                 onRemoveLinked={onRemoveLinked}
                 onRemoveBacklink={onRemoveBacklink}
               />
-            </div>
 
-            {/* Real Bidirectional Task Linking (Milestone 2) - extracted component */}
-            <LinkedTasksPanel
-              selectedNote={selectedNote}
-              tasks={tasks}
-              notes={notes}
-              onLinkTaskToNote={onLinkTaskToNote}
-              onUnlinkTaskFromNote={onUnlinkTaskFromNote}
-              onLinkNoteToNote={onLinkNoteToNote}
-              onUnlinkNoteFromNote={onUnlinkNoteFromNote}
-            />
+              {/* Real Bidirectional Task Linking (Milestone 2) — inside the scroll container so the entire detail view (long editor + linking UI) scrolls together. */}
+              <LinkedTasksPanel
+                selectedNote={selectedNote}
+                tasks={tasks}
+                notes={notes}
+                onLinkTaskToNote={onLinkTaskToNote}
+                onUnlinkTaskFromNote={onUnlinkTaskFromNote}
+                onLinkNoteToNote={onLinkNoteToNote}
+                onUnlinkNoteFromNote={onUnlinkNoteFromNote}
+              />
+            </div>
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-center p-12">
