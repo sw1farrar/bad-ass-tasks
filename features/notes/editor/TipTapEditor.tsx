@@ -506,6 +506,29 @@ export function TipTapEditor({
         }
         return false;
       },
+
+      // === WORLD-CLASS PASTE & DROP FOR IMAGES ===
+      // Paste an image from clipboard (screenshot, copy from web, etc.) → inserts beautifully scaled.
+      handlePaste: (view, event) => {
+        const files = event.clipboardData?.files;
+        if (files && files.length > 0) {
+          // We handle it async; return true so TipTap doesn't try to paste as text/HTML
+          handleImageFiles(files);
+          return true;
+        }
+        return false;
+      },
+
+      // Drag & drop images directly into the editor (files from desktop or another app).
+      handleDrop: (view, event) => {
+        const files = event.dataTransfer?.files;
+        if (files && files.length > 0) {
+          event.preventDefault();
+          handleImageFiles(files);
+          return true;
+        }
+        return false;
+      },
     },
   });
 
@@ -1947,6 +1970,25 @@ export function TipTapEditor({
           title="Redo (⌘⇧Z)"
         >
           <Redo2 className="h-4 w-4" />
+        </ToolbarButton>
+
+        {/* Image insert — world-class paste/drop + click preview experience */}
+        <ToolbarButton
+          onClick={() => {
+            // Opens native file picker as a convenience; paste & drag are the primary amazing flows
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "image/*";
+            input.multiple = true;
+            input.onchange = async () => {
+              if (input.files) await handleImageFiles(input.files);
+            };
+            input.click();
+          }}
+          isActive={false}
+          title="Insert image (or just paste / drag & drop photos)"
+        >
+          <ImageIcon className="h-4 w-4" />
         </ToolbarButton>
 
         {/* Dedicated AI button (Agent 26) — complements the /ai slash command for instant one-click polish on selection or current paragraph. Fast, magical, on-brand. */}
