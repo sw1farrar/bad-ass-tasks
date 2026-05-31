@@ -219,26 +219,25 @@ export function NotesView({
         aria-level={depth + 1}
         aria-label={`${preview}${childCount ? `, ${childCount} sub-notes` : ''}${isSelected ? ', selected' : ''}`}
         onClick={() => {
-          // "Was this already the selected note before this click?"
-          // This is the key signal for "the user is deliberately interacting with the *same* row again".
           const wasAlreadySelected = selectedNoteId === note.id;
+          const isCurrentlyOpen = expandedNotes.has(note.id);
 
           onSelect(note.id);
 
           if (childCount && childCount > 0) {
-            if (wasAlreadySelected) {
-              // Second (or subsequent) click on an already-selected note that has children.
-              // This is the user explicitly saying "toggle the children of this item".
-              // We only toggle on the *second* click so that coming back to a previously-expanded
-              // level after navigating elsewhere never surprises the user with a collapse.
+            if (!isCurrentlyOpen) {
+              // Original / first click on a closed parent (children not yet revealed):
+              // Expand immediately so the user sees what's below it.
               toggleExpansion(note.id);
+            } else if (wasAlreadySelected) {
+              // Subtree is already open, and this is a deliberate follow-up click while the row is already selected.
+              // This is the moment the user wants to collapse it.
+              toggleExpansion(note.id);
+            } else {
+              // Subtree is already expanded, user is clicking back on this ancestor after having been on another note.
+              // Per the rule: do not collapse on this first return click. Just select / view the note.
+              // The next click (while it remains selected) will collapse.
             }
-            // First click on this note (new selection, switching families, returning up the path,
-            // or returning to a previously expanded branch after being "out of the tree"):
-            //   → Only select / view the note (content appears on the right).
-            //   → Leave every expanded/collapsed state in the entire tree exactly as the user had it.
-            // This is the rule the user requested: "if any level is expanded and the user navigates
-            // out of the tree, when they go back to it, it should not collapse on the first click."
           }
         }}
         onKeyDown={(e) => {
@@ -246,13 +245,20 @@ export function NotesView({
             e.preventDefault();
 
             const wasAlreadySelected = selectedNoteId === note.id;
+            const isCurrentlyOpen = expandedNotes.has(note.id);
+
             onSelect(note.id);
 
             if (childCount && childCount > 0) {
-              if (wasAlreadySelected) {
+              if (!isCurrentlyOpen) {
+                // Original / first keyboard activation on a closed parent → expand
                 toggleExpansion(note.id);
+              } else if (wasAlreadySelected) {
+                // Follow-up keyboard toggle on an already-selected open parent → collapse
+                toggleExpansion(note.id);
+              } else {
+                // Returning via keyboard to an already-open ancestor after being elsewhere → select only, preserve open state
               }
-              // Same "first click after navigating away = select only" rule for keyboard.
             }
           }
         }}
@@ -367,10 +373,13 @@ export function NotesView({
   // Renderer for the notes tree (3-level max: parent → child → grandchild).
   // - Top level: only root notes (parentNoteId === null), pure recency sort.
   // - A note's direct children are shown only when that note's id is in expandedNotes.
-  //   Expansion state is 100% user-driven (count badge click, or second click on an already-selected row).
-  //   The state is fully sticky: navigating away to any other note (even in a different family)
-  //   and coming back never collapses anything on the first click.
-  // - No chevrons/arrows. The small count badge to the right of the title is the explicit toggle affordance.
+  //   Expansion behavior:
+  //     • First click (or Space/Enter) on a closed parent → selects it AND expands to reveal children.
+  //     • When children are already visible and user has been on another note:
+  //         – First click back on the ancestor → selects only (does NOT collapse). State stays sticky.
+  //         – Next click while it remains selected → toggles/collapses.
+  //   The count badge is always an explicit unconditional toggle.
+  // - No chevrons/arrows. The small count badge to the right of the title is the direct control.
   // - Grandchildren (depth 2) are always leaves.
   const renderNoteTree = (
     allNotes: Note[],
