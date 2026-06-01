@@ -1,14 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Star, History, Trash2, Plus } from "lucide-react";
+import { Star, Trash2, Plus } from "lucide-react";
 
 interface NoteHeaderProps {
   selectedNote: any;
   onTitleChange: (value: string) => void;
-  onOpenHistory: () => void;
   onDelete: () => void;
-  historyCount: number;
   linkedTaskCount: number;
   /** Backlink count from single-source selector (useBacklinks.ts). Optional for non-regression. */
   backlinkCount?: number;
@@ -39,9 +37,7 @@ interface NoteHeaderProps {
 export function NoteHeader({
   selectedNote,
   onTitleChange,
-  onOpenHistory,
   onDelete,
-  historyCount,
   linkedTaskCount,
   backlinkCount,
   onCreateSubNote,
@@ -121,16 +117,6 @@ export function NoteHeader({
             ← {backlinkCount}
           </div>
         )}
-
-        <button
-          onClick={onOpenHistory}
-          className="text-xs text-[#c084fc] hover:text-white flex items-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg hover:bg-white/5 border border-[#c084fc]/20 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#c084fc]/60 focus-visible:outline-none"
-          title="View version history for this note"
-          aria-label="Open version history"
-        >
-          <History className="h-3.5 w-3.5" />
-          {historyCount > 0 ? `${historyCount}` : "History"}
-        </button>
 
         <button
           onClick={onDelete}

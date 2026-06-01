@@ -33,14 +33,12 @@ import {
   Calendar,
   Zap,
   Clock,
-  History,
   Image as ImageIcon,
 } from "lucide-react";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { aiTransformText, aiTransformTextAI, isXAIConfigured, extractActionItemsFromText, extractActionItemsFromTextAI } from "@/lib/utils";
 import { toast } from "sonner";
-import { isSupabaseLive, onPersistSnapshot as persistSnapshotToServer } from "@/lib/data/hybridStore";
 import { getBacklinkNotes } from "../hooks/useBacklinks";
 import { ImagePreviewModal } from "./components/ImagePreviewModal";
 
@@ -137,11 +135,6 @@ interface TipTapEditorProps {
   /** Live collab: called (debounced) with the latest stringified TipTap JSON while the user is typing */
   onLiveContent?: (content: string) => void;
 
-  /** M2 Version History integration */
-  onHistoryChange?: (count: number) => void; // parent can show count in header
-  historyOpenTrigger?: number; // increment this from parent to open the panel
-  titleSnapshotTrigger?: number; // increment from parent (e.g. after title edit in NoteHeader) to auto-capture snapshot
-
   /** Real items for the /link picker (M2 deepening bidirectional) */
   linkableItems?: Array<{ id: string; title: string; type: "task" | "note" }>;
 
@@ -156,15 +149,6 @@ interface TipTapEditorProps {
 
   /** Open a note (used by database blocks and other embeds) */
   onOpenNote?: (noteId: string) => void;
-
-  /** Persist a snapshot to the note record when in live mode (M2) */
-  onPersistSnapshot?: (noteId: string, snapshot: any) => void;
-
-  /** Snapshots loaded from the server (for live mode) */
-  serverSnapshots?: Array<{ ts: string; content: string; label: string }>;
-
-  /** Callback when the editor wants to capture a snapshot (for extraction) */
-  onCaptureSnapshot?: (label?: string) => void;
 
   /** Full notes list for DatabaseBlock views + queries (M2) */
   notes?: any[];
@@ -202,17 +186,11 @@ export function TipTapEditor({
   onToggleStatus,
   onUpdateTask,
   onCreateTaskAndEmbed,
-  onHistoryChange,
-  historyOpenTrigger,
-  titleSnapshotTrigger,
   linkableItems,
   onMentionLinked,
   onMentionsChanged,
   onLinkNoteToNote,
   onOpenNote,
-  onPersistSnapshot,
-  serverSnapshots,
-  onCaptureSnapshot,
   notes = [],
   // M3 minimal drill (only addition in this file per ultra-narrow charter)
   onUpdateNote,
@@ -385,30 +363,6 @@ export function TipTapEditor({
         onMentionsChanged?.(scanned);
       }
 
-      // M2: Debounced auto-snapshot + auto-persist on content (big robustness step)
-      if (noteId && editor.isFocused) {
-        const now = Date.now();
-        if (now - lastAutoSnapshotRef.current > 45000) {
-          if (autoSnapshotTimeoutRef.current) {
-            clearTimeout(autoSnapshotTimeoutRef.current);
-          }
-          autoSnapshotTimeoutRef.current = setTimeout(() => {
-            if (editor && editor.state.doc.textContent.length > 30) {
-              captureSnapshot("Auto on typing");
-              lastAutoSnapshotRef.current = Date.now();
-            }
-            autoSnapshotTimeoutRef.current = null;
-          }, 6500);
-        }
-
-        // Extra: debounce a silent persist of current history for this note
-        if (versionHistory.length > 0) {
-          try {
-            localStorage.setItem(`note-history-${noteId}`, JSON.stringify(versionHistory.slice(0,10)));
-          } catch {}
-        }
-      }
-
       // === SLASH COMMAND DETECTION (live on every keystroke, zero-dep, magical) ===
       if (!editor.isFocused) return;
       const { state } = editor;
@@ -572,61 +526,22 @@ export function TipTapEditor({
     return [];
   }, [backlinks, notes, noteId]);
 
-  // Light version history (Agent 24) — client snapshots only, survives via localStorage when noteId provided. Demo perfect.
-  // M2: Now with real server persistence via serverSnapshots + onPersistSnapshot (hybridStore lives in parent; we only consume).
-  const [versionHistory, setVersionHistory] = useState<Array<{ ts: string; content: string; label: string }>>([]);
-  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
-  const [selectedHistoryIndex, setSelectedHistoryIndex] = useState<number | null>(null); // for diff preview
-  const [historySearch, setHistorySearch] = useState(""); // Parallel polish for UX
-  // Richer diff viewer (M2 deliverable): toggle between enhanced structured text diff and raw JSON view for TipTap docs
-  const [diffViewMode, setDiffViewMode] = useState<"structured" | "json">("structured");
-
-  // M2 POLISH: In-panel confirmation state (no more window.confirm) + dedicated list ref for post-restore auto-scroll UX
-  const [confirmingRestore, setConfirmingRestore] = useState(false);
-  // When true + selectedHistoryIndex set, the diff viewer shows prominent "what will change" + CONFIRM / CANCEL actions
-
-  // Refs for focus management on panels (keyboard a11y)
-  const historyPanelRef = useRef<HTMLDivElement>(null);
-  const historySearchInputRef = useRef<HTMLInputElement>(null);
-  // M2: historyListRef enables auto-scroll to the newly prepended "Before restore" safety snapshot after successful restore
-  const historyListRef = useRef<HTMLDivElement>(null);
-
   // Agent 30: live cursors support (debounce ref + overlay container)
   const lastCursorSendRef = useRef<number>(0);
   const cursorOverlayRef = useRef<HTMLDivElement>(null);
 
-  // Keyboard accessibility for panels: Escape closes open panels (history or backlinks). Focus management on open.
+  // Keyboard accessibility for backlinks panel (Escape closes when open)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (showHistoryPanel) {
-          e.preventDefault();
-          setShowHistoryPanel(false);
-          setSelectedHistoryIndex(null);
-          setDiffViewMode("structured"); // reset richer viewer mode
-          // M2 POLISH: reset confirmation state on any close
-          setConfirmingRestore(false);
-        } else if (showBacklinksPanel) {
-          // Only close if it was explicitly opened (keep default open behavior for backlinks)
-          // For safety we toggle only on explicit intent; here just allow closing via esc when focused inside
-          setShowBacklinksPanel(false);
-        }
+      if (e.key === "Escape" && showBacklinksPanel) {
+        setShowBacklinksPanel(false);
       }
     };
-    if (showHistoryPanel || showBacklinksPanel) {
+    if (showBacklinksPanel) {
       window.addEventListener("keydown", handleKey);
     }
     return () => window.removeEventListener("keydown", handleKey);
-  }, [showHistoryPanel, showBacklinksPanel]);
-
-  // Auto-focus search input when history panel opens (great keyboard UX)
-  useEffect(() => {
-    if (showHistoryPanel && historySearchInputRef.current) {
-      // small timeout to allow panel render + avoid race with editor focus
-      const t = setTimeout(() => historySearchInputRef.current?.focus({ preventScroll: true }), 60);
-      return () => clearTimeout(t);
-    }
-  }, [showHistoryPanel]);
+  }, [showBacklinksPanel]);
 
   // Live collab: refs for throttled + trailing live content broadcasts
   const liveContentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1519,60 +1434,8 @@ export function TipTapEditor({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showSyncedBlockPicker, closeSyncedBlockPicker]);
 
-  // Light history helpers (local only)
-  const captureSnapshot = useCallback((label?: string) => {
-    if (!editor) return;
-    const jsonStr = JSON.stringify(editor.getJSON());
-    const ts = new Date().toISOString();
-    const newSnap = { ts, content: jsonStr, label: label || `Snapshot ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}` };
-    const updated = [newSnap, ...versionHistory].slice(0, 10); // keep last 8-10 for M2 server snapshots
-    setVersionHistory(updated);
-    onHistoryChange?.(updated.length);
-    if (noteId && typeof window !== "undefined") {
-      // Persist always for excellent demo UX; in live mode it's extra client cache (hybrid guards DB writes)
-      try { localStorage.setItem(`note-history-${noteId}`, JSON.stringify(updated)); } catch {}
-    }
-
-    // M2 COMPLETE server path: requestSnapshot (via this capture) ALWAYS round-trips through hybridStore.onPersistSnapshot
-    // when LIVE. This calls the authoritative fetch+merge+write to notes.snapshots JSONB (see hybridStore.ts).
-    // Parent prop kept for backward compat with useNoteOperations wiring; direct hybrid call guarantees the full path.
-    // HARDENED client call site: explicit try/catch + logging (non-fatal; local history + toast always succeed).
-    // The real retry/robustness lives inside hybridStore.onPersistSnapshot (when live).
-    if (isSupabaseLive() && noteId) {
-      // Direct hybridStore roundtrip (core of server persistence completeness)
-      // Strengthened: awaitable with visible failure log instead of silent .catch(() => {})
-      persistSnapshotToServer(noteId, newSnap)
-        .then((ok) => {
-          if (!ok) {
-            // eslint-disable-next-line no-console
-            console.warn("[TipTapEditor] onPersistSnapshot returned false (server path may have queued/fallback); local snapshot is safe.");
-          }
-        })
-        .catch((err) => {
-          // eslint-disable-next-line no-console
-          console.warn("[TipTapEditor] onPersistSnapshot client call failed (non-fatal; demo/local history unaffected)", err);
-        });
-      // Also call prop if provided (existing callers expect it; non-blocking)
-      if (onPersistSnapshot) {
-        onPersistSnapshot(noteId, newSnap);
-      }
-    }
-
-    const mode = isSupabaseLive() ? "LIVE" : "DEMO";
-    // Only toast for explicit/user-triggered snapshots. Auto-on-typing and on-blur are silent
-    // (the safety net still works perfectly; we just stopped spamming the user).
-    const isAuto = (label || "").toLowerCase().includes("auto") || (label || "").toLowerCase().includes("blur");
-    if (!isAuto) {
-      toast.success("Snapshot captured", { description: `${newSnap.label} (${mode})`, duration: 900 });
-    }
-
-    // Extraction hook point
-    onCaptureSnapshot?.(label);
-  }, [editor, versionHistory, noteId, onCaptureSnapshot, persistSnapshotToServer, onPersistSnapshot]);
-
   // ========================================================================
   // AMAZING IMAGE SUPPORT — paste, drop, toolbar, /image, auto-scale, preview
-  // Relocated after captureSnapshot to eliminate TDZ / "before initialization" crash.
   // ========================================================================
 
   // Convert a File to a data URL (base64). Demo-friendly + works offline.
@@ -1592,21 +1455,18 @@ export function TipTapEditor({
 
     editor.chain().focus().setImage({ src, alt: alt || "Uploaded image" }).run();
 
-    // Force a quick emit + snapshot for structural image insert (fixes "didn't save" feeling)
+    // Force a quick emit for structural image insert (ensures it persists immediately)
     const richJson = editor.getJSON();
     const contentString = JSON.stringify(richJson);
     lastEmittedContentRef.current = contentString;
     onChange?.(contentString);
-
-    // Immediate snapshot for images (great UX + safety)
-    (captureSnapshot as any)?.("Image inserted");
 
     // Beautiful but calm toast (the real delight is the click-to-preview lightbox)
     toast.success("Image added", {
       description: "Click it for the full preview (zoom • pan • mobile swipe).",
       duration: 850,
     });
-  }, [editor, onChange, noteId, captureSnapshot]);
+  }, [editor, onChange, noteId]);
 
   // Handle pasted or dropped image files (the core "accept uploaded files and view images" requirement)
   const handleImageFiles = useCallback(async (files: FileList | File[]) => {
@@ -1630,7 +1490,7 @@ export function TipTapEditor({
   // (harmless global for one frame, cleaned on unmount)
   (window as any).__badAssHandleImageFiles = handleImageFiles;
 
-  // Force-save + snapshot on blur (when the user finishes typing a paragraph or thought and clicks away).
+  // Force-save on blur (when the user finishes typing a paragraph or thought and clicks away).
   // This is a key part of "reliable paragraph persistence" without hammering the DB on every keystroke.
   useEffect(() => {
     if (!editor) return;
@@ -1644,7 +1504,6 @@ export function TipTapEditor({
       if (contentString !== lastEmittedContentRef.current) {
         lastEmittedContentRef.current = contentString;
         onChange?.(contentString);
-        (captureSnapshot as any)?.("On blur (finished editing)");
       }
     };
 
@@ -1654,7 +1513,7 @@ export function TipTapEditor({
     return () => {
       editor.off("blur", handleBlur);
     };
-  }, [editor, noteId, onChange, captureSnapshot]);
+  }, [editor, noteId, onChange]);
 
   // World-class image click-to-preview wiring (delegated, works for pasted + uploaded images)
   useEffect(() => {
@@ -1679,129 +1538,6 @@ export function TipTapEditor({
       proseMirror.removeEventListener("click", handleImageClick, true);
     };
   }, [editor, openImagePreview]);
-
-  // M2 POLISH: Dedicated restore performer (extracted for clean confirm UX).
-  // - Always captures a "Before restore" safety snapshot FIRST (persists to localStorage + server via captureSnapshot when LIVE).
-  // - Applies the historical TipTap JSON via setContent.
-  // - Post-restore: KEEP panel open (trust), auto-select index 0 (the new Before snapshot), auto-scroll list so user sees the safety entry immediately.
-  // - Works identically for localStorage demo mode and serverSnapshots live mode.
-  // - Uses computeStructuredDiff indirectly via pre-selection in UI (user sees exact +/- before confirming).
-  const performRestore = useCallback((idx: number) => {
-    if (!editor || !versionHistory[idx]) return;
-    const snap = versionHistory[idx];
-    try {
-      const parsed = JSON.parse(snap.content);
-      if (parsed && parsed.type === "doc") {
-        // Safety first — this also triggers server persist when isSupabaseLive()
-        captureSnapshot("Before restore");
-        editor.chain().focus().setContent(parsed).run();
-
-        toast.success("Restored version", {
-          description: `${snap.label} • Safety "Before restore" snapshot saved (${isSupabaseLive() ? "LIVE + local" : "local demo"})`,
-        });
-
-        // M2 beautiful restore UX: do not close panel. Let user verify the change instantly.
-        setConfirmingRestore(false);
-        // Select the freshly prepended "Before restore" (now at [0]) so the structured diff pane shows exactly what was reverted away from.
-        setSelectedHistoryIndex(0);
-
-        // Auto-scroll the snapshot list to top — "restored snapshot" context (the safety before) is now visible at once.
-        setTimeout(() => {
-          historyListRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-        }, 70);
-      }
-    } catch {
-      toast.error("Failed to restore snapshot");
-      setConfirmingRestore(false);
-    }
-  }, [editor, versionHistory, captureSnapshot]);
-
-  // Robust per-note history loading with live-mode server preference
-  useEffect(() => {
-    if (!noteId) {
-      setVersionHistory([]);
-      onHistoryChange?.(0);
-      return;
-    }
-
-    let loaded: any[] = [];
-
-    // M2: Prefer/merge server snapshots when in live mode, with graceful local fallback
-    // LIMITATION (M2): serverSnapshots prop comes from parent (via hybridStore mapNoteRow on getNotes).
-    // No independent refetch here; relies on parent polling/realtime. M3 will add direct snapshot query hook.
-    if (isSupabaseLive() && serverSnapshots && serverSnapshots.length > 0) {
-      loaded = [...serverSnapshots].slice(0, 10);
-    } else {
-      // Fallback to localStorage
-      try {
-        const raw = localStorage.getItem(`note-history-${noteId}`);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) loaded = parsed.slice(0, 10);
-        }
-      } catch {}
-    }
-
-    // Small merge: if we have both, keep the most recent unique snapshots (by ts) up to 10 (prefer server, augment with newer local for hybrid safety)
-    if (isSupabaseLive() && serverSnapshots && serverSnapshots.length > 0) {
-      try {
-        const rawLocal = localStorage.getItem(`note-history-${noteId}`);
-        if (rawLocal) {
-          const localParsed = JSON.parse(rawLocal);
-          if (Array.isArray(localParsed) && localParsed.length > 0) {
-            const serverTs = new Set(loaded.map((s: any) => s.ts));
-            const newerLocal = localParsed.filter((s: any) => !serverTs.has(s.ts));
-            loaded = [...newerLocal, ...loaded].slice(0, 10);
-          }
-        }
-      } catch {}
-    }
-
-    setVersionHistory(loaded);
-    onHistoryChange?.(loaded.length);
-  }, [noteId, serverSnapshots]);
-
-  // Optional: auto snapshot on blur (light, non-intrusive)
-  useEffect(() => {
-    if (!editor) return;
-    const handleBlur = () => {
-      // Only auto if we have some content and no recent snap
-      if (editor.state.doc.textContent.length > 20 && versionHistory.length === 0) {
-        // silent first auto
-        const jsonStr = JSON.stringify(editor.getJSON());
-        const ts = new Date().toISOString();
-        const autoSnap = { ts, content: jsonStr, label: "Auto on open" };
-        setVersionHistory([autoSnap]);
-        if (noteId) {
-          try { localStorage.setItem(`note-history-${noteId}`, JSON.stringify([autoSnap])); } catch {}
-        }
-        onHistoryChange?.(1);
-      }
-    };
-    // Attach via editor view if possible (simplified)
-    const dom = editor.view?.dom;
-    if (dom) dom.addEventListener("blur", handleBlur, { once: true });
-    return () => { if (dom) dom.removeEventListener("blur", handleBlur); };
-  }, [editor, noteId, versionHistory.length]);
-
-  // M2: Parent can request the history panel to open (from header button)
-  useEffect(() => {
-    if (historyOpenTrigger && historyOpenTrigger > 0) {
-      setShowHistoryPanel(true);
-      if (versionHistory.length === 0) {
-        // ensure there's at least one snapshot
-        setTimeout(() => captureSnapshot("Manual"), 50);
-      }
-    }
-  }, [historyOpenTrigger]);
-
-  // M2: Auto-capture snapshot when title changes in NoteHeader (parent bumps this trigger)
-  useEffect(() => {
-    if (titleSnapshotTrigger && titleSnapshotTrigger > 0 && editor) {
-      // Small delay so the title update has settled in the broader UI
-      setTimeout(() => captureSnapshot("Title changed"), 80);
-    }
-  }, [titleSnapshotTrigger]);
 
   // Agent 30: Live cursor/selection sharing - broadcast selection changes (debounced) for remote collaborators to see your caret
   useEffect(() => {
@@ -2017,24 +1753,6 @@ export function TipTapEditor({
         >
           → TASK
         </button>
-
-        <ToolbarButton
-          onClick={() => {
-            if (showHistoryPanel) {
-              setShowHistoryPanel(false);
-              setSelectedHistoryIndex(null);
-              // M2 POLISH: full reset of diff + restore confirmation states on toolbar toggle-close
-              setConfirmingRestore(false);
-            } else {
-              setShowHistoryPanel(true);
-              if (versionHistory.length === 0) captureSnapshot("Manual");
-            }
-          }}
-          isActive={showHistoryPanel}
-          title="Version History (light snapshots — restore previous states)"
-        >
-          <History className="h-4 w-4" />
-        </ToolbarButton>
 
         <div className="flex-1" />
 
@@ -2381,577 +2099,9 @@ export function TipTapEditor({
         )}
       </div>
 
-      {/* Version History Panel — M2 Foundation */}
-      {showHistoryPanel && (
-        <div ref={historyPanelRef} role="region" aria-label="Version history panel" data-history-panel className="border-t border-white/10 bg-[#0a0a0f] px-4 py-3 text-xs">
-          <div className="flex flex-wrap items-center justify-between mb-2 gap-2">
-            <div className="flex items-center gap-2 font-mono tracking-[1px] text-[#c084fc]">
-              <History className="h-3.5 w-3.5" />
-              <span>VERSION HISTORY</span>
-              {noteId && <span className="text-[#71717a]/60 text-[10px]">• {noteId.slice(0,6)}</span>}
-              <span role="status" aria-live="polite" aria-label="Snapshot count" className="ml-1 rounded bg-white/5 px-1.5 py-px text-[9px] text-[#71717a]">{versionHistory.length}/10</span>
-              {/* M2: Visual signal when we're pulling from server snapshots in live mode */}
-              {isSupabaseLive() && serverSnapshots && serverSnapshots.length > 0 && (
-                <span className="ml-1 rounded bg-[#00ff9f]/10 px-1.5 py-px text-[9px] text-[#00ff9f] border border-[#00ff9f]/20">LIVE</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                ref={historySearchInputRef}
-                type="text"
-                value={historySearch}
-                onChange={(e) => setHistorySearch(e.target.value)}
-                placeholder="Search snapshots..."
-                className="text-[10px] bg-black/30 border border-white/10 rounded px-2 py-1 w-32 sm:w-28 placeholder:text-[#71717a]/50 touch-manipulation focus:border-[#c084fc]/40 min-h-[32px]"
-                aria-label="Search version history snapshots. Filters list live and updates snapshot count."
-              />
-              <button
-                onClick={() => captureSnapshot("Manual")}
-                className="text-[10px] px-3 py-1 rounded border border-white/15 hover:bg-white/5 active:bg-white/10 transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                aria-label="Capture manual snapshot"
-              >
-                + SNAPSHOT
-              </button>
-              {/* M2 EXPORT: Added Export buttons to Version History panel (header actions area only).
-                  - Targets: selected snapshot (if selectedHistoryIndex active) OR all currently visible/filtered snapshots.
-                  - Formats: JSON (full TipTap JSON payload + export meta) and plain text (derived content).
-                  - Download: minimal, dependency-free via data: URL (encodeURIComponent for safe inline).
-                  - No new state, no new imports, no changes whatsoever to persistence (capture/onPersist), diff logic (computeStructuredDiff), restore, or loading.
-                  - Self-contained inline handlers + tiny text walker for plain text to honor "history panel area" edit scope.
-                  - Works for both LIVE serverSnapshots and local demo history. */}
-              <button
-                onClick={() => {
-                  // M2: JSON export handler (full TipTap) — scoped strictly to history panel JSX.
-                  // Heavy comments for M2 traceability. Prefers selected when present; falls back to visible (search filtered).
-                  // Data URL keeps it ultra-minimal (no Blob/URL.createObjectURL ceremony required for these small payloads).
-                  const searchQ = (historySearch || "").toLowerCase();
-                  const visibleSnaps = versionHistory.filter((snap) => !searchQ || snap.label.toLowerCase().includes(searchQ));
-                  const targetSnaps = (selectedHistoryIndex !== null && selectedHistoryIndex < versionHistory.length)
-                    ? [versionHistory[selectedHistoryIndex]]
-                    : visibleSnaps;
-                  if (!targetSnaps.length) return;
-                  const prefix = noteId ? `note-${noteId.slice(0, 8)}` : "untitled";
-                  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-                  const isSingle = targetSnaps.length === 1;
-                  const baseName = isSingle ? targetSnaps[0].label.replace(/[^a-z0-9_-]/gi, "_").slice(0, 40) : "all-visible";
-                  const jsonPayload = {
-                    exportedAt: new Date().toISOString(),
-                    source: isSupabaseLive() ? "live-server" : "local-demo",
-                    noteId: noteId || null,
-                    count: targetSnaps.length,
-                    snapshots: targetSnaps, // each: {ts, content: string (TipTap JSON), label}
-                  };
-                  const jsonStr = JSON.stringify(jsonPayload, null, 2);
-                  const jsonUrl = "data:application/json;charset=utf-8," + encodeURIComponent(jsonStr);
-                  const a = document.createElement("a");
-                  a.href = jsonUrl;
-                  a.download = `${prefix}-history-${baseName}-${stamp}.json`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                }}
-                className="text-[10px] px-2 py-1 rounded border border-[#c084fc]/30 hover:bg-[#c084fc]/10 active:bg-[#c084fc]/20 transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                title="M2: Export selected (or all visible) snapshots as full TipTap JSON"
-                aria-label="Export history snapshots as JSON"
-              >
-                JSON
-              </button>
-              <button
-                onClick={() => {
-                  // M2: Plain text export handler — derived from snapshot TipTap JSON content.
-                  // Uses minimal self-contained walker (not touching or invoking the diff-related extractPlainTextFromDoc).
-                  // Guarantees no side effects on any existing history/persist/diff code paths.
-                  const searchQ = (historySearch || "").toLowerCase();
-                  const visibleSnaps = versionHistory.filter((snap) => !searchQ || snap.label.toLowerCase().includes(searchQ));
-                  const targetSnaps = (selectedHistoryIndex !== null && selectedHistoryIndex < versionHistory.length)
-                    ? [versionHistory[selectedHistoryIndex]]
-                    : visibleSnaps;
-                  if (!targetSnaps.length) return;
-                  const prefix = noteId ? `note-${noteId.slice(0, 8)}` : "untitled";
-                  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-                  const isSingle = targetSnaps.length === 1;
-                  const baseName = isSingle ? targetSnaps[0].label.replace(/[^a-z0-9_-]/gi, "_").slice(0, 40) : "all-visible";
-                  let plain = `TipTap Version History Export\nNote: ${prefix}\nExported: ${new Date().toLocaleString()}\nMode: ${isSupabaseLive() ? "LIVE" : "DEMO"}\nCount: ${targetSnaps.length}\n\n`;
-                  targetSnaps.forEach((snap, i) => {
-                    plain += `=== [${i + 1}] ${snap.label} | ${snap.ts} ===\n`;
-                    try {
-                      const doc = JSON.parse(snap.content || "{}");
-                      let text = "";
-                      const walk = (node) => {
-                        if (node && typeof node === "object") {
-                          if (typeof node.text === "string") text += node.text;
-                          if (node.type === "heading" || node.type === "paragraph" || node.type === "listItem" || node.type === "hardBreak") text += "\n";
-                          if (Array.isArray(node.content)) node.content.forEach(walk);
-                        }
-                      };
-                      if (doc && doc.content) doc.content.forEach(walk);
-                      plain += (text.trim() || "(empty snapshot content)") + "\n\n";
-                    } catch {
-                      plain += (snap.content || "") + "\n\n";
-                    }
-                  });
-                  const txtUrl = "data:text/plain;charset=utf-8," + encodeURIComponent(plain);
-                  const a = document.createElement("a");
-                  a.href = txtUrl;
-                  a.download = `${prefix}-history-${baseName}-${stamp}.txt`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                }}
-                className="text-[10px] px-2 py-1 rounded border border-[#c084fc]/30 hover:bg-[#c084fc]/10 active:bg-[#c084fc]/20 transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                title="M2: Export selected (or all visible) snapshots as plain text"
-                aria-label="Export history snapshots as plain text"
-              >
-                TXT
-              </button>
-              <button
-                onClick={() => {
-                  setShowHistoryPanel(false);
-                  setSelectedHistoryIndex(null);
-                  // M2 POLISH: reset confirmation + selection on explicit panel close button
-                  setConfirmingRestore(false);
-                }}
-                className="text-[10px] px-3 py-1 rounded text-[#71717a] hover:text-white hover:bg-white/5 active:bg-white/10 touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                aria-label="Close history panel"
-              >
-                CLOSE
-              </button>
-            </div>
-          </div>
+      {/* (Version History + all related code fully removed for lighter app + DB) */
 
-          {versionHistory.length === 0 ? (
-            <div className="text-[#71717a] text-[11px] py-2">
-              No snapshots yet. Auto-captured on first edits + manual via +SNAPSHOT. Server-backed when LIVE.
-            </div>
-          ) : (
-            // M2 POLISH: The scroll container now has ref for post-restore auto-scroll.
-            // Snapshots (whether from serverSnapshots in LIVE or localStorage demo) render identically.
-            <div ref={historyListRef} className="max-h-32 overflow-auto space-y-1 pr-1 custom-scroll">
-              {versionHistory
-                .filter(snap => !historySearch || snap.label.toLowerCase().includes(historySearch.toLowerCase()))
-                .map((snap, idx) => {
-                const date = new Date(snap.ts);
-                const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                const isRecent = Date.now() - date.getTime() < 1000 * 60 * 60 * 2; // last 2 hours
-                return (
-                  <div
-                    key={idx}
-                    role="button"
-                    tabIndex={0}
-                    className={`group flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-white/8 active:bg-white/10 transition-colors cursor-pointer focus-visible:ring-1 focus-visible:ring-[#c084fc] ${selectedHistoryIndex === idx ? 'bg-white/10 ring-1 ring-[#c084fc]' : 'bg-white/5'}`}
-                    // M2: clicking row for preview cancels any open restore confirmation (clean state)
-                    onClick={() => {
-                      setConfirmingRestore(false);
-                      setSelectedHistoryIndex(selectedHistoryIndex === idx ? null : idx);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setConfirmingRestore(false);
-                        setSelectedHistoryIndex(selectedHistoryIndex === idx ? null : idx);
-                      }
-                    }}
-                    title="Click or press Enter to preview diff • Use RESTORE button for safe revert"
-                    aria-selected={selectedHistoryIndex === idx}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-medium text-[#e4e4e7] truncate">{snap.label}</span>
-                        <span className={`font-mono text-[10px] ${isRecent ? 'text-[#c084fc]' : 'text-[#71717a]'}`}>
-                          {time}
-                        </span>
-                      </div>
-                      <div className="text-[9px] text-[#71717a]/60 mt-0.5">
-                        {date.toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!editor) return;
-                        // M2 POLISH: No window.confirm. Instead: select this snapshot (shows structured diff) + enter confirm mode.
-                        // This surfaces the exact +/- changes using computeStructuredDiff BEFORE user commits to restore.
-                        setSelectedHistoryIndex(idx);
-                        setConfirmingRestore(true);
-                      }}
-                      className="opacity-80 group-hover:opacity-100 text-[#00ff9f] hover:text-[#00ff9f] text-[10px] font-medium px-3 py-1 rounded hover:bg-[#00ff9f]/10 active:bg-[#00ff9f]/20 transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                      aria-label={`Restore snapshot ${snap.label} (opens confirmation with diff preview)`}
-                    >
-                      RESTORE
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Full structured diff preview (M2 big step) — now polished for trust + beautiful UX */}
-          {selectedHistoryIndex !== null && versionHistory[selectedHistoryIndex] && (
-            <div className="mt-3 p-2 bg-black/30 rounded text-[10px] font-mono border border-white/10">
-              {/* M2 POLISH HEADER: clearer title + always-available manual snapshot + richer diff mode toggle */}
-              <div className="flex items-center justify-between text-[#c084fc] mb-1">
-                <span>{diffViewMode === "json" ? "JSON Diff — TipTap Docs" : "Structured Diff — Snapshot vs Current"}</span>
-                <div className="flex items-center gap-2 text-[9px]">
-                  {/* Richer viewer controls: side-by-side +/- stays, add JSON view for TipTap docs, visual stats bars below */}
-                  <button
-                    onClick={() => setDiffViewMode(diffViewMode === "structured" ? "json" : "structured")}
-                    className="text-[8px] px-1.5 py-0.5 rounded border border-white/20 hover:bg-white/10 active:bg-white/5 text-[#a1a1aa]"
-                    title="Toggle between rich structured text diff (with +/- bars) and raw TipTap JSON side-by-side view"
-                  >
-                    {diffViewMode === "structured" ? "JSON VIEW" : "TEXT DIFF"}
-                  </button>
-                  <button
-                    onClick={() => captureSnapshot("Manual")}
-                    className="text-[9px] px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[#71717a] min-h-[32px] touch-manipulation focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                  >
-                    + Snapshot now
-                  </button>
-                  {/* M2: Selected snapshot export affordance inside the diff preview header.
-                      Provides direct one-click export of *this* selected history item (full TipTap JSON + plain text).
-                      Complements the header-level visible/all export buttons. Purely additive to panel area. */}
-                  <button
-                    onClick={() => {
-                      // M2: Export the *currently selected* snapshot (guaranteed in this render branch).
-                      // JSON path: emits full TipTap via the snapshot.content (stringified doc).
-                      // TXT path: inline minimal walker (no reference to diff helpers).
-                      // Download via data URL. No persistence/diff mutations.
-                      const snap = versionHistory[selectedHistoryIndex];
-                      if (!snap) return;
-                      const prefix = noteId ? `note-${noteId.slice(0, 8)}` : "untitled";
-                      const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-                      const safeLabel = snap.label.replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
-                      // JSON (full TipTap)
-                      const jsonPayload = { exportedAt: new Date().toISOString(), snapshot: snap };
-                      const jUrl = "data:application/json;charset=utf-8," + encodeURIComponent(JSON.stringify(jsonPayload, null, 2));
-                      const aJ = document.createElement("a");
-                      aJ.href = jUrl;
-                      aJ.download = `${prefix}-selected-${safeLabel}-${stamp}.json`;
-                      document.body.appendChild(aJ); aJ.click(); document.body.removeChild(aJ);
-                    }}
-                    className="text-[8px] px-1.5 py-0 rounded bg-white/5 hover:bg-white/10 text-[#c084fc]/80 min-h-[28px] touch-manipulation focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                    title="M2: Export this selected snapshot as full TipTap JSON"
-                  >
-                    JSON
-                  </button>
-                  <button
-                    onClick={() => {
-                      // M2: TXT export for the selected snapshot only (diff context).
-                      const snap = versionHistory[selectedHistoryIndex];
-                      if (!snap) return;
-                      const prefix = noteId ? `note-${noteId.slice(0, 8)}` : "untitled";
-                      const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-                      const safeLabel = snap.label.replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
-                      let text = `Selected Snapshot Export: ${snap.label}\n${snap.ts}\n\n`;
-                      try {
-                        const doc = JSON.parse(snap.content || "{}");
-                        let p = "";
-                        const w = (n) => {
-                          if (n && typeof n === "object") {
-                            if (typeof n.text === "string") p += n.text;
-                            if (n.type === "heading" || n.type === "paragraph" || n.type === "listItem" || n.type === "hardBreak") p += "\n";
-                            if (Array.isArray(n.content)) n.content.forEach(w);
-                          }
-                        };
-                        if (doc && doc.content) doc.content.forEach(w);
-                        text += p.trim() || "(empty)";
-                      } catch { text += snap.content || ""; }
-                      const tUrl = "data:text/plain;charset=utf-8," + encodeURIComponent(text);
-                      const aT = document.createElement("a");
-                      aT.href = tUrl;
-                      aT.download = `${prefix}-selected-${safeLabel}-${stamp}.txt`;
-                      document.body.appendChild(aT); aT.click(); document.body.removeChild(aT);
-                    }}
-                    className="text-[8px] px-1.5 py-0 rounded bg-white/5 hover:bg-white/10 text-[#c084fc]/80"
-                    title="M2: Export this selected snapshot as plain text"
-                  >
-                    TXT
-                  </button>
-                </div>
-              </div>
-
-              {/* M2: The computeStructuredDiff (existing helper) + improved display below = line-by-line with excellent +/- indicators and counts */}
-              {(() => {
-                try {
-                  const snapDoc = JSON.parse(versionHistory[selectedHistoryIndex].content);
-                  const currentDoc = editor ? editor.getJSON() : { content: [] };
-                  const diff = computeStructuredDiff(snapDoc, currentDoc);
-                  const totalChanged = diff.added + diff.removed + diff.modified;
-
-                  // Richer JSON view for TipTap docs (M2 deliverable a): when toggled, show side-by-side pretty-printed
-                  // raw TipTap JSON (snapshot vs current) with +/- line coloring via simple prefix scan, node stats,
-                  // visual bars. Fully additive; structured +/- side-by-side + all restore/export/LIVE untouched.
-                  if (diffViewMode === "json") {
-                    const snapJson = JSON.stringify(snapDoc, null, 2).split("\n");
-                    const currJson = JSON.stringify(currentDoc, null, 2).split("\n");
-                    const maxJ = Math.max(snapJson.length, currJson.length);
-                    let jsonAdded = 0, jsonRemoved = 0;
-                    const jOld: Array<{ line: string; type: string }> = [];
-                    const jNew: Array<{ line: string; type: string }> = [];
-                    for (let i = 0; i < maxJ; i++) {
-                      const o = snapJson[i] || "";
-                      const n = currJson[i] || "";
-                      if (o === n) { jOld.push({line: o, type: "same"}); jNew.push({line: n, type: "same"}); }
-                      else if (!o && n) { jsonAdded++; jOld.push({line: "", type: "same"}); jNew.push({line: n, type: "added"}); }
-                      else if (o && !n) { jsonRemoved++; jOld.push({line: o, type: "removed"}); jNew.push({line: "", type: "same"}); }
-                      else { jOld.push({line: o, type: "modified"}); jNew.push({line: n, type: "modified"}); }
-                    }
-                    const jsonTotal = jsonAdded + jsonRemoved;
-                    return (
-                      <>
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5 text-[9px]">
-                          <span className="uppercase tracking-[1px] text-[#71717a]/70 font-semibold">TipTap JSON Changes:</span>
-                          <span className="px-1.5 py-px rounded bg-emerald-500/15 text-emerald-400">+{jsonAdded} lines</span>
-                          <span className="px-1.5 py-px rounded bg-red-500/15 text-red-400">−{jsonRemoved} lines</span>
-                          <span className="text-[#71717a]/50">({jsonTotal} affected)</span>
-                        </div>
-                        {/* Visual stats bar for JSON too */}
-                        {jsonTotal > 0 && (
-                          <div className="h-1 w-full bg-white/10 rounded mb-2 flex overflow-hidden">
-                            <div className="bg-emerald-500 h-full" style={{width: `${Math.min(100, (jsonAdded / jsonTotal)*100)}%`}} />
-                            <div className="bg-red-500 h-full" style={{width: `${Math.min(100, (jsonRemoved / jsonTotal)*100)}%`}} />
-                          </div>
-                        )}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[8px]">
-                          <div className="bg-red-950/30 p-1 rounded border border-red-900/40 max-h-40 overflow-auto custom-scroll font-mono">
-                            <div className="text-red-400 mb-0.5 font-semibold">OLD SNAPSHOT (JSON)</div>
-                            {jOld.slice(0, 30).map((it, i) => (
-                              <div key={i} className={`${it.type === "removed" ? "text-red-300 bg-red-900/40" : it.type === "modified" ? "text-orange-300" : "opacity-70"} whitespace-pre`}>{it.type === "removed" ? "− " : "  "}{it.line || " "}</div>
-                            ))}
-                          </div>
-                          <div className="bg-emerald-950/30 p-1 rounded border border-emerald-900/40 max-h-40 overflow-auto custom-scroll font-mono">
-                            <div className="text-emerald-400 mb-0.5 font-semibold">CURRENT (JSON)</div>
-                            {jNew.slice(0, 30).map((it, i) => (
-                              <div key={i} className={`${it.type === "added" ? "text-emerald-300 bg-emerald-900/40" : it.type === "modified" ? "text-orange-300" : "opacity-70"} whitespace-pre`}>{it.type === "added" ? "+ " : "  "}{it.line || " "}</div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-[8px] text-[#71717a]/60">Raw TipTap JSON side-by-side for precise doc structure comparison (richer view).</div>
-                      </>
-                    );
-                  }
-
-                  return (
-                    <>
-                      {/* M2 POLISH: Prominent, clear stats bar — added/removed/modified counts front-and-center for instant trust + visual % bars */}
-                      <div className="flex flex-wrap items-center gap-2 mb-2 text-[9px] pl-0.5">
-                        <span className="uppercase tracking-[1px] text-[#71717a]/70 font-semibold">Changes:</span>
-                        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 text-emerald-400 px-1.5 py-px font-semibold border border-emerald-500/30">+{diff.added} added</span>
-                        <span className="inline-flex items-center gap-0.5 rounded bg-red-500/15 text-red-400 px-1.5 py-px font-semibold border border-red-500/30">−{diff.removed} removed</span>
-                        <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 text-amber-400 px-1.5 py-px font-semibold border border-amber-500/30">~{diff.modified} modified</span>
-                        <span className="text-[#71717a]/50">({totalChanged} lines affected)</span>
-                      </div>
-                      {/* Richer visual stats bars (proportional widths for instant overview; only for structured mode conceptually) */}
-                      {totalChanged > 0 && (
-                        <div className="h-1.5 w-full bg-white/10 rounded mb-2 overflow-hidden flex">
-                          <div className="bg-emerald-500 h-full" style={{ width: `${Math.min(100, (diff.added / totalChanged) * 100)}%` }} />
-                          <div className="bg-red-500 h-full" style={{ width: `${Math.min(100, (diff.removed / totalChanged) * 100)}%` }} />
-                          <div className="bg-amber-500 h-full" style={{ width: `${Math.min(100, (diff.modified / totalChanged) * 100)}%` }} />
-                        </div>
-                      )}
-
-                      {/* M2: In-panel RESTORE CONFIRMATION — shows exactly "what will change" using the live diff from computeStructuredDiff.
-                          Better than window.confirm: visible structured preview, explicit safety explanation, works for both demo localStorage and LIVE server snapshots.
-                          On CONFIRM we call performRestore which does Before-capture + setContent + auto-select-0 + auto-scroll. */}
-                      {confirmingRestore && (
-                        <div className="mb-3 p-2.5 rounded border border-[#c084fc]/40 bg-[#c084fc]/5">
-                          <div className="flex items-start gap-2 text-[#c084fc] font-semibold mb-1">
-                            <span>RESTORE CONFIRMATION</span>
-                          </div>
-                          <div className="text-[9px] leading-snug text-[#e4e4e7]/90 mb-2">
-                            Restoring <span className="font-medium text-white">{versionHistory[selectedHistoryIndex].label}</span> will replace the current editor content.
-                            <br />
-                            A safety snapshot labeled <span className="font-medium">"Before restore"</span> of your <strong>current work</strong> will be captured first (persisted to {isSupabaseLive() ? "server + localStorage" : "localStorage (demo)"}).
-                          </div>
-                          {/* Reuse the exact stats in confirm context for "show what will change" clarity */}
-                          <div className="flex flex-wrap gap-1.5 text-[9px] mb-2">
-                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">+{diff.added} lines added in snapshot</span>
-                            <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">−{diff.removed} lines removed</span>
-                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">~{diff.modified} modified</span>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setConfirmingRestore(false)}
-                              className="flex-1 text-[10px] px-3 py-1 rounded border border-white/15 hover:bg-white/5 active:bg-white/10 transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                            >
-                              CANCEL
-                            </button>
-                            <button
-                              onClick={() => performRestore(selectedHistoryIndex)}
-                              className="flex-1 text-[10px] px-3 py-1 rounded bg-[#00ff9f] text-black font-semibold hover:bg-[#00ff9f]/90 active:bg-[#00ff9f]/80 transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
-                            >
-                              CONFIRM RESTORE
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* M2 POLISHED DIFF PANES: line-by-line using computeStructuredDiff output.
-                          Better +/- indicators (bold colored − / +), stronger visual treatment per line type (left accent via colored text + bg), improved contrast/readability. */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[9px]">
-                        <div className="bg-red-950/30 p-1.5 rounded border border-red-900/40">
-                          <div className="flex justify-between text-red-400 mb-1 font-semibold tracking-tight">
-                            <span>OLD (snapshot)</span>
-                            <span className="text-[8px] opacity-80 font-normal">−{diff.removed}  ~{diff.modified}</span>
-                          </div>
-                          <div className="max-h-36 overflow-auto whitespace-pre-wrap text-[#a1a1aa] leading-[1.35] custom-scroll">
-                            {diff.highlightedOld.slice(0, 24).map((item, i) => (
-                              <div
-                                key={i}
-                                className={`flex gap-1 px-0.5 rounded-sm ${item.type === "removed" ? "bg-red-900/50 text-red-300" : item.type === "modified" ? "bg-orange-900/40 text-orange-300" : "opacity-60"}`}
-                              >
-                                <span className="w-3 shrink-0 select-none text-right font-bold">
-                                  {item.type === "removed" ? "−" : item.type === "modified" ? "~" : " "}
-                                </span>
-                                <span className="flex-1 break-all">{item.line || "(empty line)"}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="bg-emerald-950/30 p-1.5 rounded border border-emerald-900/40">
-                          <div className="flex justify-between text-emerald-400 mb-1 font-semibold tracking-tight">
-                            <span>NEW (current)</span>
-                            <span className="text-[8px] opacity-80 font-normal">+{diff.added}  ~{diff.modified}</span>
-                          </div>
-                          <div className="max-h-36 overflow-auto whitespace-pre-wrap text-[#a1a1aa] leading-[1.35] custom-scroll">
-                            {diff.highlightedNew.slice(0, 24).map((item, i) => (
-                              <div
-                                key={i}
-                                className={`flex gap-1 px-0.5 rounded-sm ${item.type === "added" ? "bg-emerald-900/50 text-emerald-300" : item.type === "modified" ? "bg-orange-900/40 text-orange-300" : "opacity-60"}`}
-                              >
-                                <span className="w-3 shrink-0 select-none text-right font-bold">
-                                  {item.type === "added" ? "+" : item.type === "modified" ? "~" : " "}
-                                </span>
-                                <span className="flex-1 break-all">{item.line || "(empty line)"}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  );
-                } catch {
-                  return <div className="col-span-2 text-center text-[#71717a] py-1">Rich TipTap JSON — text preview limited</div>;
-                }
-              })()}
-
-              {/* M2 updated footer — reflects live server backing now that persistence is real */}
-              <div className="text-[#71717a]/60 mt-2 text-[9px] border-t border-white/10 pt-1.5">
-                Click row to toggle preview. RESTORE button opens confirmation with live stats. Server snapshots (LIVE) + localStorage (demo) fully supported.
-              </div>
-            </div>
-          )}
-
-          {/* M2: Updated trust footer — server persistence (via onPersistSnapshot + serverSnapshots prop) is live. */}
-          <div className="mt-2 text-[9px] text-[#71717a]/50">
-            Snapshots persist to server in LIVE mode • localStorage fallback for demo. Every restore auto-captures a safety "Before restore" snapshot first.
-          </div>
-        </div>
-      )}
-
-      {/* ========== INTEGRATED BACKLINKS + LINKS PANEL (Agent 24) ========== */}
-      {/* Glass section inside editor chrome. Shows incoming (back) + outbound. Demo seeds if no parent props. */}
-      {/* Supports remove via callbacks (parent keeps bidirectional arrays in sync). Pure Tailwind, no external deps. */}
-      <div className="border-t border-white/10 bg-[#0f0f13]/60 px-4 py-2 text-xs">
-        <button
-          onClick={() => setShowBacklinksPanel(v => !v)}
-          className="flex w-full items-center justify-between text-left text-[#a1a1aa] hover:text-[#f4f4f5] font-mono tracking-[1px] mb-1 focus-visible:ring-1 focus-visible:ring-[#c084fc]/50 rounded px-1 -mx-1"
-          title="Toggle linked & backlinks"
-          aria-expanded={showBacklinksPanel}
-          aria-controls="links-backlinks-panel"
-        >
-          <span className="flex items-center gap-1.5"><Share2 className="h-3 w-3" /> LINKS & BACKLINKS</span>
-          <span className="text-[10px] opacity-70">{showBacklinksPanel ? "−" : "+"} {(linkedItems.length + effectiveBacklinks.length)} connected</span>
-        </button>
-        {showBacklinksPanel && (
-          <div id="links-backlinks-panel" role="region" aria-label="Links and backlinks" className="pt-1">
-            {/* Lightweight in-panel search + sort (M2 polish) */}
-            <div className="flex flex-wrap items-center gap-2 mb-1.5 text-[10px]">
-              <input
-                type="text"
-                placeholder="Filter links..."
-                className="flex-1 min-w-[120px] bg-black/30 border border-white/10 rounded px-2 py-1 text-[10px] placeholder:text-[#71717a]/60 focus:outline-none focus:border-[#c084fc]/40 touch-manipulation"
-                value={linkFilter}
-                onChange={(e) => setLinkFilter(e.target.value)}
-                aria-label="Filter links"
-              />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="w-24 bg-black/30 border border-white/10 rounded px-2 py-1 text-[10px] placeholder:text-[#71717a]/60 focus:outline-none focus:border-[#c084fc]/40 touch-manipulation"
-                value={linksSearch}
-                onChange={(e) => setLinksSearch(e.target.value)}
-                aria-label="Search links"
-              />
-              <select
-                value={linksSort}
-                onChange={(e) => setLinksSort(e.target.value as any)}
-                className="bg-black/30 border border-white/10 rounded px-2 py-1 text-[10px] text-[#71717a] touch-manipulation focus:border-[#c084fc]/40 focus:outline-none"
-                aria-label="Sort links"
-              >
-                <option value="recency">Recency</option>
-                <option value="title">Title</option>
-                <option value="type">Type</option>
-              </select>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {/* Outbound linked - real data only */}
-              {linkedItems
-                .filter(item => 
-                  (!linkFilter || item.title.toLowerCase().includes(linkFilter.toLowerCase())) &&
-                  (!linksSearch || item.title.toLowerCase().includes(linksSearch.toLowerCase()))
-                )
-                .map((item, i) => (
-                <span key={`out-${i}`} className="inline-flex items-center gap-1 rounded-md bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 px-2 py-0.5 font-mono text-[10px] group">
-                  🔗 {item.title.length > 22 ? item.title.slice(0,21)+'…' : item.title}
-                  {onRemoveLinked && (
-                    <button
-                      onClick={() => onRemoveLinked(item.id, item.type)}
-                      className="ml-0.5 opacity-70 hover:opacity-100 hover:text-red-400 active:text-red-400 p-0.5 -mr-0.5 touch-manipulation rounded focus-visible:ring-1"
-                      title="Unlink"
-                      aria-label={`Remove linked ${item.type} ${item.title}`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              ))}
-              {/* Incoming backlinks - real data only (notes + tasks) */}
-              {effectiveBacklinks
-                .filter(item => 
-                  (!linkFilter || item.title.toLowerCase().includes(linkFilter.toLowerCase())) &&
-                  (!linksSearch || item.title.toLowerCase().includes(linksSearch.toLowerCase()))
-                )
-                .map((item, i) => (
-                <span key={`back-${i}`} className="inline-flex items-center gap-1 rounded-md bg-[#00ff9f]/10 text-[#00ff9f] border border-[#00ff9f]/30 px-2 py-0.5 font-mono text-[10px] group">
-                  ⬅ {item.title.length > 20 ? item.title.slice(0,19)+'…' : item.title}
-                  {onRemoveBacklink && (
-                    <button
-                      onClick={() => onRemoveBacklink(item.id, item.type)}
-                      className="ml-0.5 opacity-70 hover:opacity-100 hover:text-red-400 active:text-red-400 p-0.5 -mr-0.5 touch-manipulation rounded focus-visible:ring-1"
-                      title="Remove backlink"
-                      aria-label={`Remove backlink ${item.type} ${item.title}`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              ))}
-              {linkedItems.length === 0 && effectiveBacklinks.length === 0 && (
-                <span className="text-[#71717a]/60 text-[9px] self-center ml-1">(use /link or header Linked Tasks for more)</span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Subtle footer hint - now updated with slash + live link scan! */}
-      <div className="px-4 py-1.5 border-t border-white/10 bg-[#111114]/40 text-[10px] text-[#71717a] font-mono tracking-[1px] flex items-center justify-between">
-        <span>TIP TAP — RICH JSONB • ⌘B/I/S • LISTS • /SLASH • {detectedMentions.length} @MENTIONS SCANNED • LINKED</span>
-        <span className="text-[#c084fc]/60">Type / anywhere — feels bad ass</span>
-      </div>
-
-      {/* World-class image lightbox — opens on any image click inside the editor (paste, drop, or future upload) */}
+/* World-class image lightbox — opens on any image click inside the editor (paste, drop, or future upload) */}
       <ImagePreviewModal
         src={previewImage?.src ?? null}
         alt={previewImage?.alt}

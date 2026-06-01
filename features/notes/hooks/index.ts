@@ -7,4 +7,10 @@
  * Ready for future useNote* once editor lands and later extractions.
  */
 
-export {};
+export { useNoteOperations } from "./useNoteOperations";
+export { useBacklinks } from "./useBacklinks";
+export { useNoteKeyboard } from "./useNoteKeyboard";
+export { useNoteSearch } from "./useNoteSearch";
+export { useMentions, extractMentionsFromDoc, type MentionRef } from "./useMentions";
+export { getBacklinkNotes, getBacklinkCount } from "./useBacklinks";
+
