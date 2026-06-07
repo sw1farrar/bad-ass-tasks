@@ -1,6 +1,6 @@
--- Pre-deploy hardening (idempotent). Run after fix-invite-lifecycle-rls-and-rpcs.sql
+-- Fix invite accept for new users: ensure profiles row exists before workspace_members insert.
+-- Safe to re-run. Run in Supabase SQL Editor on live.
 
--- Invite accept: enforce email restriction at RPC layer (prevents browser RPC bypass)
 CREATE OR REPLACE FUNCTION accept_workspace_invite(p_invite_id UUID)
 RETURNS UUID
 LANGUAGE plpgsql
@@ -36,6 +36,7 @@ BEGIN
     RAISE EXCEPTION 'This invite was sent to a different email address';
   END IF;
 
+  -- workspace_members may FK to profiles.id on live; create profile if missing.
   INSERT INTO profiles (id, email)
   SELECT u.id, u.email
   FROM auth.users u

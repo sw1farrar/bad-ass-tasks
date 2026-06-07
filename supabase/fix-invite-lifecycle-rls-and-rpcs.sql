@@ -210,6 +210,13 @@ BEGIN
     RAISE EXCEPTION 'This invite was sent to a different email address';
   END IF;
 
+  INSERT INTO profiles (id, email)
+  SELECT u.id, u.email
+  FROM auth.users u
+  WHERE u.id = auth.uid()
+  ON CONFLICT (id) DO UPDATE SET
+    email = COALESCE(EXCLUDED.email, profiles.email);
+
   v_ws_id := v_invite.workspace_id;
 
   -- Add the user as a member (idempotent via ON CONFLICT in real usage)

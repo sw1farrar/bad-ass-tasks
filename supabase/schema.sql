@@ -600,6 +600,14 @@ BEGIN
     RAISE EXCEPTION 'This invite was sent to a different email address';
   END IF;
 
+  -- workspace_members may FK to profiles.id; bootstrap profile for new invitees.
+  INSERT INTO profiles (id, email)
+  SELECT u.id, u.email
+  FROM auth.users u
+  WHERE u.id = auth.uid()
+  ON CONFLICT (id) DO UPDATE SET
+    email = COALESCE(EXCLUDED.email, profiles.email);
+
   v_ws_id := v_invite.workspace_id;
 
   INSERT INTO workspace_members (workspace_id, user_id, role, invited_by)

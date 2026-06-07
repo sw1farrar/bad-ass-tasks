@@ -2871,10 +2871,15 @@ export async function acceptInvite(inviteId: string): Promise<string | null> {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (user?.id && user.email) {
-      await supabase.from("profiles").upsert({ id: user.id, email: user.email } as never, {
-        onConflict: "id",
+    if (user?.id) {
+      const ensureRes = await fetch("/api/profile/ensure", {
+        method: "POST",
+        credentials: "include",
       });
+      if (!ensureRes.ok) {
+        const payload = (await ensureRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "Could not create user profile before accepting invite.");
+      }
     }
 
     const { data, error } = await (supabase.rpc as any)("accept_workspace_invite", {

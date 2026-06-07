@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
+import { ensureUserProfile } from "@/lib/invite/ensureUserProfile";
 import { getInvitePreview, isValidInviteId } from "@/lib/invite/getInvitePreview";
 
 type RouteContext = { params: Promise<{ inviteId: string }> };
@@ -12,15 +13,6 @@ type JoinBody = {
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
-}
-
-async function ensureProfileEmail(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  userId: string,
-  email: string | null | undefined,
-) {
-  if (!email) return;
-  await supabase.from("profiles").upsert({ id: userId, email } as never, { onConflict: "id" });
 }
 
 async function acceptInviteForUser(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>, inviteId: string) {
@@ -87,7 +79,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     try {
-      await ensureProfileEmail(supabase, sessionUser.id, sessionUser.email);
+      await ensureUserProfile(sessionUser.id, sessionUser.email);
       const workspaceId = await acceptInviteForUser(supabase, inviteId);
       return NextResponse.json({ ok: true, workspaceId });
     } catch (err) {
@@ -132,7 +124,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    await ensureProfileEmail(supabase, signInData.user.id, signInData.user.email);
+    await ensureUserProfile(signInData.user.id, signInData.user.email);
     const workspaceId = await acceptInviteForUser(supabase, inviteId);
     return NextResponse.json({ ok: true, workspaceId });
   } catch (err) {
