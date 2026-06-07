@@ -6,6 +6,31 @@ interface LogContext {
   [key: string]: unknown;
 }
 
+/** Global hooks exposed on window for external observability integrations. */
+interface BadAssTasksWindow extends Window {
+  __BADASS_REPORT_ERROR__?: (message: string, error?: Error | unknown, context?: LogContext) => void;
+  __BADASS_METRIC__?: (metric: MetricReport) => void;
+  __BADASS_MONITORING_INIT__?: boolean;
+  __BADASS_GET_ERRORS?: () => ErrorReport[];
+  __BADASS_CLEAR_ERRORS?: () => void;
+  __BADASS_REPORT_METRIC?: (name: string, value: number, tags?: Record<string, string | number>) => void;
+  __BADASS_PERF_INIT__?: boolean;
+}
+
+interface LCPEntry extends PerformanceEntry {
+  renderTime?: number;
+  loadTime?: number;
+}
+
+interface LayoutShiftEntry extends PerformanceEntry {
+  hadRecentInput?: boolean;
+  value: number;
+}
+
+function getBadAssWindow(): BadAssTasksWindow | undefined {
+  return typeof window !== 'undefined' ? (window as BadAssTasksWindow) : undefined;
+}
+
 // === Production Observability Types (Agent 33) ===
 export interface ErrorReport {
   id: string;
@@ -31,7 +56,7 @@ const isProd = typeof process !== 'undefined' && process.env?.NODE_ENV === 'prod
 const ERROR_BUFFER_KEY = 'bad-ass-tasks-error-buffer';
 const MAX_ERROR_BUFFER = 50;
 let errorBuffer: ErrorReport[] = [];
-let reporters: Array<(report: ErrorReport) => void> = [];
+const reporters: Array<(report: ErrorReport) => void> = [];
 
 function loadErrorBuffer(): ErrorReport[] {
   if (typeof window === 'undefined') return [];
@@ -130,8 +155,9 @@ export const logger = {
     }
 
     // Legacy global hook still supported for external scripts (non-breaking)
-    if (typeof window !== 'undefined' && (window as any).__BADASS_REPORT_ERROR__) {
-      try { (window as any).__BADASS_REPORT_ERROR__(message, error, context); } catch {}
+    const badAssWindow = getBadAssWindow();
+    if (badAssWindow?.__BADASS_REPORT_ERROR__) {
+      try { badAssWindow.__BADASS_REPORT_ERROR__(message, error, context); } catch {}
     }
   },
 
@@ -176,8 +202,9 @@ export const logger = {
     // eslint-disable-next-line no-console
     console.info(`[BadAssTasks:METRIC] ${name}=${value}`, tags || '');
     // Buffer metrics? (light: only errors for now; metrics are firehose to console/logger consumers)
-    if (typeof window !== 'undefined' && (window as any).__BADASS_METRIC__) {
-      try { (window as any).__BADASS_METRIC__(metric); } catch {}
+    const badAssWindow = getBadAssWindow();
+    if (badAssWindow?.__BADASS_METRIC__) {
+      try { badAssWindow.__BADASS_METRIC__(metric); } catch {}
     }
   },
 };
@@ -195,9 +222,10 @@ export function logError(operation: string, err: unknown, extra?: LogContext) {
  * Idempotent. Wires buffer + any pre-registered reporters.
  */
 export function initErrorMonitoring() {
-  if (typeof window === 'undefined') return;
-  if ((window as any).__BADASS_MONITORING_INIT__) return;
-  (window as any).__BADASS_MONITORING_INIT__ = true;
+  const badAssWindow = getBadAssWindow();
+  if (!badAssWindow) return;
+  if (badAssWindow.__BADASS_MONITORING_INIT__) return;
+  badAssWindow.__BADASS_MONITORING_INIT__ = true;
 
   // Load any persisted buffer
   errorBuffer = loadErrorBuffer();
@@ -221,9 +249,10 @@ export function initErrorMonitoring() {
   window.addEventListener('unhandledrejection', handleRejection);
 
   // Expose for advanced external tools / debugging (non-breaking extension)
-  (window as any).__BADASS_GET_ERRORS = () => logger.getErrorBuffer();
-  (window as any).__BADASS_CLEAR_ERRORS = () => logger.clearErrorBuffer();
-  (window as any).__BADASS_REPORT_METRIC = (n: string, v: number, t?: any) => logger.reportMetric(n, v, t);
+  badAssWindow.__BADASS_GET_ERRORS = () => logger.getErrorBuffer();
+  badAssWindow.__BADASS_CLEAR_ERRORS = () => logger.clearErrorBuffer();
+  badAssWindow.__BADASS_REPORT_METRIC = (n: string, v: number, t?: Record<string, string | number>) =>
+    logger.reportMetric(n, v, t);
 
   logger.info('Error monitoring initialized (global handlers + buffer + reporter hooks active)');
 
@@ -237,8 +266,9 @@ export function initErrorMonitoring() {
  * Call is internal from initErrorMonitoring; safe to call directly too.
  */
 export function initPerformanceMonitoring() {
-  if (typeof window === 'undefined' || (window as any).__BADASS_PERF_INIT__) return;
-  (window as any).__BADASS_PERF_INIT__ = true;
+  const badAssWindow = getBadAssWindow();
+  if (!badAssWindow || badAssWindow.__BADASS_PERF_INIT__) return;
+  badAssWindow.__BADASS_PERF_INIT__ = true;
 
   try {
     // Core Web Vitals via PerformanceObserver (widely supported in modern browsers)
@@ -246,7 +276,7 @@ export function initPerformanceMonitoring() {
       // LCP
       const lcpObs = new PerformanceObserver((list) => {
         const entries = list.getEntries();
-        const last = entries[entries.length - 1] as any;
+        const last = entries[entries.length - 1] as LCPEntry | undefined;
         if (last) logger.reportMetric('web_vital_lcp', Math.round(last.renderTime || last.loadTime || last.startTime), { type: 'LCP' });
       });
       lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
@@ -254,7 +284,7 @@ export function initPerformanceMonitoring() {
       // CLS
       let clsValue = 0;
       const clsObs = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries() as any[]) {
+        for (const entry of list.getEntries() as LayoutShiftEntry[]) {
           if (!entry.hadRecentInput) {
             clsValue += entry.value;
           }

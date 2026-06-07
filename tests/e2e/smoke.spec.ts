@@ -1,69 +1,57 @@
 import { test, expect } from '@playwright/test';
 
+async function goToTasksView(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: 'Tasks', exact: true }).first().click();
+  await expect(page.locator('#task-quick-add')).toBeVisible({ timeout: 8000 });
+}
+
 test.describe('Bad Ass Tasks — E2E smoke (production hardening)', () => {
   test('loads home, shows title and core UI without crash', async ({ page }) => {
     await page.goto('/');
 
-    // Title from metadata
     await expect(page).toHaveTitle(/Bad Ass Tasks/);
 
-    // Key interactive surfaces present (no white screen / JS crash)
-    await expect(page.getByText(/Today|Tasks|Notes|Calendar|Teams/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Today', exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /add task/i }).first()).toBeVisible({ timeout: 8000 });
 
-    // Quick add / command surface hint
-    const addHint = page.getByText(/Add task|⌘N/i);
-    // May be in mobile or desktop variant
-    await expect(addHint.or(page.getByRole('button', { name: /add/i }))).toBeVisible({ timeout: 8000 });
-
-    // No critical console errors on load (basic)
     const errors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(msg.text());
     });
     await page.waitForTimeout(1500);
-    // Allow known demo/optional (Supabase not configured in test env)
-    const fatal = errors.filter(e => /Uncaught|TypeError|ReferenceError/i.test(e) && !/supabase/i.test(e));
+    const fatal = errors.filter(
+      (e) => /Uncaught|TypeError|ReferenceError/i.test(e) && !/supabase/i.test(e),
+    );
     expect(fatal.length, `Fatal console errors: ${fatal.join(' | ')}`).toBe(0);
   });
 
   test('keyboard command palette opens (⌘K or Ctrl+K)', async ({ page }) => {
     await page.goto('/');
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
-    // cmdk dialog or input
-    await expect(page.getByRole('dialog').or(page.locator('[cmdk-root]'))).toBeVisible({ timeout: 3000 });
+    await expect(page.getByLabel('Command Palette')).toBeVisible({ timeout: 3000 });
   });
 
   test('critical flow: add task via quick input + mark complete (no crash, UI updates)', async ({ page }) => {
     await page.goto('/');
+    await goToTasksView(page);
 
-    // Find the natural language / quick add input (flexible selector for desktop/mobile variants)
-    const addInput = page.getByPlaceholder(/Add task|What needs doing|Ship/i).or(page.locator('input[type="text"]').first());
-    await expect(addInput).toBeVisible({ timeout: 10000 });
-
+    const addInput = page.locator('#task-quick-add');
     const uniqueTitle = `E2E Test Task ${Date.now()}`;
     await addInput.fill(uniqueTitle);
     await addInput.press('Enter');
 
-    // Task appears in list (Today or Tasks view)
     await expect(page.getByText(uniqueTitle).first()).toBeVisible({ timeout: 5000 });
 
-    // Complete it (click checkbox or complete button near it)
-    const completeBtn = page.locator(`text=${uniqueTitle}`).locator('..').getByRole('button', { name: /complete|mark|check/i }).or(
-      page.locator('button[aria-label*="complete" i], button[aria-label*="Mark complete" i]')
-    ).first();
-    // Fallback: any visible complete affordance near new task text
+    const taskRow = page.locator('tr', { hasText: uniqueTitle }).first();
+    const completeBtn = taskRow.getByRole('button', { name: /complete|mark/i }).first();
     if (await completeBtn.count() > 0) {
       await completeBtn.click();
     } else {
-      // Click the task row itself or first check-like in vicinity (robust for current UI)
-      await page.getByText(uniqueTitle).first().click({ position: { x: 20, y: 10 } }); // near left for checkbox area
+      await taskRow.locator('button').first().click();
     }
 
-    // Verify optimistic or final complete state (struck or moved to done or checkmark)
-    await page.waitForTimeout(800); // allow animation/state
-    const completedIndicator = page.getByText(uniqueTitle).locator('..').filter({ hasText: /done|completed|✓/i }).or(page.locator('[data-status="done"]'));
-    // Broad assertion: either the item is still there or moved; no crash is primary
-    await expect(page.getByText(uniqueTitle)).toBeVisible({ timeout: 3000 }); // task didn't disappear on error
+    await page.waitForTimeout(800);
+    await expect(page.getByRole('table').getByText(uniqueTitle)).toBeVisible({ timeout: 3000 });
   });
 
   // ====================================================================

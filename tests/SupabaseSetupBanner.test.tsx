@@ -41,13 +41,11 @@ describe('SupabaseSetupBanner — M0 RTL hygiene surface test (demo-only, condit
   it('renders the banner when !isSupabaseConfigured() and not dismissed', () => {
     render(<SupabaseSetupBanner />);
 
-    // Key content from the component (demo messaging)
-    expect(screen.getByText(/Ready for real data & auth\?/i)).toBeInTheDocument();
-    expect(screen.getByText(/This is currently running in beautiful local demo mode/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connect to Supabase for real data/i)).toBeInTheDocument();
+    expect(screen.getByText(/Auth, teams, cross-device sync/i)).toBeInTheDocument();
 
-    // CTA buttons present (use precise accessible names from aria-label + text)
     expect(screen.getByRole('button', { name: /Dismiss Supabase setup banner for now/i })).toBeInTheDocument();
-    expect(screen.getByText(/Create free Supabase project/i)).toBeInTheDocument(); // link, not button
+    expect(screen.getByText(/Create project/i)).toBeInTheDocument();
   });
 
   it('does not render (returns null) when isSupabaseConfigured() is true', () => {
@@ -55,7 +53,7 @@ describe('SupabaseSetupBanner — M0 RTL hygiene surface test (demo-only, condit
 
     const { container } = render(<SupabaseSetupBanner />);
     expect(container.firstChild).toBeNull();
-    expect(screen.queryByText(/Ready for real data & auth\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connect to Supabase for real data/i)).not.toBeInTheDocument();
   });
 
   it('dismisses the banner on "Dismiss for now" button click (hides and stays hidden)', () => {
@@ -65,7 +63,7 @@ describe('SupabaseSetupBanner — M0 RTL hygiene surface test (demo-only, condit
     fireEvent.click(dismissBtn);
 
     // After dismiss, banner gone
-    expect(screen.queryByText(/Ready for real data & auth\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connect to Supabase for real data/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Dismiss for now/i)).not.toBeInTheDocument();
   });
 
@@ -76,7 +74,7 @@ describe('SupabaseSetupBanner — M0 RTL hygiene surface test (demo-only, condit
     const closeBtn = screen.getByRole('button', { name: 'Dismiss Supabase setup banner' });
     fireEvent.click(closeBtn);
 
-    expect(screen.queryByText(/Ready for real data & auth\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connect to Supabase for real data/i)).not.toBeInTheDocument();
   });
 
   it('re-render after dismiss still respects internal dismissed state (no re-show without remount/config change)', () => {
@@ -88,7 +86,7 @@ describe('SupabaseSetupBanner — M0 RTL hygiene surface test (demo-only, condit
     // Force re-render (simulates parent state change without config change)
     rerender(<SupabaseSetupBanner />);
 
-    expect(screen.queryByText(/Ready for real data & auth\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connect to Supabase for real data/i)).not.toBeInTheDocument();
   });
 });
 

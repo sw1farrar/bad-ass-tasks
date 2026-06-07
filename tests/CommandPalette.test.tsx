@@ -57,13 +57,7 @@ vi.mock('@/lib/utils', async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
     ...actual,
-    generateDailyBriefing: vi.fn(),
-    generateDailyBriefingAI: vi.fn(),
-    extractActionItemsFromText: vi.fn(),
-    extractActionItemsFromTextAI: vi.fn(),
     triggerHaptic: vi.fn(),
-    generateWeeklyBriefing: vi.fn(),
-    isXAIConfigured: vi.fn(() => false),
     getHybridSearchResults: vi.fn(() => []),
   };
 });
@@ -77,13 +71,14 @@ describe('CommandPalette — M0 basic RTL tests (open, search, create task via p
 
   beforeEach(() => {
     vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
     user = userEvent.setup();
   });
 
   it('renders when open=true and shows core command groups + input', () => {
     render(<CommandPalette open={true} onOpenChange={mockOnOpenChange} />);
 
-    expect(screen.getByText(/Type command, task, note, or view/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Search tasks, notes, or commands/i)).toBeInTheDocument();
     expect(screen.getByText(/Quick Actions/i)).toBeInTheDocument();
     expect(screen.getByText(/Switch Workspace/i)).toBeInTheDocument();
     expect(screen.getByText(/Create new task/i)).toBeInTheDocument();
@@ -92,11 +87,11 @@ describe('CommandPalette — M0 basic RTL tests (open, search, create task via p
   it('search / typing in input updates query and shows empty state for no matches', async () => {
     render(<CommandPalette open={true} onOpenChange={mockOnOpenChange} />);
 
-    const input = screen.getByPlaceholderText(/Type command, task, note, or view/i);
+    const input = screen.getByPlaceholderText(/Search tasks, notes, or commands/i);
     await user.type(input, 'nonexistentxyz123');
 
     // Command.Empty surface appears for no matches
-    expect(screen.getByText(/No matches. Try "create"/i)).toBeInTheDocument();
+    expect(screen.getByText(/No matches. Try create/i)).toBeInTheDocument();
   });
 
   it('create task via palette command triggers addTask + closes palette (demo path)', async () => {
