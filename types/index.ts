@@ -1,4 +1,4 @@
-// Central type definitions for Bad Ass Tasks
+// Central type definitions for Badazz Tasks
 // These will map 1:1 to Supabase tables in Phase 2
 
 export type Priority = "P0" | "P1" | "P2" | "P3";

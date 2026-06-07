@@ -16,7 +16,7 @@ interface State {
 }
 
 /**
- * Root ErrorBoundary for Bad Ass Tasks (Agent 33 hardened).
+ * Root ErrorBoundary for Badazz Tasks (Agent 33 hardened).
  * Catches unexpected React render errors anywhere in the tree.
  * Provides graceful, on-brand fallback UI instead of white screen / broken state.
  * 
@@ -112,7 +112,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (typeof window !== "undefined") {
       const base = copied
         ? "Full error report (incl. recent buffer) copied to clipboard!\n\n"
-        : "Error details logged + buffered (open DevTools for full history via __BADASS_GET_ERRORS).\n\n";
+        : "Error details logged + buffered (open DevTools for full history via __BADAZZ_GET_ERRORS).\n\n";
       const msg = base +
         "Paste into GitHub issue or support.\n\n" +
         (copied ? "Report copied successfully. " : "") +
@@ -206,7 +206,7 @@ export class ErrorBoundary extends Component<Props, State> {
             )}
 
             <p className="mt-6 text-[10px] text-[#52525b]">
-              Bad Ass Tasks • Your data is safe. Open DevTools console or use __BADASS_GET_ERRORS() for full buffer. Check Supabase/network if persistent.
+              Badazz Tasks • Your data is safe. Open DevTools console or use __BADAZZ_GET_ERRORS() for full buffer. Check Supabase/network if persistent.
             </p>
           </div>
         </div>

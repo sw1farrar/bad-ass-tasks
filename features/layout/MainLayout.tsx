@@ -73,7 +73,7 @@ export function MainLayout(props: MainLayoutProps) {
               <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
             </div>
             <div className="min-w-0 hidden sm:block">
-              <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Bad Ass Tasks</div>
+              <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Badazz Tasks</div>
             </div>
           </div>
         </div>

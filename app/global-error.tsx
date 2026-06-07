@@ -119,7 +119,7 @@ export default function GlobalError({
             )}
 
             <p className="mt-6 text-[10px] text-[#52525b]">
-              Bad Ass Tasks • Check Supabase config, network, or console for clues.
+              Badazz Tasks • Check Supabase config, network, or console for clues.
             </p>
           </div>
         </div>

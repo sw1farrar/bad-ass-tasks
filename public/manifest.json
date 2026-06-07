@@ -1,6 +1,6 @@
 {
-  "name": "Bad Ass Tasks",
-  "short_name": "BadAss",
+  "name": "Badazz Tasks",
+  "short_name": "Badazz",
   "description": "Get shit done. Beautifully.",
   "id": "/",
   "start_url": "/?source=pwa",
@@ -46,7 +46,7 @@
       "sizes": "512x512",
       "type": "image/jpeg",
       "form_factor": "narrow",
-      "label": "Bad Ass Tasks on mobile"
+      "label": "Badazz Tasks on mobile"
     }
   ]
 }

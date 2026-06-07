@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
@@ -488,7 +488,7 @@ export default function BadAssTasks() {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === "accepted") {
-        toast.success("Thanks for installing!", { description: "Bad Ass Tasks is now on your home screen." });
+        toast.success("Thanks for installing!", { description: "Badazz Tasks is now on your home screen." });
       }
       setDeferredPrompt(null);
       setShowInstallPrompt(false);
@@ -1875,7 +1875,7 @@ export default function BadAssTasks() {
               <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
             </div>
             <div className="min-w-0 hidden sm:block">
-              <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Bad Ass Tasks</div>
+              <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Badazz Tasks</div>
             </div>
           </div>
 
@@ -2297,7 +2297,7 @@ export default function BadAssTasks() {
                 handleInstallApp();
               }}
               className="btn btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 lg:hidden active:scale-95"
-              title="Install Bad Ass Tasks for offline + home screen access"
+              title="Install Badazz Tasks for offline + home screen access"
             >
               <Download className="h-3.5 w-3.5" />
               <span className="hidden md:inline">Install</span>
@@ -2414,7 +2414,7 @@ export default function BadAssTasks() {
           </div>
 
           <div className="mt-auto px-4 pb-6 text-[10px] text-[#71717a]">
-            <div className="mb-1">Bad Ass Tasks</div>
+            <div className="mb-1">Badazz Tasks</div>
             <div>Real-time sync active.</div>
           </div>
         </aside>
@@ -2838,7 +2838,7 @@ export default function BadAssTasks() {
 
             <div className="px-6 py-3.5 bg-black/30 text-[11px] text-[#71717a] border-t border-white/10 flex items-center justify-between">
               <div>Pro tip: Open palette with ⌘K and type ΓÇ£workspaceΓÇ¥, ΓÇ£noteΓÇ¥, or a task name to jump instantly.</div>
-              <div className="font-mono text-[#c084fc]">Bad Ass Tasks</div>
+              <div className="font-mono text-[#c084fc]">Badazz Tasks</div>
             </div>
           </div>
         </div>
@@ -2864,7 +2864,7 @@ export default function BadAssTasks() {
               <Check className="h-8 w-8 text-black" />
             </div>
 
-            <h1 className="text-6xl font-semibold tracking-[-2.5px] mb-3">Bad Ass Tasks</h1>
+            <h1 className="text-6xl font-semibold tracking-[-2.5px] mb-3">Badazz Tasks</h1>
             <p className="text-[#71717a] max-w-md mx-auto mb-9 text-[15px]">
               Sign in to access your workspaces, tasks, notes, and team chat.
             </p>

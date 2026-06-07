@@ -1,6 +1,6 @@
 import type { Workspace } from "@/types";
 
-export const LAST_WORKSPACE_KEY_PREFIX = "badass_last_workspace_id";
+export const LAST_WORKSPACE_KEY_PREFIX = "badazz_last_workspace_id";
 
 export function lastWorkspaceStorageKey(userId: string): string {
   return `${LAST_WORKSPACE_KEY_PREFIX}_${userId}`;

@@ -5,11 +5,11 @@ async function goToTasksView(page: import('@playwright/test').Page) {
   await expect(page.locator('#task-quick-add')).toBeVisible({ timeout: 8000 });
 }
 
-test.describe('Bad Ass Tasks — E2E smoke (production hardening)', () => {
+test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
   test('loads home, shows title and core UI without crash', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page).toHaveTitle(/Bad Ass Tasks/);
+    await expect(page).toHaveTitle(/Badazz Tasks/);
 
     await expect(page.getByRole('button', { name: 'Today', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /add task/i }).first()).toBeVisible({ timeout: 8000 });

@@ -12,7 +12,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Bad Ass Tasks neon palette
+        // Badazz Tasks neon palette
         neon: {
           purple: "#c084fc",
           "purple-dark": "#a855f7",

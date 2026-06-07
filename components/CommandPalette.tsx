@@ -108,7 +108,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // PWA Install action (persistent, works even without beforeinstallprompt event)
   const handlePWAInstall = () => {
     triggerHaptic('light');
-    toast.info("Install Bad Ass Tasks", {
+    toast.info("Install Badazz Tasks", {
       description: "On mobile: browser Share → 'Add to Home Screen'. On Chrome/Android: may prompt native install. Gives offline shell, home screen icon, native feel.",
       action: {
         label: "Got it",
@@ -395,7 +395,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
             <div className="px-3 py-2 text-[11px] text-[#71717a] flex items-center justify-between border-t border-white/10 mt-2 pt-3">
               <div>Type a task or note name to jump there quickly</div>
-              <div className="text-[#c084fc] flex items-center gap-1">Bad Ass Tasks <ArrowRight className="h-3 w-3" /></div>
+              <div className="text-[#c084fc] flex items-center gap-1">Badazz Tasks <ArrowRight className="h-3 w-3" /></div>
             </div>
 
             {/* PWA Install — persistent access for home screen + offline native feel (Agent 27 polish) */}

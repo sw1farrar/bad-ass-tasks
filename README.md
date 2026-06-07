@@ -1,4 +1,4 @@
-# Bad Ass Tasks
+# Badazz Tasks
 
 > **Get shit done. Beautifully.**
 
@@ -6,7 +6,7 @@ The most powerful, delightful, and addictive notes + task management application
 
 This is a **high-fidelity, fully interactive prototype** of the ultimate productivity app — the love child of Notion, Todoist, Linear, and Obsidian, but faster, more beautiful, and more fun.
 
-![Bad Ass Tasks](https://picsum.photos/id/1015/1200/630) <!-- Replace with real hero later -->
+![Badazz Tasks](https://picsum.photos/id/1015/1200/630) <!-- Replace with real hero later -->
 
 ## ✨ What You Can Experience Right Now
 
@@ -62,7 +62,7 @@ You now have real auth, real-time capable database, and RLS-secured data.
 
 ## 🧠 The Vision (from the original prompt)
 
-See [docs/bad-ass-tasks-prompt.md](./docs/bad-ass-tasks-prompt.md) for the complete 360+ line spec.
+See [docs/badazz-tasks-prompt.md](./docs/badazz-tasks-prompt.md) for the complete 360+ line spec.
 
 **Core Promise**: The most powerful, delightful, and addictive notes + task management app on the planet.
 
@@ -90,7 +90,7 @@ See [docs/bad-ass-tasks-prompt.md](./docs/bad-ass-tasks-prompt.md) for the compl
 - Add full TipTap editor
 - Real drag & drop on Kanban using the @dnd-kit libs already installed
 
-See the detailed roadmap in the original prompt: [docs/bad-ass-tasks-prompt.md](./docs/bad-ass-tasks-prompt.md)
+See the detailed roadmap in the original prompt: [docs/badazz-tasks-prompt.md](./docs/badazz-tasks-prompt.md)
 
 ### Wave 8 Master Plan (Current Governance)
 **Live Supabase migration first (Agent 45), then deep Notes integration (46), AI + Graph (47), etc.**  
@@ -104,7 +104,7 @@ Full living prioritized plan, agent charters (45-53), sequencing rules, success 
 - Production-grade hierarchy (drag reparent + stable integer sortOrder), centralized `useBacklinks` single source of truth, live editable TaskEmbeds (inline edits + deleted state), Version History (structured/JSON diff + onPersistSnapshot server round-trip), interactive DatabaseBlock (Board/kanban + named saved views MVP + queryConfig persist), SyncedBlock title bidirectional MVP + scaffolds.
 - All work 100% demo/live/hybrid-guard safe; zero new console errors per 10-agent wave + 3-agent verification.
 - **Decision Day crown jewel package** (run smoke → reply exact phrase): [M2-EVIDENCE-PACK-2026-05-31.md](./docs/M2-EVIDENCE-PACK-2026-05-31.md) (single master), [M2-SIGNOFF-CHECKLIST-2026-05-31.md](./docs/M2-SIGNOFF-CHECKLIST-2026-05-31.md) (7 gaps + invariants §2 + smoke §3 + What Good Looks Like §4 + M3 bridges §5), [M2-READINESS-REPORT-2026-05-31.md](./docs/M2-READINESS-REPORT-2026-05-31.md) (exec summary + explicit "M2 ready for user review" recommendation), [10-AGENT-WAVE-COMPLETION-2026-05-31.md](./docs/10-AGENT-WAVE-COMPLETION-2026-05-31.md), [MILESTONE-2-PROGRESS-2026-05-28.md](./docs/MILESTONE-2-PROGRESS-2026-05-28.md) (2026-05-30/31 closeout + verbatim 7 gaps + 11-invariant table), all M2-DECISION-DAY-*.md ([M2-DECISION-DAY-2026-05-31.md](./docs/M2-DECISION-DAY-2026-05-31.md) etc. for exact one-liner + two decision phrases + activation), plus live companions ([M2-SMOKE-RUN-COMPANION-2026-05-31.md](./docs/M2-SMOKE-RUN-COMPANION-2026-05-31.md), [M2-SMOKE-FAILURE-MAPPER-2026-05-31.md](./docs/M2-SMOKE-FAILURE-MAPPER-2026-05-31.md)), [M2-TEST-RUN-INSTRUCTIONS.md](./docs/M2-TEST-RUN-INSTRUCTIONS.md), conditional kickoffs ([M3-KICKOFF-IF-M2-DONE-2026-05-31.md](./docs/M3-KICKOFF-IF-M2-DONE-2026-05-31.md) | [M2-ONE-MORE-WAVE-*.md](./docs/)).
-- **Exact decision phrases** (reply one after smoke/hygiene/manual on `C:\Build\Bad Ass Tasks`): "M2 done — begin user-led refinement/M3" or "one more wave on the 7 gaps (with specific priorities)".
+- **Exact decision phrases** (reply one after smoke/hygiene/manual on `C:\Build\Badazz Tasks`): "M2 done — begin user-led refinement/M3" or "one more wave on the 7 gaps (with specific priorities)".
 
 **Home hub addition**: `features/home/HomeView.tsx` + integration live on-disk (layout/nav).
 
@@ -175,7 +175,7 @@ lib/
   utils.ts            # cn(), parseNaturalLanguage(), date helpers
 types/
 docs/
-  bad-ass-tasks-prompt.md   # The complete original vision
+  badazz-tasks-prompt.md   # The complete original vision
 ```
 
 ## 🧪 Useful Commands

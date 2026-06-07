@@ -1,5 +1,5 @@
 /**
- * Hybrid Data Layer — Bad Ass Tasks
+ * Hybrid Data Layer — Badazz Tasks
  *
  * Responsibilities:
  * - When Supabase is configured → talk to the real database
@@ -189,7 +189,7 @@ export { noteContentToJson, jsonToNoteContent };
 function mapNoteRow(row: NoteRow): Note {
   const rawContent = row.content;
 
-  // Rich roundtrip priority (the "bad ass" path):
+  // Rich roundtrip priority (the full live-sync path):
   // If the DB value is already a valid TipTap document (stringified JSON or object),
   // we must preserve the full rich structure so paragraphs, headings, marks, images, etc. survive reload.
   // Only fall back to plain-text extraction for legacy plain strings or when we explicitly need a preview.
@@ -278,7 +278,7 @@ function buildTaskDbPayload(source: any): any {
 // Queue persisted to localStorage so pending writes survive refresh.
 // ------------------------------------------------------------------
 
-const OFFLINE_QUEUE_KEY = "bad-ass-tasks-offline-queue";
+const OFFLINE_QUEUE_KEY = "badazz-tasks-offline-queue";
 const OFFLINE_LISTENERS_SETUP_KEY = "__bat_offline_listeners_setup";
 
 // Robust client-side ID for offline creates (valid UUID so Supabase accepts as PK)
@@ -2384,31 +2384,50 @@ export async function revokeInvite(workspaceId: string | null, inviteId: string)
 }
 
 /**
- * Email delivery scaffolding / integration point for invites.
- * Currently a no-op stub that logs intent (for future Resend, Supabase Edge Functions, or /api route).
+ * Deliver workspace invite email via server API route → Brevo.
  * Called optionally after createInvite when email provided.
- * TODO for future agent: wire real email (e.g. Resend client, template with invite link + workspace name).
  * Keeps hybrid demo/live separation; safe no-op when !live.
  */
 export async function sendInviteEmail(
   workspaceId: string,
   inviteId: string,
   email?: string | null,
-  workspaceName?: string
+  workspaceName?: string,
+  options?: { role?: string; inviterName?: string },
 ): Promise<boolean> {
   if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) {
-    return false; // demo: no real email
+    return false;
+  }
+  if (!email?.trim() || typeof window === "undefined") {
+    return false;
   }
 
-  // Scaffolding: log the integration point clearly for next steps / observability.
-  console.info(
-    `[INVITE EMAIL SCAFFOLD] Would deliver invite email now: workspace=${workspaceId} (${workspaceName || "unknown"}), invite=${inviteId}, to=${email || "link-only (no email provided)"}. ` +
-    `Integration points: add Resend SDK, Supabase Edge Function (e.g. send-invite), or POST /api/send-workspace-invite. Link: ${typeof window !== 'undefined' ? window.location.origin : ''}/?invite=${inviteId}`
-  );
+  try {
+    const response = await fetch("/api/communications/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        workspaceId,
+        inviteId,
+        email: email.trim(),
+        workspaceName: workspaceName || "your workspace",
+        role: options?.role || "user",
+        inviterName: options?.inviterName,
+      }),
+    });
 
-  // Placeholder for real impl (do not throw; graceful):
-  // Example future: await resend.emails.send({ from: '...', to: email, subject: `Invitation to ${workspaceName}`, html: `...` })
-  return true;
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      console.warn("[sendInviteEmail] API route failed", response.status, detail);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn("[sendInviteEmail] request failed", err);
+    return false;
+  }
 }
 
 /** Update workspace name and/or slug (owner only via RPC). */

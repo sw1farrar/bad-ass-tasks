@@ -1,4 +1,4 @@
-// Auto-generated style Supabase Database types for Bad Ass Tasks
+// Auto-generated style Supabase Database types for Badazz Tasks
 // Update this file after running `supabase gen types typescript` in the future
 // NOTE (QA): App-level domain types (Task/Note/Workspace/PendingOperation) live in ./index.ts and are
 // the source of truth for UI + hybrid layer. These DB types are for raw Supabase client queries only.

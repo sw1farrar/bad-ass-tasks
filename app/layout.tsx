@@ -18,7 +18,7 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bad Ass Tasks — Get shit done. Beautifully.",
+  title: "Badazz Tasks — Get shit done. Beautifully.",
   description: "The most powerful, delightful, and addictive notes + task management app on the planet. Built for people who ship.",
   icons: {
     icon: "/favicon.svg",
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Bad Ass Tasks",
+    title: "Badazz Tasks",
   },
 };
 

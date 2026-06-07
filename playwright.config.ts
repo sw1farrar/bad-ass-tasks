@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright E2E config for Bad Ass Tasks.
+ * Playwright E2E config for Badazz Tasks.
  * Run with: npm run test:e2e
  * First time: npx playwright install
  * 

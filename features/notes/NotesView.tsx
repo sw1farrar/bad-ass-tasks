@@ -97,7 +97,7 @@ export function NotesView({
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {
-      const raw = localStorage.getItem("badass-expanded-notes");
+      const raw = localStorage.getItem("badazz-expanded-notes");
       if (raw) return new Set(JSON.parse(raw));
     } catch {}
     return new Set();
@@ -126,7 +126,7 @@ export function NotesView({
       }
       // Persist immediately so family open/closed state survives hard refresh.
       try {
-        localStorage.setItem("badass-expanded-notes", JSON.stringify(Array.from(next)));
+        localStorage.setItem("badazz-expanded-notes", JSON.stringify(Array.from(next)));
       } catch {}
       return next;
     });

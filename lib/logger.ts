@@ -7,14 +7,14 @@ interface LogContext {
 }
 
 /** Global hooks exposed on window for external observability integrations. */
-interface BadAssTasksWindow extends Window {
-  __BADASS_REPORT_ERROR__?: (message: string, error?: Error | unknown, context?: LogContext) => void;
-  __BADASS_METRIC__?: (metric: MetricReport) => void;
-  __BADASS_MONITORING_INIT__?: boolean;
-  __BADASS_GET_ERRORS?: () => ErrorReport[];
-  __BADASS_CLEAR_ERRORS?: () => void;
-  __BADASS_REPORT_METRIC?: (name: string, value: number, tags?: Record<string, string | number>) => void;
-  __BADASS_PERF_INIT__?: boolean;
+interface BadazzTasksWindow extends Window {
+  __BADAZZ_REPORT_ERROR__?: (message: string, error?: Error | unknown, context?: LogContext) => void;
+  __BADAZZ_METRIC__?: (metric: MetricReport) => void;
+  __BADAZZ_MONITORING_INIT__?: boolean;
+  __BADAZZ_GET_ERRORS?: () => ErrorReport[];
+  __BADAZZ_CLEAR_ERRORS?: () => void;
+  __BADAZZ_REPORT_METRIC?: (name: string, value: number, tags?: Record<string, string | number>) => void;
+  __BADAZZ_PERF_INIT__?: boolean;
 }
 
 interface LCPEntry extends PerformanceEntry {
@@ -27,8 +27,8 @@ interface LayoutShiftEntry extends PerformanceEntry {
   value: number;
 }
 
-function getBadAssWindow(): BadAssTasksWindow | undefined {
-  return typeof window !== 'undefined' ? (window as BadAssTasksWindow) : undefined;
+function getBadazzWindow(): BadazzTasksWindow | undefined {
+  return typeof window !== 'undefined' ? (window as BadazzTasksWindow) : undefined;
 }
 
 // === Production Observability Types (Agent 33) ===
@@ -53,7 +53,7 @@ const isProd = typeof process !== 'undefined' && process.env?.NODE_ENV === 'prod
 // isBrowser available for future conditional logic (kept for extensibility)
 
 // Lightweight ring buffer for recent errors (in-memory + optional localStorage persistence for "report issue" flows)
-const ERROR_BUFFER_KEY = 'bad-ass-tasks-error-buffer';
+const ERROR_BUFFER_KEY = 'badazz-tasks-error-buffer';
 const MAX_ERROR_BUFFER = 50;
 let errorBuffer: ErrorReport[] = [];
 const reporters: Array<(report: ErrorReport) => void> = [];
@@ -155,9 +155,9 @@ export const logger = {
     }
 
     // Legacy global hook still supported for external scripts (non-breaking)
-    const badAssWindow = getBadAssWindow();
-    if (badAssWindow?.__BADASS_REPORT_ERROR__) {
-      try { badAssWindow.__BADASS_REPORT_ERROR__(message, error, context); } catch {}
+    const badazzWindow = getBadazzWindow();
+    if (badazzWindow?.__BADAZZ_REPORT_ERROR__) {
+      try { badazzWindow.__BADAZZ_REPORT_ERROR__(message, error, context); } catch {}
     }
   },
 
@@ -202,9 +202,9 @@ export const logger = {
     // eslint-disable-next-line no-console
     console.info(`[BadAssTasks:METRIC] ${name}=${value}`, tags || '');
     // Buffer metrics? (light: only errors for now; metrics are firehose to console/logger consumers)
-    const badAssWindow = getBadAssWindow();
-    if (badAssWindow?.__BADASS_METRIC__) {
-      try { badAssWindow.__BADASS_METRIC__(metric); } catch {}
+    const badazzWindow = getBadazzWindow();
+    if (badazzWindow?.__BADAZZ_METRIC__) {
+      try { badazzWindow.__BADAZZ_METRIC__(metric); } catch {}
     }
   },
 };
@@ -222,10 +222,10 @@ export function logError(operation: string, err: unknown, extra?: LogContext) {
  * Idempotent. Wires buffer + any pre-registered reporters.
  */
 export function initErrorMonitoring() {
-  const badAssWindow = getBadAssWindow();
-  if (!badAssWindow) return;
-  if (badAssWindow.__BADASS_MONITORING_INIT__) return;
-  badAssWindow.__BADASS_MONITORING_INIT__ = true;
+  const badazzWindow = getBadazzWindow();
+  if (!badazzWindow) return;
+  if (badazzWindow.__BADAZZ_MONITORING_INIT__) return;
+  badazzWindow.__BADAZZ_MONITORING_INIT__ = true;
 
   // Load any persisted buffer
   errorBuffer = loadErrorBuffer();
@@ -249,9 +249,9 @@ export function initErrorMonitoring() {
   window.addEventListener('unhandledrejection', handleRejection);
 
   // Expose for advanced external tools / debugging (non-breaking extension)
-  badAssWindow.__BADASS_GET_ERRORS = () => logger.getErrorBuffer();
-  badAssWindow.__BADASS_CLEAR_ERRORS = () => logger.clearErrorBuffer();
-  badAssWindow.__BADASS_REPORT_METRIC = (n: string, v: number, t?: Record<string, string | number>) =>
+  badazzWindow.__BADAZZ_GET_ERRORS = () => logger.getErrorBuffer();
+  badazzWindow.__BADAZZ_CLEAR_ERRORS = () => logger.clearErrorBuffer();
+  badazzWindow.__BADAZZ_REPORT_METRIC = (n: string, v: number, t?: Record<string, string | number>) =>
     logger.reportMetric(n, v, t);
 
   logger.info('Error monitoring initialized (global handlers + buffer + reporter hooks active)');
@@ -266,9 +266,9 @@ export function initErrorMonitoring() {
  * Call is internal from initErrorMonitoring; safe to call directly too.
  */
 export function initPerformanceMonitoring() {
-  const badAssWindow = getBadAssWindow();
-  if (!badAssWindow || badAssWindow.__BADASS_PERF_INIT__) return;
-  badAssWindow.__BADASS_PERF_INIT__ = true;
+  const badazzWindow = getBadazzWindow();
+  if (!badazzWindow || badazzWindow.__BADAZZ_PERF_INIT__) return;
+  badazzWindow.__BADAZZ_PERF_INIT__ = true;
 
   try {
     // Core Web Vitals via PerformanceObserver (widely supported in modern browsers)

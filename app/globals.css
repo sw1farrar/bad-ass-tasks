@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  /* Bad Ass Tasks — Neon Dark Theme */
+  /* Badazz Tasks — Neon Dark Theme */
   --bg: #0a0a0f;
   --bg-secondary: #111114;
   --bg-tertiary: #1a1a20;
@@ -1097,7 +1097,7 @@ body {
 }
 
 /* ============================================
-   Modern, Calm, Tiny Sonner Toasts (Bad Ass Edition)
+   Modern, Calm, Tiny Sonner Toasts (Badazz Edition)
    - Bottom-right so they never fight the main content or notes area
    - Glassmorphism matching the rest of the UI
    - Very compact (tiny padding, small text, short life)

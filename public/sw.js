@@ -1,9 +1,9 @@
-// Bad Ass Tasks — Basic PWA Service Worker (foundation for offline shell)
+// Badazz Tasks — Basic PWA Service Worker (foundation for offline shell)
 // Caches app shell + key assets for installable offline experience.
 // In production, consider Workbox for advanced precaching, background sync with hybridStore, etc.
 // This provides a solid "offline shell" so the PWA feels native even without network.
 
-const CACHE_NAME = 'bad-ass-tasks-shell-v1';
+const CACHE_NAME = 'badazz-tasks-shell-v2';
 const SHELL_ASSETS = [
   '/',
   '/manifest.json',
@@ -96,4 +96,4 @@ self.addEventListener('message', (event) => {
   }
 });
 
-console.log('[SW] Bad Ass Tasks service worker ready (offline shell)');
+console.log('[SW] Badazz Tasks service worker ready (offline shell)');

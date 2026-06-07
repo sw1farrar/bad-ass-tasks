@@ -438,8 +438,8 @@ const SAMPLE_NOTES: Note[] = [
 
 const DEFAULT_WORKSPACE: Workspace = {
   id: "w1",
-  name: "Badass Ventures",
-  slug: "badass-ventures",
+  name: "Badazz Ventures",
+  slug: "badazz-ventures",
   role: "owner",
 };
 
@@ -1870,6 +1870,25 @@ export const useTaskStore = create<TaskState>()(
         const inviteId = await createInvite(wsId, email, role);
 
         if (inviteId) {
+          let inviterDisplayName = get().user?.email || "Someone";
+          if (currentUserId && supabaseClient) {
+            try {
+              const { data: prof } = await supabaseClient
+                .from("profiles")
+                .select("username, full_name")
+                .eq("id", currentUserId)
+                .single();
+              if (prof) {
+                const username = (prof as { username?: string }).username || "";
+                const fullName = (prof as { full_name?: string }).full_name || "";
+                if (username) inviterDisplayName = `@${username}`;
+                else if (fullName) inviterDisplayName = fullName;
+              }
+            } catch {
+              // fall back to email
+            }
+          }
+
           // Enrich the invite row with invited_user_id + invited_by (when coming from search)
           if (invitedUserId && currentUserId) {
             try {
@@ -1888,52 +1907,28 @@ export const useTaskStore = create<TaskState>()(
           }
 
           await get().fetchInvites();
-          toast.success("Invite created", { description: "Share the link with your teammate." });
+          if (!email) {
+            toast.success("Invite created", { description: "Share the link with your teammate." });
+          }
 
           // Create notification for the recipient (powers bell + global banner).
           // Note: direct insert may be constrained by RLS until policy updated for pre-membership invite targets.
           if (invitedUserId) {
             try {
               const wsName = get().currentWorkspace.name;
-
-              // Prefer a human-friendly name (username > full_name > email) for the recipient's notification.
-              // We do a quick profiles lookup so the bell + banner show "@username" or the real name instead of raw email.
-              let senderDisplayName = get().user?.email || 'Someone';
-              let senderFullName = '';
-              let senderUsername = '';
-              if (currentUserId) {
-                try {
-                  const { data: prof } = await supabaseClient
-                    .from('profiles')
-                    .select('username, full_name')
-                    .eq('id', currentUserId)
-                    .single();
-                  if (prof) {
-                    senderFullName = (prof as any).full_name || '';
-                    senderUsername = (prof as any).username || '';
-                    if (senderUsername) senderDisplayName = `@${senderUsername}`;
-                    else if (senderFullName) senderDisplayName = senderFullName;
-                  }
-                } catch {
-                  // fall back to email silently
-                }
-              }
-
               const notifPayload = {
                 user_id: invitedUserId,
                 workspace_id: wsId,
                 type: 'invite',
                 title: 'Workspace Invite',
-                message: `${senderDisplayName} invited you to join "${wsName}"`,
+                message: `${inviterDisplayName} invited you to join "${wsName}"`,
                 link: `/teams`,
                 metadata: {
                   invite_id: inviteId,
                   workspace_id: wsId,
                   workspace_name: wsName,
                   invited_by: currentUserId,
-                  invited_by_name: senderDisplayName,
-                  invited_by_full_name: senderFullName,
-                  invited_by_username: senderUsername,
+                  invited_by_name: inviterDisplayName,
                   role: role,
                 },
               };
@@ -1949,10 +1944,26 @@ export const useTaskStore = create<TaskState>()(
             }
           }
 
-          // Email scaffolding (unchanged)
           if (email) {
             const wsName = get().currentWorkspace.name;
-            sendInviteEmail(wsId, inviteId, email, wsName).catch(() => {});
+            sendInviteEmail(wsId, inviteId, email, wsName, {
+              role,
+              inviterName: inviterDisplayName,
+            })
+              .then((sent) => {
+                if (sent) {
+                  toast.success("Invite email sent", { description: email });
+                } else {
+                  toast.message("Invite created", {
+                    description: "Email could not be sent — share the invite link manually.",
+                  });
+                }
+              })
+              .catch(() => {
+                toast.message("Invite created", {
+                  description: "Email could not be sent — share the invite link manually.",
+                });
+              });
           }
         } else {
           toast.error("Failed to create invite");
@@ -2231,6 +2242,14 @@ export const useTaskStore = create<TaskState>()(
         // Revoke the old one (now superseded)
         const revoked = await revokeInvite(wsId, inviteId);
         await get().fetchInvites();
+        if (target.email) {
+          const wsName = get().currentWorkspace.name;
+          const inviterName = get().user?.email || "Someone";
+          sendInviteEmail(wsId, newId, target.email, wsName, {
+            role: target.role,
+            inviterName,
+          }).catch(() => {});
+        }
         if (revoked) {
           toast.success("Invite resent", { description: "New link generated (old one revoked)." });
         } else {
@@ -3092,7 +3111,7 @@ export const useTaskStore = create<TaskState>()(
       },
     }),
     {
-      name: "bad-ass-tasks-storage",
+      name: "badazz-tasks-storage",
       storage: safeLocalStorage,
       partialize: (state) => {
         // Persistence strategy updated for Phase 1 offline support:
