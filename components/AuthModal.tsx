@@ -171,7 +171,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           }
         } else {
           toast.success("Signed in", {
-            description: "Confirm when prompted to receive your one-time verification code.",
+            description: "Enter the verification code we email you next.",
           });
         }
       } else if (mode === "signup") {

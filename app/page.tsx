@@ -1933,7 +1933,7 @@ export default function BadAssTasks() {
           onClose={() => setShowAuthModal(false)}
           onSuccess={() => {
             toast.success("Signed in", {
-              description: "Complete verification if prompted.",
+              description: "Enter the verification code from your email.",
               duration: 4000,
             });
           }}
