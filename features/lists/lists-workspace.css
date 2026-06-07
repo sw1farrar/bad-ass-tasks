@@ -1,0 +1,187 @@
+.lists-workspace {
+  --list-card-radius: 1rem;
+}
+
+.lists-masonry {
+  display: grid;
+  /* Fixed column widths — 1fr columns flex during drag and distort card sizes */
+  grid-template-columns: repeat(auto-fill, 272px);
+  gap: 1rem;
+  align-items: start;
+  justify-content: start;
+}
+
+@media (min-width: 1280px) {
+  .lists-masonry {
+    grid-template-columns: repeat(auto-fill, 300px);
+    gap: 1.25rem;
+  }
+}
+
+.list-card {
+  border-radius: var(--list-card-radius);
+  border: 1px solid var(--list-border, rgba(255, 255, 255, 0.12));
+  background: var(--list-bg, rgba(255, 255, 255, 0.04));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.list-card:hover {
+  border-color: rgba(192, 132, 252, 0.25);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.list-card.is-highlighted {
+  border-color: rgba(192, 132, 252, 0.55);
+  box-shadow:
+    0 0 0 2px rgba(192, 132, 252, 0.35),
+    0 8px 28px rgba(192, 132, 252, 0.12);
+}
+
+/* Sortable wrapper — dnd-kit owns transform here; never scale the card itself during drag */
+.sortable-list-card {
+  min-width: 0;
+  width: 100%;
+}
+
+.sortable-list-card.is-sorting {
+  transition: none !important;
+}
+
+.sortable-list-card.is-dragging-source > .list-card {
+  visibility: hidden;
+}
+
+/* Dashed slot follows the drop cell via rectSortingStrategy transform on the source wrapper */
+.sortable-list-card.is-drop-slot {
+  position: relative;
+  z-index: 0;
+}
+
+.sortable-list-card.is-drop-slot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--list-card-radius);
+  border: 2px dashed rgba(192, 132, 252, 0.55);
+  background: rgba(192, 132, 252, 0.06);
+  pointer-events: none;
+}
+
+/* Secondary cue: card under the pointer while dragging */
+.sortable-list-card.is-drop-target > .list-card {
+  border-color: rgba(192, 132, 252, 0.45);
+  box-shadow: 0 0 0 1px rgba(192, 132, 252, 0.25);
+}
+
+.list-card-drag-overlay .list-card {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  border-color: rgba(192, 132, 252, 0.35);
+  cursor: grabbing;
+}
+
+.list-card-pinned-badge {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c084fc;
+}
+
+.list-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.35rem 0.25rem;
+  border-radius: 0.5rem;
+  transition: background 0.15s ease;
+}
+
+.list-item-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.list-item-check {
+  margin-top: 2px;
+  height: 1.125rem;
+  width: 1.125rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.list-item-check.is-done {
+  border-color: #c084fc;
+  background: #c084fc;
+  color: #0a0a0f;
+}
+
+.list-item-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: #f4f4f5;
+  word-break: break-word;
+}
+
+.list-item-text.is-done {
+  color: #71717a;
+  text-decoration: line-through;
+  text-decoration-color: rgba(113, 113, 122, 0.7);
+}
+
+.list-composer {
+  border-radius: var(--list-card-radius);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.02);
+  min-height: 3.5rem;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.list-composer:focus-within {
+  border-color: rgba(192, 132, 252, 0.45);
+  background: rgba(192, 132, 252, 0.06);
+}
+
+.list-color-dot {
+  height: 1.25rem;
+  width: 1.25rem;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.list-color-dot:hover {
+  transform: scale(1.1);
+}
+
+.list-color-dot.is-active {
+  border-color: #f4f4f5;
+  transform: scale(1.15);
+}
+
+.lists-home-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.list-home-chip {
+  border-radius: 0.875rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.75rem 0.875rem;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.list-home-chip:hover {
+  border-color: rgba(192, 132, 252, 0.35);
+  background: rgba(192, 132, 252, 0.08);
+}

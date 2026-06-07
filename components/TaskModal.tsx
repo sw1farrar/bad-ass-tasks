@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, User, Link2, MessageSquare, Trash2, Loader2, Repeat } from "lucide-react";
+import { X, Link2, MessageSquare, Trash2, Loader2, Repeat } from "lucide-react";
+import { WorkspaceItemDeepLink } from "./WorkspaceItemDeepLink";
+import { TaskAssigneePicker } from "./TaskAssigneePicker";
+import { resolveAssigneeLabel } from "@/lib/assignee";
 import { DateTimePicker } from "./DateTimePicker";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { format } from "date-fns";
@@ -18,6 +21,10 @@ import {
   getUpcomingRecurrencesPreview,
   getNextRecurringDue,
   normalizeExceptionKey,
+  toDueDateStorage,
+  formatLocalDateShort,
+  parseLocalDate,
+  isDueDatePast,
   getRecurrenceEndDescription,
   type RecurrencePattern,
   type RecurrenceFreq,
@@ -28,6 +35,11 @@ interface TaskModalProps {
   task: Task;
   isOpen: boolean;
   onClose: () => void;
+  /** Shown when opened from the Home hub for a cross-workspace preview */
+  workspaceDeepLink?: {
+    workspaceName: string;
+    onNavigate: () => void;
+  };
 }
 
 /** Self-contained, beautifully styled recurrence editor (extracted to satisfy strict TS + keep modal clean)
@@ -101,6 +113,10 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
   };
 
   const setFreq = (newFreq: RecurrenceFreq) => {
+    if (!localTask.dueDate) {
+      toast.info("Set a due date first", { description: "Recurrence needs an anchor date." });
+      return;
+    }
     const newPattern: RecurrencePattern = {
       freq: newFreq,
       interval: Math.max(1, interval),
@@ -123,36 +139,50 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
     save({ recurringRule: generateRecurringRule(newPattern) });
   };
 
-  const handleSkipNext = () => {
-    if (!localTask.recurringRule) return;
-    const nextDue = getNextRecurringDue(localTask.recurringRule, new Date(), localTask.dueDate, localTask.exceptionDates);
-    if (!nextDue) {
+  const handleSkipOccurrence = () => {
+    if (!localTask.recurringRule || !localTask.dueDate) {
+      toast.info("Set a due date before skipping occurrences");
+      return;
+    }
+    const isOverdue = isDueDatePast(localTask.dueDate);
+    const skipTarget = isOverdue
+      ? parseLocalDate(localTask.dueDate)
+      : getNextRecurringDue(localTask.recurringRule, new Date(), localTask.dueDate, localTask.exceptionDates);
+    if (!skipTarget) {
       toast.info("No future occurrences (series may have ended)");
       return;
     }
-    const exKey = normalizeExceptionKey(nextDue);
+    const exKey = normalizeExceptionKey(skipTarget);
     const currentEx = localTask.exceptionDates || [];
     if (currentEx.some((ex) => normalizeExceptionKey(ex) === exKey)) {
-      toast.info("Next occurrence already skipped");
+      toast.info("That occurrence is already skipped");
       return;
     }
     const nextEx = [...currentEx, exKey];
     save({ exceptionDates: nextEx });
-    toast.success("Next occurrence skipped", {
-      description: `${format(nextDue, "MMM d")} excluded from series`,
+    toast.success(isOverdue ? "This occurrence skipped" : "Next occurrence skipped", {
+      description: `${format(skipTarget, "MMM d")} excluded from series`,
     });
   };
 
   // Advanced raw RRULE editor state (power-user / custom rules not covered by UI)
   const [showRaw, setShowRaw] = useState(false);
   const [rawRule, setRawRule] = useState(localTask.recurringRule || "");
-  const [pendingDeleteTask, setPendingDeleteTask] = useState(false);
 
   const applyRawRule = () => {
     const trimmed = rawRule.trim().toUpperCase();
     if (!trimmed) {
       clearRecurrence();
     } else {
+      const parsed = parseRecurringRule(trimmed);
+      if (!parsed?.freq) {
+        toast.error("Invalid recurrence rule", { description: "Must include a valid FREQ (DAILY, WEEKLY, etc.)." });
+        return;
+      }
+      if (!localTask.dueDate) {
+        toast.info("Set a due date first", { description: "Recurrence needs an anchor date." });
+        return;
+      }
       save({ recurringRule: trimmed });
     }
     setShowRaw(false);
@@ -344,11 +374,13 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
         <div className="pt-2 border-t border-white/10 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={handleSkipNext}
+              onClick={handleSkipOccurrence}
               className="text-[10px] px-2 py-0.5 rounded bg-[#c084fc]/10 hover:bg-[#c084fc]/20 text-[#c084fc] border border-[#c084fc]/30 transition"
-              title="Skip the next calculated occurrence (adds to exceptionDates)"
+              title="Skip the current overdue occurrence or the next future one"
             >
-              Skip next occurrence
+              {localTask.dueDate && isDueDatePast(localTask.dueDate)
+                ? "Skip this occurrence"
+                : "Skip next occurrence"}
             </button>
             <span className="text-[9px] text-[#71717a]">{endDesc}</span>
           </div>
@@ -379,7 +411,7 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
   );
 }
 
-export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
+export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModalProps) {
   const { 
     updateTask, deleteTask, completeTask, taskLoadingStates, 
     comments, isLoadingComments, fetchComments, addComment, addTask, 
@@ -457,8 +489,6 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
     if (isOpen) setLocalTask(task);
   }, [isOpen, task.id]);
 
-  if (!isOpen) return null;
-
   const taskComments = [...comments]
     .filter((c: { taskId?: string }) => c.taskId === task.id)
     .sort(
@@ -494,9 +524,23 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
 
   const handleComplete = async () => {
     triggerHaptic('success');
-    await completeTask(task.id);
-    toast.success("Task completed");
-    onClose();
+    const result = await completeTask(task.id);
+    if (result === "advanced") {
+      const st = useTaskStore.getState();
+      const updated =
+        st.tasks.find((t) => t.id === task.id) ??
+        st.globalTodayFocus.find((f) => f.task.id === task.id)?.task;
+      if (updated) setLocalTask(updated);
+      const nextLabel = updated?.dueDate ? formatLocalDateShort(updated.dueDate) : "";
+      toast.success("Occurrence completed", {
+        description: nextLabel ? `Next due ${nextLabel}` : "Series advanced",
+      });
+      return;
+    }
+    if (result === "completed") {
+      toast.success("Task completed");
+      onClose();
+    }
   };
 
   const handleDelete = async () => {
@@ -527,7 +571,8 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
   return (
     <>
       <AnimatePresence>
-      <div 
+      {isOpen && (
+      <div
         className={cn(
           "fixed inset-0 z-[180] flex p-4",
           isMobile 
@@ -571,7 +616,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
               className="btn btn-primary text-sm px-5 py-1.5 disabled:opacity-60 flex items-center gap-1.5"
             >
               {taskLoadingStates?.[task.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Mark done
+              {localTask.recurringRule ? "Complete occurrence" : "Mark done"}
             </button>
             {taskLoadingStates?.[task.id] && (
               <span className="text-[10px] text-[#c084fc] ml-1 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> saving…</span>
@@ -747,6 +792,26 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
 
           {/* Sidebar properties */}
           <div className="space-y-6 text-sm">
+            {workspaceDeepLink && (
+              <WorkspaceItemDeepLink
+                workspaceName={workspaceDeepLink.workspaceName}
+                destination="Tasks"
+                onNavigate={workspaceDeepLink.onNavigate}
+                className="inline-flex items-center gap-1.5 text-xs text-[#c084fc] hover:text-[#d8b4fe] transition w-full text-left group"
+              />
+            )}
+
+            <TaskAssigneePicker
+              members={members || []}
+              currentUserId={user?.id}
+              value={localTask.assigneeIds?.[0] ?? null}
+              onChange={(userId) => {
+                const assigneeIds = userId ? [userId] : [];
+                const assignee = resolveAssigneeLabel(assigneeIds, members || [], user?.id);
+                save({ assigneeIds, assignee });
+              }}
+            />
+
             {/* Due Date — clean modern calendar, timezone-safe (yyyy-MM-dd) */}
             <div>
               <DateTimePicker
@@ -760,7 +825,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
                   }
                   const [y, m, d] = dateStr.split('-').map(Number);
                   const localDate = new Date(y, m - 1, d);
-                  save({ dueDate: localDate.toISOString() });
+                  save({ dueDate: toDueDateStorage(localDate) });
                 }}
                 className="w-full"
               />
@@ -788,16 +853,21 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
         {/* Close motion sheet + backdrop + AnimatePresence (mobile sheet structure) */}
       </motion.div>
     </div>
+      )}
     </AnimatePresence>
 
     {/* Modern confirmation modal (replaces raw confirm for task delete) */}
     <ConfirmationModal
       open={pendingDeleteTask}
       onOpenChange={setPendingDeleteTask}
-      title="Delete this task?"
+      title={localTask.recurringRule ? "Delete recurring series?" : "Delete this task?"}
       highlight={localTask.title}
-      description="The task, its comments, and any links will be permanently removed. This cannot be undone."
-      confirmText="Delete task"
+      description={
+        localTask.recurringRule
+          ? "This permanently deletes the entire recurring series and all future occurrences. Comments and links are also removed. This cannot be undone."
+          : "The task, its comments, and any links will be permanently removed. This cannot be undone."
+      }
+      confirmText={localTask.recurringRule ? "Delete series" : "Delete task"}
       cancelText="Cancel"
       variant="destructive"
       onConfirm={handleConfirmDeleteTask}

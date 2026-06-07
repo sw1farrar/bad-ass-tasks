@@ -14,6 +14,50 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          id: string
+          full_name: string | null
+          username: string | null
+          location: string | null
+          avatar_url: string | null
+          email: string | null
+          notification_prefs: Json
+          created_at: string
+          last_active_at: string | null
+          access_paused: boolean
+          access_paused_at: string | null
+          access_paused_reason: string | null
+        }
+        Insert: {
+          id: string
+          full_name?: string | null
+          username?: string | null
+          location?: string | null
+          avatar_url?: string | null
+          email?: string | null
+          notification_prefs?: Json
+          created_at?: string
+          last_active_at?: string | null
+          access_paused?: boolean
+          access_paused_at?: string | null
+          access_paused_reason?: string | null
+        }
+        Update: {
+          id?: string
+          full_name?: string | null
+          username?: string | null
+          location?: string | null
+          avatar_url?: string | null
+          email?: string | null
+          notification_prefs?: Json
+          created_at?: string
+          last_active_at?: string | null
+          access_paused?: boolean
+          access_paused_at?: string | null
+          access_paused_reason?: string | null
+        }
+      }
       workspaces: {
         Row: {
           id: string
@@ -344,6 +388,239 @@ export interface Database {
           read_at?: string | null
           created_at?: string
         }
+      },
+      workspace_lists: {
+        Row: {
+          id: string
+          workspace_id: string
+          title: string
+          color: string
+          sort_order: number
+          pinned: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          title: string
+          color?: string
+          sort_order?: number
+          pinned?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          title?: string
+          color?: string
+          sort_order?: number
+          pinned?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      },
+      list_items: {
+        Row: {
+          id: string
+          list_id: string
+          workspace_id: string
+          text: string
+          completed: boolean
+          sort_order: number
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          list_id: string
+          workspace_id: string
+          text: string
+          completed?: boolean
+          sort_order?: number
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          list_id?: string
+          workspace_id?: string
+          text?: string
+          completed?: boolean
+          sort_order?: number
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      },
+      dual_auth_challenges: {
+        Row: {
+          id: string
+          user_id: string
+          code_hash: string
+          expires_at: string
+          created_at: string
+          consumed_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          code_hash: string
+          expires_at: string
+          created_at?: string
+          consumed_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          code_hash?: string
+          expires_at?: string
+          created_at?: string
+          consumed_at?: string | null
+        }
+      },
+      note_email_inboxes: {
+        Row: {
+          id: string
+          workspace_id: string
+          parent_note_id: string | null
+          local_part: string
+          label: string | null
+          created_by: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          parent_note_id?: string | null
+          local_part: string
+          label?: string | null
+          created_by?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          parent_note_id?: string | null
+          local_part?: string
+          label?: string | null
+          created_by?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      },
+      note_attachments: {
+        Row: {
+          id: string
+          note_id: string
+          workspace_id: string
+          file_name: string
+          mime_type: string
+          size_bytes: number
+          storage_path: string
+          source: string
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          note_id: string
+          workspace_id: string
+          file_name: string
+          mime_type?: string
+          size_bytes?: number
+          storage_path: string
+          source?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          note_id?: string
+          workspace_id?: string
+          file_name?: string
+          mime_type?: string
+          size_bytes?: number
+          storage_path?: string
+          source?: string
+          created_by?: string | null
+          created_at?: string
+        }
+      },
+      task_email_inboxes: {
+        Row: {
+          id: string
+          workspace_id: string
+          local_part: string
+          label: string | null
+          created_by: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          local_part: string
+          label?: string | null
+          created_by?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          local_part?: string
+          label?: string | null
+          created_by?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      },
+      inbound_email_events: {
+        Row: {
+          id: string
+          message_id: string
+          inbox_id: string | null
+          note_id: string | null
+          task_id: string | null
+          task_inbox_id: string | null
+          local_part: string | null
+          processed_at: string
+        }
+        Insert: {
+          id?: string
+          message_id: string
+          inbox_id?: string | null
+          note_id?: string | null
+          task_id?: string | null
+          task_inbox_id?: string | null
+          local_part?: string | null
+          processed_at?: string
+        }
+        Update: {
+          id?: string
+          message_id?: string
+          inbox_id?: string | null
+          note_id?: string | null
+          task_id?: string | null
+          task_inbox_id?: string | null
+          local_part?: string | null
+          processed_at?: string
+        }
       }
     }
     Views: {
@@ -372,6 +649,18 @@ export interface Database {
           p_invite_id: string
         }
         Returns: string
+      }
+      exit_workspace: {
+        Args: {
+          p_workspace_id: string
+        }
+        Returns: boolean
+      }
+      delete_workspace_for_owner: {
+        Args: {
+          p_workspace_id: string
+        }
+        Returns: boolean
       }
     }
     Enums: {

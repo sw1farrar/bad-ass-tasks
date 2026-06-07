@@ -6,13 +6,37 @@
 // If you still see the error, you MUST hard-refresh + restart dev server + delete .next.
 // Fixed 2026-05-29.
 
-import React, { useState, useRef, useEffect } from "react";
-import { Plus, Trash2, Star, Link as LinkIcon, X, ChevronRight, ChevronDown } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Star, ChevronRight, ChevronDown, Paperclip } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
-import { LinkedTasksPanel, NoteHeader } from "./components";
-import { useNoteSearch, useMentions, useBacklinks, getBacklinkCount, getBacklinkNotes } from "./hooks";
+import {
+  NotesSidebarHeader,
+  LinkedTasksPanel,
+  NoteAttachmentsPanel,
+  NoteHeader,
+  NoteLinkedTaskBadge,
+  NoteTreeGutter,
+} from "./components";
+import {
+  useNoteSearch,
+  useMentions,
+  useBacklinks,
+  getBacklinkCount,
+  getBacklinkNotes,
+  useNoteAttachmentCounts,
+} from "./hooks";
 import { cn } from "@/lib/utils";
+import {
+  ensureAncestryExpanded,
+  loadExpandedNotesFromStorage,
+  persistExpandedNotes,
+} from "./lib/noteTreeExpansion";
+import {
+  getNoteLinkedTaskStats,
+  sortNotesByOpenTaskUrgency,
+} from "./lib/noteLinkedTaskStats";
+import { buildNoteSubtreeCounts } from "./lib/noteSubtreeCount";
 import "./notes-workspace.css";
 
 interface NotesViewProps {
@@ -29,6 +53,7 @@ interface NotesViewProps {
   onCreateTaskAndEmbed?: (suggestedTitle?: string) => Promise<string | null>; // For /task in editor
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>; // Linked Tasks panel
   onToggleTaskStatus?: (taskId: string) => Promise<void>; // Inline status change from embeds
+  onToggleTaskComplete?: (taskId: string) => Promise<void>; // Linked tasks list checkbox
   onUpdateTask?: (taskId: string, updates: Partial<any>) => Promise<void>; // Inline edits from TaskEmbeds
 
   // Database Blocks (M2 parallel work)
@@ -71,6 +96,7 @@ export function NotesView({
   onCreateTaskAndEmbed,
   onCreateTaskAndLink,
   onToggleTaskStatus,
+  onToggleTaskComplete,
   onUpdateTask,
   onCreateSubNote,
   onOpenNote,
@@ -86,6 +112,7 @@ export function NotesView({
   requestTitleSnapshot: _requestTitleSnapshot,
 }: NotesViewProps) {
   const [isCreating, setIsCreating] = useState(false);
+  const [showOpenTasksOnly, setShowOpenTasksOnly] = useState(false);
 
   // One-shot flag: when we create a note (top-level or sub), we set this to the new id.
   // NoteHeader receives autoFocusTitle={true} for that id and will focus+select the title input,
@@ -94,17 +121,42 @@ export function NotesView({
 
   // "Open families" state: which notes currently have their direct children revealed in the list.
   // Persisted so the user's manual expand/collapse choices for each family survive refresh (per request).
-  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const raw = localStorage.getItem("badazz-expanded-notes");
-      if (raw) return new Set(JSON.parse(raw));
-    } catch {}
-    return new Set();
-  });
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() =>
+    loadExpandedNotesFromStorage(),
+  );
 
   // Extracted search logic (M2 extraction)
   const { searchQuery, setSearchQuery, filteredNotes, isSearching } = useNoteSearch(notes);
+
+  const workspaceId = notes[0]?.workspaceId;
+  const { counts: attachmentCounts, setNoteCount, refresh: refreshAttachmentCounts } =
+    useNoteAttachmentCounts(workspaceId);
+
+  useEffect(() => {
+    if (isLive) refreshAttachmentCounts();
+  }, [isLive, notes.length, refreshAttachmentCounts]);
+
+  const displayNotes = useMemo(() => {
+    if (!showOpenTasksOnly) return filteredNotes;
+    const withOpenTasks = filteredNotes.filter(
+      (note) => getNoteLinkedTaskStats(note, tasks).hasOpen,
+    );
+    return sortNotesByOpenTaskUrgency(withOpenTasks, tasks);
+  }, [filteredNotes, showOpenTasksOnly, tasks]);
+
+  const openTasksNoteCount = useMemo(
+    () => notes.filter((note) => getNoteLinkedTaskStats(note, tasks).hasOpen).length,
+    [notes, tasks],
+  );
+
+  const hasOverdueOpenTaskNotes = useMemo(
+    () => notes.some((note) => getNoteLinkedTaskStats(note, tasks).hasOverdue),
+    [notes, tasks],
+  );
+
+  const subtreeCounts = useMemo(() => buildNoteSubtreeCounts(notes), [notes]);
+
+  const useFlatNoteList = isSearching || showOpenTasksOnly;
 
   // Centralized backlinks computation (task symmetry + mention scanning from other notes)
   const computedBacklinks = useBacklinks(notes, selectedNoteId);
@@ -115,22 +167,86 @@ export function NotesView({
 
   const isExpanded = (noteId: string) => expandedNotes.has(noteId);
 
-  // Manual toggle for a note's direct children (called from the count badge and the new indicator next to delete).
-  const toggleExpansion = (noteId: string) => {
-    setExpandedNotes(prev => {
+  // Manual toggle for a note's direct children (chevron count badge only).
+  const toggleExpansion = React.useCallback((noteId: string) => {
+    setExpandedNotes((prev) => {
       const next = new Set(prev);
       if (next.has(noteId)) {
         next.delete(noteId);
       } else {
         next.add(noteId);
       }
-      // Persist immediately so family open/closed state survives hard refresh.
-      try {
-        localStorage.setItem("badazz-expanded-notes", JSON.stringify(Array.from(next)));
-      } catch {}
+      persistExpandedNotes(next);
       return next;
     });
-  };
+  }, []);
+
+  /**
+   * Sticky disclosure + reveal path (row click):
+   * - First click on a branch: select + expand direct children only (one level).
+   * - Second click while already selected: toggle direct children.
+   * - Chevron count badge: toggle only (no selection change).
+   */
+  const handleNoteRowSelect = React.useCallback(
+    (noteId: string, hasChildren?: boolean) => {
+      const isReselect = selectedNoteId === noteId;
+      const branch = hasChildren === true;
+
+      if (isReselect) {
+        if (branch) toggleExpansion(noteId);
+        return;
+      }
+
+      onSelectNote(noteId);
+      setExpandedNotes((prev) => {
+        const next = new Set(prev);
+        ensureAncestryExpanded(noteId, notes, next);
+        if (branch && !next.has(noteId)) {
+          next.add(noteId);
+        }
+        persistExpandedNotes(next);
+        return next;
+      });
+    },
+    [selectedNoteId, notes, onSelectNote, toggleExpansion],
+  );
+
+  // Deep links (search pick, backlink jump, new sub-note): reveal ancestor path only.
+  React.useEffect(() => {
+    if (!selectedNoteId) return;
+    setExpandedNotes((prev) => {
+      const next = new Set(prev);
+      const sizeBefore = next.size;
+      ensureAncestryExpanded(selectedNoteId, notes, next);
+      if (next.size === sizeBefore) return prev;
+      persistExpandedNotes(next);
+      return next;
+    });
+  }, [selectedNoteId, notes]);
+
+  // Inbound email notes: auto-expand parent branch so new children are visible immediately.
+  const seenInboundNoteIdsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const newcomers = notes.filter((n) => !seenInboundNoteIdsRef.current.has(n.id));
+    newcomers.forEach((n) => seenInboundNoteIdsRef.current.add(n.id));
+    const inboundChildren = newcomers.filter(
+      (n) => n.parentNoteId && (n.tags || []).includes("from-email"),
+    );
+    if (!inboundChildren.length) return;
+
+    setExpandedNotes((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const child of inboundChildren) {
+        const sizeBefore = next.size;
+        ensureAncestryExpanded(child.id, notes, next);
+        if (next.size !== sizeBefore) changed = true;
+      }
+      if (!changed) return prev;
+      persistExpandedNotes(next);
+      return next;
+    });
+  }, [notes]);
 
   // Depth calculator for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
   // Anything deeper is treated as max-depth for display and creation gating.
@@ -181,14 +297,8 @@ export function NotesView({
   // useBacklinks.ts selectors (imported above). No local duplication remains.
 
   // Plain row renderer for the notes list (roots + revealed children of open families).
-  // No chevrons/arrows. Hierarchy is revealed on selection and stays open within a family.
-  // Small count indicator appears to the *right* of the title when a note has children.
-
-  // Shared line colors — 1:1 with the approved family border tokens (border-white/10 normal, /15 active).
-  // Using bg- + w-0.5 (2px) instead of hairline 1px so the connectors are actually visible on dark
-  // while remaining subtle/calm (Linear/Notion-grade) and satisfying "same color as the family border" + "subtle".
-  const TREE_LINE_NORMAL = "bg-white/10";
-  const TREE_LINE_ACTIVE = "bg-white/15";
+  // Hierarchy is revealed on selection and stays open within a family.
+  // Subtree count (including this note) + chevron sit flush right on the title row.
 
   function NoteListItem({
     note,
@@ -197,25 +307,31 @@ export function NotesView({
     onDelete,
     depth,
     hasChildren,
-    childCount,
+    subtreeCount,
     isInActiveFamily,
     onToggleChildren,
     isOpen,
     suppressOwnBorder,
+    isLastSibling,
+    linkedTaskStats,
+    attachmentCount = 0,
   }: {
     note: Note;
     isSelected: boolean;
-    onSelect: (id: string) => void;
+    onSelect: (id: string, hasChildren?: boolean) => void;
     onDelete: (id: string, e?: React.MouseEvent) => void;
     depth: number;
     hasChildren?: boolean;
-    childCount?: number;
+    subtreeCount?: number;
     isInActiveFamily?: boolean;
     onToggleChildren?: (noteId: string) => void;
     isOpen?: boolean;
     /** When true, this row is inside an open family wrapper and should not draw its own border/rounding.
      *  The family container provides the single subtle border around the entire branch. */
     suppressOwnBorder?: boolean;
+    isLastSibling?: boolean;
+    linkedTaskStats: ReturnType<typeof getNoteLinkedTaskStats>;
+    attachmentCount?: number;
   }) {
 
     const preview = note.title || "Untitled";
@@ -235,90 +351,81 @@ export function NotesView({
     // stay dark (transparent) so the selected one pops clearly inside the group.
     const familyRowClass = "";
 
-    // Visual treatment: top-level rows (parents) get the nice rounded treatment.
-    // Nested rows (children/grandchildren inside an open family) get a much lighter,
-    // chrome-free treatment so we avoid the ugly "box inside box" problem.
-    const isNested = depth > 0;
-
     // Completely rethought row (per user feedback):
     // - Title uses the ENTIRE width of the section on its own block. It can wrap to multiple lines.
     //   No controls share horizontal space with the title.
     // - Below the title: a clean meta/controls bar that splits left (timestamp + links) / right (count+chevron + delete).
     // This makes long titles feel luxurious and uses every pixel.
+    const bodyClass = cn(
+      "group note-tree-body cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/70 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a0a0f]",
+      depth > 0
+        ? `px-3 py-2 border-none rounded-lg ${isSelected ? "bg-white/6 ring-1 ring-[#c084fc]/20" : "bg-transparent"}`
+        : suppressOwnBorder
+          ? `px-3 py-2.5 sm:py-2 rounded-none border-none ${isSelected ? "bg-white/6 ring-1 ring-[#c084fc]/20" : "bg-transparent"}`
+          : "px-3 py-2.5 sm:py-2 rounded-xl border " + (isSelected
+            ? "bg-white/6 border-white/10 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] ring-1 ring-[#c084fc]/20"
+            : "hover:bg-white/4 border-transparent active:bg-white/5"),
+      familyRowClass,
+    );
+
     return (
       <div
-        className={cn(
-          "group flex w-full flex-col gap-1 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/70 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a0a0f] min-w-0",
-          // When this row is the header of an open family, it should not have its own border/rounding.
-          // The family wrapper provides one single subtle border around the entire branch.
-          // depth > 0 rows (child / grandchild) must have literally zero border.
-          // Only the single outer family wrapper border (the one the user likes) is allowed.
-          // Selection rule (per user): the selected note is the light one (bg-white/6 to match other selected state).
-          // All non-selected notes inside any family stay dark (transparent).
-          depth > 0
-            ? `px-3 py-2 border-none relative ${isSelected ? "bg-white/6" : "bg-transparent"}`
-            : suppressOwnBorder
-              ? `px-3 py-2.5 sm:py-2 rounded-none border-none ${isSelected ? "bg-white/6" : "bg-transparent"}`
-              : "px-3 py-2.5 sm:py-2 rounded-xl border " + (isSelected 
-                ? "bg-white/6 border-white/10 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]" 
-                : "hover:bg-white/4 border-transparent active:bg-white/5"),
-          familyRowClass
-        )}
-        style={{ marginLeft: depth * 20, width: `calc(100% - ${depth * 20}px)` }}
+        className={cn("note-tree-row", `note-tree-row--depth-${depth}`)}
         role="treeitem"
         aria-selected={isSelected}
         aria-level={depth + 1}
-        aria-label={`${preview}${childCount ? `, ${childCount} sub-notes` : ''}${isSelected ? ', selected' : ''}`}
+        aria-label={`${preview}${subtreeCount && subtreeCount > 1 ? `, ${subtreeCount} notes in branch` : ''}${isSelected ? ', selected' : ''}`}
         onClick={() => {
-          onSelect(note.id);
+          onSelect(note.id, !!hasChildren);
         }}
         onKeyDown={(e) => {
           if ((e.key === " " || e.key === "Enter") && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            onSelect(note.id);
+            onSelect(note.id, !!hasChildren);
           }
         }}
         tabIndex={0}
       >
-        {depth > 0 && (
-          <div
-            className={`absolute h-px pointer-events-none ${isInActiveFamily ? 'bg-white/25' : 'bg-white/20'}`}
-            style={{
-              left: depth === 1 ? '-16px' : '-12px',
-              width: depth === 1 ? '18px' : '14px',
-              top: '13px'
-            }}
-            aria-hidden="true"
-          />
-        )}
+        <NoteTreeGutter
+          depth={depth}
+          isLastSibling={isLastSibling}
+          isInActiveFamily={isInActiveFamily}
+        />
 
-        {/* TITLE — full width, wraps naturally, always shows complete text. Hero of the row. */}
-        <div className="w-full min-w-0 pl-3">
-          <div className={`font-medium text-[14px] leading-[1.35] tracking-[-0.1px] ${titleColor} whitespace-normal break-words`}>
-            {preview}
+        <div className={bodyClass}>
+        {/* TITLE ROW — title left; subtree count + chevron flush right */}
+        <div className="flex w-full min-w-0 items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <div className={`font-medium text-[14px] leading-[1.35] tracking-[-0.1px] ${titleColor} whitespace-normal break-words`}>
+              {preview}
+            </div>
           </div>
+
+          {hasChildren && subtreeCount && subtreeCount > 1 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleChildren?.(note.id);
+              }}
+              className="note-tree-subtree-toggle ml-auto flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] tabular-nums
+                         text-[#71717a]/70 hover:text-[#c084fc] hover:bg-white/10 active:bg-white/15
+                         transition-all focus-visible:ring-1 focus-visible:ring-[#c084fc]/50"
+              aria-label={isOpen ? "Collapse sub-notes" : "Expand sub-notes"}
+              title={`${subtreeCount} note${subtreeCount === 1 ? "" : "s"} in branch — click to ${isOpen ? "collapse" : "expand"}`}
+            >
+              <span className="font-medium">{subtreeCount}</span>
+              {isOpen ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </button>
+          )}
         </div>
 
-        {/* META + CONTROLS BAR — full width below title.
-            Clicking anywhere on this bar (timestamp or controls) on an expandable row toggles the family.
-            This is the key UX improvement requested. */}
-        <div 
-          className={cn(
-            "flex w-full min-w-0 items-center justify-between gap-2 text-[10px] cursor-pointer active:bg-white/5 rounded-md -ml-3 -mr-3 pl-3 pr-3 py-0.5 -my-0.5 transition-colors",
-            // Subtle hover feedback on the entire clickable toggle area (timestamp + collapse controls)
-            // Only shown when this note is expandable, so users discover the interaction.
-            // Make the entire clickable toggle region (timestamp + collapse controls) visibly highlight on hover
-            // so users clearly see that this area expands/collapses the family.
-            hasChildren && childCount && childCount > 0 && "hover:bg-white/[0.06]"
-          )}
-          onClick={(e) => {
-            if (hasChildren && childCount && childCount > 0) {
-              e.stopPropagation(); // don't also fire the row's "select" handler
-              onToggleChildren?.(note.id);
-            }
-          }}
-        >
-          {/* Left: timestamp + subtle meta */}
+        {/* META BAR — timestamp and links only */}
+        <div className="flex w-full min-w-0 items-center gap-2 text-[10px] -ml-3 -mr-3 pl-3 pr-3 py-0.5 -my-0.5">
           <div className={`flex items-center gap-2 text-[#71717a] tabular-nums min-w-0 ${metaOpacity}`}>
             {new Date(note.updatedAt || note.createdAt).toLocaleString([], {
               month: "short",
@@ -327,8 +434,17 @@ export function NotesView({
               minute: "2-digit",
             })}
 
-            {note.linkedTaskIds && note.linkedTaskIds.length > 0 && (
-              <span className="text-[#c084fc]/80">↔ {note.linkedTaskIds.length}</span>
+            <NoteLinkedTaskBadge stats={linkedTaskStats} compact />
+            {attachmentCount > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-[#c084fc]/85"
+                title={`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
+              >
+                <Paperclip className="h-3 w-3 shrink-0" aria-hidden />
+                {attachmentCount > 1 ? (
+                  <span className="tabular-nums">{attachmentCount}</span>
+                ) : null}
+              </span>
             )}
             {getBacklinkCount(notes, note.id) > 0 && (
               <span
@@ -344,31 +460,7 @@ export function NotesView({
               </span>
             )}
           </div>
-
-          {/* Right cluster — collapse/expand indicator only (delete removed from list per request) */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            {/* Collapse / count indicator — rightmost, now with clear hover highlight on the active clickable area */}
-            {hasChildren && childCount && childCount > 0 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleChildren?.(note.id);
-                }}
-                className="flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] tabular-nums
-                           text-[#71717a]/70 hover:text-[#c084fc] hover:bg-white/10 active:bg-white/15
-                           transition-all focus-visible:ring-1 focus-visible:ring-[#c084fc]/50"
-                aria-label={isOpen ? "Collapse sub-notes" : "Expand sub-notes"}
-                title={`${childCount} sub-note${childCount === 1 ? '' : 's'} — click to ${isOpen ? 'collapse' : 'expand'}`}
-              >
-                <span className="font-medium">{childCount}</span>
-                {isOpen ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
-              </button>
-            )}
-          </div>
+        </div>
         </div>
       </div>
     );
@@ -414,13 +506,12 @@ export function NotesView({
   //     • When children are already visible and user has been on another note:
   //         – First click back on the ancestor → selects only (does NOT collapse). State stays sticky.
   //         – Next click while it remains selected → toggles/collapses.
-  //   The count badge is always an explicit unconditional toggle.
-  // - No chevrons/arrows. The small count badge to the right of the title is the direct control.
+  //   The chevron count badge is an explicit unconditional toggle.
   // - Grandchildren (depth 2) are always leaves.
   const renderNoteTree = (
     allNotes: Note[],
     selectedId: string | null,
-    onSelect: (id: string | null) => void,
+    onSelect: (id: string, hasChildren?: boolean) => void,
     onDelete: (id: string, e?: React.MouseEvent) => void
   ) => {
     // Dedupe + build children map (same cheap work as before)
@@ -471,7 +562,7 @@ export function NotesView({
       note: Note,
       depth: number,
       forceSuppressBorder = false,
-      isActiveFamily = false
+      isLastSibling = false,
     ): React.ReactNode => {
       if (depth > 2) return null; // hard safety — we only support parent / child / grandchild
 
@@ -480,8 +571,8 @@ export function NotesView({
       // Grandchildren (depth 2) are always leaves — even if legacy data has deeper descendants.
       const rawKids = childrenMap.get(note.id) || [];
       const kids = depth >= 2 ? [] : rawKids;
-      const count = kids.length;
-      const showChildren = count > 0 && isExpanded(note.id);
+      const directChildCount = kids.length;
+      const showChildren = directChildCount > 0 && isExpanded(note.id);
 
       const row = (
         <NoteListItem
@@ -490,103 +581,68 @@ export function NotesView({
           onSelect={onSelect}
           onDelete={onDelete}
           depth={depth}
-          hasChildren={count > 0}
-          childCount={count}
+          hasChildren={directChildCount > 0}
+          subtreeCount={subtreeCounts.get(note.id) ?? 1}
           isInActiveFamily={isInActiveFamily(note.id)}
           onToggleChildren={toggleExpansion}
           isOpen={isExpanded(note.id)}
           // For all root notes (depth 0), suppress the row's own border/rounding.
           // The family wrapper below always provides the single consistent border the user likes.
           suppressOwnBorder={depth === 0 || forceSuppressBorder}
+          isLastSibling={isLastSibling}
+          linkedTaskStats={getNoteLinkedTaskStats(note, tasks)}
+          attachmentCount={attachmentCounts[note.id] ?? 0}
         />
       );
 
-      // Every root note (depth 0) is always wrapped in the nice family border container.
-      // This gives every "family" (even a family of 1 / collapsed root) the same treatment.
-      // When the family is the active one (contains the selected note), we add a subtle highlight to the wrapper.
-      if (depth === 0) {
-        const isActiveFamily = activeRootId === note.id;
-        const familyWrapperClass = cn(
-          "rounded-2xl border overflow-hidden",
-          isActiveFamily 
-            ? "border-white/15"   // slightly bolder border for the active family (the one containing the selected note)
-            : "border-white/10",
-          isActiveFamily && "bg-white/[0.02]"   // subtle lighter background inside the border for the active family
-        );
-
-        if (!showChildren) {
-          // Collapsed root / family of 1 — still gets the nice border
-          return (
-            <div key={note.id} className={familyWrapperClass}>
-              {row}
-            </div>
-          );
-        } else {
-          // Expanded family — the single wrapper encloses the parent row + all descendants
-          const subtreeContent = (
-            <div className="pt-0.5 pb-2 relative overflow-x-hidden" style={{ marginLeft: 0 }}>
-              {/* Continuous vertical connector for children — border-l gives clean, gap-free line */}
-              <div
-                className="absolute w-px pointer-events-none border-l border-white/25"
-                style={{ left: '8px', top: '-2px', bottom: '2px' }}
-                aria-hidden="true"
-              />
-              <div className="space-y-px">
-                {kids.map(child => (
-                  <React.Fragment key={child.id}>
-                    {renderItemAndChildren(child, depth + 1, true, isActiveFamily)}
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
-          );
-
-          return (
-            <div key={note.id} className={familyWrapperClass}>
-              {row}
-              {subtreeContent}
-            </div>
-          );
-        }
-      }
-
-      // For depth > 0 (children / grandchildren): never create extra borders/wrappers.
-      // They live inside the single outer family border of their root.
-      if (!showChildren) {
-        return row;
-      }
-
-      const subtreeContent = (
-        <div className="pt-0.5 pb-2 relative overflow-x-hidden" style={{ marginLeft: 0 }}>
-          {/* Continuous vertical connector for grandchildren */}
-          <div
-            className="absolute w-px pointer-events-none border-l border-white/25"
-            style={{ left: '28px', top: '-2px', bottom: '2px' }}
-            aria-hidden="true"
-          />
-          <div className="space-y-px">
-            {kids.map(child => (
-              <React.Fragment key={child.id}>
-                {renderItemAndChildren(child, depth + 1, true, isActiveFamily)}
-              </React.Fragment>
-            ))}
-          </div>
+      const renderChildList = () => (
+        <div className="note-tree-children space-y-1" role="group">
+          {kids.map((child, index) => (
+            <React.Fragment key={child.id}>
+              {renderItemAndChildren(
+                child,
+                depth + 1,
+                true,
+                index === kids.length - 1,
+              )}
+            </React.Fragment>
+          ))}
         </div>
       );
+
+      // Every root note (depth 0) is always wrapped in the family border container.
+      if (depth === 0) {
+        const familyIsActive = activeRootId === note.id;
+        const familyWrapperClass = cn(
+          "note-tree-family",
+          familyIsActive && "note-tree-family--active",
+        );
+
+        return (
+          <div key={note.id} className={familyWrapperClass}>
+            {row}
+            {showChildren && renderChildList()}
+          </div>
+        );
+      }
+
+      if (!showChildren) {
+        return <React.Fragment key={note.id}>{row}</React.Fragment>;
+      }
 
       return (
         <React.Fragment key={note.id}>
           {row}
-          {subtreeContent}
+          {renderChildList()}
         </React.Fragment>
       );
     };
 
     // Top level = only roots. Everything else appears inline under its parent when opened.
     const roots = childrenMap.get(null) || [];
-    return roots.map(root => (
+    return roots.map((root, index) => (
       <React.Fragment key={root.id}>
-        {renderItemAndChildren(root, 0)}
+        {renderItemAndChildren(root, 0, false, index === roots.length - 1)}
       </React.Fragment>
     ));
   };
@@ -611,25 +667,14 @@ export function NotesView({
   return (
     <div className={cn("flex h-full min-h-0 overflow-hidden notes-root", mobileLayoutClass)}>
       <div className="notes-sidebar w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden overflow-x-hidden min-h-0">
-        <div className="px-3 py-3 border-b border-white/10 flex items-center justify-between">
-          <div>
-            <div className="font-semibold tracking-tight">Notes</div>
-            <div className="text-[10px] text-[#71717a] font-mono">
-              {notes.length} {notes.length === 1 ? "note" : "notes"}
-              {!isLive && " · demo"}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCreateNote}
-              disabled={isCreating}
-              className="btn btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-50 touch-manipulation min-h-[36px]"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New
-            </button>
-          </div>
-        </div>
+        <NotesSidebarHeader
+          showOpenTasksOnly={showOpenTasksOnly}
+          onToggleOpenTasksOnly={() => setShowOpenTasksOnly((prev) => !prev)}
+          hasOverdueOpenTaskNotes={hasOverdueOpenTaskNotes}
+          openTasksNoteCount={openTasksNoteCount}
+          onCreateNote={handleCreateNote}
+          isCreating={isCreating}
+        />
 
         {/* Search — clean, no icon, full modern treatment */}
         <div className="px-3 py-2 border-b border-white/10">
@@ -652,18 +697,24 @@ export function NotesView({
           aria-multiselectable="false"
           data-notes-tree
         >
-          {filteredNotes.length === 0 && (
+          {displayNotes.length === 0 && (
             <div className="px-4 py-8 text-center text-[#71717a] text-sm">
-              {searchQuery ? "No notes match your search." : "No notes yet. Create your first one."}
+              {showOpenTasksOnly
+                ? searchQuery
+                  ? "No notes with open tasks match your search."
+                  : "No notes with open linked tasks."
+                : searchQuery
+                  ? "No notes match your search."
+                  : "No notes yet. Create your first one."}
             </div>
           )}
 
-          {/* Plain list (no DnD). Search = flat recency list. Normal = recursive tree with pure recency at every level. */}
-          {searchQuery ? (
+          {/* Plain list (no DnD). Search / open-tasks filter = flat list. Normal = recursive tree. */}
+          {useFlatNoteList ? (
             // Search results: flat, pure recency (already sorted by useNoteSearch), deduped for safety
             (() => {
               const seen = new Set<string>();
-              const safe = filteredNotes.filter((n) => {
+              const safe = displayNotes.filter((n) => {
                 const k = String(n?.id || "");
                 if (!k || seen.has(k)) return false;
                 seen.add(k);
@@ -682,16 +733,18 @@ export function NotesView({
                     onDelete={handleDeleteNote}
                     depth={0}
                     hasChildren={kids.length > 0}
-                    childCount={kids.length}
+                    subtreeCount={subtreeCounts.get(note.id) ?? 1}
                     isInActiveFamily={false}
                     onToggleChildren={toggleExpansion}
                     isOpen={false}
+                    linkedTaskStats={getNoteLinkedTaskStats(note, tasks)}
+                    attachmentCount={attachmentCounts[note.id] ?? 0}
                   />
                 );
               });
             })()
           ) : (
-            renderNoteTree(filteredNotes, selectedNoteId, onSelectNote, handleDeleteNote)
+            renderNoteTree(displayNotes, selectedNoteId, handleNoteRowSelect, handleDeleteNote)
           )}
         </div>
       </div>
@@ -703,7 +756,7 @@ export function NotesView({
               <button
                 type="button"
                 onClick={() => onSelectNote(null)}
-                className="md:hidden mx-4 mt-3 mb-0 text-xs text-[#c084fc] hover:underline text-left"
+                className="md:hidden mx-4 mt-3 mb-1 flex items-center gap-2 min-h-[44px] px-2 -ml-2 text-sm text-[#c084fc] hover:bg-white/5 rounded-xl text-left transition"
               >
                 ← Back to notes
               </button>
@@ -720,7 +773,7 @@ export function NotesView({
                     onUpdateNote(selectedNote.id, { title: value });
                   }}
                   onDelete={() => handleDeleteNote(selectedNote.id)}
-                  linkedTaskCount={selectedNote.linkedTaskIds?.length || 0}
+                  linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
                   backlinkCount={getBacklinkCount(notes, selectedNote.id)}
                   onCreateSubNote={canCreateSub ? () => {
                     onCreateSubNote(selectedNote.id).then((newId) => {
@@ -741,9 +794,11 @@ export function NotesView({
             {/* FIX: One scroll container for editor content + bottom panels.
                 Long notes and the Linked Tasks / Links sections will now scroll together. */}
             <div ref={detailScrollRef} className="notes-editor-scroll flex-1 overflow-y-auto min-h-0">
+              <div className="note-content-card glass w-full rounded-xl border border-white/10 overflow-hidden flex flex-col mb-4">
               <TipTapEditor
                 key={selectedNote.id}
                 noteId={selectedNote.id}
+                className="!rounded-none !border-0 bg-transparent"
                 content={selectedNote.content}
                 onChange={(newContent) => {
                   // Smart guard: skip only if identical to last known server/client value.
@@ -791,6 +846,15 @@ export function NotesView({
                 onRemoveBacklink={onRemoveBacklink}
               />
 
+              {isLive && (
+                <NoteAttachmentsPanel
+                  embedded
+                  selectedNote={selectedNote}
+                  onCountChange={setNoteCount}
+                />
+              )}
+              </div>
+
               {/* Real Bidirectional Task Linking (Milestone 2) — inside the scroll container so the entire detail view (long editor + linking UI) scrolls together. */}
               <LinkedTasksPanel
                 selectedNote={selectedNote}
@@ -798,6 +862,7 @@ export function NotesView({
                 onLinkTaskToNote={onLinkTaskToNote}
                 onUnlinkTaskFromNote={onUnlinkTaskFromNote}
                 onOpenTask={onOpenTask}
+                onToggleTaskComplete={onToggleTaskComplete}
                 onCreateTaskAndLink={onCreateTaskAndLink}
               />
             </div>

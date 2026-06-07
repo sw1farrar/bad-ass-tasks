@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { addDays, format, parseISO, startOfToday } from 'date-fns';
+import { addDays, format, startOfToday } from 'date-fns';
 import { DayPicker, type MonthCaptionProps, useDayPicker } from 'react-day-picker';
 import { Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { parseLocalDate, toLocalDateString } from '@/lib/datetime';
 
 interface DatePickerProps {
   value?: string;
@@ -33,26 +34,8 @@ function useCompactViewport() {
   return compact;
 }
 
-function toDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function parseToLocalDate(input?: string): Date | undefined {
-  if (!input) return undefined;
-  try {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
-      const [y, m, d] = input.split('-').map(Number);
-      return new Date(y, m - 1, d);
-    }
-    const d = parseISO(input);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  } catch {
-    return undefined;
-  }
-}
+const parseToLocalDate = parseLocalDate;
+const toDateString = toLocalDateString;
 
 function CompactCaption({
   calendarMonth,

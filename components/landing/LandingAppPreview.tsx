@@ -2,7 +2,6 @@
 
 import {
   Check,
-  Clock,
   Home,
   MessageCircle,
   Settings,
@@ -20,11 +19,10 @@ import { LANDING_TASKS, LANDING_WORKSPACE } from "./landingSampleData";
 const SIDEBAR_VIEWS: Array<{
   id: string;
   label: string;
-  icon: typeof Clock;
+  icon: typeof Check;
   active?: boolean;
 }> = [
-  { id: "today", label: "Today", icon: Clock, active: true },
-  { id: "tasks", label: "Tasks", icon: Check },
+  { id: "tasks", label: "Tasks", icon: Check, active: true },
   { id: "notes", label: "Notes", icon: Star },
   { id: "teams", label: "Team", icon: Users },
   { id: "settings", label: "Workspace Settings", icon: Settings },
@@ -91,11 +89,11 @@ export function LandingAppPreview() {
             </div>
           </aside>
 
-          {/* Main — Today view */}
+          {/* Main — Tasks view */}
           <main className="flex-1 min-w-0 p-4 sm:p-5 overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold tracking-tight">Today</h3>
+                <h3 className="text-lg font-semibold tracking-tight">Tasks</h3>
                 <p className="text-xs text-[#71717a] mt-0.5">4 tasks · 2 due soon</p>
               </div>
               <div className="h-8 w-8 rounded-full border border-white/10 flex items-center justify-center text-[#c084fc]">

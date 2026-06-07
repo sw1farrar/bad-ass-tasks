@@ -41,6 +41,7 @@ interface UseNoteOperationsProps {
   updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   deleteNote: (id: string) => Promise<boolean | null>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<boolean | null>;
+  completeTask: (id: string) => Promise<"advanced" | "completed" | null>;
   addTask: (title: string) => Promise<Task | null>;
 
   // UI actions from parent
@@ -60,6 +61,7 @@ export function useNoteOperations({
   updateNote,
   deleteNote,
   updateTask,
+  completeTask,
   addTask,
   openTask,
   setPendingDeleteNote,
@@ -143,7 +145,23 @@ export function useNoteOperations({
     const nextStatus =
       task.status === "todo" ? "doing" : task.status === "doing" ? "done" : "todo";
 
+    if (nextStatus === "done") {
+      await completeTask(taskId);
+      return;
+    }
     await updateTask(taskId, { status: nextStatus });
+  };
+
+  /** Linked tasks list: one-click complete / reopen (checkbox UX). */
+  const handleToggleTaskComplete = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    if (task.status === "done") {
+      await updateTask(taskId, { status: "todo", completedAt: undefined });
+      return;
+    }
+    await completeTask(taskId);
   };
 
   const linkNewTaskToNote = async (
@@ -416,6 +434,7 @@ export function useNoteOperations({
     onLinkNoteToNote: handleLinkNoteToNote,
     onUnlinkNoteFromNote: handleUnlinkNoteFromNote,
     onToggleTaskStatus: handleToggleTaskStatus,
+    onToggleTaskComplete: handleToggleTaskComplete,
     onUpdateTask: handleUpdateTask,
     onCreateTaskAndEmbed: handleCreateTaskAndEmbed,
     onCreateTaskAndLink: handleCreateTaskAndLink,

@@ -1,0 +1,165 @@
+"use client";
+
+import React, { useMemo } from "react";
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { formatRoleLabel } from "@/lib/roles";
+import { getMemberDisplayName } from "@/lib/assignee";
+import type { Task, WorkspaceMember } from "@/types";
+import { computeMemberOpenTaskCounts } from "../lib/computeTeamStats";
+import {
+  formatMemberJoined,
+  formatMemberLastActive,
+  getMemberInitials,
+} from "../lib/formatMemberPresence";
+
+interface TeamMemberDirectoryProps {
+  members: WorkspaceMember[];
+  tasks: Task[];
+  onlineUserIds: Set<string>;
+  currentUserId?: string;
+  isLoading?: boolean;
+  renderMemberActions?: (member: WorkspaceMember, isSelf: boolean) => React.ReactNode;
+}
+
+export function TeamMemberDirectory({
+  members,
+  tasks,
+  onlineUserIds,
+  currentUserId,
+  isLoading = false,
+  renderMemberActions,
+}: TeamMemberDirectoryProps) {
+  const taskCounts = useMemo(
+    () => computeMemberOpenTaskCounts(tasks, members),
+    [tasks, members]
+  );
+
+  const sortedMembers = useMemo(() => {
+    const roleOrder = { owner: 0, admin: 1, member: 2 };
+    return [...members].sort((a, b) => {
+      const ra = roleOrder[a.role as keyof typeof roleOrder] ?? 3;
+      const rb = roleOrder[b.role as keyof typeof roleOrder] ?? 3;
+      if (ra !== rb) return ra - rb;
+      const aOnline = onlineUserIds.has(a.userId) ? 0 : 1;
+      const bOnline = onlineUserIds.has(b.userId) ? 0 : 1;
+      if (aOnline !== bOnline) return aOnline - bOnline;
+      return getMemberDisplayName(a, currentUserId).localeCompare(
+        getMemberDisplayName(b, currentUserId)
+      );
+    });
+  }, [members, onlineUserIds, currentUserId]);
+
+  const onlineCount = members.filter((m) => onlineUserIds.has(m.userId)).length;
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+      <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+        <div>
+          <div className="font-medium">Team directory</div>
+          <div className="text-[10px] text-[#71717a] mt-0.5">
+            {members.length} member{members.length === 1 ? "" : "s"}
+            {onlineCount > 0 && (
+              <span className="text-[#34d399] ml-2">{onlineCount} online now</span>
+            )}
+          </div>
+        </div>
+        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-[#c084fc]" />}
+      </div>
+
+      {members.length === 0 ? (
+        <div className="p-8 text-center text-[#71717a] text-sm">No members</div>
+      ) : (
+        <div className="divide-y divide-white/10">
+          {sortedMembers.map((member) => {
+            const isSelf = member.userId === currentUserId;
+            const isOnline = onlineUserIds.has(member.userId);
+            const displayName = getMemberDisplayName(member, currentUserId);
+            const openTasks = taskCounts.get(member.userId) ?? 0;
+            const lastActive = formatMemberLastActive(member.lastActiveAt);
+            const joined = formatMemberJoined(member.joinedAt);
+            const presenceLabel = isOnline ? "Online now" : lastActive;
+
+            return (
+              <div
+                key={member.userId}
+                className="px-5 py-4 flex items-center gap-4 hover:bg-white/[0.03] transition-colors"
+              >
+                <div className="relative shrink-0">
+                  {member.avatarUrl ? (
+                    <img
+                      src={member.avatarUrl}
+                      alt=""
+                      className="h-10 w-10 rounded-full object-cover border border-white/10"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-[#c084fc]/15 border border-[#c084fc]/25 flex items-center justify-center text-sm font-medium text-[#c084fc]">
+                      {getMemberInitials(member, currentUserId)}
+                    </div>
+                  )}
+                  {isOnline && (
+                    <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#34d399] border-2 border-[#0a0a0f]" />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-[#f4f4f5] truncate">{displayName}</span>
+                    {member.username && !isSelf && (
+                      <span className="text-[10px] text-[#71717a] font-mono truncate">
+                        @{member.username}
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        "text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 border",
+                        member.role === "owner"
+                          ? "bg-[#c084fc]/10 text-[#c084fc] border-[#c084fc]/30"
+                          : member.role === "admin"
+                            ? "bg-white/5 text-[#a1a1aa] border-white/10"
+                            : "bg-white/5 text-[#71717a] border-white/10"
+                      )}
+                    >
+                      {formatRoleLabel(member.role)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-[10px] text-[#71717a]">
+                    {presenceLabel && (
+                      <span className={isOnline ? "text-[#34d399]" : undefined}>{presenceLabel}</span>
+                    )}
+                    {joined && (
+                      <>
+                        {presenceLabel && <span>·</span>}
+                        <span>{joined}</span>
+                      </>
+                    )}
+                    {member.location && (
+                      <>
+                        <span>·</span>
+                        <span>{member.location}</span>
+                      </>
+                    )}
+                    {openTasks > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="text-[#a1a1aa]">
+                          {openTasks} open task{openTasks === 1 ? "" : "s"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {renderMemberActions && (
+                  <div className="shrink-0 flex items-center gap-2">
+                    {renderMemberActions(member, isSelf)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isDualAuthEnforced, isDualAuthSatisfied } from "@/lib/auth/dualAuth";
 
 export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -42,14 +43,58 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAuthPage = 
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/signup") ||
-    request.nextUrl.pathname.startsWith("/auth") ||
-    request.nextUrl.pathname.startsWith("/invite");
+  const pathname = request.nextUrl.pathname;
+
+  const isAuthPage =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/invite");
+
+  const isDualAuthExemptApi =
+    pathname.startsWith("/api/auth/dual-auth") ||
+    pathname.startsWith("/api/auth/signup") ||
+    pathname.startsWith("/api/auth/resend-verification") ||
+    pathname.startsWith("/api/webhooks/brevo-inbound");
+
+  // Block paused users (platform admin can pause accounts)
+  if (user && !isAuthPage) {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("access_paused")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if ((profile as { access_paused?: boolean } | null)?.access_paused) {
+        if (pathname.startsWith("/api/admin")) {
+          return NextResponse.json({ error: "Account paused" }, { status: 403 });
+        }
+        const url = request.nextUrl.clone();
+        url.pathname = "/";
+        url.searchParams.set("paused", "1");
+        const redirect = NextResponse.redirect(url);
+        await supabase.auth.signOut();
+        return redirect;
+      }
+    } catch {
+      // Column may not exist until migration runs — ignore gracefully
+    }
+  }
+
+  // Require dual authentication for live API access (email OTP + optional trusted device)
+  if (
+    user &&
+    isDualAuthEnforced() &&
+    pathname.startsWith("/api/") &&
+    !isDualAuthExemptApi &&
+    !isDualAuthSatisfied(request, user.id)
+  ) {
+    return NextResponse.json({ error: "dual_auth_required" }, { status: 403 });
+  }
 
   // If user is not logged in and trying to access protected routes, redirect to login
-  if (!user && !isAuthPage && request.nextUrl.pathname !== "/") {
+  if (!user && !isAuthPage && pathname !== "/") {
     // For the prototype, we allow the beautiful demo to run without auth.
     // In production, uncomment the redirect:
     // return NextResponse.redirect(new URL("/login", request.url));

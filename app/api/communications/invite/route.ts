@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   }
 
   const { data: invite, error: inviteError } = await (supabase.from("workspace_invites") as ReturnType<typeof supabase.from>)
-    .select("id, workspace_id, email, accepted_at, revoked_at")
+    .select("id, workspace_id, email, accepted_at, expires_at")
     .eq("id", inviteId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -74,15 +74,19 @@ export async function POST(request: Request) {
     workspace_id: string;
     email: string | null;
     accepted_at: string | null;
-    revoked_at: string | null;
+    expires_at: string | null;
   } | null;
 
   if (inviteError || !inviteRow) {
     return NextResponse.json({ error: "Invite not found" }, { status: 404 });
   }
 
-  if (inviteRow.accepted_at || inviteRow.revoked_at) {
+  if (inviteRow.accepted_at) {
     return NextResponse.json({ error: "Invite is no longer active" }, { status: 409 });
+  }
+
+  if (inviteRow.expires_at && new Date(inviteRow.expires_at) < new Date()) {
+    return NextResponse.json({ error: "Invite has expired" }, { status: 409 });
   }
 
   if (inviteRow.email && inviteRow.email.toLowerCase() !== email) {

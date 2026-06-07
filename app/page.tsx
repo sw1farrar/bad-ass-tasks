@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Check, Plus, Command, Users, Settings,
-  ChevronRight, Clock, Star, ArrowUpRight,
+  ChevronRight, Clock, Star, ArrowUpRight, ListChecks, Shield,
   Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat,
   Trash2, Search, RefreshCw, FileText, Download,
 } from "lucide-react";
@@ -13,7 +13,8 @@ import { toast } from "sonner";
 
 import { useTaskStore } from "@/store/useTaskStore";
 import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
-import { cn, formatDueDate, getNextRecurringDue, triggerHaptic, getUserFirstName } from "@/lib/utils";
+import { cn, formatDueDate, triggerHaptic, getUserGreetingName, formatLocalDateShort } from "@/lib/utils";
+import { isDueDatePast } from "@/lib/datetime";
 import { formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
 
 import { CommandPalette } from "@/components/CommandPalette";
@@ -22,26 +23,39 @@ import { Confetti } from "@/components/Confetti";
 import { SupabaseSetupBanner } from "@/components/SupabaseSetupBanner";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { AuthModal } from "@/components/AuthModal";
+import { DualAuthGate } from "@/components/DualAuthGate";
 import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
 import { NotesView } from "@/features/notes/NotesView";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
-import { HomeView } from "@/features/home";
+import { HomeView, HomeListModal, type HomeListModalTarget } from "@/features/home";
+import { SidebarWorkspaceIndicator } from "@/components/SidebarWorkspaceIndicator";
+import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
+import { TasksNavIndicator } from "@/components/TasksNavIndicator";
+import { countOpenAndOverdueTasks } from "@/features/home/lib/computeWorkspaceTaskStats";
+import { isSharedWorkspace } from "@/lib/assignee";
+import { ListsView } from "@/features/lists";
+import { SiteAdminView } from "@/features/admin";
+import "@/features/lists/lists-workspace.css";
 import type { HomeFocusItem } from "@/features/home/lib/buildAttentionItems";
-import { TodayView } from "@/features/today";
 import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
 import { WorkspaceSettingsView } from "@/features/settings";
 import { TransferOwnershipControl } from "@/features/workspace/TransferOwnershipControl";
+import {
+  TeamsAdminDashboard,
+  TeamCollaborationPanel,
+  TeamMemberDirectory,
+} from "@/features/teams/components";
+import { BottomSheet } from "@/components/BottomSheet";
 import { NotificationDetailModal } from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
-import { TaskRow } from "@/features/tasks/components/TaskRow";
-
+import "@/features/tasks/tasks-workspace.css";
 const VIEWS = [
   { id: "home", label: "Home", icon: Home },
-  { id: "today", label: "Today", icon: Clock },
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Notes", icon: Star },
+  { id: "lists", label: "Lists", icon: ListChecks },
   { id: "teams", label: "Team", icon: Users },
   { id: "settings", label: "Workspace Settings", icon: Settings },
 ] as const;
@@ -57,10 +71,10 @@ export default function BadAssTasks() {
     taskFilter,
     selectedTaskId,
     isCommandPaletteOpen,
-    isInitializing,
     user,
     isAuthLoading,
     isSigningOut,
+    isSiteAdmin,
     initializeAuth,
     signOut,
     setView,
@@ -75,16 +89,35 @@ export default function BadAssTasks() {
     completeTask,
     taskLoadingStates,
     getFilteredTasks,
-    getTodayTasks,
     switchWorkspace,
     addNote,
     updateNote,
     deleteNote,
+    getWorkspaceLists,
+    getListItemsForList,
+    getListSummary,
+    addList,
+    updateList,
+    deleteList,
+    reorderLists,
+    toggleListPinned,
+    addListItem,
+    toggleListItem,
+    updateListItem,
+    deleteListItem,
+    reorderListItems,
+    clearCompletedListItems,
     createWorkspace,
     refreshRecentActivity,
     // C4 Phase A Home globals (separate slices)
     globalTodayFocus,
+    globalOpenTaskFocus,
+    globalWorkspaceStats,
+    globalListHighlights,
     fetchGlobalHomeAggregates,
+    refreshHomeListAggregatesFromStore,
+    refreshHomeTaskFocusFromStore,
+    hydrateWorkspaceListData,
     // Offline / sync (Agent 17 mobile polish — exposed from hybrid + store)
     isOnline,
     isSyncing,
@@ -108,6 +141,7 @@ export default function BadAssTasks() {
     declineReceivedInvite,
     updateMyProfile, // self name + location profile editing
     searchPotentialTeammates, // new backend search for name/username/city in empty owner invite state
+    myProfile,
     setupWorkspaceRealtime,
     // Agent 14 realtime presence polish
     updatePresenceMeta,
@@ -147,13 +181,27 @@ export default function BadAssTasks() {
   // or logic that depends on them. (The old `isEmptyOwnerState` identifier has been fully
   // inlined to eliminate all TDZ risk.)
   const myRole = currentWorkspace.role;
+  const isWorkspaceOwner = myRole === "owner";
   const canManage = ["owner", "admin"].includes(myRole);
   const isLiveWorkspace = isSupabaseConfigured() && !["w1", "w2"].includes(currentWorkspace.id);
   const isDemoWs = ["w1", "w2"].includes(currentWorkspace.id);
   const isSingleOwnerWorkspace = myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs;
+  const showWorkspaceChat = isSharedWorkspace(members);
 
   const [confettiTrigger, setConfettiTrigger] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
+  const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
+
+  // Messages panel open by default on desktop (xl sidebar) — only for multi-member workspaces.
+  useEffect(() => {
+    if (!showWorkspaceChat) {
+      setChatOpen(false);
+      return;
+    }
+    if (window.matchMedia("(min-width: 1280px)").matches) {
+      setChatOpen(true);
+    }
+  }, [currentWorkspace.id, showWorkspaceChat]);
 
   const workspaceChat = useWorkspaceChat({
     workspaceId: currentWorkspace.id,
@@ -168,10 +216,25 @@ export default function BadAssTasks() {
   };
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfilePopover, setShowProfilePopover] = useState(false);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
+  const [modalTask, setModalTask] = useState<Task | null>(null);
+  const [homeListModal, setHomeListModal] = useState<HomeListModalTarget | null>(null);
+  const [homeTaskModalContext, setHomeTaskModalContext] = useState<{
+    workspaceId: string;
+    workspaceName: string;
+    taskId: string;
+  } | null>(null);
+  const [pendingWorkspaceNav, setPendingWorkspaceNav] = useState<
+    | { kind: "task"; workspaceId: string; taskId: string }
+    | { kind: "list"; workspaceId: string; listId: string }
+    | null
+  >(null);
+  const [highlightListId, setHighlightListId] = useState<string | null>(null);
   // Refs for outside click detection
   const workspaceMenuRef = React.useRef<HTMLDivElement>(null);
   const notificationsRef = React.useRef<HTMLDivElement>(null);
+  const profilePopoverRef = React.useRef<HTMLDivElement>(null);
   // Notification detail modal (opened from bell dropdown clicks for better readability + actions)
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   // Workspace creation UI state (inline in switcher dropdown — production real DB)
@@ -179,6 +242,10 @@ export default function BadAssTasks() {
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [isCreatingLoading, setIsCreatingLoading] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [dualAuthChecked, setDualAuthChecked] = useState(false);
+  const [dualAuthRequired, setDualAuthRequired] = useState(false);
+  const [dualAuthVerified, setDualAuthVerified] = useState(false);
+  const [dualAuthEmail, setDualAuthEmail] = useState("");
 
   // Modern confirmation modals state
   const [pendingDeleteNote, setPendingDeleteNote] = useState<string | null>(null);
@@ -256,17 +323,32 @@ export default function BadAssTasks() {
   // Close dropdowns when clicking outside
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(event.target as Node)) {
+      if (
+        showWorkspaceMenu &&
+        workspaceMenuRef.current &&
+        !workspaceMenuRef.current.contains(event.target as Node)
+      ) {
         setShowWorkspaceMenu(false);
       }
-      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+      if (
+        showNotifications &&
+        notificationsRef.current &&
+        !notificationsRef.current.contains(event.target as Node)
+      ) {
         setShowNotifications(false);
+      }
+      if (
+        showProfilePopover &&
+        profilePopoverRef.current &&
+        !profilePopoverRef.current.contains(event.target as Node)
+      ) {
+        setShowProfilePopover(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showProfilePopover, showWorkspaceMenu, showNotifications]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
 
   // Extracted note keyboard (M2 extraction - reduces monolith)
@@ -332,7 +414,6 @@ export default function BadAssTasks() {
   const [profileUsername, setProfileUsername] = useState("");
   const [profileLocation, setProfileLocation] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [showProfilePopover, setShowProfilePopover] = useState(false);
 
 
 
@@ -343,17 +424,34 @@ export default function BadAssTasks() {
   // Perf: memoize expensive filter + sort (large task lists, frequent re-renders from DnD/state)
   // Note: getFilteredTasks is stable from Zustand but computation is non-trivial.
   const filteredTasks = useMemo(() => getFilteredTasks(), [getFilteredTasks, tasks, taskFilter]);
-  const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
-  // Today view derived data — computed client-side only to prevent hydration mismatch
-  // (getTodayTasks uses new Date() which differs between server and client)
-  const [todayTasks, setTodayTasks] = useState<Task[]>([]);
-  const [activeTaskCount, setActiveTaskCount] = useState(0);
+  const currentWorkspaceTaskCounts = useMemo(() => {
+    const wsId = currentWorkspace.id;
+    const wsTasks = tasks.filter((t) => t.workspaceId === wsId);
+    if (wsTasks.length > 0) {
+      return countOpenAndOverdueTasks(wsTasks);
+    }
+    const stats = globalWorkspaceStats?.[wsId];
+    return {
+      openCount: stats?.openCount ?? 0,
+      overdueCount: stats?.overdueCount ?? 0,
+    };
+  }, [tasks, currentWorkspace.id, globalWorkspaceStats]);
 
-  useEffect(() => {
-    setTodayTasks(getTodayTasks());
-    setActiveTaskCount(tasks.filter((t) => t.status !== "done").length);
-  }, [tasks]);
+  const selectedTask = useMemo(() => {
+    if (!showFullTaskModal) return undefined;
+    if (modalTask) {
+      const fromWorkspace = tasks.find((t) => t.id === modalTask.id);
+      if (fromWorkspace) return fromWorkspace;
+      const fromFocus =
+        globalTodayFocus.find((f) => f.task.id === modalTask.id)?.task ??
+        globalOpenTaskFocus.find((f) => f.task.id === modalTask.id)?.task;
+      if (fromFocus) return fromFocus;
+      return modalTask;
+    }
+    return tasks.find((t) => t.id === selectedTaskId);
+  }, [showFullTaskModal, modalTask, tasks, selectedTaskId, globalTodayFocus, globalOpenTaskFocus]);
+
   // selectedNote removed (was only for legacy renderNoteDetail modal; rich detail now inline in Notes view)
 
   // Initialize auth first; live users get workspace + data bootstrap inside initializeAuth
@@ -368,15 +466,134 @@ export default function BadAssTasks() {
     })();
   }, []);
 
+  const liveBootstrapUserRef = React.useRef<string | null>(null);
+
+  const bootstrapLiveSession = React.useCallback(async () => {
+    const store = useTaskStore.getState();
+    await store.ensureUserHasWorkspace();
+    await store.initializeFromSupabase();
+    await Promise.all([
+      store.fetchSiteAdminStatus(),
+      store.fetchMyProfile(),
+    ]);
+    if (user?.id && isSupabaseConfigured()) {
+      (store as { _setupUserNotificationsRealtime?: (id: string) => void })
+        ._setupUserNotificationsRealtime?.(user.id);
+    }
+    await store.fetchNotifications?.(false).catch(() => undefined);
+  }, [user?.id]);
+
+  // Dual authentication: email OTP after sign-in unless this device is trusted (up to 30 days).
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setDualAuthChecked(true);
+      setDualAuthRequired(false);
+      setDualAuthVerified(true);
+      return;
+    }
+
+    if (!user || isAuthLoading) {
+      if (!user) {
+        setDualAuthChecked(true);
+        setDualAuthRequired(false);
+        setDualAuthVerified(false);
+        setDualAuthEmail("");
+      } else {
+        setDualAuthChecked(false);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const maxAttempts = 5;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (cancelled) return;
+        try {
+          const response = await fetch("/api/auth/dual-auth/status", { cache: "no-store" });
+          const payload = (await response.json().catch(() => ({}))) as {
+            required?: boolean;
+            verified?: boolean;
+            enforced?: boolean;
+            email?: string;
+            error?: string;
+          };
+
+          if (response.status === 401 && attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+            continue;
+          }
+
+          if (cancelled) return;
+
+          if (!response.ok) {
+            // Fail closed: require verification when status cannot be confirmed for a live session.
+            setDualAuthRequired(true);
+            setDualAuthVerified(false);
+            setDualAuthEmail(payload.email || user.email || "your email");
+            break;
+          }
+
+          setDualAuthRequired(!!payload.required);
+          setDualAuthVerified(!!payload.verified);
+          setDualAuthEmail(payload.email || "your email");
+          break;
+        } catch {
+          if (cancelled) return;
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+            continue;
+          }
+          setDualAuthRequired(true);
+          setDualAuthVerified(false);
+          setDualAuthEmail(user.email || "your email");
+        }
+      }
+
+      if (!cancelled) setDualAuthChecked(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isAuthLoading]);
+
+  // Load live data only after dual-auth passes (or when dual-auth is not enforced).
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user || !dualAuthChecked) return;
+    if (dualAuthRequired && !dualAuthVerified) return;
+    if (liveBootstrapUserRef.current === user.id) return;
+
+    setIsLiveBootstrapping(true);
+    void bootstrapLiveSession()
+      .then(() => {
+        liveBootstrapUserRef.current = user.id;
+      })
+      .catch(() => {
+        liveBootstrapUserRef.current = null;
+      })
+      .finally(() => {
+        setIsLiveBootstrapping(false);
+      });
+  }, [user, dualAuthChecked, dualAuthRequired, dualAuthVerified, bootstrapLiveSession]);
+
+  useEffect(() => {
+    if (!user) liveBootstrapUserRef.current = null;
+  }, [user]);
+
+  const handleDualAuthVerified = () => {
+    setDualAuthVerified(true);
+  };
+
   // Ensure notifications (including cross-workspace invites) are loaded early for the recipient banner + bell badge.
   // The store now auto-fetches on init/switch, but we also kick it here once we have a live user so the global
   // "you were invited" banner appears immediately without requiring the user to open the bell first.
   useEffect(() => {
-    if (user && isSupabaseConfigured()) {
+    if (user && isSupabaseConfigured() && dualAuthVerified) {
       // Fire-and-forget; the store will populate the notifications array which drives the banner.
       fetchNotifications?.(false).catch(() => {});
     }
-  }, [user]);
+  }, [user, dualAuthVerified]);
 
   // Legacy invite links (?invite=UUID) → dedicated invite landing page
   useEffect(() => {
@@ -404,13 +621,14 @@ export default function BadAssTasks() {
     })();
   }, [user, switchWorkspace]);
 
-  // Deep links for PWA shortcuts + shareable views (Agent 27): ?view=today|tasks|notes|teams
+  // Deep links for PWA shortcuts + shareable views: ?view=home|tasks|notes|teams
   // Initializes from manifest shortcuts (?view=...&source=pwa). Syncs on change for back/forward + share.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const rawView = params.get("view");
-    const urlView = rawView === "calendar" ? "tasks" : rawView;
+    const urlView =
+      rawView === "calendar" || rawView === "today" ? "home" : rawView;
     const validViews = VIEWS.map(v => v.id);
     if (urlView && validViews.includes(urlView as (typeof VIEWS)[number]["id"]) && urlView !== currentView) {
       setView(urlView as (typeof VIEWS)[number]["id"]);
@@ -428,7 +646,7 @@ export default function BadAssTasks() {
     }
   }, [currentView]);
 
-  // Pull-to-refresh for mobile lists (Today/Tasks/Notes). Threshold + haptic + optimistic refresh.
+  // Pull-to-refresh for mobile lists. Threshold + haptic + optimistic refresh.
   // Uses passive touch on .main-content when near top. No new libs.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -463,8 +681,6 @@ export default function BadAssTasks() {
           if (refreshRecentActivity) {
             await refreshRecentActivity();
           }
-          setTodayTasks(getTodayTasks());
-          setActiveTaskCount(tasks.filter((t) => t.status !== "done").length);
           toast.success("Refreshed", { description: "Data and activity synced." });
         } catch {}
         setTimeout(() => setIsPullRefreshing(false), 350);
@@ -483,9 +699,23 @@ export default function BadAssTasks() {
   }, [pullDistance, isPullRefreshing, refreshRecentActivity, tasks]);
 
   const isConfigured = isSupabaseConfigured();
-  const isTrulyLive = isConfigured && !!user;
-  const showSessionGate = isConfigured && (isAuthLoading || isSigningOut);
+  const isTrulyLive = isConfigured && !!user && dualAuthVerified;
+  const showSessionGate =
+    isConfigured && (isAuthLoading || isSigningOut || (!!user && !dualAuthChecked));
   const showLandingGate = isConfigured && !user && !isSigningOut;
+  const showDualAuthGate =
+    isConfigured &&
+    !!user &&
+    dualAuthChecked &&
+    dualAuthRequired &&
+    !dualAuthVerified &&
+    !isSigningOut;
+  const showBootstrapGate =
+    isConfigured &&
+    !!user &&
+    dualAuthChecked &&
+    (!dualAuthRequired || dualAuthVerified) &&
+    (isLiveBootstrapping || currentWorkspace.name === "Loading your workspaces...");
 
   const handleInstallApp = async () => {
     if (deferredPrompt) {
@@ -508,55 +738,122 @@ export default function BadAssTasks() {
   const handleComplete = async (id: string) => {
     triggerHaptic("success");
     const task = tasks.find((t) => t.id === id);
-    if (!task || task.status === "done" || taskLoadingStates?.[id]) return;
+    if (!task || taskLoadingStates?.[id]) return;
 
-    if (task.recurringRule) {
-      const next = getNextRecurringDue(task.recurringRule, new Date(), task.dueDate, task.exceptionDates);
-      if (next) {
-        await updateTask(id, { dueDate: next.toISOString() });
-        toast.success("Recurrence advanced", {
-          description: `${task.title} → next due ${format(next, "MMM d")}`,
-        });
-        return;
-      }
+    if (task.status === "done") {
+      await updateTask(id, { status: "todo", completedAt: undefined });
+      toast.success("Task reopened", { description: task.title });
+      return;
     }
 
-    await completeTask(id);
-    setConfettiTrigger((c) => c + 1);
-    toast.success("Task completed", {
-      description: task.title,
-      action: {
-        label: "Undo",
-        onClick: async () => {
-          await updateTask(id, { status: "todo", completedAt: undefined });
+    const result = await completeTask(id);
+    if (result === "advanced") {
+      const updated = useTaskStore.getState().tasks.find((t) => t.id === id);
+      const nextLabel = updated?.dueDate ? formatLocalDateShort(updated.dueDate) : "";
+      toast.success("Recurrence advanced", {
+        description: `${task.title}${nextLabel ? ` → next due ${nextLabel}` : ""}`,
+      });
+      return;
+    }
+    if (result === "completed") {
+      setConfettiTrigger((c) => c + 1);
+      toast.success("Task completed", {
+        description: task.title,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            await updateTask(id, { status: "todo", completedAt: undefined });
+          },
         },
-      },
-    });
+      });
+    }
   };
 
   const openTask = (task: Task) => {
     selectTask(task.id);
+    setModalTask(task);
     setShowFullTaskModal(true);
   };
 
-  const ensureWorkspaceForHomeAction = async (workspaceId: string) => {
+  const handleHomeOpenFocusTask = (item: HomeFocusItem) => {
+    setHomeTaskModalContext({
+      workspaceId: item.workspaceId,
+      workspaceName: item.workspaceName,
+      taskId: item.task.id,
+    });
+    openTask(item.task);
+  };
+
+  const navigateToTaskInWorkspace = (workspaceId: string, taskId: string) => {
+    setShowFullTaskModal(false);
+    setModalTask(null);
+    setPendingWorkspaceNav({ kind: "task", workspaceId, taskId });
+    setView("tasks");
     if (currentWorkspace.id !== workspaceId) {
       switchWorkspace(workspaceId);
-      await useTaskStore.getState().initializeFromSupabase();
     }
   };
 
-  const handleHomeOpenFocusTask = async (item: HomeFocusItem) => {
-    await ensureWorkspaceForHomeAction(item.workspaceId);
-    const freshTask =
-      useTaskStore.getState().tasks.find((t) => t.id === item.task.id) || item.task;
-    openTask(freshTask);
+  const navigateToListInWorkspace = (workspaceId: string, listId: string) => {
+    refreshHomeListAggregatesFromStore();
+    setHomeListModal(null);
+    setView("lists");
+    if (currentWorkspace.id !== workspaceId) {
+      setPendingWorkspaceNav({ kind: "list", workspaceId, listId });
+      switchWorkspace(workspaceId);
+      return;
+    }
+    void hydrateWorkspaceListData(workspaceId).then(() => {
+      setHighlightListId(listId);
+    });
+  };
+
+  const handleHomeOpenList = (listId: string, workspaceId: string) => {
+    const highlight = (globalListHighlights || []).find(
+      (l) => l.id === listId && l.workspaceId === workspaceId,
+    );
+    const storedList = useTaskStore
+      .getState()
+      .workspaceLists.find((l) => l.id === listId && l.workspaceId === workspaceId);
+    const workspaceName =
+      highlight?.workspaceName ??
+      workspaces.find((w) => w.id === workspaceId)?.name ??
+      "Workspace";
+    setHomeListModal({
+      listId,
+      workspaceId,
+      workspaceName,
+      title: highlight?.title ?? storedList?.title ?? "Untitled list",
+      color: highlight?.color ?? storedList?.color ?? "default",
+    });
   };
 
   const handleHomeCompleteFocusTask = async (item: HomeFocusItem) => {
-    await ensureWorkspaceForHomeAction(item.workspaceId);
+    const wasDone = item.task.status === "done";
     await handleComplete(item.task.id);
-    fetchGlobalHomeAggregates();
+    refreshHomeTaskFocusFromStore();
+
+    const state = useTaskStore.getState();
+    const hasLocalTasks = state.tasks.some((t) => t.workspaceId === item.workspaceId);
+    if (!hasLocalTasks) {
+      const stats = state.globalWorkspaceStats[item.workspaceId];
+      if (stats) {
+        useTaskStore.setState({
+          globalWorkspaceStats: {
+            ...state.globalWorkspaceStats,
+            [item.workspaceId]: {
+              ...stats,
+              openCount: wasDone
+                ? stats.openCount + 1
+                : Math.max(0, stats.openCount - 1),
+              doneCount: wasDone
+                ? Math.max(0, stats.doneCount - 1)
+                : stats.doneCount + 1,
+            },
+          },
+        });
+      }
+    }
   };
 
   const handleHomeAcceptInvite = async (inviteId: string) => {
@@ -593,81 +890,59 @@ export default function BadAssTasks() {
   const homeUserDisplayName = useMemo(() => {
     const selfMember = members.find((m) => m.userId === user?.id);
     const metaName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name;
-    return getUserFirstName({
-      profileFullName,
-      memberFullName: selfMember?.fullName,
+    return getUserGreetingName({
+      profileFullName: profileFullName || myProfile?.fullName,
+      memberFullName: myProfile?.fullName || selfMember?.fullName,
       authFullName: metaName,
-      username: selfMember?.username,
       email: user?.email,
     });
-  }, [user, profileFullName, members]);
-
-  const renderTaskRow = (task: Task) => {
-    const due = formatDueDate(task.dueDate);
-    const isDone = task.status === "done";
-    const isOpLoading = !!taskLoadingStates?.[task.id];
-    const onlineEditorsCount = (remoteCursors || []).filter(
-      (c: { itemId?: string; itemType?: string }) => c.itemId === task.id && c.itemType === "task"
-    ).length;
-
-    return (
-      <TaskRow
-        key={task.id}
-        task={task}
-        isDone={isDone}
-        isOpLoading={isOpLoading}
-        due={due}
-        onlineEditorsCount={onlineEditorsCount}
-        onOpen={openTask}
-        onComplete={handleComplete}
-        onSwipeComplete={(id) => handleComplete(id)}
-      />
-    );
-  };
-
-  const renderTodayView = () => (
-    <TodayView
-      todayTasks={todayTasks}
-      activeTaskCount={activeTaskCount}
-      setView={setView}
-      renderTaskRow={renderTaskRow}
-    />
-  );
+  }, [user, profileFullName, myProfile, members]);
 
   const renderTasksView = () => (
-    <div className="flex flex-col gap-3 min-h-0 max-w-5xl">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
-        <input
-          value={taskFilter.search || ""}
-          onChange={(e) => setTaskFilter({ search: e.target.value })}
-          placeholder="Filter tasks…"
-          className="input px-3 py-2.5 rounded-xl text-sm max-w-md"
+    <div className="tasks-root">
+      <div className="tasks-workspace flex flex-col gap-3 min-h-0 w-full">
+        <WorkspaceViewHeader
+          variant="inline"
+          title="Tasks"
+          workspaceName={currentWorkspace.name}
+          icon={<Check className="h-6 w-6" />}
+          meta={`${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"} · ${currentWorkspaceTaskCounts.openCount} open`}
+          className="mb-1"
         />
-        <div className="flex gap-1.5 overflow-x-auto pb-1 text-[10px]">
-          {(["all", "only", "none"] as const).map((mode) => (
-            <button
-              key={`rec-${mode}`}
-              onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
-              className={cn(
-                "px-2 py-1 rounded-full border transition shrink-0",
-                (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
-                  ? "bg-[#c084fc] text-black border-[#c084fc]"
-                  : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
-              )}
-            >
-              {mode === "all" ? "All" : mode === "only" ? "Recurring" : "One-off"}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+          <input
+            value={taskFilter.search || ""}
+            onChange={(e) => setTaskFilter({ search: e.target.value })}
+            placeholder="Filter tasks…"
+            className="input px-3 py-2.5 rounded-xl text-sm max-w-md"
+          />
+          <div className="flex gap-2 overflow-x-auto pb-1 text-xs snap-x snap-mandatory touch-pan-x -mx-1 px-1">
+            {(["all", "only", "none"] as const).map((mode) => (
+              <button
+                key={`rec-${mode}`}
+                onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
+                className={cn(
+                  "px-3 py-2 min-h-[44px] rounded-full border transition shrink-0 snap-start",
+                  (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
+                    ? "bg-[#c084fc] text-black border-[#c084fc]"
+                    : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+                )}
+              >
+                {mode === "all" ? "All" : mode === "only" ? "Recurring" : "One-off"}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <TasksTable
-        tasks={filteredTasks}
-        taskLoadingStates={taskLoadingStates}
-        onOpenTask={openTask}
-        onComplete={handleComplete}
-        onAddTask={addTask}
-      />
+        <TasksTable
+          tasks={filteredTasks}
+          taskLoadingStates={taskLoadingStates}
+          onOpenTask={openTask}
+          onComplete={handleComplete}
+          onAddTask={addTask}
+          onSwipeComplete={handleComplete}
+        />
+      </div>
     </div>
   );
 
@@ -731,10 +1006,10 @@ export default function BadAssTasks() {
         return;
       }
 
-      if (!typing && !paletteOpen && !showFullTaskModal && !showAuthModal && !isKeyboardCheatsheetOpen) {
-        if (e.key === "1") { setView("today"); return; }
-        if (e.key === "2") { setView("tasks"); return; }
-        if (e.key === "3") { setView("notes"); return; }
+      if (!typing && !paletteOpen && !showFullTaskModal && !homeListModal && !showAuthModal && !isKeyboardCheatsheetOpen) {
+        if (e.key === "1") { setView("tasks"); return; }
+        if (e.key === "2") { setView("notes"); return; }
+        if (e.key === "3") { setView("lists"); return; }
         if (e.key === "4") { setView("teams"); return; }
         if (e.key === "5") { setView("settings"); return; }
       }
@@ -750,6 +1025,10 @@ export default function BadAssTasks() {
         }
         if (showFullTaskModal) {
           setShowFullTaskModal(false);
+          return;
+        }
+        if (homeListModal) {
+          setHomeListModal(null);
           return;
         }
         if (selectedTaskId) {
@@ -768,7 +1047,7 @@ export default function BadAssTasks() {
       if (e.key === " " && selectedTaskId && !typing) {
         e.preventDefault();
         const task = tasks.find((t) => t.id === selectedTaskId);
-        if (task && task.status !== "done") {
+        if (task) {
           handleComplete(task.id);
         }
       }
@@ -785,6 +1064,7 @@ export default function BadAssTasks() {
     isCommandPaletteOpen,
     isKeyboardCheatsheetOpen,
     showFullTaskModal,
+    homeListModal,
     showAuthModal,
     setView,
   ]);
@@ -797,33 +1077,85 @@ export default function BadAssTasks() {
   useEffect(() => {
     if (currentView === "home") {
       fetchGlobalHomeAggregates();
+      fetchNotifications?.(false).catch(() => {});
     }
-  }, [currentView, fetchGlobalHomeAggregates]);
+  }, [currentView, fetchGlobalHomeAggregates, fetchNotifications]);
+
+  useEffect(() => {
+    if (workspaceChat.hasUnread) {
+      fetchGlobalHomeAggregates();
+    }
+  }, [workspaceChat.hasUnread, fetchGlobalHomeAggregates]);
+
+  useEffect(() => {
+    if (currentView !== "lists") setHighlightListId(null);
+  }, [currentView]);
+
+  useEffect(() => {
+    if (!pendingWorkspaceNav) return;
+    if (currentWorkspace.id !== pendingWorkspaceNav.workspaceId) return;
+
+    if (pendingWorkspaceNav.kind === "task") {
+      if (currentView !== "tasks") return;
+      const task =
+        tasks.find((t) => t.id === pendingWorkspaceNav.taskId) ??
+        globalTodayFocus.find((f) => f.task.id === pendingWorkspaceNav.taskId)?.task ??
+        globalOpenTaskFocus.find((f) => f.task.id === pendingWorkspaceNav.taskId)?.task;
+      if (task) {
+        setHomeTaskModalContext(null);
+        openTask(task);
+        setPendingWorkspaceNav(null);
+      }
+      return;
+    }
+
+    if (currentView !== "lists") return;
+    void hydrateWorkspaceListData(pendingWorkspaceNav.workspaceId).then(() => {
+      setHighlightListId(pendingWorkspaceNav.listId);
+      setPendingWorkspaceNav(null);
+    });
+  }, [
+    pendingWorkspaceNav,
+    currentWorkspace.id,
+    currentView,
+    tasks,
+    globalTodayFocus,
+    globalOpenTaskFocus,
+    hydrateWorkspaceListData,
+  ]);
 
   const renderHomeView = () => {
     const workspacePulse = (workspaces || []).map((ws) => {
       const wsFocus = (globalTodayFocus || []).filter((f) => f.workspaceId === ws.id);
-      const overdue = wsFocus.filter((f) => {
+      const stats = globalWorkspaceStats?.[ws.id];
+      const overdue = stats?.overdueCount ?? wsFocus.filter((f) => {
         if (!f.task.dueDate) return false;
-        const due = new Date(f.task.dueDate);
-        const now = new Date();
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        due.setHours(0, 0, 0, 0);
-        return due < todayStart;
+        return isDueDatePast(f.task.dueDate);
       }).length;
+
+      const assignedToYou = wsFocus.filter(
+        (f) =>
+          f.task.assigneeIds?.[0] === user?.id || f.task.assignee === "You"
+      ).length;
 
       return {
         id: ws.id,
         name: ws.name,
         role: ws.role,
-        dueToday: wsFocus.length,
+        openTasks: stats?.openCount ?? 0,
+        dueToday: stats?.dueTodayCount ?? wsFocus.length,
         overdue,
+        assigneeBreakdown: stats?.assigneeBreakdown ?? [],
+        assignedToYou,
         unreadNotifications: (notifications || []).filter(
           (n: Notification) => !n.readAt && n.workspaceId === ws.id
         ).length,
+        unreadChat: stats?.unreadChat ?? false,
         isCurrent: currentWorkspace.id === ws.id,
         onlineCount: currentWorkspace.id === ws.id ? (onlineUsers || []).length : undefined,
+        listCount: stats?.listCount ?? 0,
+        openListItemsCount: stats?.openListItemsCount ?? 0,
+        memberCount: stats?.memberCount,
       };
     });
 
@@ -834,19 +1166,22 @@ export default function BadAssTasks() {
         switchWorkspace={switchWorkspace}
         setView={setView}
         globalTodayFocus={globalTodayFocus}
+        globalOpenTaskFocus={globalOpenTaskFocus}
         notifications={notifications}
         workspacePulse={workspacePulse}
         taskLoadingStates={taskLoadingStates}
-        onQuickAddTask={() => {
-          setView("tasks");
-          setTimeout(() => {
-            const input = document.getElementById("task-quick-add") as HTMLInputElement | null;
-            input?.focus();
-          }, 10);
-        }}
-        onQuickAddNote={() => setView("notes")}
-        onOpenChat={() => setChatOpen(true)}
-        onOpenCommandPalette={() => toggleCommandPalette(true)}
+        listPreviews={(globalListHighlights || []).map((list) => ({
+          id: list.id,
+          title: list.title,
+          color: list.color,
+          workspaceId: list.workspaceId,
+          workspaceName: list.workspaceName,
+          openCount: list.openCount,
+          totalCount: list.totalCount,
+          preview: list.preview,
+          pinned: list.pinned,
+        }))}
+        onOpenList={handleHomeOpenList}
         onCompleteFocusTask={handleHomeCompleteFocusTask}
         onOpenFocusTask={handleHomeOpenFocusTask}
         onAcceptInvite={handleHomeAcceptInvite}
@@ -867,6 +1202,7 @@ export default function BadAssTasks() {
     updateNote,
     deleteNote,
     updateTask,
+    completeTask,
     addTask,
     openTask,
     setPendingDeleteNote,
@@ -874,6 +1210,29 @@ export default function BadAssTasks() {
     // (moved out of this renderNotesView) can apply the exact same live-only guard.
     isTrulyLive,
   });
+
+  const renderListsView = () => {
+    const lists = getWorkspaceLists();
+    return (
+      <ListsView
+        workspaceName={currentWorkspace.name}
+        lists={lists}
+        getItemsForList={getListItemsForList}
+        onAddList={(title) => { void addList(title); }}
+        onUpdateList={(id, updates) => { void updateList(id, updates); }}
+        onDeleteList={(id) => { void deleteList(id); }}
+        onTogglePinned={(id) => { void toggleListPinned(id); }}
+        onAddItem={(listId, text) => { void addListItem(listId, text); }}
+        onToggleItem={(id) => { void toggleListItem(id); }}
+        onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
+        onDeleteItem={(id) => { void deleteListItem(id); }}
+        onReorderLists={reorderLists}
+        onReorderItems={reorderListItems}
+        onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
+        highlightListId={highlightListId}
+      />
+    );
+  };
 
   const renderNotesView = () => {
     return (
@@ -893,6 +1252,7 @@ export default function BadAssTasks() {
           if (t) openTask(t);
         }}
         onToggleTaskStatus={noteOps.onToggleTaskStatus}
+        onToggleTaskComplete={noteOps.onToggleTaskComplete}
         onUpdateTask={noteOps.onUpdateTask}
         onCreateTaskAndEmbed={noteOps.onCreateTaskAndEmbed}
         onCreateTaskAndLink={noteOps.onCreateTaskAndLink}
@@ -1003,12 +1363,6 @@ export default function BadAssTasks() {
       setPendingResendInvite({ inviteId, label: label || inviteId.slice(0, 8) });
     };
 
-    const handleManualAccept = async () => {
-      const token = prompt("Paste invite token (UUID from link):");
-      if (!token) return;
-      await acceptInviteLink(token.trim());
-    };
-
     // === Special modern empty state for owners with no other members yet ===
     // Inlined predicate (using early-declared myRole/members/etc.) completely removes the
     // 'isEmptyOwnerState' identifier from executable code. This eliminates all TDZ risk.
@@ -1019,7 +1373,10 @@ export default function BadAssTasks() {
             <div className="mx-auto mb-6 h-20 w-20 rounded-3xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
               <Users className="h-10 w-10 text-black" />
             </div>
-            <div className="text-4xl font-semibold tracking-tighter mb-3">Team</div>
+            <div className="text-4xl font-semibold tracking-tighter mb-2">Team</div>
+            <div className="inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-3 py-1 text-sm font-semibold tracking-tight text-[#e9d5ff] mb-3 truncate">
+              {currentWorkspace.name}
+            </div>
 
             {/* Recipient context — only show for non-owners of this workspace */}
             {currentWorkspace.role && currentWorkspace.role !== 'owner' && (
@@ -1295,131 +1652,113 @@ export default function BadAssTasks() {
       );
     }
 
+    const teamOnlineUserIds = new Set(
+      (onlineUsers || [])
+        .map((u) => u.userId)
+        .filter((id): id is string => !!id)
+    );
+
     return (
       <div className="max-w-4xl mx-auto space-y-8 pb-12">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Users className="h-8 w-8 text-[#c084fc]" />
-            <div className="text-2xl font-semibold tracking-tighter">Team</div>
-          </div>
-          <div className="flex items-center gap-2">
-            {canManage && isLive && !isDemoWs && (
+        <WorkspaceViewHeader
+          variant="inline-centered"
+          title="Team"
+          workspaceName={currentWorkspace.name}
+          icon={<Users className="h-6 w-6" />}
+          className="mb-6"
+          actions={
+            canManage && isLive && !isDemoWs ? (
               <button
                 onClick={() => setShowInviteDialog(true)}
                 className="btn btn-primary text-sm flex items-center gap-2"
               >
                 <Plus className="h-4 w-4" /> Invite
               </button>
-            )}
-            <button onClick={handleManualAccept} className="btn btn-ghost text-xs px-3 py-1.5" disabled={!isLive}>
-              Accept invite
-            </button>
-          </div>
-        </div>
+            ) : undefined
+          }
+        />
 
-        {/* Presence */}
-        {onlineUsers.length > 0 && (
-          <div className="glass rounded-2xl p-4 border border-white/10">
-            <div className="flex flex-wrap gap-2">
-              {onlineUsers.map((u) => (
-                <div key={u.userId || u.presenceRef} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00ff9f]/10 text-[#00ff9f] text-xs border border-[#00ff9f]/20">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#00ff9f] animate-pulse" />
-                  {(u as any).fullName || ((u as any).username ? `@${(u as any).username}` : "Online")}
+        <TeamCollaborationPanel
+          tasks={tasks}
+          members={members}
+          recentActivity={recentActivity}
+          currentUserId={user?.id}
+          onlineCount={onlineUsers.length}
+          onOpenTasks={() => setView("tasks")}
+          onOpenHome={() => setView("home")}
+          onOpenChat={() => setChatOpen(true)}
+        />
+
+        <TeamMemberDirectory
+          members={members}
+          tasks={tasks}
+          onlineUserIds={teamOnlineUserIds}
+          currentUserId={user?.id}
+          isLoading={isLoadingMembers}
+          renderMemberActions={(m, isSelf) => {
+            const canActOnThis = canManage && !isSelf;
+            if (canActOnThis) {
+              return (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={m.role}
+                    onChange={(e) => handleRoleChange(m.userId, e.target.value as WorkspaceRole)}
+                    className="bg-[#111114] border border-white/20 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#c084fc]"
+                    disabled={!isLive}
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                    <option value="owner">Owner</option>
+                  </select>
+                  <button
+                    onClick={() => {
+                      const display = m.fullName || (m.username ? `@${m.username}` : "this teammate");
+                      handleRemove(m.userId, display);
+                    }}
+                    className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
+                    aria-label="Remove member"
+                    title="Remove member"
+                    disabled={!isLive}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Profile editing lives in the avatar menu (top-right) to avoid duplication on the Teams page. */}
-
-        {/* Members list with role enforcement */}
-        <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-          <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
-            <div className="font-medium">Members ({members.length})</div>
-            {isLoadingMembers && <Loader2 className="h-4 w-4 animate-spin text-[#c084fc]" />}
-          </div>
-
-          {members.length === 0 ? (
-            <div className="p-8 text-center text-[#71717a] text-sm">No members</div>
-          ) : (
-            <div className="divide-y divide-white/10 text-sm">
-              {members.map((m) => {
-                const isSelf = m.userId === user?.id;
-                const canActOnThis = canManage && !isSelf;
+              );
+            }
+            if (isSelf) {
+              if (myRole === "owner") {
                 return (
-                  <div key={m.userId} className="px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">
-                        {m.fullName || (m.username ? `@${m.username}` : "Member")}
-                      </div>
-                    </div>
-
-                    <div className="text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
-                      {formatRoleLabel(m.role)}
-                    </div>
-
-                    {canActOnThis ? (
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={m.role}
-                          onChange={(e) => handleRoleChange(m.userId, e.target.value as any)}
-                          className="bg-[#111114] border border-white/20 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#c084fc]"
-                          disabled={!isLive}
-                        >
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
-                          <option value="owner">Owner</option>
-                        </select>
-                        <button
-                          onClick={() => {
-                            const display = m.fullName || (m.username ? `@${m.username}` : "this teammate");
-                            handleRemove(m.userId, display);
-                          }}
-                          className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
-                          aria-label="Remove member"
-                          title="Remove member"
-                          disabled={!isLive}
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      </div>
-                    ) : isSelf ? (
-                      myRole === "owner" ? (
-                        <TransferOwnershipControl
-                          members={members}
-                          currentUserId={user?.id}
-                          disabled={!isLive}
-                          variant="compact"
-                        />
-                      ) : (
-                        <button
-                          onClick={async () => {
-                            const wsId = currentWorkspace?.id;
-                            if (!wsId) return;
-                            if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
-                              toast.info("Leave workspace is a live Supabase feature");
-                              return;
-                            }
-                            setPendingLeaveWorkspace(true);
-                          }}
-                          className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
-                          disabled={!isLive}
-                          title="Leave this workspace (self-service exit)"
-                        >
-                          Leave team
-                        </button>
-                      )
-                    ) : (
-                      <div className="text-[10px] text-[#71717a] px-2"></div>
-                    )}
-                  </div>
+                  <TransferOwnershipControl
+                    members={members}
+                    currentUserId={user?.id}
+                    disabled={!isLive}
+                    variant="compact"
+                  />
                 );
-              })}
-            </div>
-          )}
-        </div>
+              }
+              return (
+                <button
+                  onClick={() => {
+                    const wsId = currentWorkspace?.id;
+                    if (!wsId) return;
+                    if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
+                      toast.info("Leave workspace is a live Supabase feature");
+                      return;
+                    }
+                    setPendingLeaveWorkspace(true);
+                  }}
+                  className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
+                  disabled={!isLive}
+                  title="Leave this workspace (self-service exit)"
+                >
+                  Leave team
+                </button>
+              );
+            }
+            return null;
+          }}
+        />
 
         {/* Pending Invites (owner/admin only) */}
         {canManage && isLive && !isDemoWs && (
@@ -1477,61 +1816,73 @@ export default function BadAssTasks() {
           </div>
         )}
 
-        {/* Invite Dialog */}
-        {showInviteDialog && (
-          <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowInviteDialog(false)}>
-            <div className="glass w-full max-w-md rounded-3xl p-6" onClick={(e) => e.stopPropagation()}>
-              <div className="flex justify-between items-center mb-4">
-                <div className="font-semibold text-xl tracking-tight">Invite to {currentWorkspace.name}</div>
-                <button onClick={() => setShowInviteDialog(false)} aria-label="Close invite dialog" className="text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"><X className="h-5 w-5" /></button>
-              </div>
+        {canManage && (
+          <TeamsAdminDashboard
+            currentWorkspace={currentWorkspace}
+            myRole={myRole}
+            isSingleOwnerWorkspace={isSingleOwnerWorkspace}
+            isLiveWorkspace={isLiveWorkspace}
+            tasks={tasks}
+            notes={notes}
+            members={members}
+            recentActivity={recentActivity}
+            onOpenWorkspaceSettings={() => setView("settings")}
+            canEditWorkspaceDetails={isWorkspaceOwner}
+          />
+        )}
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs text-[#a1a1aa] block mb-1.5">Email (optional)</label>
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="teammate@company.com (leave blank for link-only)"
-                    className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-sm outline-none"
-                    disabled={isSendingInvite}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-[#a1a1aa] block mb-1.5">Role</label>
-                  <select
-                    value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as any)}
-                    className="w-full bg-[#111114] border border-white/20 rounded-xl px-4 py-3 text-sm"
-                    disabled={isSendingInvite}
-                  >
-                    <option value="member">Member (default)</option>
-                    <option value="admin">Admin</option>
-                    <option value="owner">Owner</option>
-                  </select>
-                </div>
-
-                <div className="pt-2 flex gap-3">
-                  <button
-                    onClick={() => setShowInviteDialog(false)}
-                    className="flex-1 btn btn-secondary py-3"
-                    disabled={isSendingInvite}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSendInvite}
-                    disabled={isSendingInvite}
-                    className="flex-1 btn btn-primary py-3 disabled:opacity-60"
-                  >
-                    {isSendingInvite ? "Creating..." : "Create & Copy Invite Link"}
-                  </button>
-                </div>
-              </div>
+        <BottomSheet
+          open={showInviteDialog}
+          onClose={() => setShowInviteDialog(false)}
+          title={`Invite to ${currentWorkspace.name}`}
+          zIndex={220}
+          panelClassName="glass"
+        >
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs text-[#a1a1aa] block mb-1.5">Email (optional)</label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="teammate@company.com (leave blank for link-only)"
+                className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-sm outline-none min-h-[44px]"
+                disabled={isSendingInvite}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-[#a1a1aa] block mb-1.5">Role</label>
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
+                className="w-full bg-[#111114] border border-white/20 rounded-xl px-4 py-3 text-sm min-h-[44px]"
+                disabled={isSendingInvite}
+              >
+                <option value="member">Member (default)</option>
+                <option value="admin">Admin</option>
+                <option value="owner">Owner</option>
+              </select>
+            </div>
+            <div className="pt-2 flex flex-col-reverse sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => setShowInviteDialog(false)}
+                className="flex-1 btn btn-secondary py-3 min-h-[44px]"
+                disabled={isSendingInvite}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSendInvite}
+                disabled={isSendingInvite}
+                className="flex-1 btn btn-primary py-3 min-h-[44px] disabled:opacity-60"
+              >
+                {isSendingInvite ? "Creating..." : "Create & Copy Invite Link"}
+              </button>
             </div>
           </div>
-        )}
+        </BottomSheet>
       </div>
     );
   };
@@ -1539,11 +1890,12 @@ export default function BadAssTasks() {
   const currentViewComponent = () => {
     switch (currentView) {
       case "home": return renderHomeView();
-      case "today": return renderTodayView();
       case "tasks": return renderTasksView();
       case "notes": return renderNotesView();
+      case "lists": return renderListsView();
       case "teams": return renderTeamsView();
       case "settings": return <WorkspaceSettingsView />;
+      case "admin": return isSiteAdmin ? <SiteAdminView /> : renderHomeView();
       default: return renderHomeView();
     }
   };
@@ -1568,13 +1920,36 @@ export default function BadAssTasks() {
           isOpen={showAuthModal}
           onClose={() => setShowAuthModal(false)}
           onSuccess={() => {
-            toast.success("Welcome to Badazz Tasks", {
-              description: "Your workspaces and data are ready.",
+            toast.success("Signed in", {
+              description: "Complete verification if prompted.",
               duration: 4000,
             });
           }}
         />
       </>
+    );
+  }
+
+  if (showDualAuthGate) {
+    return (
+      <DualAuthGate
+        maskedEmail={dualAuthEmail}
+        onVerified={handleDualAuthVerified}
+        onSignOut={() => {
+          void signOut();
+        }}
+      />
+    );
+  }
+
+  if (showBootstrapGate) {
+    return (
+      <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0a0a0f] text-[#f4f4f5]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-[#c084fc]" aria-hidden="true" />
+          <p className="text-sm text-[#71717a]">Loading your workspaces…</p>
+        </div>
+      </div>
     );
   }
 
@@ -1709,7 +2084,7 @@ export default function BadAssTasks() {
                   refreshUnreadCount?.().catch(() => {});
                 }
               }}
-              className="btn btn-ghost h-9 w-9 p-0 flex items-center justify-center rounded-full hover:bg-white/10 border border-white/10 relative transition"
+              className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-white/10 border border-white/10 relative transition"
               title="Notifications"
               aria-label="Notifications"
             >
@@ -1806,43 +2181,65 @@ export default function BadAssTasks() {
             </AnimatePresence>
           </div>
 
-          <button
-            type="button"
-            onClick={toggleChat}
-            className={cn(
-              "relative flex items-center justify-center h-9 w-9 rounded-xl border transition",
-              chatOpen
-                ? "border-[#c084fc]/50 bg-[#c084fc]/10 text-[#c084fc]"
-                : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40"
-            )}
-            aria-label={chatOpen ? "Collapse messages" : "Open messages"}
-            aria-expanded={chatOpen}
-          >
-            <MessageCircle className="h-4 w-4" />
-            {workspaceChat.hasUnread && !chatOpen && (
-              <span
-                className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-[#ff3366] ring-2 ring-[#0a0a0f]"
-                aria-label="Unread messages"
-              />
-            )}
-          </button>
+          {showWorkspaceChat && (
+            <button
+              type="button"
+              onClick={toggleChat}
+              className={cn(
+                "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border transition",
+                chatOpen
+                  ? "border-[#c084fc]/50 bg-[#c084fc]/10 text-[#c084fc]"
+                  : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40"
+              )}
+              aria-label={chatOpen ? "Collapse messages" : "Open messages"}
+              aria-expanded={chatOpen}
+            >
+              <MessageCircle className="h-4 w-4" />
+              {workspaceChat.hasUnread && !chatOpen && (
+                <span
+                  className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-[#ff3366] ring-2 ring-[#0a0a0f]"
+                  aria-label="Unread messages"
+                />
+              )}
+            </button>
+          )}
 
           {/* Polished Auth + User Area (Phase 1 UX track) */}
+          <div ref={profilePopoverRef} className="relative">
           {isAuthLoading ? (
             <div className="flex items-center gap-2 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs text-[#71717a]">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-[#c084fc]" />
               <span className="hidden md:inline">AuthenticatingΓÇª</span>
             </div>
           ) : user ? (
+            <>
             <div className="flex items-center gap-1.5">
               {/* User avatar + identity pill — clickable to edit profile (name, username, location) */}
               <div
-                onClick={() => setShowProfilePopover(true)}
-                className="group flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-white/5 border border-white/10 hover:border-[#c084fc]/40 transition-all cursor-pointer active:scale-[0.985]"
+                onClick={() => {
+                  setShowWorkspaceMenu(false);
+                  setShowNotifications(false);
+                  setShowProfilePopover((open) => !open);
+                }}
+                className={cn(
+                  "group flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-white/5 border transition-all cursor-pointer active:scale-[0.985]",
+                  showProfilePopover
+                    ? "border-[#c084fc]/40 bg-[#c084fc]/10"
+                    : "border-white/10 hover:border-[#c084fc]/40"
+                )}
                 title="Click to edit your profile (name, username, location)"
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowProfilePopover(true); } }}
+                aria-expanded={showProfilePopover}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setShowWorkspaceMenu(false);
+                    setShowNotifications(false);
+                    setShowProfilePopover((open) => !open);
+                  }
+                  if (e.key === "Escape") setShowProfilePopover(false);
+                }}
               >
                 <div className="h-6 w-6 flex-shrink-0 rounded-full bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center text-[10px] font-bold text-black ring-1 ring-inset ring-white/30 shadow-sm">
                   {user.email ? user.email.charAt(0).toUpperCase() : <User className="h-3.5 w-3.5" />}
@@ -1859,125 +2256,161 @@ export default function BadAssTasks() {
               {/* Sign out action */}
               <button
                 onClick={() => setPendingSignOut(true)}
-                className="btn btn-ghost h-8 w-8 p-0 flex items-center justify-center rounded-full hover:bg-white/5 hover:text-[#ff00aa] transition"
+                className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-white/5 hover:text-[#ff00aa] transition"
                 title="Sign out"
                 aria-label="Sign out"
               >
                 <LogOut className="h-3.5 w-3.5" />
               </button>
             </div>
-          ) : (
-            <button
-              onClick={() => setShowAuthModal(true)}
-              className="btn btn-secondary text-xs px-4 py-2 hidden md:flex items-center gap-1.5"
-            >
-              <User className="h-3.5 w-3.5" /> Sign in
-            </button>
-          )}
 
-          {/* Profile Popover — triggered by clicking the top-right avatar + name pill */}
-          {showProfilePopover && user && (
-            <div 
-              className="absolute right-4 top-14 w-80 max-w-[min(20rem,calc(100vw-2rem))] glass rounded-2xl border border-white/10 shadow-2xl z-[260] p-5 text-sm"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="font-semibold tracking-tight flex items-center gap-2">
-                  <User className="h-4 w-4 text-[#c084fc]" /> Your profile
-                </div>
-                <button onClick={() => setShowProfilePopover(false)} className="text-[#71717a] hover:text-white p-1" aria-label="Close profile editor">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+            <AnimatePresence>
+              {showProfilePopover && user && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  className="absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] glass rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+                  role="dialog"
+                  aria-label="Your profile"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
+                    <h2 className="font-semibold text-sm tracking-tight text-[#f4f4f5]">Your profile</h2>
+                    <button
+                      type="button"
+                      onClick={() => setShowProfilePopover(false)}
+                      className="shrink-0 p-1.5 rounded-lg text-[#71717a] hover:text-white hover:bg-white/10 transition"
+                      aria-label="Close profile editor"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {(() => {
+                    const selfMember = members.find((m) => m.userId === user.id);
+                    const nameVal = profileFullName || selfMember?.fullName || myProfile?.fullName || "";
+                    const userVal = profileUsername || selfMember?.username || myProfile?.username || "";
+                    const locVal = profileLocation || selfMember?.location || myProfile?.location || "";
+                    const profileDisabled =
+                      isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id);
 
-              {(() => {
-                const selfMember = members.find((m) => m.userId === user.id);
-                const nameVal = profileFullName || selfMember?.fullName || "";
-                const userVal = profileUsername || selfMember?.username || "";
-                const locVal  = profileLocation  || selfMember?.location  || "";
+                    const save = async () => {
+                      setIsSavingProfile(true);
+                      try {
+                        const ok = await updateMyProfile({
+                          fullName: profileFullName || undefined,
+                          username: profileUsername || undefined,
+                          location: profileLocation || undefined,
+                        });
+                        if (ok) {
+                          setProfileFullName("");
+                          setProfileUsername("");
+                          setProfileLocation("");
+                          setShowProfilePopover(false);
+                        }
+                      } finally {
+                        setIsSavingProfile(false);
+                      }
+                    };
 
-                const save = async () => {
-                  setIsSavingProfile(true);
-                  try {
-                    const ok = await updateMyProfile({
-                      fullName: profileFullName || undefined,
-                      username: profileUsername || undefined,
-                      location: profileLocation || undefined,
-                    });
-                    if (ok) {
-                      setProfileFullName("");
-                      setProfileUsername("");
-                      setProfileLocation("");
-                      setShowProfilePopover(false);
-                    }
-                  } finally {
-                    setIsSavingProfile(false);
-                  }
-                };
-
-                return (
-                  <>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1">Full name</label>
-                        <input
-                          type="text"
-                          value={nameVal}
-                          onChange={(e) => setProfileFullName(e.target.value)}
-                          placeholder="Alex Rivera"
-                          className="input w-full px-3 py-2 text-sm rounded-xl"
-                          disabled={isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1">Username / handle</label>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[#a1a1aa] px-2">@</span>
-                          <input
-                            type="text"
-                            value={userVal}
-                            onChange={(e) => setProfileUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                            placeholder="alexr"
-                            className="input flex-1 px-3 py-2 text-sm rounded-xl font-mono"
-                            disabled={isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                          />
+                    return (
+                      <div className="p-4 text-sm space-y-4">
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                              Full name
+                            </label>
+                            <input
+                              type="text"
+                              value={nameVal}
+                              onChange={(e) => setProfileFullName(e.target.value)}
+                              placeholder="Alex Rivera"
+                              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
+                              disabled={profileDisabled}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                              Username / handle
+                            </label>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[#a1a1aa] px-2">@</span>
+                              <input
+                                type="text"
+                                value={userVal}
+                                onChange={(e) =>
+                                  setProfileUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+                                }
+                                placeholder="alexr"
+                                className="input flex-1 px-3 py-2.5 text-sm rounded-xl font-mono min-h-[44px]"
+                                disabled={profileDisabled}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                              Where you&apos;re from
+                            </label>
+                            <input
+                              type="text"
+                              value={locVal}
+                              onChange={(e) => setProfileLocation(e.target.value)}
+                              placeholder="San Francisco, CA or Remote"
+                              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
+                              disabled={profileDisabled}
+                            />
+                          </div>
                         </div>
-                        <div className="text-[10px] text-[#71717a] mt-0.5">Used as @handle in the interface</div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowProfilePopover(false)}
+                            className="btn btn-ghost flex-1 min-h-[44px]"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={save}
+                            disabled={profileDisabled}
+                            className="btn btn-primary flex-1 min-h-[44px] disabled:opacity-50"
+                          >
+                            {isSavingProfile ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                        {!isLiveWorkspace && (
+                          <p className="text-[10px] text-[#c084fc] text-center">Live connection required to save</p>
+                        )}
                       </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1">Where you're from</label>
-                        <input
-                          type="text"
-                          value={locVal}
-                          onChange={(e) => setProfileLocation(e.target.value)}
-                          placeholder="San Francisco, CA or Remote"
-                          className="input w-full px-3 py-2 text-sm rounded-xl"
-                          disabled={isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex items-center gap-2">
-                      <button
-                        onClick={save}
-                        disabled={isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                        className="btn btn-primary text-xs px-4 py-1.5 disabled:opacity-50"
-                      >
-                        {isSavingProfile ? "Saving..." : "Save changes"}
-                      </button>
-                      <button onClick={() => setShowProfilePopover(false)} className="btn btn-ghost text-xs px-3 py-1.5">
-                        Cancel
-                      </button>
-                      {!isLiveWorkspace && <span className="text-[10px] text-[#c084fc]">Live connection required to save</span>}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+                    );
+                  })()}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="btn btn-secondary text-xs px-4 py-2 hidden md:flex items-center gap-1.5 min-h-[44px]"
+              >
+                <User className="h-3.5 w-3.5" /> Sign in
+              </button>
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40 transition"
+                aria-label="Sign in"
+              >
+                <User className="h-4 w-4" />
+              </button>
+            </>
           )}
+
+          </div>
 
           {/* LIVE / DEMO status badge — now strictly gated to real authenticated user (user requirement) */}
-          <div className="pl-1 flex items-center gap-1.5 text-[10px] font-mono tracking-[1px] text-[#71717a] border-l border-white/10 ml-1 pl-3">
+          <div className="pl-1 hidden md:flex items-center gap-1.5 text-[10px] font-mono tracking-[1px] text-[#71717a] border-l border-white/10 ml-1 pl-3">
             <div 
               className={cn(
                 "h-1.5 w-1.5 rounded-full transition-all",
@@ -2062,39 +2495,31 @@ export default function BadAssTasks() {
                   setView("home");
                 }
               }}
-              className={cn("sidebar-item", currentView === "home" && "active")}
+              className={cn(
+                "sidebar-item sidebar-item--home",
+                currentView === "home" && "active",
+              )}
             >
-              <Home className="h-4 w-4" />
+              <span className="sidebar-item--home__icon" aria-hidden="true">
+                <Home className="h-4 w-4" />
+              </span>
               Home
             </div>
           </div>
 
-          <div className="px-3 mb-4">
-            <div className="text-xs text-[#71717a] font-medium tracking-widest mb-1.5 px-1">WORKSPACE</div>
-            <div className="flex items-center gap-2 text-lg font-semibold tracking-tighter">
-              {currentWorkspace.name}
-              {!isSingleOwnerWorkspace && (
-                <span 
-                  className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 text-[#c084fc] font-mono tracking-widest border border-white/10" 
-                  title={canManage ? "You can manage members, invites & settings (owner/admin)" : "Read/view access. Manage in Teams view if owner/admin."}
-                >
-                  {currentWorkspace.role}
-                </span>
-              )}
-              {!canManage && isLiveWorkspace && (
-                <span 
-                  className="text-[9px] text-[#71717a] font-mono cursor-help" 
-                  title="Limited permissions: invites, role changes & workspace settings require owner/admin. All members can view tasks/notes/activity (RLS)."
-                >
-                  view
-                </span>
-              )}
-            </div>
-          </div>
+          <SidebarWorkspaceIndicator
+            workspace={currentWorkspace}
+            showRole={!isSingleOwnerWorkspace}
+            canManage={canManage}
+          />
 
           <div className="space-y-0.5 px-1">
             {VIEWS.filter(v => v.id !== "home").map((v) => {
-              const Icon = v.icon;
+              const navMeta =
+                v.id === "settings"
+                  ? { label: "Settings", Icon: Settings }
+                  : { label: v.label, Icon: v.icon };
+              const Icon = navMeta.Icon;
               const isActive = currentView === v.id;
               const handleSidebarNav = (e?: React.KeyboardEvent) => {
                 if (e && e.key !== "Enter" && e.key !== " ") return;
@@ -2111,12 +2536,43 @@ export default function BadAssTasks() {
                   onKeyDown={handleSidebarNav}
                   className={cn("sidebar-item", isActive && "active")}
                 >
-                  <Icon className="h-4 w-4" />
-                  {v.label}
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="flex-1 min-w-0 truncate">{navMeta.label}</span>
+                  {v.id === "tasks" && (
+                    <TasksNavIndicator
+                      openCount={currentWorkspaceTaskCounts.openCount}
+                      overdueCount={currentWorkspaceTaskCounts.overdueCount}
+                      variant="sidebar"
+                    />
+                  )}
                 </div>
               );
             })}
           </div>
+
+          {isSiteAdmin && user && (
+            <div className="px-1 mt-4 pt-4 border-t border-white/10">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-current={currentView === "admin" ? "page" : undefined}
+                onClick={() => setView("admin")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setView("admin");
+                  }
+                }}
+                className={cn(
+                  "sidebar-item border border-transparent",
+                  currentView === "admin" && "active border-[#c084fc]/30 bg-[#c084fc]/10"
+                )}
+              >
+                <Shield className="h-4 w-4 text-[#c084fc]" />
+                Admin
+              </div>
+            </div>
+          )}
 
           <div className="mt-auto px-4 pb-6 text-[10px] text-[#71717a]">
             <div className="mb-1">Badazz Tasks</div>
@@ -2233,30 +2689,8 @@ export default function BadAssTasks() {
             </div>
           )}
 
-          {/* Clearer data loading state (Phase 1 UX polish) — visible but non-blocking */}
-          <AnimatePresence>
-            {isInitializing && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                className="mb-4 flex items-center gap-3 rounded-2xl border border-[#c084fc]/20 bg-[#111114] px-4 py-2.5 text-sm text-[#a1a1aa]"
-              >
-                <Loader2 className="h-4 w-4 animate-spin text-[#c084fc] flex-shrink-0" />
-                <div className="flex-1">
-                  {user 
-                    ? "Syncing your tasks and workspace from SupabaseΓÇª" 
-                    : "Loading dataΓÇª"}
-                </div>
-                {isTrulyLive && (
-                  <div className="text-[10px] font-mono text-[#c084fc] hidden sm:block">LIVE MODE</div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Graceful edge case: logged in but no workspaces (future-proof for real auth) — ensureUserHasWorkspace + manual create supported */}
-          {user && workspaces.length === 0 && !isInitializing && (
+          {/* Graceful edge case: logged in but no workspaces — only after fetch confirms empty (not while "Loading your workspaces...") */}
+          {user && !isLiveBootstrapping && workspaces.length === 0 && currentWorkspace.name === "No workspace" && (
             <div className="mb-4 rounded-2xl border border-[#ff9500]/30 bg-[#111114] p-5 text-sm">
               <div className="flex items-start gap-3">
                 <div className="text-[#ff9500] mt-0.5">ΓÜá∩╕Å</div>
@@ -2286,40 +2720,46 @@ export default function BadAssTasks() {
           {currentViewComponent()}
         </main>
 
-        <motion.aside
-          className={cn(
-            "hidden xl:flex flex-col bg-[#0a0a0f] min-h-0 overflow-hidden shrink-0",
-            chatOpen && "border-l border-white/10"
-          )}
-          initial={false}
-          animate={{
-            width: chatOpen ? 320 : 0,
-            opacity: chatOpen ? 1 : 0,
-          }}
-          transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
-          aria-hidden={!chatOpen}
-        >
-          <div className="w-80 h-full p-4 flex flex-col min-h-0">
-            <WorkspaceChatPanel
-              workspaceId={currentWorkspace.id}
-              workspaceName={currentWorkspace.name}
-              userId={user?.id}
-              members={members}
-              chat={workspaceChat}
-              onCollapse={() => setChatOpen(false)}
-            />
-          </div>
-        </motion.aside>
+        {showWorkspaceChat && (
+          <motion.aside
+            className={cn(
+              "hidden xl:flex flex-col bg-[#0a0a0f] min-h-0 overflow-hidden shrink-0",
+              chatOpen && "border-l border-white/10"
+            )}
+            initial={false}
+            animate={{
+              width: chatOpen ? 320 : 0,
+              opacity: chatOpen ? 1 : 0,
+            }}
+            transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
+            aria-hidden={!chatOpen}
+          >
+            <div className="w-80 h-full p-4 flex flex-col min-h-0">
+              <WorkspaceChatPanel
+                workspaceId={currentWorkspace.id}
+                workspaceName={currentWorkspace.name}
+                userId={user?.id}
+                members={members}
+                chat={workspaceChat}
+                onCollapse={() => setChatOpen(false)}
+              />
+            </div>
+          </motion.aside>
+        )}
       </div>
 
       {/* Mobile Bottom Navigation — native iOS/Android style, only <md via CSS + md:hidden
           Reuses existing VIEWS + setView from store. No desktop impact. Touch-optimized via globals.css
       */}
       <nav className="bottom-nav md:hidden border-t border-white/10" aria-label="Primary navigation">
-        {VIEWS.filter((v) => v.id !== "settings").map((v) => {
-          const Icon = v.icon;
+        {VIEWS.map((v) => {
+          const navMeta =
+            v.id === "settings"
+              ? { label: "Settings", Icon: Settings }
+              : { label: v.label, Icon: v.icon };
+          const Icon = navMeta.Icon;
           const isActive = currentView === v.id;
-          const label = v.label;
+          const label = navMeta.label;
           return (
             <div
               key={v.id}
@@ -2337,24 +2777,39 @@ export default function BadAssTasks() {
                   setView(v.id as any);
                 }
               }}
-              className={cn("bottom-nav-item", isActive && "active")}
+              className={cn(
+                "bottom-nav-item",
+                v.id === "home" && "bottom-nav-item--home",
+                isActive && "active",
+              )}
             >
-              <Icon className="icon" />
+              <span className="bottom-nav-item__icon-wrap">
+                <Icon className="icon" />
+                {v.id === "tasks" && (
+                  <TasksNavIndicator
+                    openCount={currentWorkspaceTaskCounts.openCount}
+                    overdueCount={currentWorkspaceTaskCounts.overdueCount}
+                    variant="bottom"
+                  />
+                )}
+              </span>
               <span className="font-medium tracking-tight">{label}</span>
             </div>
           );
         })}
       </nav>
 
-      <ChatDrawer
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        chat={workspaceChat}
-        workspaceId={currentWorkspace.id}
-        workspaceName={currentWorkspace.name}
-        userId={user?.id}
-        members={members}
-      />
+      {showWorkspaceChat && (
+        <ChatDrawer
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          chat={workspaceChat}
+          workspaceId={currentWorkspace.id}
+          workspaceName={currentWorkspace.name}
+          userId={user?.id}
+          members={members}
+        />
+      )}
 
       {/* Command Palette */}
       <CommandPalette 
@@ -2389,10 +2844,39 @@ export default function BadAssTasks() {
           isOpen={showFullTaskModal} 
           onClose={() => {
             setShowFullTaskModal(false);
-            // Keep the selection so right panel still shows context
-          }} 
+            setModalTask(null);
+            setHomeTaskModalContext(null);
+          }}
+          workspaceDeepLink={
+            homeTaskModalContext && homeTaskModalContext.taskId === selectedTask.id
+              ? {
+                  workspaceName: homeTaskModalContext.workspaceName,
+                  onNavigate: () =>
+                    navigateToTaskInWorkspace(
+                      homeTaskModalContext.workspaceId,
+                      homeTaskModalContext.taskId,
+                    ),
+                }
+              : undefined
+          }
         />
       )}
+
+      <HomeListModal
+        target={homeListModal}
+        isOpen={!!homeListModal}
+        onClose={() => {
+          refreshHomeListAggregatesFromStore();
+          setHomeListModal(null);
+        }}
+        onItemsChanged={() => refreshHomeListAggregatesFromStore()}
+        onOpenInWorkspace={
+          homeListModal
+            ? () =>
+                navigateToListInWorkspace(homeListModal.workspaceId, homeListModal.listId)
+            : undefined
+        }
+      />
 
       {/* Note: rich detail is now inline inside renderNotesView() using TipTapEditor (legacy modal removed) */}
 
@@ -2431,10 +2915,11 @@ export default function BadAssTasks() {
                   { key: "ESC", desc: "Close any modal, sheet, or selection" },
                 ]},
                 { cat: "Navigation", items: [
-                  { key: "1", desc: "Go to Today view" },
-                  { key: "2", desc: "Go to All Tasks view" },
-                  { key: "3", desc: "Go to Notes view" },
+                  { key: "1", desc: "Go to All Tasks view" },
+                  { key: "2", desc: "Go to Notes view" },
+                  { key: "3", desc: "Go to Lists view" },
                   { key: "4", desc: "Go to Team" },
+                  { key: "5", desc: "Go to Workspace Settings" },
                 ]},
                 { cat: "Tasks & Action", items: [
                   { key: "Space", desc: "Complete currently selected task (in list)" },

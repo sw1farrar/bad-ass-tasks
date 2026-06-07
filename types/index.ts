@@ -14,7 +14,10 @@ export interface Task {
   status: TaskStatus;
   priority: Priority;
   dueDate?: string;
+  /** Resolved display label (enriched from assigneeIds + workspace members) */
   assignee?: string;
+  /** Primary assignee user id(s); persisted to tasks.assignee_ids in Supabase */
+  assigneeIds?: string[];
   tags: string[];
   createdAt: string;
   completedAt?: string;
@@ -47,6 +50,30 @@ export interface Note {
   snapshots?: Array<{ ts: string; content: string; label: string }>; // M2 version history server persistence
 }
 
+/** Google Keep–style checklist list (workspace-scoped). */
+export interface WorkspaceList {
+  id: string;
+  workspaceId: string;
+  title: string;
+  color: string;
+  sortOrder: number;
+  pinned?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListItem {
+  id: string;
+  listId: string;
+  workspaceId: string;
+  text: string;
+  completed: boolean;
+  sortOrder: number;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -54,6 +81,33 @@ export interface Workspace {
   role: WorkspaceRole;
   owner_id?: string | null; // widened for hybridStore/page access to match schema (no behavior change)
   createdAt?: string; // from workspaces.created_at — used to identify the original workspace
+}
+
+export interface WorkspaceTaskStats {
+  openCount: number;
+  totalTaskCount: number;
+  doneCount: number;
+  overdueCount: number;
+  dueTodayCount: number;
+  assigneeBreakdown: Array<{ label: string; count: number }>;
+  listCount?: number;
+  openListItemsCount?: number;
+  memberCount?: number;
+  /** True when workspace has 2+ members and chat has unread messages/reactions. */
+  unreadChat?: boolean;
+}
+
+/** Cross-workspace list row for the Home hub (separate from per-workspace Lists view). */
+export interface HomeListHighlight {
+  id: string;
+  title: string;
+  color: string;
+  workspaceId: string;
+  workspaceName: string;
+  openCount: number;
+  totalCount: number;
+  preview: string[];
+  pinned?: boolean;
 }
 
 export interface WorkspaceMember {
@@ -171,7 +225,7 @@ export interface Command {
 export interface PendingOperation {
   opId: string;           // Unique identifier for this queue entry (UUID)
   type: 'create' | 'update' | 'delete';
-  entityType: 'task' | 'note';
+  entityType: 'task' | 'note' | 'list' | 'list_item';
   targetId: string;       // The entity id (client-generated UUID for creates; real id otherwise)
   payload: Record<string, unknown>; // Strengthened (was any): op-specific data. Use type assertion at call sites if needed.
   timestamp: string;      // ISO string of when this op was originally attempted (client clock)

@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Link as LinkIcon, X, Plus, Calendar, Repeat } from "lucide-react";
+import { Link as LinkIcon, X, Plus, Calendar, Repeat, Check, Loader2 } from "lucide-react";
 import { Note, Task } from "@/types";
 import { cn, formatDueDate, getRecurringLabel } from "@/lib/utils";
+import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 
 interface LinkedTasksPanelProps {
@@ -12,6 +13,8 @@ interface LinkedTasksPanelProps {
   onLinkTaskToNote: (noteId: string, taskId: string) => Promise<void>;
   onUnlinkTaskFromNote: (noteId: string, taskId: string) => Promise<void>;
   onOpenTask?: (taskId: string) => void;
+  /** Checkbox: mark complete or reopen from the linked tasks list */
+  onToggleTaskComplete?: (taskId: string) => Promise<void>;
   /** Optional: create a brand new task and automatically link it to this note */
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>;
 }
@@ -27,11 +30,13 @@ export function LinkedTasksPanel({
   onLinkTaskToNote,
   onUnlinkTaskFromNote,
   onOpenTask,
+  onToggleTaskComplete,
   onCreateTaskAndLink,
 }: LinkedTasksPanelProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [pendingUnlink, setPendingUnlink] = useState<Task | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const linkedTaskIds = selectedNote.linkedTaskIds || [];
   const linkedTasks = linkedTaskIds
@@ -63,9 +68,18 @@ export function LinkedTasksPanel({
     }
   };
 
+  const handleToggleComplete = async (task: Task) => {
+    if (!onToggleTaskComplete || togglingId) return;
+    setTogglingId(task.id);
+    try {
+      await onToggleTaskComplete(task.id);
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   return (
     <div className="border-t border-white/10 px-6 py-3 bg-[#0a0a0f]/50">
-      {/* Linked Tasks — primary management surface below the note editor */}
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-medium text-[#71717a] flex items-center gap-2">
           <LinkIcon className="h-3.5 w-3.5" />
@@ -76,7 +90,6 @@ export function LinkedTasksPanel({
         </div>
       </div>
 
-      {/* List of linked tasks */}
       <div className="space-y-1 mb-3">
         {linkedTasks.length === 0 ? (
           <div className="text-[11px] text-[#71717a] italic py-1">No tasks linked yet</div>
@@ -86,70 +99,113 @@ export function LinkedTasksPanel({
             const recurringLabel = task.recurringRule
               ? getRecurringLabel(task.recurringRule)
               : "";
+            const isDone = task.status === "done";
+            const isToggling = togglingId === task.id;
 
             return (
-            <div
-              key={task.id}
-              className="flex items-center justify-between text-sm group bg-white/5 rounded-lg px-3 py-2 hover:bg-white/[0.07] transition-colors"
-            >
-              <button
-                type="button"
-                onClick={() => onOpenTask?.(task.id)}
-                disabled={!onOpenTask}
-                className="flex-1 min-w-0 flex items-center gap-2 text-left hover:text-[#c084fc] transition-colors disabled:cursor-default disabled:hover:text-[#f4f4f5]"
-                title={onOpenTask ? `Open task: ${task.title}` : task.title}
+              <div
+                key={task.id}
+                className={cn(
+                  "flex items-center gap-2 text-sm group rounded-lg px-2 py-2 transition-colors",
+                  isDone ? "bg-white/[0.03] opacity-80" : "bg-white/5 hover:bg-white/[0.07]",
+                )}
               >
-                <span className="font-medium text-[#f4f4f5] truncate min-w-0 group-hover:text-[#c084fc]">
-                  {task.title}
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  {due && (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border whitespace-nowrap",
-                        due.variant === "overdue" &&
-                          "text-[#ff3366] border-[#ff3366]/30 bg-[#ff3366]/10",
-                        due.variant === "today" &&
-                          "text-[#c084fc] border-[#c084fc]/30 bg-[#c084fc]/10",
-                        due.variant === "soon" &&
-                          "text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10",
-                        due.variant === "default" &&
-                          "text-[#a1a1aa] border-white/10 bg-white/5"
-                      )}
-                    >
-                      <Calendar className="h-2.5 w-2.5" />
-                      {due.label}
-                    </span>
+                <button
+                  type="button"
+                  onClick={() => void handleToggleComplete(task)}
+                  disabled={!onToggleTaskComplete || isToggling}
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 disabled:opacity-60",
+                    isDone
+                      ? "bg-[#00ff9f] border-[#c084fc] text-black"
+                      : "border-[#3a3a42] hover:border-[#c084fc] group-hover:border-[#c084fc]/70",
                   )}
-                  {recurringLabel && (
-                    <span
-                      className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-[#c084fc]/30 bg-[#c084fc]/10 text-[#c084fc] whitespace-nowrap max-w-[100px]"
-                      title={recurringLabel}
-                    >
-                      <Repeat className="h-2.5 w-2.5 shrink-0" />
-                      <span className="truncate">{recurringLabel}</span>
-                    </span>
-                  )}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingUnlink(task)}
-                className="opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 p-2 hover:text-[#ff3366] focus-visible:text-[#ff3366] rounded hover:bg-white/10 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
-                title="Unlink task"
-                aria-label={`Unlink task ${task.title}`}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+                  aria-label={
+                    isDone
+                      ? `Reopen task: ${task.title}`
+                      : isToggling
+                        ? "Updating task"
+                        : `Mark complete: ${task.title}`
+                  }
+                  title={isDone ? "Mark incomplete" : "Mark complete"}
+                >
+                  {isToggling ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : isDone ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : null}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenTask?.(task.id)}
+                  disabled={!onOpenTask}
+                  className="flex-1 min-w-0 text-left disabled:cursor-default"
+                  title={onOpenTask ? `Open task: ${task.title}` : task.title}
+                >
+                  <div
+                    className={cn(
+                      "font-medium text-[#f4f4f5] truncate",
+                      isDone && "line-through opacity-60",
+                      onOpenTask && "hover:text-[#c084fc] transition-colors",
+                    )}
+                  >
+                    {task.title}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {task.assignee ? (
+                      <TaskAssigneeBadge label={task.assignee} />
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] text-[#71717a]">
+                        Unassigned
+                      </span>
+                    )}
+                    {due && (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border whitespace-nowrap",
+                          due.variant === "overdue" &&
+                            "text-[#ff3366] border-[#ff3366]/30 bg-[#ff3366]/10",
+                          due.variant === "today" &&
+                            "text-[#c084fc] border-[#c084fc]/30 bg-[#c084fc]/10",
+                          due.variant === "soon" &&
+                            "text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10",
+                          due.variant === "default" &&
+                            "text-[#a1a1aa] border-white/10 bg-white/5",
+                        )}
+                      >
+                        <Calendar className="h-2.5 w-2.5" />
+                        {due.label}
+                      </span>
+                    )}
+                    {recurringLabel && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-[#c084fc]/30 bg-[#c084fc]/10 text-[#c084fc] whitespace-nowrap max-w-[100px]"
+                        title={recurringLabel}
+                      >
+                        <Repeat className="h-2.5 w-2.5 shrink-0" />
+                        <span className="truncate">{recurringLabel}</span>
+                      </span>
+                    )}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPendingUnlink(task)}
+                  className="opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 p-2 hover:text-[#ff3366] focus-visible:text-[#ff3366] rounded hover:bg-white/10 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
+                  title="Unlink task"
+                  aria-label={`Unlink task ${task.title}`}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             );
           })
         )}
       </div>
 
-      {/* Link existing + Create new — side by side, compact */}
       <div className="flex flex-col gap-2">
-        {/* Link existing task */}
         <select
           className="w-full text-sm bg-[#111114] border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30 touch-manipulation"
           onChange={async (e) => {
@@ -172,7 +228,6 @@ export function LinkedTasksPanel({
             ))}
         </select>
 
-        {/* Create brand new task + link it immediately */}
         <div className="flex gap-2">
           <input
             type="text"

@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { ActivityLog, Note, Task, WorkspaceMember } from "@/types";
+import { isDueDatePast } from "@/lib/datetime";
 
 type AdminTab = "overview" | "exports" | "imports" | "templates" | "insights";
 
@@ -35,6 +36,7 @@ export interface TeamsAdminDashboardProps {
   members: WorkspaceMember[];
   recentActivity: ActivityLog[];
   onOpenWorkspaceSettings: () => void;
+  canEditWorkspaceDetails?: boolean;
 }
 
 export function TeamsAdminDashboard({
@@ -47,6 +49,7 @@ export function TeamsAdminDashboard({
   members,
   recentActivity,
   onOpenWorkspaceSettings,
+  canEditWorkspaceDetails = false,
 }: TeamsAdminDashboardProps) {
   const [adminTab, setAdminTab] = useState<AdminTab>("overview");
   const [importStrategy, setImportStrategy] = useState<"append" | "skip-dupe-titles">(
@@ -80,7 +83,7 @@ export function TeamsAdminDashboard({
         (a.actionType || "").startsWith("admin.")
       ).length;
       const overdueNow = tasks.filter(
-        (t) => t.dueDate && new Date(t.dueDate).getTime() < Date.now() && t.status !== "done"
+        (t) => t.dueDate && isDueDatePast(t.dueDate) && t.status !== "done"
       );
       const overdueByPrio: Record<string, number> = {};
       overdueNow.forEach((t) => {
@@ -107,7 +110,7 @@ export function TeamsAdminDashboard({
           .sort((a, b) => b[1] - a[1])
           .slice(0, 5),
         overdueCount: tasks.filter(
-          (t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done"
+          (t) => t.dueDate && isDueDatePast(t.dueDate) && t.status !== "done"
         ).length,
         lastAnalyzed: "local (limited)",
       });
@@ -119,9 +122,12 @@ export function TeamsAdminDashboard({
   return (
     <div className="glass rounded-2xl border border-white/10 overflow-hidden">
       <div className="px-5 py-3 border-b border-white/10 bg-white/5">
-        <div className="font-semibold flex items-center gap-2 text-lg tracking-tight mb-3">
-          <Settings className="h-5 w-5 text-[#c084fc]" /> Admin
+        <div className="font-semibold flex items-center gap-2 text-lg tracking-tight mb-1">
+          <BarChart3 className="h-5 w-5 text-[#c084fc]" /> Data &amp; admin tools
         </div>
+        <p className="text-[11px] text-[#71717a] mb-3">
+          Export, import, templates, and workspace insights for your team.
+        </p>
 
         <div className="flex gap-1 text-xs overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory touch-pan-x">
           {(
@@ -180,7 +186,7 @@ export function TeamsAdminDashboard({
                   tasks.filter(
                     (t) =>
                       t.dueDate &&
-                      new Date(t.dueDate).getTime() < Date.now() &&
+                      isDueDatePast(t.dueDate) &&
                       t.status !== "done"
                   ).length
                 }{" "}
@@ -482,16 +488,14 @@ export function TeamsAdminDashboard({
         </div>
       )}
 
-      {myRole === "owner" && (
-        <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex justify-end">
-          <button
-            onClick={onOpenWorkspaceSettings}
-            className="text-xs text-[#c084fc] hover:underline flex items-center gap-1"
-          >
-            Workspace settings <Settings className="h-3 w-3" />
-          </button>
-        </div>
-      )}
+      <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex justify-end">
+        <button
+          onClick={onOpenWorkspaceSettings}
+          className="text-xs text-[#c084fc] hover:underline flex items-center gap-1"
+        >
+          {canEditWorkspaceDetails ? "Workspace settings" : "Notification settings"} <Settings className="h-3 w-3" />
+        </button>
+      </div>
     </div>
   );
 }

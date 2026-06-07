@@ -134,7 +134,7 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       notificationPrefs: null,
       remoteCursors: [],
       activeConflicts: {},
-      currentView: 'today',
+      currentView: 'home',
       taskFilter: { search: '' },
       selectedTaskId: null,
       isCommandPaletteOpen: false,

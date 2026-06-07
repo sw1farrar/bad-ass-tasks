@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, formatLocalTime } from "@/lib/utils";
 import type { ReactionSummary, WorkspaceMessage } from "@/types";
 import { MessageReactions } from "./MessageReactions";
 import { ReactionPicker } from "./ReactionPicker";
@@ -136,7 +135,7 @@ export function ChatMessageItem({
             mine ? "text-right" : "ml-0.5"
           )}
         >
-          {format(new Date(msg.createdAt), "HH:mm")}
+          {formatLocalTime(msg.createdAt)}
         </div>
       </div>
     </div>

@@ -2,45 +2,67 @@
 
 import React, { useMemo } from "react";
 import {
-  ArrowUpRight,
   Bell,
   Check,
-  Command,
+  ListChecks,
   MessageCircle,
-  Plus,
-  Star,
   Zap,
 } from "lucide-react";
-import { isPast, isToday } from "date-fns";
+import { getListColorStyle } from "@/store/listSlice";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
+import { cn, triggerHaptic } from "@/lib/utils";
 import { buildAttentionItems, type HomeFocusItem } from "./lib/buildAttentionItems";
+import { isHomeAllCaughtUp } from "./lib/isHomeAllCaughtUp";
+import { sortUpcomingFocusItems } from "./lib/buildUpcomingFocus";
 import { HomeDueTaskRow } from "./components/HomeDueTaskRow";
+import { WorkspaceOpenTasksGraphic } from "./components/WorkspaceOpenTasksGraphic";
+import "@/features/lists/lists-workspace.css";
+import "./home-workspace.css";
+
+export interface HomeListPreview {
+  id: string;
+  title: string;
+  color: string;
+  workspaceId: string;
+  workspaceName: string;
+  openCount: number;
+  totalCount: number;
+  preview: string[];
+  pinned?: boolean;
+}
 
 export interface WorkspacePulse {
   id: string;
   name: string;
   role?: string;
+  openTasks: number;
   dueToday: number;
   overdue: number;
   unreadNotifications: number;
+  unreadChat?: boolean;
   isCurrent: boolean;
   onlineCount?: number;
+  assigneeBreakdown?: Array<{ label: string; count: number }>;
+  assignedToYou?: number;
+  listCount?: number;
+  openListItemsCount?: number;
+  memberCount?: number;
 }
 
 interface HomeViewProps {
   userDisplayName: string;
   workspaces: Array<{ id: string; name: string; role?: string }>;
   switchWorkspace: (workspaceId: string) => void;
-  setView: (view: "today" | "tasks" | "notes" | "teams") => void;
+  setView: (view: "tasks" | "notes" | "lists" | "teams") => void;
+  listPreviews?: HomeListPreview[];
+  onOpenList?: (listId: string, workspaceId: string) => void;
   globalTodayFocus?: HomeFocusItem[];
+  /** Overdue + today + tomorrow tasks across workspaces — Home due-date list. */
+  globalOpenTaskFocus?: HomeFocusItem[];
   notifications?: Notification[];
   workspacePulse?: WorkspacePulse[];
   taskLoadingStates?: Record<string, boolean>;
-  onQuickAddTask: () => void;
-  onQuickAddNote: () => void;
-  onOpenChat: () => void;
-  onOpenCommandPalette: () => void;
   onCompleteFocusTask: (item: HomeFocusItem) => void | Promise<void>;
   onOpenFocusTask: (item: HomeFocusItem) => void | Promise<void>;
   onAcceptInvite: (inviteId: string) => void | Promise<void>;
@@ -61,13 +83,12 @@ export function HomeView({
   switchWorkspace,
   setView,
   globalTodayFocus = [],
+  globalOpenTaskFocus = [],
   notifications = [],
   workspacePulse = [],
   taskLoadingStates = {},
-  onQuickAddTask,
-  onQuickAddNote,
-  onOpenChat,
-  onOpenCommandPalette,
+  listPreviews = [],
+  onOpenList,
   onCompleteFocusTask,
   onOpenFocusTask,
   onAcceptInvite,
@@ -75,10 +96,22 @@ export function HomeView({
   onOpenNotification,
 }: HomeViewProps) {
   const pulseById = new Map(workspacePulse.map((p) => [p.id, p]));
-  const dueTotal = globalTodayFocus.length;
-  const overdueTotal = globalTodayFocus.filter(
-    (f) => f.task.dueDate && isPast(new Date(f.task.dueDate)) && !isToday(new Date(f.task.dueDate))
-  ).length;
+  const upcomingFocus = useMemo(
+    () =>
+      sortUpcomingFocusItems(
+        globalTodayFocus.filter((f) => f.task.status !== "done"),
+      ),
+    [globalTodayFocus],
+  );
+
+  const dueAttentionFocus = useMemo(
+    () => globalOpenTaskFocus.filter((f) => f.task.status !== "done"),
+    [globalOpenTaskFocus],
+  );
+
+  const dueTotal = upcomingFocus.length;
+  const overdueTotal = workspacePulse.reduce((sum, p) => sum + (p.overdue ?? 0), 0);
+  const openTasksTotal = workspacePulse.reduce((sum, p) => sum + (p.openTasks ?? 0), 0);
   const unreadCount = notifications.filter((n) => !n.readAt).length;
   const pendingInvites = notifications.filter((n) => n.type === "invite" && !n.readAt).length;
 
@@ -87,10 +120,23 @@ export function HomeView({
     [globalTodayFocus, notifications]
   );
 
+  const checklistItemsTotal = workspacePulse.reduce(
+    (sum, p) => sum + (p.openListItemsCount ?? 0),
+    0,
+  );
+
   const summaryParts: string[] = [];
-  if (dueTotal > 0) summaryParts.push(`${dueTotal} due`);
+  if (openTasksTotal > 0) summaryParts.push(`${openTasksTotal} open`);
+  if (dueTotal > 0) {
+    summaryParts.push(`${dueTotal} due today or tomorrow`);
+  }
   if (overdueTotal > 0) summaryParts.push(`${overdueTotal} overdue`);
   if (pendingInvites > 0) summaryParts.push(`${pendingInvites} invite${pendingInvites === 1 ? "" : "s"}`);
+  if (checklistItemsTotal > 0) {
+    summaryParts.push(
+      `${checklistItemsTotal} checklist item${checklistItemsTotal === 1 ? "" : "s"}`,
+    );
+  }
   if (unreadCount > 0 && pendingInvites === 0) summaryParts.push(`${unreadCount} unread`);
   if (workspaces.length > 0) summaryParts.push(`${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`);
 
@@ -99,12 +145,15 @@ export function HomeView({
       ? summaryParts.join(" · ")
       : "You're clear across workspaces.";
 
-  const quickActions = [
-    { label: "Add task", icon: Plus, onClick: onQuickAddTask },
-    { label: "New note", icon: Star, onClick: onQuickAddNote },
-    { label: "Team chat", icon: MessageCircle, onClick: onOpenChat },
-    { label: "Command", icon: Command, onClick: onOpenCommandPalette },
-  ];
+  const listsOpenTotal = listPreviews.reduce((sum, l) => sum + l.openCount, 0);
+
+  const showAllCaughtUp = isHomeAllCaughtUp({
+    attentionItemCount: attentionItems.length,
+    upcomingFocusCount: upcomingFocus.length,
+    openTasksTotal,
+    overdueTotal,
+    openChecklistItemsTotal: checklistItemsTotal,
+  });
 
   return (
     <div className="max-w-5xl mx-auto pt-2 md:pt-4">
@@ -114,20 +163,6 @@ export function HomeView({
           {userDisplayName ? `, ${userDisplayName}` : ""}
         </div>
         <p className="text-[#a1a1aa] mt-2 text-sm max-w-2xl">{summary}</p>
-      </div>
-
-      <div className="flex flex-wrap gap-2 mb-8">
-        {quickActions.map((action) => (
-          <button
-            key={action.label}
-            type="button"
-            onClick={action.onClick}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-[#e5e5e7] hover:border-[#c084fc]/40 hover:bg-[#c084fc]/10 transition"
-          >
-            <action.icon className="h-3.5 w-3.5 text-[#c084fc]" />
-            {action.label}
-          </button>
-        ))}
       </div>
 
       {attentionItems.length > 0 && (
@@ -203,18 +238,9 @@ export function HomeView({
         </div>
       )}
 
-      {attentionItems.length === 0 && globalTodayFocus.length === 0 && (
-        <div className="mb-8 glass rounded-2xl p-6 border border-white/10 text-center">
+      {showAllCaughtUp && (
+        <div className="mb-8 glass rounded-2xl px-6 py-4 border border-white/10 text-center">
           <div className="text-lg font-medium text-[#f4f4f5]">You&apos;re all caught up</div>
-          <p className="text-sm text-[#71717a] mt-1 mb-4">No due tasks, invites, or notifications right now.</p>
-          <div className="flex flex-wrap justify-center gap-2">
-            <button type="button" onClick={onQuickAddTask} className="btn btn-primary text-xs px-4 py-2">
-              Add a task
-            </button>
-            <button type="button" onClick={() => setView("today")} className="btn btn-secondary text-xs px-4 py-2">
-              View today
-            </button>
-          </div>
         </div>
       )}
 
@@ -223,78 +249,160 @@ export function HomeView({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {workspaces.map((ws) => {
             const pulse = pulseById.get(ws.id);
+            const openTasks = pulse?.openTasks ?? 0;
             const due = pulse?.dueToday ?? 0;
             const overdue = pulse?.overdue ?? 0;
             const unread = pulse?.unreadNotifications ?? 0;
+            const unreadChat = pulse?.unreadChat ?? false;
             const online = pulse?.onlineCount;
             const isCurrent = pulse?.isCurrent ?? false;
+            const breakdown = pulse?.assigneeBreakdown ?? [];
+            const assignedToYou = pulse?.assignedToYou ?? 0;
+            const openListItems = pulse?.openListItemsCount ?? 0;
+            const listCount = pulse?.listCount ?? 0;
+            const memberCount = pulse?.memberCount;
+
+            const activateWorkspace = () => {
+              triggerHaptic("light");
+              switchWorkspace(ws.id);
+            };
 
             return (
               <div
                 key={ws.id}
-                className={`glass rounded-2xl p-4 border transition ${
+                tabIndex={0}
+                onClick={activateWorkspace}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    activateWorkspace();
+                  }
+                }}
+                aria-label={`Activate ${ws.name} workspace`}
+                className={cn(
+                  "glass rounded-2xl p-4 border transition relative cursor-pointer text-left",
+                  "hover:border-[#c084fc]/35 hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/50",
                   isCurrent
                     ? "border-[#c084fc]/40 ring-1 ring-[#c084fc]/20"
-                    : "border-white/10 hover:border-[#c084fc]/30"
-                }`}
+                    : "border-white/10",
+                )}
               >
-                <button
-                  type="button"
-                  onClick={() => switchWorkspace(ws.id)}
-                  className="w-full text-left"
-                >
-                  <div className="font-semibold flex items-center justify-between gap-2">
-                    <span className="truncate">{ws.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-[#a1a1aa] font-mono shrink-0">
-                      {formatRoleLabel(ws.role)}
-                    </span>
+                <div className="flex items-start gap-3">
+                    <WorkspaceOpenTasksGraphic
+                      openTasks={openTasks}
+                      overdue={overdue}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold flex items-start justify-between gap-2">
+                        <span className="break-words min-w-0 flex-1 leading-snug pr-1">{ws.name}</span>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {(unread > 0 || unreadChat) && (
+                            <div className="flex items-center gap-1">
+                              {unread > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#c084fc] text-black text-[10px] font-bold shadow-[0_0_12px_rgba(192,132,252,0.35)]"
+                                  title={`${unread} unread notification${unread === 1 ? "" : "s"} in this workspace`}
+                                  aria-label={`${unread} unread notifications`}
+                                >
+                                  <Bell className="h-3 w-3" aria-hidden />
+                                  {unread > 99 ? "99+" : unread}
+                                </span>
+                              )}
+                              {unreadChat && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#ff3366] text-white text-[10px] font-bold shadow-[0_0_12px_rgba(255,51,102,0.35)]"
+                                  title="Unread team messages in this workspace"
+                                  aria-label="Unread team messages"
+                                >
+                                  <MessageCircle className="h-3 w-3" aria-hidden />
+                                  Chat
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-[#a1a1aa] font-mono">
+                            {formatRoleLabel(ws.role)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#71717a] mt-2">
+                        {typeof memberCount === "number" && (
+                          <span>
+                            {memberCount} teammate{memberCount === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        {assignedToYou > 0 && (
+                          <span className="text-[#c084fc]">{assignedToYou} due for you</span>
+                        )}
+                        {due > 0 && (
+                          <span className={overdue > 0 ? "text-[#ff3366]" : ""}>{due} due</span>
+                        )}
+                        {overdue > 0 && <span className="text-[#ff3366]">{overdue} overdue</span>}
+                        {typeof online === "number" && online > 0 && (
+                          <span className="text-[#34d399]">{online} online</span>
+                        )}
+                        {openListItems > 0 && (
+                          <span>
+                            {openListItems} checklist item{openListItems === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        {listCount > 0 && openListItems === 0 && (
+                          <span>{listCount} list{listCount === 1 ? "" : "s"}</span>
+                        )}
+                        {unreadChat && (
+                          <span className="text-[#ff3366]">Unread messages</span>
+                        )}
+                        {openTasks === 0 &&
+                          assignedToYou === 0 &&
+                          due === 0 &&
+                          overdue === 0 &&
+                          unread === 0 &&
+                          !unreadChat &&
+                          openListItems === 0 &&
+                          listCount === 0 &&
+                          (!online || online === 0) && <span>All clear</span>}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#71717a] mt-2">
-                    {due > 0 && <span className={overdue > 0 ? "text-[#ff3366]" : ""}>{due} due</span>}
-                    {overdue > 0 && <span className="text-[#ff3366]">{overdue} overdue</span>}
-                    {unread > 0 && <span>{unread} unread</span>}
-                    {typeof online === "number" && online > 0 && (
-                      <span className="text-[#34d399]">{online} online</span>
-                    )}
-                    {due === 0 && overdue === 0 && unread === 0 && (!online || online === 0) && (
-                      <span>All clear</span>
-                    )}
-                  </div>
+                  {breakdown.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {breakdown.slice(0, 3).map((item) => (
+                        <span
+                          key={item.label}
+                          className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/[0.03] text-[#a1a1aa]"
+                          title={`${item.label}: ${item.count} open task${item.count === 1 ? "" : "s"}`}
+                        >
+                          {item.label}: {item.count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {isCurrent && (
                     <div className="text-[10px] text-[#c084fc] mt-2 font-medium">Current workspace</div>
                   )}
-                </button>
                 <div className="flex gap-2 mt-3 pt-3 border-t border-white/5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      switchWorkspace(ws.id);
-                      setView("today");
-                    }}
-                    className="text-[10px] text-[#a1a1aa] hover:text-[#c084fc]"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      switchWorkspace(ws.id);
-                      setView("tasks");
-                    }}
-                    className="text-[10px] text-[#a1a1aa] hover:text-[#c084fc]"
-                  >
-                    Tasks
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      switchWorkspace(ws.id);
-                      setView("teams");
-                    }}
-                    className="text-[10px] text-[#a1a1aa] hover:text-[#c084fc]"
-                  >
-                    Team
-                  </button>
+                  {(
+                    [
+                      { label: "Tasks", view: "tasks" as const },
+                      { label: "Notes", view: "notes" as const },
+                      { label: "Lists", view: "lists" as const },
+                      { label: "Team", view: "teams" as const },
+                    ] as const
+                  ).map((shortcut) => (
+                    <button
+                      key={shortcut.label}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        triggerHaptic("light");
+                        switchWorkspace(ws.id);
+                        setView(shortcut.view);
+                      }}
+                      className="text-[10px] text-[#a1a1aa] hover:text-[#c084fc] transition"
+                    >
+                      {shortcut.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             );
@@ -302,20 +410,16 @@ export function HomeView({
         </div>
       </div>
 
-      {globalTodayFocus.length > 0 && (
+      {dueAttentionFocus.length > 0 && (
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-[#71717a] font-medium">Due now</div>
-            <button
-              type="button"
-              onClick={() => setView("today")}
-              className="text-xs text-[#c084fc] flex items-center gap-1 hover:underline"
-            >
-              Today view <ArrowUpRight className="h-3 w-3" />
-            </button>
+          <div className="mb-3">
+            <div className="text-sm text-[#e5e5e7] font-medium">Overdue &amp; upcoming</div>
+            <div className="text-[10px] text-[#71717a] mt-0.5">
+              Past due, today &amp; tomorrow · by priority
+            </div>
           </div>
           <div className="space-y-2">
-            {globalTodayFocus.slice(0, 8).map((item) => (
+            {dueAttentionFocus.slice(0, 8).map((item) => (
               <HomeDueTaskRow
                 key={`${item.workspaceId}-${item.task.id}`}
                 task={item.task}
@@ -325,6 +429,68 @@ export function HomeView({
                 onComplete={() => onCompleteFocusTask(item)}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {listPreviews.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <ListChecks className="h-4 w-4 text-[#c084fc]" />
+            <div className="text-sm text-[#e5e5e7] font-medium">Open across workspaces</div>
+            <span className="text-[10px] text-[#71717a]">
+              {listsOpenTotal} left
+            </span>
+          </div>
+          <div className="lists-home-preview">
+            {listPreviews.slice(0, 6).map((list) => {
+              const colorStyle = getListColorStyle(list.color);
+              const doneCount = list.totalCount - list.openCount;
+              const progress = list.totalCount > 0 ? (doneCount / list.totalCount) * 100 : 0;
+              return (
+                <button
+                  key={`${list.workspaceId}-${list.id}`}
+                  type="button"
+                  onClick={() => onOpenList?.(list.id, list.workspaceId)}
+                  className="list-home-chip"
+                  style={{
+                    background: colorStyle.bg,
+                    borderColor: colorStyle.border,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-sm text-[#f4f4f5] truncate block">{list.title}</span>
+                      <span className="text-[10px] text-[#71717a] truncate block mt-0.5">
+                        {list.workspaceName}
+                      </span>
+                    </div>
+                    {list.pinned && (
+                      <span className="text-[9px] uppercase tracking-wider text-[#c084fc] shrink-0">Pinned</span>
+                    )}
+                  </div>
+                  {list.totalCount > 0 && (
+                    <>
+                      <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-[#c084fc]/80 transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-[#71717a] mt-1.5">
+                        {list.openCount === 0 ? "All done" : `${list.openCount} left`}
+                        {list.preview.length > 0 && list.openCount > 0 && (
+                          <span className="text-[#a1a1aa]"> · {list.preview[0]}</span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {list.totalCount === 0 && (
+                    <div className="text-[10px] text-[#52525b] mt-1">Empty — tap to add items</div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

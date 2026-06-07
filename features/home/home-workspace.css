@@ -1,0 +1,17 @@
+.home-ws-task-ring-segment {
+  transition: stroke-dasharray 0.45s ease, stroke-dashoffset 0.45s ease;
+}
+
+.home-ws-task-ring-clear {
+  animation: home-ws-ring-breathe 3s ease-in-out infinite;
+}
+
+@keyframes home-ws-ring-breathe {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}

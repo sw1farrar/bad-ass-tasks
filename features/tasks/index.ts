@@ -11,7 +11,7 @@
  * - TaskRow (presentation + swipe gestures)
  *
  * Guard note: All store selectors, filteredTasks derivation, business handlers 
- * (handleComplete, etc.), and demo/live guards remain in app/page.tsx.
+ * Recurrence-aware completion lives in useTaskStore.completeTask; page.tsx wires toasts/UI.
  */
 export { TasksHeader } from "./components/TasksHeader";
 export { TasksSearch } from "./components/TasksSearch";

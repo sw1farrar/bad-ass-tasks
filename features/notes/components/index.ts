@@ -7,6 +7,10 @@
  * No changes to this until later batches.
  */
 
+export { NotesSidebarHeader } from "./NotesSidebarHeader";
 export { LinkedTasksPanel } from "./LinkedTasksPanel";
+export { NoteAttachmentsPanel } from "./NoteAttachmentsPanel";
 export { NoteHeader } from "./NoteHeader";
+export { NoteLinkedTaskBadge } from "./NoteLinkedTaskBadge";
+export { NoteTreeGutter } from "./NoteTreeGutter";
 

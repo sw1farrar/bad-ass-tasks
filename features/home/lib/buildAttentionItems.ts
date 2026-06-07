@@ -40,7 +40,7 @@ export type HomeAttentionItem =
 
 /**
  * Non-task items that need a response: invites + unread notifications.
- * Due/overdue tasks live exclusively in the "Due now" section on Home.
+ * Due tasks live exclusively in the "Up next" section on Home.
  */
 export function buildAttentionItems(
   _focusItems: HomeFocusItem[],

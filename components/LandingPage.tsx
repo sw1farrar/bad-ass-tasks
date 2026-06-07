@@ -25,8 +25,8 @@ interface LandingPageProps {
 const FEATURES = [
   {
     icon: CheckSquare,
-    title: "Tasks & Today",
-    description: "Priorities, due dates, recurring work, and a focused Today view.",
+    title: "Tasks & Home",
+    description: "Priorities, due dates, recurring work, and a Home hub for what needs attention.",
   },
   {
     icon: FileText,
@@ -205,14 +205,14 @@ export function LandingPage({ onSignIn, isCheckingSession }: LandingPageProps) {
         </div>
       </section>
 
-      {/* Imagine showcase — Today & command */}
+      {/* Imagine showcase — Home & command */}
       <div className="relative border-t border-white/[0.06] bg-[#0c0c10]/80">
         <ShowcaseSection
           eyebrow="Focus"
-          title="Command your day from Today"
-          description="Jump to any task, note, or teammate with the command palette. The Today view surfaces what is due now — with the same task rows you use after sign-in."
+          title="Command your day from Home"
+          description="Jump to any task, note, or teammate with the command palette. Home surfaces what is due now — with the same task rows you use after sign-in."
           imageSrc="/landing/command.jpg"
-          imageAlt="Neon Today view and command bar concept art"
+          imageAlt="Neon Home view and command bar concept art"
         />
       </div>
 

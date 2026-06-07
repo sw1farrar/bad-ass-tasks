@@ -170,7 +170,9 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             toast.error("Sign in failed", { description: error.message });
           }
         } else {
-          toast.success("Signed in successfully");
+          toast.success("Signed in", {
+            description: "Check your email for a security code to finish signing in.",
+          });
         }
       } else if (mode === "signup") {
         const response = await fetch("/api/auth/signup", {

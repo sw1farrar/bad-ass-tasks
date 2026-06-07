@@ -273,6 +273,7 @@ export function TipTapEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        link: false,
         heading: {
           levels: [1, 2, 3],
         },
@@ -1388,27 +1389,6 @@ export function TipTapEditor({
       }
     };
   }, [editor]);
-
-  // Live collab: apply incoming content updates from other clients (only when we are not actively typing)
-  useEffect(() => {
-    if (!editor || !content) return;
-    if (editor.isFocused) return; // don't overwrite what the local user is typing
-
-    try {
-      const incoming = typeof content === 'string' ? JSON.parse(content) : content;
-      const current = editor.getJSON();
-
-      // Simple deep compare avoidance – only set if structure looks different
-      if (JSON.stringify(current) !== JSON.stringify(incoming)) {
-        const setOpts: { emitUpdate: boolean } = { emitUpdate: false };
-        editor.commands.setContent(incoming, setOpts); // don't trigger onUpdate
-      }
-    } catch {
-      // fallback: just set as-is
-      const setOpts: { emitUpdate: boolean } = { emitUpdate: false };
-      editor.commands.setContent(prepareInitialContent(content), setOpts);
-    }
-  }, [editor, content]);
 
   if (!editor) {
     return (

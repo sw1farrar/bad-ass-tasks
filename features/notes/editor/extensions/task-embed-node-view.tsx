@@ -3,7 +3,8 @@
 import React from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { CheckSquare, Clock, AlertCircle, Calendar } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, dueDateFromUserInput, formatDueDate } from "@/lib/utils";
+import { parseLocalDate, toLocalDateString } from "@/lib/datetime";
 
 interface TaskEmbedNodeViewProps {
   node: {
@@ -202,43 +203,27 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
               {priority || "P2"}
             </div>
 
-            {/* Assignee — quick cycle for richer inline editing (M2 enrichment) */}
-            {taskId && onUpdateTask && (
-              <div
-                className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#71717a] hover:border-white/30 cursor-pointer text-[10px]"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const assignees = [null, "me", "Alex", "Sam", "Jordan"];
-                  const currentIdx = assignees.indexOf(assignee);
-                  const next = assignees[(currentIdx + 1) % assignees.length];
-                  await onUpdateTask(taskId, { assignee: next });
-                }}
-                title="Click to cycle assignee"
-              >
-                👤 {assignee || "—"}
-              </div>
-            )}
-
             {/* Due date - now editable */}
             <div 
               className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#71717a] hover:border-white/30 cursor-pointer"
               onClick={async (e) => {
                 e.stopPropagation();
                 if (!taskId || !onUpdateTask) return;
-                const newDue = prompt("Set due date (YYYY-MM-DD) or leave empty to clear:", dueDate ? new Date(dueDate).toISOString().split('T')[0] : "");
+                const newDue = prompt(
+                  "Set due date (YYYY-MM-DD) or leave empty to clear:",
+                  dueDate && parseLocalDate(dueDate) ? toLocalDateString(parseLocalDate(dueDate)!) : ""
+                );
                 if (newDue !== null) {
-                  const updates: any = {};
+                  const updates: Record<string, string | null> = {};
                   if (newDue.trim() === "") {
                     updates.dueDate = null;
                   } else {
-                    // Basic validation
-                    const d = new Date(newDue);
-                    if (!isNaN(d.getTime())) {
-                      updates.dueDate = d.toISOString();
-                    } else {
+                    const stored = dueDateFromUserInput(newDue);
+                    if (!stored) {
                       alert("Invalid date format. Use YYYY-MM-DD.");
                       return;
                     }
+                    updates.dueDate = stored;
                   }
                   await onUpdateTask(taskId, updates);
                 }
@@ -246,7 +231,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
               title="Click to edit due date"
             >
               <Calendar className="h-3 w-3" />
-              <span>{dueDate ? new Date(dueDate).toLocaleDateString([], { month: "short", day: "numeric" }) : "Set due"}</span>
+              <span>{dueDate ? (formatDueDate(dueDate)?.label ?? "Set due") : "Set due"}</span>
             </div>
 
             {/* Linked notes count */}
@@ -256,10 +241,12 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
               </div>
             )}
 
-            {/* Assignee (simple for now) */}
             {assignee && (
-              <div className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#71717a] text-[10px]">
-                👤 {assignee.slice(0, 8)}
+              <div
+                className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#71717a] text-[10px]"
+                title={`Assigned to ${assignee}`}
+              >
+                👤 {assignee}
               </div>
             )}
 

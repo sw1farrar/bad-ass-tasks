@@ -29,7 +29,7 @@ vi.mock('@/store/useTaskStore', () => {
     tasks: [],
     notes: [],
     completeTask: vi.fn(),
-    currentView: 'today',
+    currentView: 'tasks',
     currentWorkspace: { id: 'w1', name: 'Demo Workspace' },
     workspaces: [{ id: 'w1', name: 'Demo Workspace' }, { id: 'w2', name: 'Personal' }],
     switchWorkspace: vi.fn(),

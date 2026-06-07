@@ -11,7 +11,7 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
 
     await expect(page).toHaveTitle(/Badazz Tasks/);
 
-    await expect(page.getByRole('button', { name: 'Today', exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Home', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /add task/i }).first()).toBeVisible({ timeout: 8000 });
 
     const errors: string[] = [];

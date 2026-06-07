@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { cn, formatDueDate, getRecurringLabel } from "@/lib/utils";
 import type { Task } from "@/types";
+import { TaskRow } from "./TaskRow";
 
 export interface TasksTableProps {
   tasks: Task[];
@@ -11,6 +12,7 @@ export interface TasksTableProps {
   onOpenTask: (task: Task) => void;
   onComplete: (id: string) => void;
   onAddTask: (title: string) => Promise<unknown>;
+  onSwipeComplete?: (id: string) => void;
 }
 
 export function TasksTable({
@@ -19,6 +21,7 @@ export function TasksTable({
   onOpenTask,
   onComplete,
   onAddTask,
+  onSwipeComplete,
 }: TasksTableProps) {
   const [quickTitle, setQuickTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -38,26 +41,52 @@ export function TasksTable({
 
   return (
     <div className="flex flex-col gap-3 min-h-0">
-      <form onSubmit={handleQuickAdd} className="flex gap-2">
+      <form onSubmit={handleQuickAdd} className="flex flex-col sm:flex-row gap-2">
         <input
           id="task-quick-add"
           value={quickTitle}
           onChange={(e) => setQuickTitle(e.target.value)}
           placeholder="Add a task…"
           disabled={isAdding}
-          className="input flex-1 px-4 py-2.5 rounded-xl text-sm"
+          className="input flex-1 px-4 py-2.5 rounded-xl text-sm min-h-[44px]"
           aria-label="Quick add task"
         />
         <button
           type="submit"
           disabled={isAdding || !quickTitle.trim()}
-          className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50"
+          className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
         >
           {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
         </button>
       </form>
 
-      <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.02]">
+      <div className="md:hidden space-y-1">
+        {tasks.length === 0 ? (
+          <div className="p-8 text-center text-[#71717a] text-sm rounded-2xl border border-white/10 bg-white/[0.02]">
+            No tasks yet.
+          </div>
+        ) : (
+          tasks.map((task) => {
+            const due = formatDueDate(task.dueDate);
+            const isDone = task.status === "done";
+            const loading = !!taskLoadingStates?.[task.id];
+            return (
+              <TaskRow
+                key={task.id}
+                task={task}
+                isDone={isDone}
+                isOpLoading={loading}
+                due={due}
+                onOpen={onOpenTask}
+                onComplete={onComplete}
+                onSwipeComplete={onSwipeComplete}
+              />
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden md:block rounded-2xl border border-white/10 overflow-hidden bg-white/[0.02]">
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
@@ -103,15 +132,15 @@ export function TasksTable({
                       <td className="p-3 align-middle" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => !loading && !isDone && onComplete(task.id)}
-                          disabled={loading || isDone}
+                          onClick={() => !loading && onComplete(task.id)}
+                          disabled={loading}
                           className={cn(
                             "flex h-6 w-6 items-center justify-center rounded-full border transition",
                             isDone
                               ? "bg-[#00ff9f] border-[#c084fc] text-black"
                               : "border-[#3a3a42] hover:border-[#c084fc]"
                           )}
-                          aria-label={isDone ? "Completed" : "Mark complete"}
+                          aria-label={isDone ? "Reopen task" : "Mark complete"}
                         >
                           {loading ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -130,8 +159,11 @@ export function TasksTable({
                           {task.title}
                         </div>
                         {task.recurringRule && (
-                          <span className="text-[10px] text-[#c084fc]/80">
-                            {getRecurringLabel(task.recurringRule).split(" ")[0]}
+                          <span
+                            className="text-[10px] text-[#c084fc]/80 flex items-center gap-0.5"
+                            title={getRecurringLabel(task.recurringRule)}
+                          >
+                            ↻ {getRecurringLabel(task.recurringRule)}
                           </span>
                         )}
                       </td>
@@ -154,7 +186,16 @@ export function TasksTable({
                         )}
                       </td>
                       <td className="p-3 align-middle hidden xl:table-cell text-xs text-[#a1a1aa] truncate max-w-[8rem]">
-                        {task.assignee || "—"}
+                        {task.assignee ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#c084fc]/15 text-[#c084fc] text-[10px] font-medium">
+                              {task.assignee === "You" ? "Y" : task.assignee.charAt(0).toUpperCase()}
+                            </span>
+                            <span className="truncate">{task.assignee}</span>
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     </tr>
                   );

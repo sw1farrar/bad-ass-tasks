@@ -9,3 +9,16 @@ export {
   buildVerificationHtml,
   type VerificationEmailParams,
 } from "./sendVerificationEmail";
+export {
+  sendDualAuthEmail,
+  buildDualAuthHtml,
+  type DualAuthEmailParams,
+} from "./sendDualAuthEmail";
+export {
+  getBrevoInboundDomain,
+  getBrevoInboundWebhookSecret,
+  isBrevoInboundWebhookAuthorized,
+} from "./inboundConfig";
+export { processInboundEmail, type ProcessInboundEmailResult } from "./processInboundEmail";
+export { parseInboundRecipientLocalPart } from "./parseInboundRecipient";
+export type { BrevoInboundWebhookPayload, BrevoInboundEmailItem } from "./inboundTypes";

@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Star, Trash2, Plus } from "lucide-react";
+import { Trash2, Plus } from "lucide-react";
+import type { NoteLinkedTaskStats } from "../lib/noteLinkedTaskStats";
+import { NoteLinkedTaskBadge } from "./NoteLinkedTaskBadge";
 
 interface NoteHeaderProps {
   selectedNote: any;
   onTitleChange: (value: string) => void;
   onDelete: () => void;
-  linkedTaskCount: number;
+  linkedTaskStats: NoteLinkedTaskStats;
   /** Backlink count from single-source selector (useBacklinks.ts). Optional for non-regression. */
   backlinkCount?: number;
 
@@ -38,7 +40,7 @@ export function NoteHeader({
   selectedNote,
   onTitleChange,
   onDelete,
-  linkedTaskCount,
+  linkedTaskStats,
   backlinkCount,
   onCreateSubNote,
   autoFocusTitle,
@@ -107,11 +109,7 @@ export function NoteHeader({
           </button>
         )}
 
-        {linkedTaskCount > 0 && (
-          <div className="text-xs px-2 py-1 rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/20">
-            {linkedTaskCount} linked task{linkedTaskCount > 1 ? "s" : ""}
-          </div>
-        )}
+        <NoteLinkedTaskBadge stats={linkedTaskStats} />
         {backlinkCount != null && backlinkCount > 0 && (
           <div className="text-xs px-2 py-1 rounded bg-[#00ff9f]/10 text-[#00ff9f] border border-[#00ff9f]/20" title="Incoming backlinks (from centralized selector)">
             ← {backlinkCount}

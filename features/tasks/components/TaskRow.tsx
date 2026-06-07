@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Check, Loader2, Repeat } from "lucide-react";
+import { cn, getRecurringLabel } from "@/lib/utils";
 import type { Task } from "@/types";
+import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
 
 interface TaskRowProps {
   task: Task;
@@ -28,6 +29,15 @@ export function TaskRow({
   onSwipeComplete,
 }: TaskRowProps) {
   const swipeThreshold = 120;
+  const [allowHtmlDrag, setAllowHtmlDrag] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setAllowHtmlDrag(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -50,7 +60,7 @@ export function TaskRow({
     <div
       key={task.id}
       className="swipe-container relative rounded-xl overflow-hidden mb-1"
-      draggable={!isDone}
+      draggable={allowHtmlDrag && !isDone}
       onDragStart={(e) => {
         if (!isDone) {
           e.dataTransfer.setData("text/plain", task.id);
@@ -82,18 +92,24 @@ export function TaskRow({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (!isOpLoading && !isDone) {
+            if (!isOpLoading) {
               onComplete(task.id);
             }
           }}
-          disabled={isOpLoading || isDone}
+          disabled={isOpLoading}
           className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 disabled:opacity-60",
+            "flex h-10 w-10 md:h-6 md:w-6 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 disabled:opacity-60",
             isDone
               ? "bg-[#00ff9f] border-[#c084fc] text-black"
               : "border-[#3a3a42] hover:border-[#c084fc] group-hover:border-[#c084fc]/70"
           )}
-          aria-label={isDone ? "Completed" : isOpLoading ? "Updating task" : "Mark complete"}
+          aria-label={
+            isDone
+              ? "Reopen task"
+              : isOpLoading
+                ? "Updating task"
+                : "Mark complete"
+          }
         >
           {isOpLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -108,8 +124,13 @@ export function TaskRow({
               {task.title}
             </div>
             {task.recurringRule && (
-              <span className="recurring-badge text-[10px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 font-medium flex items-center gap-0.5">
-                ↻ {task.recurringRule.split(";")[0] || "Recurring"}
+              <span
+                className="recurring-badge text-[10px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 font-medium flex items-center gap-0.5"
+                title={getRecurringLabel(task.recurringRule)}
+                aria-label={`Recurring: ${getRecurringLabel(task.recurringRule)}`}
+              >
+                <Repeat className="h-2.5 w-2.5" />
+                {getRecurringLabel(task.recurringRule)}
               </span>
             )}
             {onlineEditorsCount > 0 && (
@@ -122,9 +143,8 @@ export function TaskRow({
         </div>
 
         <div className="flex items-center gap-3 text-sm">
-          {task.assignee && (
-            <div className="text-[#71717a] text-xs hidden sm:block">{task.assignee}</div>
-          )}
+          <TaskAssigneeBadge label={task.assignee} compact className="sm:hidden" />
+          <TaskAssigneeBadge label={task.assignee} className="hidden sm:inline-flex" />
 
           {due && (
             <div

@@ -10,6 +10,7 @@ import {
   getNextRecurringDue,
   getOccurrencesInRange,
   normalizeExceptionKey,
+  toLocalDateString,
   getRecurrenceEndDescription,
 } from '@/lib/utils';
 import type { Priority } from '@/types';
@@ -51,9 +52,9 @@ describe('utils — core pure functions (production reliability)', () => {
       expect(formatDueDate('')).toBeNull();
     });
 
-    it('labels today correctly', () => {
-      const todayISO = new Date().toISOString();
-      const res = formatDueDate(todayISO);
+    it('labels today correctly', async () => {
+      const { toDueDateStorage, startOfLocalToday } = await import('@/lib/datetime');
+      const res = formatDueDate(toDueDateStorage(startOfLocalToday()));
       expect(res?.label).toBe('Today');
       expect(res?.variant).toBe('today');
     });
@@ -127,10 +128,36 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
 
     it('respects exceptions', () => {
       const anchor = new Date('2026-01-05').toISOString();
-      const ex = [normalizeExceptionKey(new Date('2026-01-06'))];
+      const ex = [normalizeExceptionKey('2026-01-06')];
       const next = getNextRecurringDue('FREQ=DAILY', new Date('2026-01-05'), anchor, ex);
       // Should skip the exception day
-      expect(next?.toISOString().slice(0,10)).not.toBe('2026-01-06');
+      expect(next ? toLocalDateString(next) : '').not.toBe('2026-01-06');
+    });
+
+    it('advances from current due when completing early (future due)', () => {
+      const anchor = '2026-06-10';
+      const next = getNextRecurringDue('FREQ=DAILY', anchor, anchor);
+      expect(next ? toLocalDateString(next) : '').toBe('2026-06-11');
+    });
+
+    it('honors weekly INTERVAL with BYDAY', () => {
+      const anchor = '2026-06-01'; // Monday
+      const next = getNextRecurringDue(
+        'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO',
+        anchor,
+        anchor
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-06-15');
+    });
+
+    it('returns null when COUNT is exhausted', () => {
+      const anchor = '2026-01-01';
+      const next = getNextRecurringDue(
+        'FREQ=DAILY;COUNT=3',
+        '2026-01-03',
+        anchor
+      );
+      expect(next).toBeNull();
     });
   });
 
@@ -143,9 +170,32 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
     });
 
     it('honors COUNT end', () => {
-      const anchor = new Date('2026-01-01').toISOString();
-      const occ = getOccurrencesInRange(anchor, 'FREQ=DAILY;COUNT=5', new Date('2026-01-01'), new Date('2026-01-10'), 20);
+      const anchor = '2026-01-01';
+      const occ = getOccurrencesInRange(anchor, 'FREQ=DAILY;COUNT=5', new Date(2026, 0, 1), new Date(2026, 0, 10), 20);
       expect(occ.length).toBeLessThanOrEqual(5);
+    });
+  });
+
+  describe('local timezone helpers (lib/datetime)', () => {
+    it('parseLocalDate preserves calendar day from stored ISO', async () => {
+      const { parseLocalDate, toDueDateStorage, toLocalDateString } = await import('@/lib/datetime');
+      const stored = toDueDateStorage(new Date(2026, 5, 15));
+      expect(toLocalDateString(parseLocalDate(stored)!)).toBe('2026-06-15');
+    });
+
+    it('dueDateFromUserInput round-trips YYYY-MM-DD', async () => {
+      const { dueDateFromUserInput, parseLocalDate, toLocalDateString } = await import('@/lib/datetime');
+      const stored = dueDateFromUserInput('2026-03-20');
+      expect(stored).toBeTruthy();
+      expect(toLocalDateString(parseLocalDate(stored!)!)).toBe('2026-03-20');
+    });
+
+    it('isDueDatePast uses calendar today not clock time', async () => {
+      const { isDueDatePast, toDueDateStorage, startOfLocalToday } = await import('@/lib/datetime');
+      const todayStored = toDueDateStorage(startOfLocalToday());
+      expect(isDueDatePast(todayStored)).toBe(false);
+      const yesterday = toDueDateStorage(new Date(startOfLocalToday().getTime() - 86400000));
+      expect(isDueDatePast(yesterday)).toBe(true);
     });
   });
 

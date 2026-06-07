@@ -66,7 +66,7 @@ export function ConfirmationModal({
   if (!open || !mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[850] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-[850] flex items-end md:items-center justify-center p-0 md:p-4">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[3px]"
         onClick={close}
@@ -79,14 +79,14 @@ export function ConfirmationModal({
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-desc"
         className={cn(
-          'relative w-full sm:max-w-md bg-[#0f0f12] border border-white/10 shadow-2xl',
-          'rounded-t-2xl sm:rounded-2xl',
-          'pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0',
-          'animate-in fade-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200'
+          'relative w-full md:max-w-md bg-[#0f0f12] border border-white/10 shadow-2xl',
+          'rounded-t-2xl md:rounded-2xl',
+          'pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0',
+          'animate-in fade-in slide-in-from-bottom-4 md:zoom-in-95 duration-200'
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-center pt-2.5 sm:hidden">
+        <div className="flex justify-center pt-2.5 md:hidden">
           <div className="h-1 w-10 rounded-full bg-white/20" aria-hidden />
         </div>
 
@@ -120,19 +120,19 @@ export function ConfirmationModal({
             type="button"
             onClick={close}
             disabled={isLoading}
-            className="text-[#71717a] hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition shrink-0 disabled:opacity-50"
+            className="text-[#71717a] hover:text-white min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-white/10 transition shrink-0 disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex gap-2.5 px-5 pb-5">
+        <div className="flex flex-col-reverse md:flex-row gap-2.5 px-5 pb-5">
           <button
             type="button"
             onClick={close}
             disabled={isLoading}
-            className="flex-1 rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-[#e4e4e7] hover:bg-white/5 disabled:opacity-50 transition"
+            className="flex-1 min-h-[44px] rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-[#e4e4e7] hover:bg-white/5 disabled:opacity-50 transition"
           >
             {cancelText}
           </button>
@@ -141,7 +141,7 @@ export function ConfirmationModal({
             onClick={handleConfirm}
             disabled={isLoading}
             className={cn(
-              'flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition',
+              'flex-1 min-h-[44px] rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition',
               variant === 'destructive'
                 ? 'bg-[#ff3366] hover:bg-[#e62958] text-white'
                 : 'bg-[#c084fc] hover:bg-[#a855f7] text-black'

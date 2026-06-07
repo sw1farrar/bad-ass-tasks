@@ -1,0 +1,15 @@
+---
+pid: 14112
+cwd: "C:\build\bad ass tasks"
+command: "cd \"C:\\build\\bad ass tasks\"; git remote add origin https://github.com/sw1farrar/bad-ass-tasks.git 2>&1; git push -u origin feat/agent-6-realtime-collaboration-invites 2>&1"
+started_at: 2026-06-07T03:10:09.130Z
+running_for_ms: 23685001 
+---
+git : remote: Repository not found.
+At line:1 char:105
++ ... s.git 2>&1; git push -u origin feat/agent-6-realtime-collaboration-in ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (remote: Repository not found.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+fatal: repository 'https://github.com/sw1farrar/bad-ass-tasks.git/' not found

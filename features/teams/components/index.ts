@@ -5,3 +5,5 @@
 
 export { TeamsAdminDashboard } from "./TeamsAdminDashboard";
 export type { TeamsAdminDashboardProps, TeamsAdminInsights } from "./TeamsAdminDashboard";
+export { TeamCollaborationPanel } from "./TeamCollaborationPanel";
+export { TeamMemberDirectory } from "./TeamMemberDirectory";

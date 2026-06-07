@@ -1,0 +1,7 @@
+---
+pid: 28928
+cwd: "C:\build\bad ass tasks"
+command: "cd \"C:\\build\\bad ass tasks\"; git push -u origin feat/agent-6-realtime-collaboration-invites 2>&1"
+started_at: 2026-06-07T03:59:06.153Z
+running_for_ms: 20715001 
+---

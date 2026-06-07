@@ -14,10 +14,11 @@
 
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
-import type { Task, TaskStatus, Priority, Note, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction } from "@/types";
+import type { Task, TaskStatus, Priority, Note, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem } from "@/types";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
+import { isDueDatePast } from "@/lib/datetime";
 
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
 type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
@@ -27,6 +28,10 @@ type ActivityLogRow = Database["public"]["Tables"]["activity_logs"]["Row"];
 type ActivityLogInsert = Database["public"]["Tables"]["activity_logs"]["Insert"];
 type NotificationRow = Database["public"]["Tables"]["notifications"]["Row"];
 type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
+type WorkspaceListRow = Database["public"]["Tables"]["workspace_lists"]["Row"];
+type WorkspaceListInsert = Database["public"]["Tables"]["workspace_lists"]["Insert"];
+type ListItemRow = Database["public"]["Tables"]["list_items"]["Row"];
+type ListItemInsert = Database["public"]["Tables"]["list_items"]["Insert"];
 
 // ------------------------------------------------------------------
 // Helpers
@@ -43,14 +48,148 @@ function logHybridError(operation: string, error: unknown) {
 
 /** PostgREST: table not in schema cache / relation does not exist (migration not applied yet). */
 function isSchemaTableMissing(error: unknown): boolean {
-  const e = error as { code?: string; message?: string };
+  const e = error as { code?: string; message?: string; status?: number; statusCode?: number };
+  const status = e?.status ?? e?.statusCode;
   return (
+    status === 404 ||
     e?.code === "PGRST205" ||
     e?.code === "42P01" ||
     (typeof e?.message === "string" &&
       (e.message.includes("Could not find the table") ||
-        e.message.includes("does not exist")))
+        e.message.includes("does not exist") ||
+        e.message.includes("404")))
   );
+}
+
+/** null = not probed yet; false = migration not applied; true = tables exist */
+let workspaceListTablesAvailable: boolean | null = null;
+let listsMigrationWarned = false;
+
+function markWorkspaceListTablesMissing(): void {
+  workspaceListTablesAvailable = false;
+  if (!listsMigrationWarned) {
+    listsMigrationWarned = true;
+    console.warn(
+      "[Badazz Tasks] Lists are not synced to Supabase yet. Run supabase/add-workspace-lists.sql in the SQL Editor, then refresh.",
+    );
+  }
+}
+
+function markWorkspaceListTablesAvailable(): void {
+  workspaceListTablesAvailable = true;
+}
+
+/** Whether list CRUD should hit Supabase (false when migration has not been applied). */
+export function isWorkspaceListPersistenceEnabled(): boolean {
+  return workspaceListTablesAvailable !== false;
+}
+
+/** True only when workspace_lists / list_items exist in Supabase. */
+export function areWorkspaceListTablesReady(): boolean {
+  return workspaceListTablesAvailable === true;
+}
+
+export function __resetWorkspaceListTableProbeForTests(): void {
+  workspaceListTablesAvailable = null;
+  listsMigrationWarned = false;
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const LEGACY_LIST_ID_MAP_KEY = "badazz-list-legacy-id-map";
+
+function loadLegacyListIdMap(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LEGACY_LIST_ID_MAP_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLegacyListIdMap(map: Record<string, string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(LEGACY_LIST_ID_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // non-fatal
+  }
+}
+
+/** Stable UUID for list/list_item ids — legacy short ids map to one UUID across store + sync queue. */
+export function normalizeListEntityId(id?: string): string {
+  if (!id) return generateClientId();
+  if (UUID_RE.test(id)) return id;
+  const map = loadLegacyListIdMap();
+  if (map[id]) return map[id];
+  const next = generateClientId();
+  map[id] = next;
+  saveLegacyListIdMap(map);
+  return next;
+}
+
+function sanitizeListPendingOp(op: PendingOperation): PendingOperation {
+  if (op.entityType !== "list" && op.entityType !== "list_item") return op;
+  const targetId = normalizeListEntityId(op.targetId);
+  const payload = { ...(op.payload as Record<string, unknown>) };
+  if (op.entityType === "list") {
+    payload.id = targetId;
+  } else {
+    payload.id = targetId;
+    if (typeof payload.list_id === "string") {
+      payload.list_id = normalizeListEntityId(payload.list_id);
+    }
+  }
+  return { ...op, targetId, payload };
+}
+
+/** Remap persisted short list ids to UUIDs (live mode) before sync/backfill. */
+export function remapLegacyListIdsInState(
+  lists: WorkspaceList[],
+  items: ListItem[],
+): { lists: WorkspaceList[]; items: ListItem[]; changed: boolean } {
+  let changed = false;
+  const nextLists = lists.map((l) => {
+    const id = normalizeListEntityId(l.id);
+    if (id !== l.id) changed = true;
+    return id === l.id ? l : { ...l, id };
+  });
+  const nextItems = items.map((i) => {
+    const id = normalizeListEntityId(i.id);
+    const listId = normalizeListEntityId(i.listId);
+    if (id !== i.id || listId !== i.listId) changed = true;
+    return id === i.id && listId === i.listId ? i : { ...i, id, listId };
+  });
+  return { lists: nextLists, items: nextItems, changed };
+}
+
+async function probeWorkspaceListTables(force = false): Promise<void> {
+  if (!force && workspaceListTablesAvailable !== null) return;
+  if (!isSupabaseLive()) return;
+
+  const supabase = getClient();
+  if (!supabase) {
+    markWorkspaceListTablesMissing();
+    return;
+  }
+
+  const { error } = await supabase.from("workspace_lists").select("id").limit(1);
+  if (error && isSchemaTableMissing(error)) {
+    markWorkspaceListTablesMissing();
+  } else if (error) {
+    logHybridError("probeWorkspaceListTables", error);
+  } else {
+    markWorkspaceListTablesAvailable();
+  }
+}
+
+/** Re-check whether list tables exist (e.g. after running SQL migration without refresh). */
+export async function ensureWorkspaceListPersistenceReady(): Promise<boolean> {
+  if (workspaceListTablesAvailable === true) return true;
+  await probeWorkspaceListTables(true);
+  return workspaceListTablesAvailable !== false && workspaceListTablesAvailable !== null;
 }
 
 function mapTaskRow(row: TaskRow): Task {
@@ -62,7 +201,8 @@ function mapTaskRow(row: TaskRow): Task {
     status: row.status,
     priority: row.priority,
     dueDate: row.due_date ?? undefined,
-    assignee: row.assignee_ids && row.assignee_ids.length > 0 ? "Team Member" : "You",
+    assigneeIds: row.assignee_ids ?? [],
+    assignee: undefined,
     tags: row.tags ?? [],
     createdAt: row.created_at,
     completedAt: row.completed_at ?? undefined,
@@ -362,7 +502,16 @@ function loadPendingQueue(): PendingOperation[] {
       try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(parsed)); } catch {}
     }
 
-    return parsed;
+    const repaired = (parsed as PendingOperation[]).map(sanitizeListPendingOp);
+    const repairChanged = repaired.some((op, i) => {
+      const prev = parsed[i] as PendingOperation;
+      return op.targetId !== prev.targetId || JSON.stringify(op.payload) !== JSON.stringify(prev.payload);
+    });
+    if (repairChanged) {
+      try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(repaired)); } catch {}
+    }
+
+    return repaired;
   } catch {
     return [];
   }
@@ -393,11 +542,15 @@ function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"
     return;
   }
 
-  const fullOp: PendingOperation = {
+  let fullOp: PendingOperation = {
     opId: generateClientId(),
     timestamp: op.timestamp || new Date().toISOString(),
     ...op,
   } as PendingOperation;
+
+  if (fullOp.entityType === "list" || fullOp.entityType === "list_item") {
+    fullOp = sanitizeListPendingOp(fullOp);
+  }
 
   inMemoryQueue = [...inMemoryQueue, fullOp];
   savePendingQueue(inMemoryQueue);
@@ -510,6 +663,10 @@ export async function processPendingOperations(): Promise<{
     return { synced: 0, skippedConflicts: 0, failed: 0 };
   }
 
+  if (queue.some((op) => op.entityType === "list" || op.entityType === "list_item")) {
+    await probeWorkspaceListTables();
+  }
+
   let synced = 0;
   let skippedConflicts = 0;
   let failed = 0;
@@ -609,8 +766,93 @@ export async function processPendingOperations(): Promise<{
           if (error && error.code !== "PGRST116") throw error;
           synced++;
         }
+      } else if (op.entityType === "list" || op.entityType === "list_item") {
+        if (workspaceListTablesAvailable === false) {
+          remaining.push(op);
+          continue;
+        }
+      }
+
+      if (op.entityType === "list") {
+        const listsTable = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
+        const listId = normalizeListEntityId(op.targetId);
+        if (op.type === "create") {
+          const raw = { ...(op.payload as Record<string, unknown>) };
+          delete raw.id;
+          delete raw.workspace_id;
+          const { error } = await listsTable.insert({
+            ...raw,
+            id: listId,
+            workspace_id: op.workspaceId,
+          });
+          if (error && error.code !== "23505") throw error;
+          synced++;
+        } else if (op.type === "update") {
+          const { data: current } = await listsTable
+            .select("updated_at")
+            .eq("id", listId)
+            .maybeSingle();
+          const serverTs = (current as { updated_at?: string } | null)?.updated_at
+            ? new Date((current as { updated_at: string }).updated_at).getTime()
+            : 0;
+          const ourTs = new Date(op.timestamp).getTime();
+          if (serverTs > ourTs) {
+            skippedConflicts++;
+          } else {
+            const { error } = await listsTable.update(op.payload).eq("id", listId);
+            if (error) throw error;
+            synced++;
+          }
+        } else if (op.type === "delete") {
+          const { error } = await listsTable.delete().eq("id", listId);
+          if (error && error.code !== "PGRST116") throw error;
+          synced++;
+        }
+      } else if (op.entityType === "list_item") {
+        const itemsTable = supabase.from("list_items") as ReturnType<typeof supabase.from>;
+        const itemId = normalizeListEntityId(op.targetId);
+        if (op.type === "create") {
+          const raw = { ...(op.payload as Record<string, unknown>) };
+          delete raw.id;
+          delete raw.workspace_id;
+          if (typeof raw.list_id === "string") {
+            raw.list_id = normalizeListEntityId(raw.list_id);
+          }
+          const { error } = await itemsTable.insert({
+            ...raw,
+            id: itemId,
+            workspace_id: op.workspaceId,
+          });
+          if (error && error.code !== "23505") throw error;
+          synced++;
+        } else if (op.type === "update") {
+          const { data: current } = await itemsTable
+            .select("updated_at")
+            .eq("id", itemId)
+            .maybeSingle();
+          const serverTs = (current as { updated_at?: string } | null)?.updated_at
+            ? new Date((current as { updated_at: string }).updated_at).getTime()
+            : 0;
+          const ourTs = new Date(op.timestamp).getTime();
+          if (serverTs > ourTs) {
+            skippedConflicts++;
+          } else {
+            const { error } = await itemsTable.update(op.payload).eq("id", itemId);
+            if (error) throw error;
+            synced++;
+          }
+        } else if (op.type === "delete") {
+          const { error } = await itemsTable.delete().eq("id", itemId);
+          if (error && error.code !== "PGRST116") throw error;
+          synced++;
+        }
       }
     } catch (err) {
+      if (isSchemaTableMissing(err)) {
+        markWorkspaceListTablesMissing();
+        remaining.push(op);
+        continue;
+      }
       logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, err);
       failed++;
       remaining.push(op); // keep for retry later
@@ -1503,6 +1745,11 @@ export async function logActivity(params: {
     return false;
   }
 
+  // Workspace switches are intentionally not logged — too noisy for activity feeds.
+  if (params.actionType === "workspace.switched") {
+    return false;
+  }
+
   const supabase = getClient();
   if (!supabase) return false;
 
@@ -1530,8 +1777,8 @@ export async function logActivity(params: {
 export async function getRecentActivity(workspaceId: string, limit = 15): Promise<ActivityLog[]> {
   if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
 
-  // Safety guard: never hit Supabase with demo workspace IDs
-  if (["w1", "w2"].includes(workspaceId)) {
+  // Safety guard: never hit Supabase with invalid or demo workspace IDs
+  if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) {
     return [];
   }
 
@@ -1542,6 +1789,7 @@ export async function getRecentActivity(workspaceId: string, limit = 15): Promis
     .from("activity_logs")
     .select("*")
     .eq("workspace_id", workspaceId)
+    .neq("action_type", "workspace.switched")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -2082,6 +2330,54 @@ export async function getWorkspaceInvites(workspaceId: string): Promise<import("
   }
 }
 
+export type MyProfile = {
+  fullName?: string;
+  username?: string;
+  location?: string;
+};
+
+/** Fetch the signed-in user's profile (workspace-independent). */
+export async function getMyProfile(): Promise<MyProfile | null> {
+  if (!isSupabaseLive()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const richSelect = "full_name, username, location";
+    const legacySelect = "full_name, username";
+
+    let { data, error } = await (supabase.from("profiles") as any)
+      .select(richSelect)
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (error && error.code === "42703" && String(error.message || "").includes("location")) {
+      ({ data, error } = await (supabase.from("profiles") as any)
+        .select(legacySelect)
+        .eq("id", user.id)
+        .maybeSingle());
+    }
+
+    if (error || !data) return null;
+
+    const row = data as { full_name?: string | null; username?: string | null; location?: string | null };
+    return {
+      fullName: row.full_name ?? undefined,
+      username: row.username ?? undefined,
+      location: row.location ?? undefined,
+    };
+  } catch (err) {
+    logHybridError("getMyProfile", err);
+    return null;
+  }
+}
+
 /** Update the current user's own profile (full_name, username/handle, location).
  *  Fully guarded + resilient to missing columns during schema rollout (strips username/location on 42703 and retries).
  *  Uses direct UPDATE (RLS "Users can update own profile" enforces self-only).
@@ -2470,7 +2766,7 @@ export async function sendInviteEmail(
   }
 }
 
-/** Update workspace name and/or slug (owner only via RPC). */
+/** Update workspace name and/or slug (owner only — enforced server-side via API). */
 export async function updateWorkspace(
   workspaceId: string,
   updates: { name?: string; slug?: string }
@@ -2478,21 +2774,20 @@ export async function updateWorkspace(
   if (!isSupabaseLive()) return false;
   if (["w1", "w2"].includes(workspaceId)) return false;
 
-  const supabase = getClient();
-  if (!supabase) return false;
-
   try {
-    // Light client-side trimming (RPC also sanitizes)
-    const payload = {
-      p_workspace_id: workspaceId,
-      p_name: updates.name ? updates.name.trim() : null,
-      p_slug: updates.slug ? updates.slug.trim() : null,
-    };
+    const response = await fetch("/api/workspace/update-details", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId,
+        name: updates.name?.trim(),
+        slug: updates.slug?.trim(),
+      }),
+    });
 
-    const { error } = await (supabase.rpc as any)('update_workspace_details', payload);
-
-    if (error) {
-      logHybridError("updateWorkspace", error);
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      logHybridError("updateWorkspace", payload?.error || response.statusText);
       return false;
     }
 
@@ -2895,8 +3190,7 @@ export async function getWorkspaceStats(workspaceId: string): Promise<WorkspaceS
     getWorkspaceMembers(workspaceId),
     getRecentActivity(workspaceId, 1000),
   ]);
-  const now = Date.now();
-  const overdue = tasks.filter((t) => t.dueDate && new Date(t.dueDate).getTime() < now && t.status !== "done").length;
+  const overdue = tasks.filter((t) => t.dueDate && isDueDatePast(t.dueDate) && t.status !== "done").length;
   const done = tasks.filter((t) => t.status === "done").length;
   const rate = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
   return {
@@ -3096,6 +3390,7 @@ export async function getGlobalRecentActivity(userId: string, limit: number = 15
       .from("activity_logs")
       .select("*")
       .in("workspace_id", wsIds)
+      .neq("action_type", "workspace.switched")
       .order("created_at", { ascending: false })
       .limit(Math.min(limit, 30)); // aggressive cap for MVP
 
@@ -3419,6 +3714,458 @@ export function subscribeToWorkspaceChat(
       activeMessagesWorkspaceId = null;
     }
   };
+}
+
+// ------------------------------------------------------------------
+// Workspace Lists (checklist cards + items)
+// ------------------------------------------------------------------
+
+function isLiveDataWorkspace(workspaceId: string): boolean {
+  return isSupabaseLive() && !!workspaceId && !["", "w1", "w2"].includes(workspaceId);
+}
+
+function mapWorkspaceListRow(row: WorkspaceListRow): WorkspaceList {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    title: row.title,
+    color: row.color,
+    sortOrder: row.sort_order,
+    pinned: row.pinned ?? false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapListItemRow(row: ListItemRow): ListItem {
+  return {
+    id: row.id,
+    listId: row.list_id,
+    workspaceId: row.workspace_id,
+    text: row.text,
+    completed: row.completed,
+    sortOrder: row.sort_order,
+    completedAt: row.completed_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getWorkspaceLists(workspaceId: string): Promise<WorkspaceList[]> {
+  if (!isLiveDataWorkspace(workspaceId) || !isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("workspace_lists")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("pinned", { ascending: false })
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return [];
+      }
+      logHybridError("getWorkspaceLists", error);
+      return [];
+    }
+    markWorkspaceListTablesAvailable();
+    return (data ?? []).map(mapWorkspaceListRow);
+  } catch (err) {
+    logHybridError("getWorkspaceLists", err);
+    return [];
+  }
+}
+
+export async function getListItems(workspaceId: string): Promise<ListItem[]> {
+  if (!isLiveDataWorkspace(workspaceId) || !isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("list_items")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return [];
+      }
+      logHybridError("getListItems", error);
+      return [];
+    }
+    markWorkspaceListTablesAvailable();
+    return (data ?? []).map(mapListItemRow);
+  } catch (err) {
+    logHybridError("getListItems", err);
+    return [];
+  }
+}
+
+export async function createWorkspaceList(input: {
+  id?: string;
+  workspaceId: string;
+  title: string;
+  color?: string;
+  sortOrder?: number;
+  pinned?: boolean;
+}): Promise<boolean> {
+  if (!isLiveDataWorkspace(input.workspaceId)) return false;
+  if (!(await ensureWorkspaceListPersistenceReady())) return true;
+
+  const clientId = normalizeListEntityId(input.id);
+  const payload: WorkspaceListInsert = {
+    id: clientId,
+    workspace_id: input.workspaceId,
+    title: input.title,
+    color: input.color ?? "default",
+    sort_order: input.sortOrder ?? 0,
+    pinned: input.pinned ?? false,
+  };
+
+  if (!isCurrentlyOnline()) {
+    enqueuePendingOperation({
+      type: "create",
+      entityType: "list",
+      targetId: clientId,
+      payload,
+      workspaceId: input.workspaceId,
+    });
+    return true;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const table = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
+    const { error } = await table.insert(payload);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return true;
+      }
+      enqueuePendingOperation({
+        type: "create",
+        entityType: "list",
+        targetId: clientId,
+        payload,
+        workspaceId: input.workspaceId,
+      });
+      logHybridError("createWorkspaceList", error);
+    } else {
+      markWorkspaceListTablesAvailable();
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markWorkspaceListTablesMissing();
+      return true;
+    }
+    enqueuePendingOperation({
+      type: "create",
+      entityType: "list",
+      targetId: clientId,
+      payload,
+      workspaceId: input.workspaceId,
+    });
+    logHybridError("createWorkspaceList", err);
+    return true;
+  }
+}
+
+export async function updateWorkspaceList(
+  id: string,
+  workspaceId: string,
+  updates: Partial<Pick<WorkspaceList, "title" | "color" | "sortOrder" | "pinned">>,
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isWorkspaceListPersistenceEnabled()) return true;
+
+  const listId = normalizeListEntityId(id);
+  const payload: Partial<WorkspaceListInsert> = {};
+  if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.color !== undefined) payload.color = updates.color;
+  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (updates.pinned !== undefined) payload.pinned = updates.pinned;
+  if (Object.keys(payload).length === 0) return true;
+
+  if (!isCurrentlyOnline()) {
+    enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
+    return true;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const table = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
+    const { error } = await table.update(payload).eq("id", listId).eq("workspace_id", workspaceId);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return true;
+      }
+      enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
+      logHybridError("updateWorkspaceList", error);
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markWorkspaceListTablesMissing();
+      return true;
+    }
+    enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
+    logHybridError("updateWorkspaceList", err);
+    return true;
+  }
+}
+
+export async function deleteWorkspaceList(id: string, workspaceId: string): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isWorkspaceListPersistenceEnabled()) return true;
+
+  const listId = normalizeListEntityId(id);
+
+  if (!isCurrentlyOnline()) {
+    enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
+    return true;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const table = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
+    const { error } = await table.delete().eq("id", listId).eq("workspace_id", workspaceId);
+    if (error && error.code !== "PGRST116") {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return true;
+      }
+      enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
+      logHybridError("deleteWorkspaceList", error);
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markWorkspaceListTablesMissing();
+      return true;
+    }
+    enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
+    logHybridError("deleteWorkspaceList", err);
+    return true;
+  }
+}
+
+export async function createListItem(input: {
+  id?: string;
+  listId: string;
+  workspaceId: string;
+  text: string;
+  sortOrder?: number;
+  completed?: boolean;
+  completedAt?: string;
+}): Promise<boolean> {
+  if (!isLiveDataWorkspace(input.workspaceId)) return false;
+  if (!(await ensureWorkspaceListPersistenceReady())) return true;
+
+  const clientId = normalizeListEntityId(input.id);
+  const payload: ListItemInsert = {
+    id: clientId,
+    list_id: normalizeListEntityId(input.listId),
+    workspace_id: input.workspaceId,
+    text: input.text,
+    sort_order: input.sortOrder ?? 0,
+    completed: input.completed ?? false,
+    completed_at: input.completedAt ?? null,
+  };
+
+  if (!isCurrentlyOnline()) {
+    enqueuePendingOperation({
+      type: "create",
+      entityType: "list_item",
+      targetId: clientId,
+      payload,
+      workspaceId: input.workspaceId,
+    });
+    return true;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const table = supabase.from("list_items") as ReturnType<typeof supabase.from>;
+    const { error } = await table.insert(payload);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return true;
+      }
+      enqueuePendingOperation({
+        type: "create",
+        entityType: "list_item",
+        targetId: clientId,
+        payload,
+        workspaceId: input.workspaceId,
+      });
+      logHybridError("createListItem", error);
+    } else {
+      markWorkspaceListTablesAvailable();
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markWorkspaceListTablesMissing();
+      return true;
+    }
+    enqueuePendingOperation({
+      type: "create",
+      entityType: "list_item",
+      targetId: clientId,
+      payload,
+      workspaceId: input.workspaceId,
+    });
+    logHybridError("createListItem", err);
+    return true;
+  }
+}
+
+export async function updateListItem(
+  id: string,
+  workspaceId: string,
+  updates: Partial<Pick<ListItem, "text" | "completed" | "sortOrder" | "completedAt">>,
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isWorkspaceListPersistenceEnabled()) return true;
+
+  const itemId = normalizeListEntityId(id);
+  const payload: Partial<ListItemInsert> = {};
+  if (updates.text !== undefined) payload.text = updates.text;
+  if (updates.completed !== undefined) payload.completed = updates.completed;
+  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt ?? null;
+  if (Object.keys(payload).length === 0) return true;
+
+  if (!isCurrentlyOnline()) {
+    enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
+    return true;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const table = supabase.from("list_items") as ReturnType<typeof supabase.from>;
+    const { error } = await table.update(payload).eq("id", itemId).eq("workspace_id", workspaceId);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return true;
+      }
+      enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
+      logHybridError("updateListItem", error);
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markWorkspaceListTablesMissing();
+      return true;
+    }
+    enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
+    logHybridError("updateListItem", err);
+    return true;
+  }
+}
+
+/** Push local-only lists into Supabase after migration (one-time backfill). */
+export async function backfillWorkspaceListsIfNeeded(
+  workspaceId: string,
+  localLists: WorkspaceList[],
+  localItems: ListItem[],
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!(await ensureWorkspaceListPersistenceReady())) return false;
+
+  const serverLists = await getWorkspaceLists(workspaceId);
+  if (serverLists.length > 0) return false;
+
+  const lists = localLists.filter((l) => l.workspaceId === workspaceId);
+  if (lists.length === 0) return false;
+
+  for (const list of lists) {
+    await createWorkspaceList({
+      id: normalizeListEntityId(list.id),
+      workspaceId,
+      title: list.title,
+      color: list.color,
+      sortOrder: list.sortOrder,
+      pinned: list.pinned,
+    });
+  }
+
+  const listIds = new Set(lists.map((l) => normalizeListEntityId(l.id)));
+  for (const item of localItems.filter(
+    (i) => i.workspaceId === workspaceId && listIds.has(normalizeListEntityId(i.listId)),
+  )) {
+    await createListItem({
+      id: normalizeListEntityId(item.id),
+      listId: item.listId,
+      workspaceId,
+      text: item.text,
+      sortOrder: item.sortOrder,
+      completed: item.completed,
+      completedAt: item.completedAt,
+    });
+  }
+
+  return true;
+}
+
+export async function deleteListItem(id: string, workspaceId: string): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isWorkspaceListPersistenceEnabled()) return true;
+
+  const itemId = normalizeListEntityId(id);
+
+  if (!isCurrentlyOnline()) {
+    enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
+    return true;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const table = supabase.from("list_items") as ReturnType<typeof supabase.from>;
+    const { error } = await table.delete().eq("id", itemId).eq("workspace_id", workspaceId);
+    if (error && error.code !== "PGRST116") {
+      if (isSchemaTableMissing(error)) {
+        markWorkspaceListTablesMissing();
+        return true;
+      }
+      enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
+      logHybridError("deleteListItem", error);
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markWorkspaceListTablesMissing();
+      return true;
+    }
+    enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
+    logHybridError("deleteListItem", err);
+    return true;
+  }
 }
 
 // Re-export template helpers from utils for store/UI consumers (no new imports needed in many places)

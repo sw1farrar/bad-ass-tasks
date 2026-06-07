@@ -1,6 +1,29 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { format, isToday, isTomorrow, isPast, addDays, addWeeks, addMonths, addYears, startOfDay, getDay } from "date-fns";
+import { format, isToday, isTomorrow, isPast, addDays, addWeeks, addMonths, addYears, startOfDay, getDay, differenceInCalendarWeeks } from "date-fns";
+import {
+  parseLocalDate,
+  toDueDateStorage,
+  toLocalDateString,
+  normalizeCalendarDateKey,
+  startOfLocalToday,
+} from "@/lib/datetime";
+
+export {
+  parseLocalDate,
+  toDueDateStorage,
+  normalizeCalendarDateKey,
+  normalizeCalendarDateKey as normalizeExceptionKey,
+  startOfLocalToday,
+  toLocalDateString,
+  formatLocalTimestamp,
+  formatLocalTime,
+  formatLocalDateShort,
+  isDueDatePast,
+  isDueDateToday,
+  isDueDateOnOrBefore,
+  dueDateFromUserInput,
+} from "@/lib/datetime";
 
 // Canonical types (single source of truth). Old duplicate local copies removed during QA/types cleanup.
 import type { Task, Note, Priority, TaskStatus, WorkspaceMember, ActivityLog } from "@/types";
@@ -37,15 +60,16 @@ export function parseNaturalLanguage(input: string): Partial<Task> {
 
   const now = new Date();
 
+  const today = startOfLocalToday();
   if (tomorrowMatch) {
-    result.dueDate = addDays(now, 1).toISOString();
+    result.dueDate = toDueDateStorage(addDays(today, 1));
   } else if (fridayMatch) {
-    const daysUntilFriday = (5 - now.getDay() + 7) % 7 || 7;
-    result.dueDate = addDays(now, daysUntilFriday).toISOString();
+    const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
+    result.dueDate = toDueDateStorage(addDays(today, daysUntilFriday));
   } else if (nextWeekMatch) {
-    result.dueDate = addDays(now, 7).toISOString();
+    result.dueDate = toDueDateStorage(addDays(today, 7));
   } else if (todayMatch) {
-    result.dueDate = now.toISOString();
+    result.dueDate = toDueDateStorage(today);
   }
 
   // Tag extraction (@Sarah, @team, etc)
@@ -67,7 +91,8 @@ export function parseNaturalLanguage(input: string): Partial<Task> {
 
 export function formatDueDate(dateString?: string) {
   if (!dateString) return null;
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
+  if (!date) return null;
   if (isToday(date)) return { label: "Today", variant: "today" as const };
   if (isTomorrow(date)) return { label: "Tomorrow", variant: "soon" as const };
   if (isPast(date)) return { label: format(date, "MMM d"), variant: "overdue" as const };
@@ -88,6 +113,22 @@ export function getUserFirstName(options: {
     options.authFullName?.trim();
   if (full) return full.split(/\s+/)[0];
   if (options.username?.trim()) return options.username.trim();
+  if (options.email?.includes("@")) return options.email.split("@")[0];
+  return "";
+}
+
+/** Greeting-specific resolver — prefers real names and never falls back to @username. */
+export function getUserGreetingName(options: {
+  profileFullName?: string | null;
+  memberFullName?: string | null;
+  authFullName?: string | null;
+  email?: string | null;
+}): string {
+  const full =
+    options.profileFullName?.trim() ||
+    options.memberFullName?.trim() ||
+    options.authFullName?.trim();
+  if (full) return full.split(/\s+/)[0];
   if (options.email?.includes("@")) return options.email.split("@")[0];
   return "";
 }
@@ -221,17 +262,13 @@ export function getRecurringLabel(rule?: string | null): string {
   return base;
 }
 
-/** Normalize any date/string to stable YYYY-MM-DD key for exception comparison (client local safe for this purpose). */
-export function normalizeExceptionKey(d: Date | string): string {
-  const dt = startOfDay(new Date(d));
-  return format(dt, "yyyy-MM-dd");
-}
+
 
 /** Returns true if the given date matches any exception date for the series. */
 export function isOccurrenceException(date: Date | string, exceptionDates?: string[] | null): boolean {
   if (!exceptionDates || exceptionDates.length === 0) return false;
-  const key = normalizeExceptionKey(date);
-  return exceptionDates.some((ex) => normalizeExceptionKey(ex) === key);
+  const key = normalizeCalendarDateKey(date);
+  return exceptionDates.some((ex) => normalizeCalendarDateKey(ex) === key);
 }
 
 /** Filter an array of occurrence dates against exceptions (used by calendar + next due). */
@@ -240,79 +277,35 @@ export function filterExceptions(dates: Date[], exceptionDates?: string[] | null
   return dates.filter((d) => !isOccurrenceException(d, exceptionDates));
 }
 
-/** Returns next future due date (Date) for a recurring rule, or null. Anchor is the "seed" dueDate.
- *  Production (Agent 25): respects exceptionDates, UNTIL, and COUNT (series termination).
- *  COUNT support is best-effort for next-due (full history not stored; future occurrences limited in range gen).
+/** Returns next due date (Date) strictly after `from`, or null when the series has ended.
+ *  Anchor is the series seed (task dueDate). For completion, pass the current dueDate as `from`.
+ *  Delegates to getOccurrencesInRange for COUNT, UNTIL, BYDAY, INTERVAL, and exception parity.
  */
 export function getNextRecurringDue(
   rule: string | null,
-  from: Date = new Date(),
+  from: Date | string = new Date(),
   anchorDue?: string | Date,
   exceptionDates?: string[] | null
 ): Date | null {
   const pattern = parseRecurringRule(rule);
   if (!pattern) return null;
 
-  const anchor = anchorDue ? startOfDay(new Date(anchorDue)) : startOfDay(from);
-  const cursor = new Date(anchor.getTime());
-
-  const step = (d: Date): Date => {
-    switch (pattern.freq) {
-      case "DAILY": return addDays(d, pattern.interval);
-      case "WEEKLY": return addWeeks(d, pattern.interval);
-      case "MONTHLY": return addMonths(d, pattern.interval);
-      case "YEARLY": return addYears(d, pattern.interval);
-      default: return addDays(d, pattern.interval);
-    }
-  };
-
-  // Safe until date parser (handles our normalized YYYY-MM-DD)
-  const getUntilDate = (): Date | null => {
-    if (!pattern.until) return null;
-    return startOfDay(new Date(pattern.until + "T00:00:00"));
-  };
-
-  // Weekly BYDAY special: jump to next matching weekday(s) after current
-  const WEEKDAY_MAP: Record<WeekDay, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-
-  if (pattern.freq === "WEEKLY" && pattern.byDay && pattern.byDay.length > 0) {
-    const targetDays = pattern.byDay.map((d) => WEEKDAY_MAP[d]);
-    // Start search from tomorrow relative to 'from' or anchor
-    let search = addDays(startOfDay(from), 1);
-    const maxIter = 14 * Math.max(1, pattern.interval) + 10; // extra for exceptions
-    for (let i = 0; i < maxIter; i++) {
-      const wd = getDay(search);
-      if (targetDays.includes(wd) && !isOccurrenceException(search, exceptionDates)) {
-        const untilD = getUntilDate();
-        if (untilD && search > untilD) return null;
-        // COUNT not strictly enforced here (would require series position); rely on range gen + UI
-        return search;
-      }
-      search = addDays(search, 1);
-    }
-    return null;
-  }
-
-  // Generic: advance at least one step from anchor (or from 'from' if later), skipping exceptions + until
-  let next = step(cursor);
-  const fromDay = startOfDay(from);
-  let safety = 0;
-  const maxSafety = 365 * 5; // hard bound for bad data
-  while (safety++ < maxSafety && next.getTime() <= fromDay.getTime()) {
-    next = step(next);
-  }
-  // Skip any exception hits and respect until
-  while (safety++ < maxSafety) {
-    if (isOccurrenceException(next, exceptionDates)) {
-      next = step(next);
-      continue;
-    }
-    const untilD = getUntilDate();
-    if (untilD && next > untilD) return null;
-    if (next.getTime() > fromDay.getTime()) break;
-    next = step(next);
-  }
-  return next;
+  const anchor =
+    typeof anchorDue === "string"
+      ? parseLocalDate(anchorDue)
+      : anchorDue
+        ? startOfDay(anchorDue)
+        : typeof from === "string"
+          ? parseLocalDate(from)
+          : startOfDay(from);
+  if (!anchor) return null;
+  const anchorIso = typeof anchorDue === "string" ? anchorDue : toLocalDateString(anchor);
+  const fromKey = normalizeCalendarDateKey(from);
+  const fromDate = typeof from === "string" ? parseLocalDate(from) ?? anchor : from instanceof Date ? from : anchor;
+  const rangeEnd = addYears(startOfDay(fromDate), 5);
+  const maxOcc = pattern.count && pattern.count > 0 ? pattern.count + 2 : 120;
+  const occ = getOccurrencesInRange(anchorIso, rule, anchor, rangeEnd, maxOcc, exceptionDates);
+  return occ.find((d) => normalizeCalendarDateKey(d) > fromKey) ?? null;
 }
 
 /** Generate all (approximate) occurrence dates for a recurring task within [rangeStart, rangeEnd].
@@ -333,7 +326,7 @@ export function getOccurrencesInRange(
   const pattern = parseRecurringRule(rule);
   if (!anchorDue || !pattern) return [];
 
-  const anchor = startOfDay(new Date(anchorDue));
+  const anchor = parseLocalDate(anchorDue) ?? startOfDay(rangeStart);
   const rStart = startOfDay(rangeStart);
   const rEnd = startOfDay(rangeEnd);
   const occ: Date[] = [];
@@ -365,7 +358,7 @@ export function getOccurrencesInRange(
   // Safe until parser
   const getUntilDate = (): Date | null => {
     if (!pattern.until) return null;
-    return startOfDay(new Date(pattern.until + "T00:00:00"));
+    return parseLocalDate(pattern.until) ?? null;
   };
   const untilD = getUntilDate();
 
@@ -381,7 +374,10 @@ export function getOccurrencesInRange(
 
     if (isByDayWeekly && targetWeekdays) {
       if (targetWeekdays.includes(getDay(current))) {
-        include = true;
+        const weekDiff = differenceInCalendarWeeks(current, anchor, { weekStartsOn: 0 });
+        if (weekDiff >= 0 && weekDiff % pattern.interval === 0) {
+          include = true;
+        }
       }
     } else {
       // For non-BYDAY or other freqs, every stepped occurrence counts
@@ -389,15 +385,13 @@ export function getOccurrencesInRange(
     }
 
     if (include && current >= rStart && current <= rEnd) {
-      // Respect series COUNT (count only from anchor forward as series start)
       if (current >= anchor) {
         seriesOccCounter++;
         if (seriesOccCounter > maxSeries) {
-          break; // series has ended per COUNT
+          break;
         }
       }
 
-      // Respect until
       if (untilD && current > untilD) break;
 
       occ.push(new Date(current));
@@ -475,7 +469,7 @@ export function generateRecurringInstances(
   return dates.map((d) => ({
     taskId: task.id,
     occurrenceDate: d,
-    dateKey: normalizeExceptionKey(d),
+    dateKey: normalizeCalendarDateKey(d),
     isException: isOccurrenceException(d, task.exceptionDates),
     seriesLabel: label,
   }));

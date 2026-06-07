@@ -1,11 +1,12 @@
 "use client";
 
 import React from "react";
-import { Check, Clock, Star, Users, X, Zap } from "lucide-react";
+import { Check, Clock, Star, Users, Zap } from "lucide-react";
+import { BottomSheet } from "@/components/BottomSheet";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
 
-export type AppView = "home" | "today" | "tasks" | "notes" | "teams";
+export type AppView = "home" | "tasks" | "notes" | "teams";
 
 export interface NotificationDetailModalProps {
   notification: Notification | null;
@@ -49,8 +50,7 @@ export function NotificationDetailModal({
   if (!notification) return null;
 
   const metadata = notification.metadata as InviteMetadata | undefined;
-  const hasMetadata =
-    metadata && Object.keys(metadata).length > 0;
+  const hasMetadata = metadata && Object.keys(metadata).length > 0;
 
   const handleLinkAction = () => {
     if (!notification.link) return;
@@ -70,29 +70,17 @@ export function NotificationDetailModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
+    <BottomSheet
+      open
+      onClose={onClose}
+      title={notification.title}
+      zIndex={300}
+      panelClassName="glass-strong border-white/10"
     >
-      <div
-        className="glass-strong w-full max-w-md rounded-3xl border border-white/10 p-6 text-sm shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="text-[#c084fc]">
-              <NotificationTypeIcon type={notification.type} />
-            </div>
-            <div className="font-semibold text-lg tracking-tight">
-              {notification.title}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-[#71717a] hover:text-white p-1"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <div className="p-5 text-sm">
+        <div className="flex items-center gap-3 mb-4 text-[#c084fc]">
+          <NotificationTypeIcon type={notification.type} />
+          <span className="text-xs uppercase tracking-widest text-[#71717a]">Notification</span>
         </div>
 
         <div className="text-[#e5e5e7] whitespace-pre-wrap mb-4 leading-relaxed">
@@ -104,14 +92,12 @@ export function NotificationDetailModal({
             <div className="font-mono text-[10px] mb-1 opacity-60">DETAILS</div>
             {metadata.workspace_name && (
               <div>
-                Workspace:{" "}
-                <span className="text-white">{metadata.workspace_name}</span>
+                Workspace: <span className="text-white">{metadata.workspace_name}</span>
               </div>
             )}
             {metadata.invited_by_name && (
               <div>
-                From:{" "}
-                <span className="text-white">{metadata.invited_by_name}</span>
+                From: <span className="text-white">{metadata.invited_by_name}</span>
               </div>
             )}
             {metadata.role && (
@@ -126,23 +112,25 @@ export function NotificationDetailModal({
           {new Date(notification.createdAt).toLocaleString()}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col-reverse sm:flex-row gap-2.5">
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="flex-1 min-h-[44px] rounded-xl border border-white/15 text-sm font-medium hover:bg-white/5 transition"
+          >
+            Dismiss
+          </button>
           {notification.link && (
             <button
+              type="button"
               onClick={handleLinkAction}
-              className="btn btn-primary text-sm flex-1"
+              className="btn btn-primary text-sm flex-1 min-h-[44px]"
             >
               {notification.type === "invite" ? "View invites" : "Go to link"}
             </button>
           )}
-          <button
-            onClick={handleDismiss}
-            className="flex-1 rounded-xl border border-white/15 py-2 text-sm hover:bg-white/5"
-          >
-            Dismiss
-          </button>
         </div>
       </div>
-    </div>
+    </BottomSheet>
   );
 }

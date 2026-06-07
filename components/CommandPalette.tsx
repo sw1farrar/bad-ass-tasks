@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Command } from "cmdk";
 import { 
-  Search, Plus, CheckSquare, FileText, Users, Settings,
-  Zap, ArrowRight, Clock, Briefcase, FilePlus, Hash, Filter, Sparkles, Download, GitBranch
+  Search, Plus, CheckSquare, FileText, ListChecks, Users, Settings,
+  Zap, ArrowRight, Briefcase, FilePlus, Hash, Filter, Sparkles, Download, GitBranch
 } from "lucide-react";
 import { useTaskStore } from "@/store/useTaskStore";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     setView, 
     addTask, 
     addNote,
+    addList,
     toggleCommandPalette,
     toggleKeyboardCheatsheet,
     tasks,
@@ -82,6 +83,24 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           },
         },
       });
+    }
+  };
+
+  const handleCreateList = async () => {
+    const title = prompt("List title? (e.g. 'Groceries')");
+    if (title) {
+      const res = await addList(title);
+      if (!res) {
+        toast.error("Failed to create list");
+        return;
+      }
+      toast.success(`List created: ${res.title}`, {
+        action: {
+          label: "Go to Lists",
+          onClick: () => setView("lists"),
+        },
+      });
+      setView("lists");
     }
   };
 
@@ -151,10 +170,16 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       return;
     }
     const random = incomplete[Math.floor(Math.random() * incomplete.length)];
-    await completeTask(random.id);
-    toast.success(`Completed: ${random.title}`, {
-      description: "Nice work. What's next?",
-    });
+    const result = await completeTask(random.id);
+    if (result === "advanced") {
+      toast.success(`Occurrence done: ${random.title}`, {
+        description: "Recurring series advanced to the next due date.",
+      });
+    } else if (result === "completed") {
+      toast.success(`Completed: ${random.title}`, {
+        description: "Nice work. What's next?",
+      });
+    }
   };
 
   // New power actions (live + context aware)
@@ -227,6 +252,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <div className="text-xs text-[#c084fc] font-mono">⌘⇧N</div>
               </Command.Item>
 
+              <Command.Item
+                onSelect={() => runCommand(handleCreateList)}
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+              >
+                <ListChecks className="h-4 w-4 text-[#c084fc]" />
+                <div className="flex-1">
+                  <div>Create new list</div>
+                  <div className="text-xs text-[#71717a]">Quick checklist like Google Keep</div>
+                </div>
+              </Command.Item>
+
               <Command.Item 
                 onSelect={() => runCommand(completeRandom)}
                 className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
@@ -286,9 +322,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             {/* Navigation - all views + current indicator */}
             <Command.Group heading="Navigate Views" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
               {[
-                { label: "Today", view: "today" as const, icon: Clock, shortcut: "1" },
-                { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "2" },
-                { label: "Notes", view: "notes" as const, icon: FileText, shortcut: "3" },
+                { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "1" },
+                { label: "Notes", view: "notes" as const, icon: FileText, shortcut: "2" },
+                { label: "Lists", view: "lists" as const, icon: ListChecks, shortcut: "3" },
                 { label: "Team", view: "teams" as const, icon: Users, shortcut: "4" },
                 { label: "Workspace Settings", view: "settings" as const, icon: Settings, shortcut: "5" },
               ].map((item) => (

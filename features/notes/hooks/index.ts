@@ -14,4 +14,5 @@ export { useNoteKeyboard } from "./useNoteKeyboard";
 export { useNoteSearch } from "./useNoteSearch";
 export { useMentions, extractMentionsFromDoc, type MentionRef } from "./useMentions";
 export { getBacklinkNotes, getBacklinkCount } from "./useBacklinks";
+export { useNoteAttachmentCounts } from "./useNoteAttachmentCounts";
 
