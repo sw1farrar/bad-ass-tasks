@@ -132,6 +132,7 @@ interface TaskState {
   user: User | null;
   session: Session | null;
   isAuthLoading: boolean;
+  isSigningOut: boolean;
 
   // Phase 2 collaboration state
   members: WorkspaceMember[];
@@ -268,6 +269,26 @@ interface TaskState {
 
   // C4-Exec-3 Phase A MVP: global Home hub separate slices (read-only aggregates)
   fetchGlobalHomeAggregates: () => Promise<void>;
+}
+
+function clearedLiveSessionState() {
+  return {
+    tasks: [],
+    notes: [],
+    recentActivity: [],
+    workspaces: [],
+    currentWorkspace: { id: "", name: "", slug: "", role: "member" } as Workspace,
+    taskLoadingStates: {},
+    members: [],
+    invites: [],
+    notifications: [],
+    unreadNotifCount: 0,
+    comments: [],
+    selectedTaskId: null,
+    isInitializing: false,
+    pendingSyncCount: 0,
+    isSyncing: false,
+  };
 }
 
 // Demo-only beautiful sample data. Used EXCLUSIVELY when !isSupabaseLive() (no keys configured).
@@ -497,6 +518,7 @@ export const useTaskStore = create<TaskState>()(
       user: null,
       session: null,
       isAuthLoading: true,
+      isSigningOut: false,
 
       // NOTE: Early local CRUD definitions for tasks/notes were removed here (they duplicated the final hybrid-wired versions below).
       // This eliminates TS1117 "multiple properties with same name" while preserving all behavior (last definition in object wins at runtime).
@@ -906,20 +928,22 @@ export const useTaskStore = create<TaskState>()(
             })();
           }
 
-          // Sign-out: only reset to demo samples if we are in pure demo mode (!live keys).
-          // When Supabase is configured, on sign-out we keep clean (no sample pollution injected);
-          // subsequent init/refresh will show real data or empty per RLS. Demo delight only for !isSupabaseLive().
-          if (previousUser && !newUser && !isSupabaseLive()) {
-            set({
-              tasks: SAMPLE_TASKS,
-              notes: SAMPLE_NOTES,
-              currentWorkspace: DEFAULT_WORKSPACE,
-              workspaces: [
-                DEFAULT_WORKSPACE,
-                { id: "w2", name: "Personal", slug: "personal", role: "owner" },
-              ],
-              taskLoadingStates: {},
-            });
+          // Sign-out: demo mode restores samples; live mode clears authenticated session data.
+          if (previousUser && !newUser) {
+            if (!isSupabaseLive()) {
+              set({
+                tasks: SAMPLE_TASKS,
+                notes: SAMPLE_NOTES,
+                currentWorkspace: DEFAULT_WORKSPACE,
+                workspaces: [
+                  DEFAULT_WORKSPACE,
+                  { id: "w2", name: "Personal", slug: "personal", role: "owner" },
+                ],
+                taskLoadingStates: {},
+              });
+            } else {
+              set(clearedLiveSessionState());
+            }
           }
 
           // Teardown notifications realtime channel on signout
@@ -993,12 +1017,35 @@ export const useTaskStore = create<TaskState>()(
       },
 
       signOut: async () => {
+        if (get().isSigningOut) return;
+
+        set({ isSigningOut: true });
         get().teardownWorkspaceRealtime();
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          await supabase.auth.signOut();
+
+        if (isSupabaseLive()) {
+          clearPendingOperations();
+          set(clearedLiveSessionState());
+        } else {
+          set({
+            tasks: SAMPLE_TASKS,
+            notes: SAMPLE_NOTES,
+            currentWorkspace: DEFAULT_WORKSPACE,
+            workspaces: [
+              DEFAULT_WORKSPACE,
+              { id: "w2", name: "Personal", slug: "personal", role: "owner" },
+            ],
+            taskLoadingStates: {},
+          });
         }
-        // State (incl. clearing collab) will be updated via onAuthStateChange
+
+        try {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            await supabase.auth.signOut();
+          }
+        } finally {
+          set({ isSigningOut: false, user: null, session: null });
+        }
       },
 
       fetchUserWorkspaces: async () => {

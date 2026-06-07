@@ -148,6 +148,7 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       user: null,
       session: null,
       isAuthLoading: false,
+      isSigningOut: false,
     }); // merge (default) — keeps zustand action methods on the store; only overrides data fields
   };
 

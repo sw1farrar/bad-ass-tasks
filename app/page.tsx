@@ -59,6 +59,7 @@ export default function BadAssTasks() {
     isInitializing,
     user,
     isAuthLoading,
+    isSigningOut,
     initializeAuth,
     signOut,
     setView,
@@ -186,6 +187,7 @@ export default function BadAssTasks() {
   const [pendingLeaveWorkspace, setPendingLeaveWorkspace] = useState(false);
   const [pendingDeleteNotification, setPendingDeleteNotification] = useState<string | null>(null);
   const [pendingClearNotifications, setPendingClearNotifications] = useState(false);
+  const [pendingSignOut, setPendingSignOut] = useState(false);
 
   const pendingDeleteNoteTitle = pendingDeleteNote
     ? notes.find((n) => n.id === pendingDeleteNote)?.title || "Untitled Note"
@@ -481,7 +483,8 @@ export default function BadAssTasks() {
 
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user;
-  const showLandingGate = isConfigured && !user;
+  const showSessionGate = isConfigured && (isAuthLoading || isSigningOut);
+  const showLandingGate = isConfigured && !user && !isSigningOut;
 
   const handleInstallApp = async () => {
     if (deferredPrompt) {
@@ -1544,13 +1547,13 @@ export default function BadAssTasks() {
     }
   };
 
-  // Hold UI until auth + live bootstrap finish — prevents flash of warnings, banners, and stale data on refresh.
-  if (isConfigured && isAuthLoading) {
+  // Hold UI until auth bootstrap or sign-out finishes — prevents flash of app chrome or stale data.
+  if (showSessionGate) {
     return (
       <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0a0a0f] text-[#f4f4f5]">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-6 w-6 animate-spin text-[#c084fc]" aria-hidden="true" />
-          <p className="text-sm text-[#71717a]">Loading…</p>
+          <p className="text-sm text-[#71717a]">{isSigningOut ? "Signing out…" : "Loading…"}</p>
         </div>
       </div>
     );
@@ -1854,7 +1857,7 @@ export default function BadAssTasks() {
 
               {/* Sign out action */}
               <button
-                onClick={() => signOut()}
+                onClick={() => setPendingSignOut(true)}
                 className="btn btn-ghost h-8 w-8 p-0 flex items-center justify-center rounded-full hover:bg-white/5 hover:text-[#ff00aa] transition"
                 title="Sign out"
                 aria-label="Sign out"
@@ -2545,6 +2548,17 @@ export default function BadAssTasks() {
         confirmText="Clear all"
         variant="destructive"
         onConfirm={handleConfirmClearNotifications}
+      />
+
+      <ConfirmationModal
+        open={pendingSignOut}
+        onOpenChange={setPendingSignOut}
+        title="Sign out?"
+        description="You will return to the landing page. Your data stays saved in your account for next time you sign in."
+        confirmText="Sign out"
+        variant="destructive"
+        isLoading={isSigningOut}
+        onConfirm={signOut}
       />
 
     </div>
