@@ -1132,3 +1132,19 @@ Next recommended action: User adds Supabase keys + runs the improved `schema.sql
 **Lucide + Matchers + 11:01 Hygiene (2026-05-30 11:02 this Continue.)**: 4 test-only patches (lucide-react mock + matcher/robustness) landed cleanly on this Continue; fresh post-cache-clear hygiene run 20260530-110110 executed with full evidence capture (smoke file updated, logs generating); M2/C4 Decision Gate remains active, user has not delivered decision phrase.
 
 (End of 2026-06 Post-C4 + Zustand Hygiene Fix + Exhaustive Decision Package Ready section)
+
+---
+
+## 2026-06 Product Pivot — Tasks Surface Simplification (User-Directed)
+
+**Scope removed from the Tasks product UI and master plan (not deleted from DB schema for backward compatibility):**
+
+| Feature | Status |
+|---------|--------|
+| **Task priority levels** (P0–P3) | Removed from UI, filters, sorting, command palette, table, modal, and row. DB column may remain; new/edited tasks use internal default only. |
+| **Task tags** | Removed from UI entirely. No tagging on tasks. Note tags unchanged. |
+| **Task time estimate** | Removed from UI (modal, list, calendar chips). |
+
+**Tasks UX retained:** title, description (compact), status, due date, recurrence + exceptions, comments (newest first), assignee display where present, table + quick-add, team chat.
+
+**Governance:** Future agents must not reintroduce priority/tags/time-estimate on tasks without explicit user request.
