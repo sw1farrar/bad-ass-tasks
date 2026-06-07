@@ -271,7 +271,7 @@ export async function processInboundEmail(
     console.error("[brevo-inbound] attachment batch failed", err);
   }
 
-  let emailSource: string | null = messageId ? `brevo:${messageId}` : null;
+  const emailSource: string | null = messageId ? `brevo:${messageId}` : null;
 
   await finalizeInboundNoteContent({
     supabase,
