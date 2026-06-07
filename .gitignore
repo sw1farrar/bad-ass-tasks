@@ -62,3 +62,4 @@ agent-tools/
 task-persistence-diff.txt
 
 .vercel
+.env.vercel.*
