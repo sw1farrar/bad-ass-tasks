@@ -1477,50 +1477,150 @@ export default function BadAssTasks() {
     // Per user request: hide the full busy interface and show a clean, modern invite-focused experience.
     // The predicate is inlined (no TDZ identifier remains).
 
+    const openMobileEmailInvite = () => {
+      setInviteEmail("");
+      setShowDirectInvite(false);
+      setShowInviteDialog(true);
+    };
+
     const handleSendInvite = async () => {
-      console.log("[DEBUG] handleSendInvite was called");
       if (!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)) {
         toast.info("Invites require a live Supabase workspace");
         return;
       }
+
+      const emailVal = inviteEmail.trim();
+      if (isMobileViewport && !emailVal) {
+        toast.error("Enter an email address");
+        return;
+      }
+
       setIsSendingInvite(true);
       try {
-        const emailVal = inviteEmail.trim() || undefined;
-        const inviteId = await sendInvite(emailVal, inviteRole);
-        console.log("[DEBUG] sendInvite returned:", inviteId);
+        const inviteId = await sendInvite(emailVal || undefined, inviteRole);
 
         if (inviteId) {
-          // Build nice link
-          const link = `${window.location.origin}/invite/${inviteId}`;
-          // Copy immediately for delight
-          try {
-            await navigator.clipboard.writeText(link);
-            setCopiedInviteId(inviteId);
-            setTimeout(() => setCopiedInviteId(null), 2500);
-            toast.success("Invite sent & link copied!", { description: "They can join via the link." });
-          } catch {}
+          if (isMobileViewport && emailVal) {
+            toast.success("Invite sent!", {
+              description: "They will receive an email notification.",
+            });
+            setShowInviteDialog(false);
+            setShowDirectInvite(false);
+          } else {
+            const link = `${window.location.origin}/invite/${inviteId}`;
+            try {
+              await navigator.clipboard.writeText(link);
+              setCopiedInviteId(inviteId);
+              setTimeout(() => setCopiedInviteId(null), 2500);
+              toast.success("Invite sent & link copied!", { description: "They can join via the link." });
+            } catch {
+              toast.success("Invite created", { description: link });
+            }
+            setShowInviteDialog(false);
+          }
+
           setInviteEmail("");
           setTeamSearchQuery("");
           setTeamSearchResults([]);
-
-          console.log("[DEBUG] About to call fetchInvites() after send");
           await fetchInvites();
-          const currentInvites = useTaskStore.getState().invites;
-          console.log("[DEBUG] After fetchInvites(), invites array =", currentInvites);
-          console.log("[DEBUG] invites.length =", currentInvites?.length);
-
-          // Force re-render of empty state to show new pending invites immediately.
-          // Harmless no-op set on local state (closed over in empty UI) guarantees a fresh render
-          // pass after store update so the promoted "Invites sent" section (top of empty-owner UI)
-          // definitely appears with the latest invites data.
           setTeamSearchResults((r) => r);
-        } else {
-          console.warn("[DEBUG] sendInvite did NOT return an id. Invite creation likely failed.");
         }
       } finally {
         setIsSendingInvite(false);
       }
     };
+
+    const renderTeamInviteSheet = () => (
+      <BottomSheet
+        open={showInviteDialog}
+        onClose={() => {
+          setShowInviteDialog(false);
+          setInviteEmail("");
+        }}
+        title={isMobileViewport ? "Invite by email" : `Invite to ${currentWorkspace.name}`}
+        zIndex={220}
+        panelClassName="glass"
+      >
+        {isMobileViewport ? (
+          <div className="team-invite-sheet p-5 space-y-4">
+            <div>
+              <label htmlFor="team-invite-email" className="text-xs text-[#a1a1aa] block mb-1.5">
+                Email address
+              </label>
+              <input
+                id="team-invite-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="teammate@company.com"
+                className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-base outline-none min-h-[48px]"
+                disabled={isSendingInvite}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && inviteEmail.trim() && !isSendingInvite) {
+                    void handleSendInvite();
+                  }
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSendInvite()}
+              disabled={isSendingInvite || !inviteEmail.trim()}
+              className="w-full btn btn-primary py-3.5 min-h-[48px] text-sm font-semibold disabled:opacity-60"
+            >
+              {isSendingInvite ? "Sending..." : "Send invite"}
+            </button>
+          </div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs text-[#a1a1aa] block mb-1.5">Email (optional)</label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="teammate@company.com (leave blank for link-only)"
+                className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-sm outline-none min-h-[44px]"
+                disabled={isSendingInvite}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-[#a1a1aa] block mb-1.5">Role</label>
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
+                className="w-full bg-[#111114] border border-white/20 rounded-xl px-4 py-3 text-sm min-h-[44px]"
+                disabled={isSendingInvite}
+              >
+                <option value="member">Member (default)</option>
+                <option value="admin">Admin</option>
+                <option value="owner">Owner</option>
+              </select>
+            </div>
+            <div className="pt-2 flex flex-col-reverse sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => setShowInviteDialog(false)}
+                className="flex-1 btn btn-secondary py-3 min-h-[44px]"
+                disabled={isSendingInvite}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendInvite()}
+                disabled={isSendingInvite}
+                className="flex-1 btn btn-primary py-3 min-h-[44px] disabled:opacity-60"
+              >
+                {isSendingInvite ? "Creating..." : "Create & Copy Invite Link"}
+              </button>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+    );
 
     const copyInviteLink = async (inviteId: string) => {
       const link = `${window.location.origin}/invite/${inviteId}`;
@@ -1687,18 +1787,23 @@ export default function BadAssTasks() {
               )}
             </div>
 
-            {/* Clickable trigger for direct invite - always visible when searching */}
+            {/* Invite by email — mobile opens bottom sheet; desktop expands inline form */}
             {teamSearchQuery.trim() && (
-              <div
-                onClick={() => setShowDirectInvite(!showDirectInvite)}
-                className="text-sm text-[#c084fc] hover:underline cursor-pointer mb-4 flex items-center gap-1.5 select-none"
+              <button
+                type="button"
+                onClick={() =>
+                  isMobileViewport ? openMobileEmailInvite() : setShowDirectInvite(!showDirectInvite)
+                }
+                className="text-sm text-[#c084fc] hover:underline cursor-pointer mb-4 flex items-center gap-1.5 select-none text-left w-full min-h-[44px]"
               >
-                Not seeing who you're looking for? <span className="font-medium">Invite by email or create a link</span>
-              </div>
+                Not seeing who you&apos;re looking for?{" "}
+                <span className="font-medium">
+                  {isMobileViewport ? "Invite by email" : "Invite by email or create a link"}
+                </span>
+              </button>
             )}
 
-            {/* Expanded direct invite form */}
-            {showDirectInvite && (
+            {!isMobileViewport && showDirectInvite && (
               <div className="mb-6 space-y-3 border border-white/10 bg-white/5 rounded-2xl p-5">
                 <input
                   type="email"
@@ -1710,7 +1815,7 @@ export default function BadAssTasks() {
 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => handleSendInvite()}
+                    onClick={() => void handleSendInvite()}
                     disabled={isSendingInvite || !inviteEmail.trim()}
                     className="flex-1 btn btn-primary py-3 text-sm disabled:opacity-60"
                   >
@@ -1727,8 +1832,6 @@ export default function BadAssTasks() {
                     Create shareable link
                   </button>
                 </div>
-
-
               </div>
             )}
 
@@ -1769,8 +1872,11 @@ export default function BadAssTasks() {
                           setIsSearchingTeam(false);
 
                           if (!result.email) {
-                            // No email available from search — fall back to manual form
-                            setShowDirectInvite(true);
+                            if (isMobileViewport) {
+                              openMobileEmailInvite();
+                            } else {
+                              setShowDirectInvite(true);
+                            }
                             return;
                           }
 
@@ -1820,10 +1926,15 @@ export default function BadAssTasks() {
               </div>
             )}
 
-            {/* Always-visible "Invite by email" option — stays noticeable even with many results */}
-
-
-
+            {isMobileViewport && (
+              <button
+                type="button"
+                onClick={openMobileEmailInvite}
+                className="w-full btn btn-secondary min-h-[44px] text-sm mt-2"
+              >
+                Invite by email
+              </button>
+            )}
           </div>
 
 
@@ -1836,6 +1947,8 @@ export default function BadAssTasks() {
             // Profile completion prompt removed — editing now lives exclusively in the avatar menu.
             return null;
           })()}
+
+          {renderTeamInviteSheet()}
         </div>
         </div>
       );
@@ -2024,58 +2137,7 @@ export default function BadAssTasks() {
           />
         )}
 
-        <BottomSheet
-          open={showInviteDialog}
-          onClose={() => setShowInviteDialog(false)}
-          title={`Invite to ${currentWorkspace.name}`}
-          zIndex={220}
-          panelClassName="glass"
-        >
-          <div className="p-5 space-y-4">
-            <div>
-              <label className="text-xs text-[#a1a1aa] block mb-1.5">Email (optional)</label>
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="teammate@company.com (leave blank for link-only)"
-                className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-sm outline-none min-h-[44px]"
-                disabled={isSendingInvite}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-[#a1a1aa] block mb-1.5">Role</label>
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
-                className="w-full bg-[#111114] border border-white/20 rounded-xl px-4 py-3 text-sm min-h-[44px]"
-                disabled={isSendingInvite}
-              >
-                <option value="member">Member (default)</option>
-                <option value="admin">Admin</option>
-                <option value="owner">Owner</option>
-              </select>
-            </div>
-            <div className="pt-2 flex flex-col-reverse sm:flex-row gap-3">
-              <button
-                type="button"
-                onClick={() => setShowInviteDialog(false)}
-                className="flex-1 btn btn-secondary py-3 min-h-[44px]"
-                disabled={isSendingInvite}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSendInvite}
-                disabled={isSendingInvite}
-                className="flex-1 btn btn-primary py-3 min-h-[44px] disabled:opacity-60"
-              >
-                {isSendingInvite ? "Creating..." : "Create & Copy Invite Link"}
-              </button>
-            </div>
-          </div>
-        </BottomSheet>
+        {renderTeamInviteSheet()}
       </div>
       </div>
     );

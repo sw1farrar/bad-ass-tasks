@@ -229,6 +229,14 @@
     border-radius: 0.75rem;
   }
 
+  .teams-root .team-invite-sheet {
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 12px));
+  }
+
+  .teams-root .team-invite-sheet input[type="email"] {
+    font-size: 16px;
+  }
+
   .teams-root .team-activity-item {
     padding: 0.75rem;
   }
