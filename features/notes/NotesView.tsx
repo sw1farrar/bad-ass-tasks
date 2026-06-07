@@ -60,6 +60,8 @@ interface NotesViewProps {
   onOpenNote?: (noteId: string) => void;
 
   onCreateSubNote?: (parentNoteId: string, title?: string) => Promise<string | null>; // Milestone 2 hierarchy
+  /** Current workspace id — used for attachment counts even when notes[] is still empty */
+  workspaceId?: string;
   isLive: boolean;
 
   // M2: when a real mention is inserted in the editor, perform the actual link
@@ -100,6 +102,7 @@ export function NotesView({
   onUpdateTask,
   onCreateSubNote,
   onOpenNote,
+  workspaceId: workspaceIdProp,
   isLive,
   onMentionLinked,
   onRemoveLinked,
@@ -128,7 +131,7 @@ export function NotesView({
   // Extracted search logic (M2 extraction)
   const { searchQuery, setSearchQuery, filteredNotes, isSearching } = useNoteSearch(notes);
 
-  const workspaceId = notes[0]?.workspaceId;
+  const workspaceId = workspaceIdProp || notes[0]?.workspaceId;
   const { counts: attachmentCounts, setNoteCount, refresh: refreshAttachmentCounts } =
     useNoteAttachmentCounts(workspaceId);
 

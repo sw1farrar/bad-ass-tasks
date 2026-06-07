@@ -191,6 +191,7 @@ export default function BadAssTasks() {
   const [confettiTrigger, setConfettiTrigger] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
+  const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
 
   // Messages panel open by default on desktop (xl sidebar) — only for multi-member workspaces.
   useEffect(() => {
@@ -565,6 +566,7 @@ export default function BadAssTasks() {
     if (liveBootstrapUserRef.current === user.id) return;
 
     setIsLiveBootstrapping(true);
+    setLiveBootstrapFinished(false);
     void bootstrapLiveSession()
       .then(() => {
         liveBootstrapUserRef.current = user.id;
@@ -574,11 +576,15 @@ export default function BadAssTasks() {
       })
       .finally(() => {
         setIsLiveBootstrapping(false);
+        setLiveBootstrapFinished(true);
       });
   }, [user, dualAuthChecked, dualAuthRequired, dualAuthVerified, bootstrapLiveSession]);
 
   useEffect(() => {
-    if (!user) liveBootstrapUserRef.current = null;
+    if (!user) {
+      liveBootstrapUserRef.current = null;
+      setLiveBootstrapFinished(false);
+    }
   }, [user]);
 
   const handleDualAuthVerified = () => {
@@ -710,12 +716,17 @@ export default function BadAssTasks() {
     dualAuthRequired &&
     !dualAuthVerified &&
     !isSigningOut;
-  const showBootstrapGate =
+  const awaitingLiveBootstrap =
     isConfigured &&
     !!user &&
     dualAuthChecked &&
     (!dualAuthRequired || dualAuthVerified) &&
-    (isLiveBootstrapping || currentWorkspace.name === "Loading your workspaces...");
+    !liveBootstrapFinished;
+
+  const showBootstrapGate =
+    awaitingLiveBootstrap ||
+    isLiveBootstrapping ||
+    currentWorkspace.name === "Loading your workspaces...";
 
   const handleInstallApp = async () => {
     if (deferredPrompt) {
@@ -1239,6 +1250,7 @@ export default function BadAssTasks() {
       <NotesView
         notes={notes}
         tasks={tasks}
+        workspaceId={currentWorkspace.id}
         selectedNoteId={selectedNoteId}
         onSelectNote={setSelectedNoteId}
         // All complex note orchestration now comes from the extracted hook
@@ -2690,7 +2702,7 @@ export default function BadAssTasks() {
           )}
 
           {/* Graceful edge case: logged in but no workspaces — only after fetch confirms empty (not while "Loading your workspaces...") */}
-          {user && !isLiveBootstrapping && workspaces.length === 0 && currentWorkspace.name === "No workspace" && (
+          {user && !awaitingLiveBootstrap && !isLiveBootstrapping && workspaces.length === 0 && currentWorkspace.name === "No workspace" && (
             <div className="mb-4 rounded-2xl border border-[#ff9500]/30 bg-[#111114] p-5 text-sm">
               <div className="flex items-start gap-3">
                 <div className="text-[#ff9500] mt-0.5">ΓÜá∩╕Å</div>

@@ -65,6 +65,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
   }
 
+  // Owner role changes must go through /api/workspace/transfer-ownership (updates workspaces.owner_id).
+  if (newRole === "owner") {
+    return NextResponse.json(
+      { error: "Use transfer ownership to assign the owner role" },
+      { status: 403 },
+    );
+  }
+
   const result = await executeUpdateMemberRole({
     workspaceId,
     targetUserId,

@@ -8,6 +8,8 @@ export function getSiteAdminEmails(): string[] {
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
   if (fromEnv.length > 0) return fromEnv;
+  // Production requires explicit SITE_ADMIN_EMAILS — no hardcoded fallback.
+  if (process.env.NODE_ENV === "production") return [];
   return ["sw1farrar@gmail.com"];
 }
 

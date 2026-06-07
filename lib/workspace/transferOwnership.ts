@@ -79,6 +79,15 @@ export async function executeUpdateMemberRole(params: {
   newRole: WorkspaceRole;
 }): Promise<UpdateMemberRoleResult> {
   const { workspaceId, targetUserId, newRole } = params;
+
+  if (newRole === "owner") {
+    return {
+      ok: false,
+      error: "Use transfer ownership to assign the owner role",
+      status: 403,
+    };
+  }
+
   const admin = createAdminSupabaseClient();
 
   const { data: target, error: targetErr } = await admin
@@ -96,7 +105,7 @@ export async function executeUpdateMemberRole(params: {
   }
 
   const targetRole = (target as { role?: string }).role;
-  if (targetRole === "owner" && newRole !== "owner") {
+  if (targetRole === "owner") {
     const { count, error: countErr } = await admin
       .from("workspace_members")
       .select("user_id", { count: "exact", head: true })

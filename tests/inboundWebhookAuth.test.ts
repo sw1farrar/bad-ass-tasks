@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { isBrevoInboundWebhookAuthorized } from "@/lib/brevo/inboundConfig";
 
 describe("isBrevoInboundWebhookAuthorized", () => {
@@ -12,12 +12,22 @@ describe("isBrevoInboundWebhookAuthorized", () => {
     process.env = originalEnv;
   });
 
-  it("allows all requests when secret is not configured", () => {
+  it("allows requests in development when secret is not configured", () => {
     delete process.env.BREVO_INBOUND_WEBHOOK_SECRET;
+    vi.stubEnv("NODE_ENV", "development");
     const request = new Request("http://localhost:3000/api/webhooks/brevo-inbound", {
       method: "POST",
     });
     expect(isBrevoInboundWebhookAuthorized(request)).toBe(true);
+  });
+
+  it("rejects requests in production when secret is not configured", () => {
+    delete process.env.BREVO_INBOUND_WEBHOOK_SECRET;
+    vi.stubEnv("NODE_ENV", "production");
+    const request = new Request("http://localhost:3000/api/webhooks/brevo-inbound", {
+      method: "POST",
+    });
+    expect(isBrevoInboundWebhookAuthorized(request)).toBe(false);
   });
 
   it("requires matching header when secret is configured", () => {

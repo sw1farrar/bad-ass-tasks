@@ -11,7 +11,10 @@ export function getBrevoInboundWebhookSecret(): string | undefined {
 
 export function isBrevoInboundWebhookAuthorized(request: Request): boolean {
   const expected = getBrevoInboundWebhookSecret();
-  if (!expected) return true;
+  // Never accept unsigned inbound webhooks in production — missing secret is an open injection vector.
+  if (!expected) {
+    return process.env.NODE_ENV !== "production";
+  }
 
   const headerSecret = request.headers.get("x-brevo-inbound-secret")?.trim();
   if (headerSecret && headerSecret === expected) return true;

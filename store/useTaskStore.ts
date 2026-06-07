@@ -1218,6 +1218,24 @@ export const useTaskStore = create<TaskState>()(
           return;
         }
 
+        const noWorkspacePlaceholder = (): Workspace => ({
+          id: "",
+          name: "No workspace",
+          slug: "",
+          role: "owner",
+        } as Workspace);
+
+        /** Never wipe a known-good workspace list on transient fetch failures (prevents UI flash). */
+        const preserveExistingOnFetchFailure = (reason: string) => {
+          const existing = get().workspaces;
+          const curr = get().currentWorkspace;
+          if (existing.length > 0 || (curr.id && !["", "w1", "w2"].includes(curr.id))) {
+            console.warn(`[useTaskStore] fetchUserWorkspaces: ${reason} — preserving existing workspace state`);
+            return true;
+          }
+          return false;
+        };
+
         try {
           // Proper fetching of the logged-in user's real workspaces from Supabase (via workspace_members join)
           const { data, error } = await supabase
@@ -1230,15 +1248,9 @@ export const useTaskStore = create<TaskState>()(
 
           if (error) {
             console.error("[useTaskStore] fetchUserWorkspaces error:", error);
-            set({
-              workspaces: [],
-              currentWorkspace: {
-                id: "",
-                name: "No workspace",
-                slug: "",
-                role: "owner",
-              } as Workspace,
-            });
+            if (!preserveExistingOnFetchFailure("query error")) {
+              set({ workspaces: [], currentWorkspace: noWorkspacePlaceholder() });
+            }
             return;
           }
 
@@ -1270,28 +1282,14 @@ export const useTaskStore = create<TaskState>()(
               set({ currentWorkspace: target });
               saveLastWorkspaceId(currentUser.id, target.id);
             }
-          } else {
-            set({
-              workspaces: [],
-              currentWorkspace: {
-                id: "",
-                name: "No workspace",
-                slug: "",
-                role: "owner",
-              } as Workspace,
-            });
+          } else if (!preserveExistingOnFetchFailure("empty result")) {
+            set({ workspaces: [], currentWorkspace: noWorkspacePlaceholder() });
           }
         } catch (err) {
           console.error("[useTaskStore] fetchUserWorkspaces exception:", err);
-          set({
-            workspaces: [],
-            currentWorkspace: {
-              id: "",
-              name: "No workspace",
-              slug: "",
-              role: "owner",
-            } as Workspace,
-          });
+          if (!preserveExistingOnFetchFailure("exception")) {
+            set({ workspaces: [], currentWorkspace: noWorkspacePlaceholder() });
+          }
         }
       },
 
@@ -1333,6 +1331,16 @@ export const useTaskStore = create<TaskState>()(
               await get().initializeFromSupabase();
               return;
             }
+
+            // Optimistic workspace so a slow/empty follow-up fetch cannot flash "No workspaces yet".
+            const bootstrapWs: Workspace = {
+              id: String(newId),
+              name: workspaceName,
+              slug: workspaceSlug,
+              role: "owner",
+            };
+            set({ workspaces: [bootstrapWs], currentWorkspace: bootstrapWs });
+            saveLastWorkspaceId(currentUser.id, bootstrapWs.id);
           }
 
           // For both new users (post-create) and returning users: fetch the *full authoritative list* of real workspaces.
@@ -1410,6 +1418,16 @@ export const useTaskStore = create<TaskState>()(
             slug: workspaceSlug,
             role: "owner",
           };
+
+          // Optimistic insert before refresh so a failed/empty fetch cannot wipe the new workspace.
+          set((state) => ({
+            workspaces: [
+              ...state.workspaces.filter((w) => w.id !== newRealWorkspace.id),
+              newRealWorkspace,
+            ],
+            currentWorkspace: newRealWorkspace,
+          }));
+          saveLastWorkspaceId(currentUser.id, newRealWorkspace.id);
 
           // Refresh authoritative list from DB (ensures multi-ws correctness and any role updates)
           await get().fetchUserWorkspaces();

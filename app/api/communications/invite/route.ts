@@ -40,8 +40,6 @@ export async function POST(request: Request) {
   const inviteId = body.inviteId?.trim();
   const email = body.email?.trim().toLowerCase();
   const workspaceName = body.workspaceName?.trim() || "your workspace";
-  const rawRole = body.role?.trim().toLowerCase() || "member";
-  const role = rawRole === "member" ? "member" : rawRole;
   const inviterName = body.inviterName?.trim() || user.email || "A teammate";
 
   if (!workspaceId || !inviteId || !email || !email.includes("@")) {
@@ -64,7 +62,7 @@ export async function POST(request: Request) {
   }
 
   const { data: invite, error: inviteError } = await (supabase.from("workspace_invites") as ReturnType<typeof supabase.from>)
-    .select("id, workspace_id, email, accepted_at, expires_at")
+    .select("id, workspace_id, email, role, accepted_at, expires_at")
     .eq("id", inviteId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -73,6 +71,7 @@ export async function POST(request: Request) {
     id: string;
     workspace_id: string;
     email: string | null;
+    role: string | null;
     accepted_at: string | null;
     expires_at: string | null;
   } | null;
@@ -92,6 +91,14 @@ export async function POST(request: Request) {
   if (inviteRow.email && inviteRow.email.toLowerCase() !== email) {
     return NextResponse.json({ error: "Email does not match invite" }, { status: 400 });
   }
+
+  const inviteDbRole = inviteRow.role?.trim().toLowerCase();
+  const role =
+    inviteDbRole === "owner" || inviteDbRole === "admin" || inviteDbRole === "user"
+      ? inviteDbRole === "user"
+        ? "member"
+        : inviteDbRole
+      : "member";
 
   const result = await sendWorkspaceInviteEmail({
     to: email,
