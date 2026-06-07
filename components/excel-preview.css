@@ -1,5 +1,6 @@
 .excel-preview-grid {
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .excel-preview-table {

@@ -68,6 +68,12 @@ const REQUIRED_FUNCTIONS = {
   exit_workspace: {
     p_workspace_id: "00000000-0000-0000-0000-000000000000",
   },
+  create_dual_auth_challenge_atomic: {
+    p_user_id: "00000000-0000-0000-0000-000000000000",
+    p_code_hash: "probe",
+    p_expires_at: new Date().toISOString(),
+    p_force: false,
+  },
 } as const;
 
 function isMissingObjectError(message: string | undefined): boolean {

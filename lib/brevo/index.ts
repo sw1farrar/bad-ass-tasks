@@ -1,4 +1,6 @@
 export { isBrevoConfigured, getBrevoConfig } from "./config";
+export { buildTransactionalHtml, buildTransactionalPlainText } from "./emailLayout";
+export { sendBrevoTransactionalEmail } from "./sendBrevoTransactional";
 export {
   sendWorkspaceInviteEmail,
   buildInviteHtml,

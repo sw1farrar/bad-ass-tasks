@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Check, Plus, Command, Users, Settings,
-  ChevronRight, Clock, Star, ArrowUpRight, ListChecks, Shield,
+  ChevronRight, ChevronDown, Clock, Star, ArrowUpRight, ListChecks, Shield,
   Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat,
   Trash2, Search, RefreshCw, FileText, Download,
 } from "lucide-react";
@@ -14,6 +14,13 @@ import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
 import { cn, formatDueDate, triggerHaptic, getUserGreetingName, formatLocalDateShort } from "@/lib/utils";
+import {
+  buildTaskCompletionUndoContext,
+  showTaskCompletionFeedback,
+} from "@/features/tasks/lib/taskCompletionFeedback";
+import { registerDualAuthRequiredHandler } from "@/lib/api/apiFetch";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { isDueDatePast } from "@/lib/datetime";
 import { formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
 
@@ -31,6 +38,11 @@ import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
 import { HomeView, HomeListModal, type HomeListModalTarget } from "@/features/home";
 import { SidebarWorkspaceIndicator } from "@/components/SidebarWorkspaceIndicator";
+import {
+  AnimatedBottomNavItemContent,
+  AnimatedWorkspaceName,
+  WorkspaceSwitchEffects,
+} from "@/components/WorkspaceSwitchEffects";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
 import { countOpenAndOverdueTasks } from "@/features/home/lib/computeWorkspaceTaskStats";
@@ -51,6 +63,26 @@ import { BottomSheet } from "@/components/BottomSheet";
 import { NotificationDetailModal } from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
 import "@/features/tasks/tasks-workspace.css";
+import "@/features/teams/teams-workspace.css";
+
+function workspaceAccessLabel(
+  workspaceId: string,
+  role: string | undefined,
+  statsMemberCount: number | undefined,
+  currentWorkspaceId: string,
+  currentMembersCount: number,
+): string {
+  const count =
+    workspaceId === currentWorkspaceId
+      ? Math.max(currentMembersCount, statsMemberCount ?? 0)
+      : statsMemberCount;
+
+  if (count === 1) return "Private";
+  if (typeof count === "number" && count > 1) return formatRoleLabel(role);
+  if (workspaceId === currentWorkspaceId && currentMembersCount <= 1) return "Private";
+  return formatRoleLabel(role);
+}
+
 const VIEWS = [
   { id: "home", label: "Home", icon: Home },
   { id: "tasks", label: "Tasks", icon: Check },
@@ -83,10 +115,13 @@ export default function BadAssTasks() {
     toggleCommandPalette,
     toggleKeyboardCheatsheet,
     isKeyboardCheatsheetOpen,
+    celebrationTrigger,
+    triggerCelebration,
     addTask,
     updateTask,
     deleteTask,
     completeTask,
+    undoTaskCompletion,
     taskLoadingStates,
     getFilteredTasks,
     switchWorkspace,
@@ -188,7 +223,7 @@ export default function BadAssTasks() {
   const isSingleOwnerWorkspace = myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs;
   const showWorkspaceChat = isSharedWorkspace(members);
 
-  const [confettiTrigger, setConfettiTrigger] = useState(0);
+
   const [chatOpen, setChatOpen] = useState(false);
   const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
   const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
@@ -217,6 +252,8 @@ export default function BadAssTasks() {
   };
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const isMobileViewport = useIsMobileViewport();
+  useScrollLock(showNotifications && isMobileViewport);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
   const [modalTask, setModalTask] = useState<Task | null>(null);
@@ -234,6 +271,7 @@ export default function BadAssTasks() {
   const [highlightListId, setHighlightListId] = useState<string | null>(null);
   // Refs for outside click detection
   const workspaceMenuRef = React.useRef<HTMLDivElement>(null);
+  const workspaceNameRef = React.useRef<HTMLSpanElement>(null);
   const notificationsRef = React.useRef<HTMLDivElement>(null);
   const profilePopoverRef = React.useRef<HTMLDivElement>(null);
   // Notification detail modal (opened from bell dropdown clicks for better readability + actions)
@@ -350,6 +388,56 @@ export default function BadAssTasks() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showProfilePopover, showWorkspaceMenu, showNotifications]);
+
+  // Shrink workspace name on phones so the full label fits without truncating early
+  React.useEffect(() => {
+    const fitWorkspaceName = () => {
+      const el = workspaceNameRef.current;
+      if (!el) return;
+      const isMobile = window.matchMedia("(max-width: 767px)").matches;
+      if (!isMobile) {
+        el.style.fontSize = "";
+        return;
+      }
+      const maxSize = 16;
+      const minSize = 10;
+      let size = maxSize;
+      el.style.fontSize = `${size}px`;
+      while (el.scrollWidth > el.clientWidth && size > minSize) {
+        size -= 0.5;
+        el.style.fontSize = `${size}px`;
+      }
+    };
+
+    fitWorkspaceName();
+    const t = window.setTimeout(fitWorkspaceName, 360);
+    const parent = workspaceNameRef.current?.parentElement;
+    const ro = typeof ResizeObserver !== "undefined" && parent ? new ResizeObserver(fitWorkspaceName) : null;
+    ro?.observe(parent!);
+    window.addEventListener("resize", fitWorkspaceName);
+    return () => {
+      window.clearTimeout(t);
+      ro?.disconnect();
+      window.removeEventListener("resize", fitWorkspaceName);
+    };
+  }, [currentWorkspace.id, currentWorkspace.name, showWorkspaceMenu]);
+
+  const prevWorkspaceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || window.innerWidth >= 768) {
+      prevWorkspaceIdRef.current = currentWorkspace.id;
+      return;
+    }
+    if (prevWorkspaceIdRef.current === null) {
+      prevWorkspaceIdRef.current = currentWorkspace.id;
+      return;
+    }
+    if (prevWorkspaceIdRef.current !== currentWorkspace.id) {
+      triggerHaptic("light");
+      prevWorkspaceIdRef.current = currentWorkspace.id;
+    }
+  }, [currentWorkspace.id]);
+
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
 
   // Extracted note keyboard (M2 extraction - reduces monolith)
@@ -424,7 +512,25 @@ export default function BadAssTasks() {
 
   // Perf: memoize expensive filter + sort (large task lists, frequent re-renders from DnD/state)
   // Note: getFilteredTasks is stable from Zustand but computation is non-trivial.
-  const filteredTasks = useMemo(() => getFilteredTasks(), [getFilteredTasks, tasks, taskFilter]);
+  const filteredTasks = useMemo(
+    () => getFilteredTasks(),
+    [getFilteredTasks, tasks, taskFilter, currentWorkspace.id],
+  );
+
+  // Mobile task list uses All / Incomplete / Completed — normalize legacy recurrence sub-filters
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const normalize = () => {
+      if (!mq.matches) return;
+      const mode = taskFilter.recurring ?? "incomplete";
+      if (mode === "only" || mode === "none") {
+        setTaskFilter({ recurring: "incomplete" });
+      }
+    };
+    normalize();
+    mq.addEventListener("change", normalize);
+    return () => mq.removeEventListener("change", normalize);
+  }, [taskFilter.recurring, setTaskFilter]);
 
   const currentWorkspaceTaskCounts = useMemo(() => {
     const wsId = currentWorkspace.id;
@@ -484,7 +590,7 @@ export default function BadAssTasks() {
     await store.fetchNotifications?.(false).catch(() => undefined);
   }, [user?.id]);
 
-  // Dual authentication: email OTP after sign-in unless this device is trusted (up to 30 days).
+  // Dual authentication: email OTP after sign-in unless this device is trusted.
   useEffect(() => {
     if (!isSupabaseConfigured()) {
       setDualAuthChecked(true);
@@ -589,6 +695,16 @@ export default function BadAssTasks() {
 
   const handleDualAuthVerified = React.useCallback(() => {
     setDualAuthVerified(true);
+  }, []);
+
+  useEffect(() => {
+    registerDualAuthRequiredHandler(() => {
+      setDualAuthVerified(false);
+      toast.info("Verification required", {
+        description: "Enter the code from your email to continue.",
+      });
+    });
+    return () => registerDualAuthRequiredHandler(null);
   }, []);
 
   // Ensure notifications (including cross-workspace invites) are loaded early for the recipient banner + bell badge.
@@ -746,39 +862,60 @@ export default function BadAssTasks() {
     });
   };
 
-  const handleComplete = async (id: string) => {
+  const resolveTaskById = React.useCallback((id: string): Task | undefined => {
+    const state = useTaskStore.getState();
+    return (
+      state.tasks.find((t) => t.id === id) ??
+      state.globalTodayFocus.find((f) => f.task.id === id)?.task ??
+      state.globalOpenTaskFocus.find((f) => f.task.id === id)?.task
+    );
+  }, []);
+
+  const handleComplete = async (
+    id: string,
+    undoContext?: { task: Task; workspaceId: string; workspaceName: string },
+  ) => {
     triggerHaptic("success");
-    const task = tasks.find((t) => t.id === id);
+    const task = resolveTaskById(id);
     if (!task || taskLoadingStates?.[id]) return;
 
     if (task.status === "done") {
       await updateTask(id, { status: "todo", completedAt: undefined });
+      refreshHomeTaskFocusFromStore();
       toast.success("Task reopened", { description: task.title });
       return;
     }
 
+    const undoFallback =
+      undoContext ??
+      buildTaskCompletionUndoContext(
+        task,
+        workspaces.find((w) => w.id === task.workspaceId)?.name ?? "Workspace",
+      );
+
     const result = await completeTask(id);
     if (result === "advanced") {
-      const updated = useTaskStore.getState().tasks.find((t) => t.id === id);
-      const nextLabel = updated?.dueDate ? formatLocalDateShort(updated.dueDate) : "";
-      toast.success("Recurrence advanced", {
-        description: `${task.title}${nextLabel ? ` → next due ${nextLabel}` : ""}`,
+      showTaskCompletionFeedback("advanced", task, {
+        undoTaskCompletion,
+        undoFallback,
+        advancedTask: resolveTaskById(id),
       });
       return;
     }
     if (result === "completed") {
-      setConfettiTrigger((c) => c + 1);
-      toast.success("Task completed", {
-        description: task.title,
-        action: {
-          label: "Undo",
-          onClick: async () => {
-            await updateTask(id, { status: "todo", completedAt: undefined });
-          },
-        },
+      showTaskCompletionFeedback("completed", task, {
+        undoTaskCompletion,
+        undoFallback,
+        triggerCelebration,
       });
     }
   };
+
+  const closeTaskModal = React.useCallback(() => {
+    setShowFullTaskModal(false);
+    setModalTask(null);
+    setHomeTaskModalContext(null);
+  }, []);
 
   const openTask = (task: Task) => {
     selectTask(task.id);
@@ -841,7 +978,11 @@ export default function BadAssTasks() {
 
   const handleHomeCompleteFocusTask = async (item: HomeFocusItem) => {
     const wasDone = item.task.status === "done";
-    await handleComplete(item.task.id);
+    await handleComplete(item.task.id, {
+      task: item.task,
+      workspaceId: item.workspaceId,
+      workspaceName: item.workspaceName,
+    });
     refreshHomeTaskFocusFromStore();
 
     const state = useTaskStore.getState();
@@ -911,37 +1052,55 @@ export default function BadAssTasks() {
 
   const renderTasksView = () => (
     <div className="tasks-root">
-      <div className="tasks-workspace flex flex-col gap-3 min-h-0 w-full">
+      <div className="tasks-workspace flex flex-col min-h-0 w-full">
         <WorkspaceViewHeader
           variant="inline"
           title="Tasks"
           workspaceName={currentWorkspace.name}
           icon={<Check className="h-6 w-6" />}
           meta={`${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"} · ${currentWorkspaceTaskCounts.openCount} open`}
+          hideWorkspaceLabelOnMobile
+          hideWorkspaceNameOnMobile
+          hideMetaOnMobile
           className="mb-1"
         />
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
           <input
             value={taskFilter.search || ""}
             onChange={(e) => setTaskFilter({ search: e.target.value })}
-            placeholder="Filter tasks…"
-            className="input px-3 py-2.5 rounded-xl text-sm max-w-md"
+            placeholder="Search tasks"
+            className="tasks-page-search input px-3 py-2.5 rounded-xl text-sm w-full md:max-w-md"
           />
-          <div className="flex gap-2 overflow-x-auto pb-1 text-xs snap-x snap-mandatory touch-pan-x -mx-1 px-1">
-            {(["all", "only", "none"] as const).map((mode) => (
-              <button
-                key={`rec-${mode}`}
-                onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
-                className={cn(
-                  "px-3 py-2 min-h-[44px] rounded-full border transition shrink-0 snap-start",
-                  (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
-                    ? "bg-[#c084fc] text-black border-[#c084fc]"
-                    : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
-                )}
-              >
-                {mode === "all" ? "All" : mode === "only" ? "Recurring" : "One-off"}
-              </button>
-            ))}
+          <div className="task-recurring-filters w-full max-md:w-full md:w-auto overflow-x-auto pb-1">
+            <div
+              className="task-recurring-filters__track w-full md:w-auto items-center gap-1 p-1 rounded-full border border-white/10 bg-white/[0.04]"
+              role="group"
+              aria-label="Filter tasks by status"
+            >
+            {(["all", "incomplete", "completed"] as const).map((mode) => {
+              const activeMode = taskFilter.recurring ?? "incomplete";
+              const isActive = activeMode === mode;
+              const label =
+                mode === "all" ? "All" : mode === "incomplete" ? "Incomplete" : "Completed";
+              return (
+                <button
+                  key={`task-status-filter-${mode}`}
+                  type="button"
+                  onClick={() => setTaskFilter({ recurring: mode })}
+                  aria-pressed={isActive}
+                  className={cn(
+                    "task-recurring-filter-pill inline-flex items-center justify-center rounded-full text-xs font-semibold whitespace-nowrap transition-all",
+                    "flex-1 max-md:flex-1 md:flex-none h-9 md:h-10 px-4 min-h-0",
+                    isActive
+                      ? "is-active bg-[#c084fc] text-black shadow-[0_0_12px_rgba(192,132,252,0.28)]"
+                      : "text-[#a1a1aa] hover:text-white hover:bg-white/5",
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            </div>
           </div>
         </div>
 
@@ -952,6 +1111,7 @@ export default function BadAssTasks() {
           onComplete={handleComplete}
           onAddTask={addTask}
           onSwipeComplete={handleComplete}
+          showAssignee={isSharedWorkspace(members)}
         />
       </div>
     </div>
@@ -1035,7 +1195,6 @@ export default function BadAssTasks() {
           return;
         }
         if (showFullTaskModal) {
-          setShowFullTaskModal(false);
           return;
         }
         if (homeListModal) {
@@ -1055,9 +1214,16 @@ export default function BadAssTasks() {
         return;
       }
 
-      if (e.key === " " && selectedTaskId && !typing) {
+      if (
+        e.key === " " &&
+        selectedTaskId &&
+        !typing &&
+        !showFullTaskModal &&
+        !paletteOpen &&
+        !isKeyboardCheatsheetOpen
+      ) {
         e.preventDefault();
-        const task = tasks.find((t) => t.id === selectedTaskId);
+        const task = resolveTaskById(selectedTaskId);
         if (task) {
           handleComplete(task.id);
         }
@@ -1070,6 +1236,9 @@ export default function BadAssTasks() {
     selectedTaskId,
     selectedNoteId,
     tasks,
+    handleComplete,
+    resolveTaskById,
+    closeTaskModal,
     toggleCommandPalette,
     toggleKeyboardCheatsheet,
     isCommandPaletteOpen,
@@ -1166,6 +1335,10 @@ export default function BadAssTasks() {
         onlineCount: currentWorkspace.id === ws.id ? (onlineUsers || []).length : undefined,
         listCount: stats?.listCount ?? 0,
         openListItemsCount: stats?.openListItemsCount ?? 0,
+        noteCount: (notes || []).filter((n) => n.workspaceId === ws.id).length,
+        taskCount:
+          stats?.totalTaskCount ??
+          (tasks || []).filter((t) => t.workspaceId === ws.id).length,
         memberCount: stats?.memberCount,
       };
     });
@@ -1225,6 +1398,7 @@ export default function BadAssTasks() {
   const renderListsView = () => {
     const lists = getWorkspaceLists();
     return (
+      <div className="lists-root flex flex-col min-h-0 flex-1">
       <ListsView
         workspaceName={currentWorkspace.name}
         lists={lists}
@@ -1242,6 +1416,7 @@ export default function BadAssTasks() {
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
         highlightListId={highlightListId}
       />
+      </div>
     );
   };
 
@@ -1380,13 +1555,14 @@ export default function BadAssTasks() {
     // 'isEmptyOwnerState' identifier from executable code. This eliminates all TDZ risk.
     if (myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs) {
       return (
-        <div className="max-w-2xl mx-auto pt-12 pb-20">
-          <div className="text-center mb-10">
-            <div className="mx-auto mb-6 h-20 w-20 rounded-3xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-              <Users className="h-10 w-10 text-black" />
+        <div className="teams-root">
+        <div className="teams-workspace teams-workspace--empty max-w-2xl mx-auto pt-4 md:pt-12 pb-8 md:pb-20">
+          <div className="team-empty-hero text-center mb-6 md:mb-10">
+            <div className="mx-auto mb-4 md:mb-6 h-14 w-14 md:h-20 md:w-20 rounded-2xl md:rounded-3xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
+              <Users className="h-7 w-7 md:h-10 md:w-10 text-black" />
             </div>
-            <div className="text-4xl font-semibold tracking-tighter mb-2">Team</div>
-            <div className="inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-3 py-1 text-sm font-semibold tracking-tight text-[#e9d5ff] mb-3 truncate">
+            <div className="text-2xl md:text-4xl font-semibold tracking-tighter mb-2">Team</div>
+            <div className="hidden md:inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-3 py-1 text-sm font-semibold tracking-tight text-[#e9d5ff] mb-3 truncate">
               {currentWorkspace.name}
             </div>
 
@@ -1400,10 +1576,10 @@ export default function BadAssTasks() {
 
           {/* === "Invites sent" — primary focus once any exist (world-class simple feedback) === */}
           {invites.length > 0 && (
-            <div className="glass rounded-3xl p-8 border border-white/10 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="font-semibold text-xl tracking-tight">Invites sent</div>
+            <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-white/10 mb-4 md:mb-8">
+              <div className="flex items-center justify-between mb-4 md:mb-6">
+                <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                  <div className="font-semibold text-base md:text-xl tracking-tight">Invites sent</div>
                   <div className="px-3 py-0.5 rounded-full bg-[#c084fc]/20 text-sm font-mono text-[#c084fc] border border-[#c084fc]/30">
                     {invites.length}
                   </div>
@@ -1411,9 +1587,9 @@ export default function BadAssTasks() {
                 <div className="text-xs text-[#71717a] font-mono">Pending</div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2 md:space-y-3">
                 {invites.map((inv, index) => (
-                  <div key={inv.id} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition group">
+                  <div key={inv.id} className="team-invite-sent-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition group">
                     <div className="min-w-0">
                       {/* Privacy: never show the recipient's email in the sender's "Invites sent" list.
                           Prefer name + @username (populated when invite came via search). */}
@@ -1425,7 +1601,7 @@ export default function BadAssTasks() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition">
+                    <div className="team-invite-sent-row__actions flex items-center gap-2 opacity-80 group-hover:opacity-100 transition">
                       <button
                         onClick={() => copyInviteLink(inv.id)}
                         className="btn btn-secondary text-xs px-3 py-1.5"
@@ -1461,9 +1637,9 @@ export default function BadAssTasks() {
           )}
 
           {/* Prominent user search (Facebook-style "find friends") */}
-          <div className="glass rounded-3xl p-8 border border-white/10 mb-8">
-            <div className="font-semibold text-lg mb-4 flex items-center gap-2">
-              <Search className="h-5 w-5 text-[#c084fc]" /> Find people
+          <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-white/10 mb-4 md:mb-8">
+            <div className="font-semibold text-base md:text-lg mb-3 md:mb-4 flex items-center gap-2">
+              <Search className="h-5 w-5 text-[#c084fc] shrink-0" /> Find people
             </div>
 
             <div className="relative">
@@ -1493,7 +1669,7 @@ export default function BadAssTasks() {
                   }, 350);
                 }}
                 placeholder="Name, @username, or city"
-                className="input w-full px-5 py-4 text-lg rounded-2xl mb-4 pr-10"
+                className="team-empty-search-input input w-full px-4 md:px-5 py-3 md:py-4 text-sm md:text-lg rounded-xl md:rounded-2xl mb-3 md:mb-4 pr-10"
               />
               {teamSearchQuery && (
                 <button
@@ -1568,7 +1744,7 @@ export default function BadAssTasks() {
                   const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
                   const displayName = result.fullName || result.username || "User";
                   return (
-                    <div key={result.id || idx} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition">
+                    <div key={result.id || idx} className="team-invite-result-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition">
                       <div className="flex items-center gap-3 min-w-0">
                         {result.avatarUrl ? (
                           <img src={result.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-white/10" />
@@ -1661,6 +1837,7 @@ export default function BadAssTasks() {
             return null;
           })()}
         </div>
+        </div>
       );
     }
 
@@ -1671,35 +1848,28 @@ export default function BadAssTasks() {
     );
 
     return (
-      <div className="max-w-4xl mx-auto space-y-8 pb-12">
-        {/* Header */}
+      <div className="teams-root">
+      <div className="teams-workspace flex flex-col gap-3 md:gap-8 pb-8 md:pb-12">
         <WorkspaceViewHeader
-          variant="inline-centered"
+          variant="inline"
           title="Team"
           workspaceName={currentWorkspace.name}
           icon={<Users className="h-6 w-6" />}
-          className="mb-6"
+          meta={`${members.length} member${members.length === 1 ? "" : "s"}${onlineUsers.length > 0 ? ` · ${onlineUsers.length} online` : ""}`}
+          hideWorkspaceLabelOnMobile
+          hideWorkspaceNameOnMobile
+          hideMetaOnMobile
+          className="mb-0 md:mb-2"
           actions={
             canManage && isLive && !isDemoWs ? (
               <button
                 onClick={() => setShowInviteDialog(true)}
-                className="btn btn-primary text-sm flex items-center gap-2"
+                className="btn btn-primary text-sm flex items-center gap-2 min-h-[40px] md:min-h-[44px]"
               >
                 <Plus className="h-4 w-4" /> Invite
               </button>
             ) : undefined
           }
-        />
-
-        <TeamCollaborationPanel
-          tasks={tasks}
-          members={members}
-          recentActivity={recentActivity}
-          currentUserId={user?.id}
-          onlineCount={onlineUsers.length}
-          onOpenTasks={() => setView("tasks")}
-          onOpenHome={() => setView("home")}
-          onOpenChat={() => setChatOpen(true)}
         />
 
         <TeamMemberDirectory
@@ -1772,55 +1942,66 @@ export default function BadAssTasks() {
           }}
         />
 
+        <TeamCollaborationPanel
+          tasks={tasks}
+          members={members}
+          recentActivity={recentActivity}
+          currentUserId={user?.id}
+          onlineCount={onlineUsers.length}
+          onOpenTasks={() => setView("tasks")}
+          onOpenHome={() => setView("home")}
+          onOpenChat={() => setChatOpen(true)}
+        />
+
         {/* Pending Invites (owner/admin only) */}
         {canManage && isLive && !isDemoWs && (
-          <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-            <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
-              <div className="font-medium">Pending Invites ({invites.length})</div>
+          <div className="team-pending-panel glass rounded-2xl border border-white/10 overflow-hidden">
+            <div className="team-pending-header px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+              <div className="font-medium text-sm md:text-base">Pending invites ({invites.length})</div>
             </div>
             {invites.length === 0 ? (
-              <div className="p-6 text-sm text-[#71717a]">None</div>
+              <div className="p-4 md:p-6 text-sm text-[#71717a]">None</div>
             ) : (
               <div className="divide-y divide-white/10 text-sm">
                 {invites.map((inv) => (
-                  <div key={inv.id} className="px-5 py-3 flex items-center gap-3">
-                    <div className="flex-1">
-                      {/* Privacy: never show the recipient's email in the sender's "Invites sent" list.
-                          Prefer name + @username (populated when invite came via search). */}
-                      <div>
+                  <div key={inv.id} className="team-pending-row flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">
                         {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
                       </div>
                       <div className="text-[11px] text-[#71717a] font-mono">{formatRoleLabel(inv.role)}</div>
                     </div>
-                    <button
-                      onClick={() => copyInviteLink(inv.id)}
-                      className="btn btn-secondary text-xs px-3 py-1 flex items-center gap-1"
-                    >
-                      {copiedInviteId === inv.id ? "Copied!" : "Copy link"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
-                        handleResendInvite(inv.id, label);
-                      }}
-                      className="btn btn-secondary text-xs px-2 py-1 flex items-center gap-1"
-                      title="Resend fresh invite (new expiry, revokes old)"
-                      disabled={!isLive}
-                    >
-                      <Repeat className="h-3.5 w-3.5" /> Resend
-                    </button>
-                    <button
-                      onClick={() => {
-                        const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
-                        handleRevokeInvite(inv.id, label);
-                      }}
-                      className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
-                      aria-label="Revoke invite"
-                      title="Revoke invite"
-                      disabled={!isLive}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    <div className="team-pending-row__actions flex items-center gap-2">
+                      <button
+                        onClick={() => copyInviteLink(inv.id)}
+                        className="btn btn-secondary text-xs px-3 py-1 flex items-center gap-1"
+                      >
+                        {copiedInviteId === inv.id ? "Copied!" : "Copy"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
+                          handleResendInvite(inv.id, label);
+                        }}
+                        className="btn btn-secondary text-xs px-2 py-1 flex items-center gap-1"
+                        title="Resend fresh invite (new expiry, revokes old)"
+                        disabled={!isLive}
+                      >
+                        <Repeat className="h-3.5 w-3.5" /> Resend
+                      </button>
+                      <button
+                        onClick={() => {
+                          const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
+                          handleRevokeInvite(inv.id, label);
+                        }}
+                        className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
+                        aria-label="Revoke invite"
+                        title="Revoke invite"
+                        disabled={!isLive}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1896,6 +2077,7 @@ export default function BadAssTasks() {
           </div>
         </BottomSheet>
       </div>
+      </div>
     );
   };
 
@@ -1967,20 +2149,21 @@ export default function BadAssTasks() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0f] text-[#f4f4f5]">
-      {/* Top Bar — responsive compaction on mobile via .top-bar */}
-      <div className="top-bar relative h-16 border-b border-white/10 flex items-center px-5 justify-between z-50 bg-[#0a0a0f]/95 backdrop-blur-xl">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 shrink-0 min-w-0">
-            <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center flex-shrink-0">
-              <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
+      {/* Top Bar — mobile: row 1 brand + actions, row 2 edge-to-edge workspace */}
+      <div className="top-bar relative md:h-16 md:flex md:items-center border-b border-white/10 z-50 bg-[#0a0a0f]/95 backdrop-blur-xl">
+        <div className="top-bar-layout w-full md:px-5 md:flex md:items-center md:justify-between md:gap-4">
+          <div className="top-bar-leading md:flex md:items-center md:gap-4 md:min-w-0 md:flex-1">
+            <div className="top-bar-brand flex items-center gap-2 min-w-0 overflow-hidden">
+              <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center flex-shrink-0">
+                <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none truncate">Badazz Tasks</div>
+              </div>
             </div>
-            <div className="min-w-0 hidden sm:block">
-              <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Badazz Tasks</div>
-            </div>
-          </div>
 
-          {/* Workspace Switcher */}
-          <div ref={workspaceMenuRef} className="relative">
+            {/* Workspace Switcher — full-bleed second row on mobile */}
+            <div ref={workspaceMenuRef} className="top-bar-workspace relative min-w-0 md:shrink-0">
             <button 
               onClick={() => {
                 const nextOpen = !showWorkspaceMenu;
@@ -1991,35 +2174,87 @@ export default function BadAssTasks() {
                   setNewWorkspaceName("");
                 }
               }}
-              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl hover:bg-white/5 border border-white/10 workspace-switcher"
+              className="group relative flex items-center gap-2 text-base md:text-sm px-4 py-3 md:px-3 md:py-1.5 rounded-none md:rounded-xl hover:bg-white/5 border-0 border-t md:border border-white/10 workspace-switcher w-full md:w-auto max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between min-h-[48px] md:min-h-[44px] max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
+              aria-expanded={showWorkspaceMenu}
             >
-              <span className="flex items-center gap-1.5 workspace-name truncate">
-                <span className="truncate">{currentWorkspace.name}</span>
+              <WorkspaceSwitchEffects
+                workspaceId={currentWorkspace.id}
+                variant="mobile"
+                className="md:hidden z-0"
+              />
+              <span
+                className={cn(
+                  "workspace-chevron relative z-[1] flex shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ease-out",
+                  "h-8 w-8 md:h-7 md:w-7 max-md:col-start-1",
+                  showWorkspaceMenu
+                    ? "bg-[#c084fc]/15 border-[#c084fc]/40 text-[#c084fc] shadow-[0_0_14px_rgba(192,132,252,0.22)]"
+                    : "bg-white/[0.04] border-white/10 text-[#71717a] group-hover:bg-[#c084fc]/10 group-hover:border-[#c084fc]/25 group-hover:text-[#c084fc]"
+                )}
+                aria-hidden
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 md:h-3.5 md:w-3.5 transition-transform duration-200 ease-out",
+                    showWorkspaceMenu && "rotate-180"
+                  )}
+                  strokeWidth={2.25}
+                />
+              </span>
+              <span className="relative z-[1] flex items-center justify-center md:justify-start gap-1.5 workspace-name min-w-0 md:flex-1 max-md:col-start-2 max-md:overflow-hidden max-md:pr-2 md:truncate">
+                <span className="md:hidden block w-full min-w-0">
+                  <AnimatedWorkspaceName
+                    ref={workspaceNameRef}
+                    workspaceId={currentWorkspace.id}
+                    name={currentWorkspace.name}
+                    className="workspace-name-label block w-full whitespace-nowrap text-center text-[16px] font-semibold leading-tight"
+                  />
+                </span>
+                <span className="hidden md:block truncate text-left text-sm font-normal leading-tight">
+                  {currentWorkspace.name}
+                </span>
                 {!isSingleOwnerWorkspace && (
-                  <span className="text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest shrink-0">{formatRoleLabel(currentWorkspace.role)}</span>
+                  <span className="hidden md:inline text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest shrink-0">{formatRoleLabel(currentWorkspace.role)}</span>
                 )}
               </span>
-              <ChevronRight className="h-3 w-3 rotate-90" />
             </button>
 
             <AnimatePresence>
               {showWorkspaceMenu && (
-                <div ref={workspaceMenuRef} className="absolute top-12 left-0 glass rounded-2xl py-1 w-56 shadow-xl z-50 border border-white/10">
-                  {workspaces.map((ws) => (
+                <div className="absolute top-full left-0 right-0 md:right-auto mt-1 md:mt-0 md:top-12 top-bar-menu-panel glass rounded-2xl py-1 w-full md:w-56 shadow-xl z-50 border border-white/10">
+                  {workspaces.map((ws) => {
+                    const accessLabel = workspaceAccessLabel(
+                      ws.id,
+                      ws.role,
+                      globalWorkspaceStats?.[ws.id]?.memberCount,
+                      currentWorkspace.id,
+                      members.length,
+                    );
+                    return (
                     <button 
                       key={ws.id}
                       onClick={() => { switchWorkspace(ws.id); setShowWorkspaceMenu(false); }}
-                      className={cn("w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 flex justify-between items-center", ws.id === currentWorkspace.id && "text-[#c084fc]")}
+                      className={cn("w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 flex justify-between items-center gap-2", ws.id === currentWorkspace.id && "text-[#c084fc]")}
                     >
-                      <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="flex items-center gap-1.5 min-w-0 flex-1">
                         <span className="truncate">{ws.name}</span>
-                        {!(ws.id === currentWorkspace.id && isSingleOwnerWorkspace) && (
-                          <span className="text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest shrink-0">{formatRoleLabel(ws.role)}</span>
-                        )}
+                        <span
+                          className={cn(
+                            "md:hidden text-[9px] px-1.5 py-px rounded shrink-0 font-semibold uppercase tracking-wide",
+                            accessLabel === "Private"
+                              ? "bg-white/5 text-[#71717a]"
+                              : "bg-white/5 text-[#a1a1aa]",
+                          )}
+                        >
+                          {accessLabel}
+                        </span>
+                        <span className="hidden md:inline text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest shrink-0">
+                          {accessLabel}
+                        </span>
                       </span>
-                      {ws.id === currentWorkspace.id && <Check className="h-3.5 w-3.5" />}
+                      {ws.id === currentWorkspace.id && <Check className="h-3.5 w-3.5 shrink-0" />}
                     </button>
-                  ))}
+                    );
+                  })}
                   <div className="border-t border-white/10 my-1" />
                   
                   {/* Production workspace creation (real DB via RPC when LIVE; role=owner on create). Inline for zero-friction multi-ws. */}
@@ -2081,10 +2316,10 @@ export default function BadAssTasks() {
                 </div>
               )}
             </AnimatePresence>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3 text-sm">
+        <div className="top-bar-actions flex items-center gap-1.5 md:gap-3 text-sm shrink-0 flex-nowrap">
           {/* Agent 31: Notification bell (non-intrusive, timely badge + dropdown) */}
           <div ref={notificationsRef} className="relative">
             <button
@@ -2109,12 +2344,27 @@ export default function BadAssTasks() {
             </button>
             <AnimatePresence>
               {showNotifications && (
-                <div
-                  ref={notificationsRef}
-                  className="absolute right-0 top-12 w-80 max-w-[min(20rem,calc(100vw-2rem))] glass-strong rounded-2xl border border-white/10 shadow-2xl z-[260] overflow-hidden bg-[#111114]"
+                <>
+                <motion.div
+                  key="notifications-backdrop"
+                  className="fixed inset-0 z-[255] bg-black/50 md:bg-black/30"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => setShowNotifications(false)}
+                  aria-hidden
+                />
+                <motion.div
+                  key="notifications-panel"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  className="notifications-panel md:!absolute md:!right-0 md:!top-12 md:!left-auto md:!w-80 md:max-w-[min(20rem,calc(100vw-2rem))] md:glass-strong md:rounded-2xl md:border md:border-white/10 md:shadow-2xl z-[260] overflow-hidden bg-[#111114]"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-[#0a0a0f]">
+                  <div className="notifications-panel__header px-4 py-3 border-b border-white/10 flex items-center justify-between bg-[#0a0a0f]">
                     <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
                       <Bell className="h-4 w-4" /> Notifications
                     </div>
@@ -2135,10 +2385,16 @@ export default function BadAssTasks() {
                           Clear all
                         </button>
                       )}
-                      <button onClick={() => setShowNotifications(false)} aria-label="Close notifications panel" className="text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"><X className="h-4 w-4" /></button>
+                      <button
+                        type="button"
+                        onClick={() => setShowNotifications(false)}
+                        className="text-xs font-semibold px-2.5 py-1 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-white/10 transition shrink-0"
+                      >
+                        Close
+                      </button>
                     </div>
                   </div>
-                  <div className="max-h-[320px] overflow-auto p-1 text-sm">
+                  <div className="notifications-panel__list max-h-[320px] overflow-auto p-1 text-sm">
                     {isLoadingNotifications ? (
                       <div className="p-4 text-center text-[#71717a] text-xs">LoadingΓÇª</div>
                     ) : notifications.length === 0 ? (
@@ -2185,10 +2441,11 @@ export default function BadAssTasks() {
                       ))
                     )}
                   </div>
-                  <div className="p-2 border-t border-white/10 bg-black/20 text-[10px] text-center text-[#71717a]">
+                  <div className="notifications-panel__footer p-2 border-t border-white/10 bg-[#0a0a0f] text-[10px] text-center text-[#71717a]">
                     Timely • Non-intrusive • Powered by activity logs
                   </div>
-                </div>
+                </motion.div>
+                </>
               )}
             </AnimatePresence>
           </div>
@@ -2198,7 +2455,7 @@ export default function BadAssTasks() {
               type="button"
               onClick={toggleChat}
               className={cn(
-                "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border transition",
+                "relative hidden md:flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border transition",
                 chatOpen
                   ? "border-[#c084fc]/50 bg-[#c084fc]/10 text-[#c084fc]"
                   : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40"
@@ -2234,10 +2491,12 @@ export default function BadAssTasks() {
                   setShowProfilePopover((open) => !open);
                 }}
                 className={cn(
-                  "group flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-white/5 border transition-all cursor-pointer active:scale-[0.985]",
+                  "group flex items-center gap-2 min-h-[44px] min-w-[44px] md:min-w-0 cursor-pointer active:scale-[0.985] transition-all",
+                  "max-md:justify-center max-md:p-0 max-md:rounded-full max-md:bg-transparent max-md:border-0",
+                  "md:pl-1.5 md:pr-3 md:py-1 md:rounded-full md:bg-white/5 md:border",
                   showProfilePopover
-                    ? "border-[#c084fc]/40 bg-[#c084fc]/10"
-                    : "border-white/10 hover:border-[#c084fc]/40"
+                    ? "md:border-[#c084fc]/40 md:bg-[#c084fc]/10 max-md:ring-2 max-md:ring-[#c084fc]/40"
+                    : "md:border-white/10 md:hover:border-[#c084fc]/40"
                 )}
                 title="Click to edit your profile (name, username, location)"
                 role="button"
@@ -2253,8 +2512,8 @@ export default function BadAssTasks() {
                   if (e.key === "Escape") setShowProfilePopover(false);
                 }}
               >
-                <div className="h-6 w-6 flex-shrink-0 rounded-full bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center text-[10px] font-bold text-black ring-1 ring-inset ring-white/30 shadow-sm">
-                  {user.email ? user.email.charAt(0).toUpperCase() : <User className="h-3.5 w-3.5" />}
+                <div className="h-9 w-9 md:h-6 md:w-6 flex-shrink-0 rounded-full bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center text-xs md:text-[10px] font-bold text-black ring-1 ring-inset ring-white/30 shadow-sm">
+                  {user.email ? user.email.charAt(0).toUpperCase() : <User className="h-4 w-4 md:h-3.5 md:w-3.5" />}
                 </div>
                 <div className="hidden md:block text-xs text-[#a1a1aa] max-w-[110px] truncate font-medium">
                   {(() => {
@@ -2265,10 +2524,10 @@ export default function BadAssTasks() {
                 </div>
               </div>
 
-              {/* Sign out action */}
+              {/* Sign out — desktop header only (no .btn class: globals .btn overrides Tailwind hidden on mobile) */}
               <button
                 onClick={() => setPendingSignOut(true)}
-                className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-white/5 hover:text-[#ff00aa] transition"
+                className="top-bar-logout-desktop max-md:hidden md:inline-flex h-11 w-11 min-h-[44px] min-w-[44px] p-0 items-center justify-center rounded-full hover:bg-white/5 hover:text-[#ff00aa] text-[#a1a1aa] transition"
                 title="Sign out"
                 aria-label="Sign out"
               >
@@ -2283,7 +2542,7 @@ export default function BadAssTasks() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] glass rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+                  className="absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
                   role="dialog"
                   aria-label="Your profile"
                   onClick={(e) => e.stopPropagation()}
@@ -2394,6 +2653,19 @@ export default function BadAssTasks() {
                         {!isLiveWorkspace && (
                           <p className="text-[10px] text-[#c084fc] text-center">Live connection required to save</p>
                         )}
+                        <div className="border-t border-white/10 pt-3 md:hidden">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowProfilePopover(false);
+                              setPendingSignOut(true);
+                            }}
+                            className="w-full min-h-[44px] flex items-center justify-center gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition font-medium"
+                          >
+                            <LogOut className="h-4 w-4 text-red-400" />
+                            Sign out
+                          </button>
+                        </div>
                       </div>
                     );
                   })()}
@@ -2446,7 +2718,7 @@ export default function BadAssTasks() {
                 triggerHaptic('light');
                 handleInstallApp();
               }}
-              className="btn btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 lg:hidden active:scale-95"
+              className="btn btn-secondary text-xs px-3 py-1.5 hidden md:flex items-center gap-1.5 active:scale-95"
               title="Install Badazz Tasks for offline + home screen access"
             >
               <Download className="h-3.5 w-3.5" />
@@ -2470,7 +2742,7 @@ export default function BadAssTasks() {
                 });
               }}
               className={cn(
-                "sync-indicator text-[10px] px-2.5 py-1 active:scale-95 md:hidden",
+                "sync-indicator top-bar-sync-mobile text-[10px] px-2.5 py-1 active:scale-95 max-md:hidden md:hidden",
                 !syncDisplay.isOnline ? "offline" : syncDisplay.isSyncing ? "syncing" : syncDisplay.pendingSyncCount > 0 ? "offline" : "online"
               )}
               title={syncDisplay.isOnline ? `${syncDisplay.pendingSyncCount} pending` : "Offline mode"}
@@ -2486,6 +2758,7 @@ export default function BadAssTasks() {
               )}
             </button>
           )}
+        </div>
         </div>
       </div>
 
@@ -2692,7 +2965,10 @@ export default function BadAssTasks() {
 
           {/* Demo / Setup Banner — only shown when not connected to Supabase */}
           {!isSupabaseConfigured() && (
-            <div className="mb-6 rounded-2xl bg-[#111114] border border-[#c084fc]/20 px-5 py-3 text-sm flex items-center gap-3">
+            <div
+              data-landing-capture-hide
+              className="mb-6 rounded-2xl bg-[#111114] border border-[#c084fc]/20 px-5 py-3 text-sm flex items-center gap-3"
+            >
               <div className="text-[#c084fc]">⚠</div>
               <div className="flex-1 text-[#a1a1aa]">
                 Demo mode — all data lives in your browser for now.
@@ -2764,7 +3040,11 @@ export default function BadAssTasks() {
           Reuses existing VIEWS + setView from store. No desktop impact. Touch-optimized via globals.css
       */}
       <nav className="bottom-nav md:hidden border-t border-white/10" aria-label="Primary navigation">
-        {VIEWS.map((v) => {
+        <WorkspaceSwitchEffects
+          workspaceId={currentWorkspace.id}
+          variant="bottom-nav"
+        />
+        {VIEWS.map((v, navIndex) => {
           const navMeta =
             v.id === "settings"
               ? { label: "Settings", Icon: Settings }
@@ -2790,22 +3070,28 @@ export default function BadAssTasks() {
                 }
               }}
               className={cn(
-                "bottom-nav-item",
+                "bottom-nav-item relative z-[1]",
                 v.id === "home" && "bottom-nav-item--home",
                 isActive && "active",
               )}
             >
-              <span className="bottom-nav-item__icon-wrap">
-                <Icon className="icon" />
-                {v.id === "tasks" && (
-                  <TasksNavIndicator
-                    openCount={currentWorkspaceTaskCounts.openCount}
-                    overdueCount={currentWorkspaceTaskCounts.overdueCount}
-                    variant="bottom"
-                  />
-                )}
-              </span>
-              <span className="font-medium tracking-tight">{label}</span>
+              <AnimatedBottomNavItemContent
+                workspaceId={currentWorkspace.id}
+                itemId={v.id}
+                index={navIndex}
+              >
+                <span className="bottom-nav-item__icon-wrap">
+                  <Icon className="icon" />
+                  {v.id === "tasks" && (
+                    <TasksNavIndicator
+                      openCount={currentWorkspaceTaskCounts.openCount}
+                      overdueCount={currentWorkspaceTaskCounts.overdueCount}
+                      variant="bottom"
+                    />
+                  )}
+                </span>
+                <span className="font-medium tracking-tight">{label}</span>
+              </AnimatedBottomNavItemContent>
             </div>
           );
         })}
@@ -2830,7 +3116,7 @@ export default function BadAssTasks() {
       />
 
       {/* Confetti on completions */}
-      <Confetti trigger={confettiTrigger} />
+      <Confetti trigger={celebrationTrigger} />
 
       {/* Supabase connection helper (self-gating; only renders in !live demo mode) */}
       <SupabaseSetupBanner />
@@ -2854,11 +3140,7 @@ export default function BadAssTasks() {
         <TaskModal 
           task={selectedTask} 
           isOpen={showFullTaskModal} 
-          onClose={() => {
-            setShowFullTaskModal(false);
-            setModalTask(null);
-            setHomeTaskModalContext(null);
-          }}
+          onClose={closeTaskModal}
           workspaceDeepLink={
             homeTaskModalContext && homeTaskModalContext.taskId === selectedTask.id
               ? {

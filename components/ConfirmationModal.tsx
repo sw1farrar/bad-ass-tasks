@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useScrollLock } from '@/lib/hooks/useScrollLock';
 
 interface ConfirmationModalProps {
   open: boolean;
@@ -41,6 +42,8 @@ export function ConfirmationModal({
     if (!isLoading) onOpenChange(false);
   }, [isLoading, onOpenChange]);
 
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
 
@@ -48,14 +51,8 @@ export function ConfirmationModal({
       if (e.key === 'Escape') close();
     };
 
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, close]);
 
   const handleConfirm = async () => {

@@ -6,6 +6,7 @@ import { Note, Task } from "@/types";
 import { cn, formatDueDate, getRecurringLabel } from "@/lib/utils";
 import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
+import { TaskRow } from "@/features/tasks/components/TaskRow";
 
 interface LinkedTasksPanelProps {
   selectedNote: Note;
@@ -17,6 +18,8 @@ interface LinkedTasksPanelProps {
   onToggleTaskComplete?: (taskId: string) => Promise<void>;
   /** Optional: create a brand new task and automatically link it to this note */
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>;
+  /** Mobile drawer layout */
+  compact?: boolean;
 }
 
 /**
@@ -32,6 +35,7 @@ export function LinkedTasksPanel({
   onOpenTask,
   onToggleTaskComplete,
   onCreateTaskAndLink,
+  compact = false,
 }: LinkedTasksPanelProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -40,7 +44,7 @@ export function LinkedTasksPanel({
 
   const linkedTaskIds = selectedNote.linkedTaskIds || [];
   const linkedTasks = linkedTaskIds
-    .map(id => tasks.find(t => t.id === id))
+    .map((id) => tasks.find((t) => t.id === id))
     .filter(Boolean) as Task[];
 
   const handleCreateTask = async () => {
@@ -61,7 +65,7 @@ export function LinkedTasksPanel({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleCreateTask();
+      void handleCreateTask();
     }
     if (e.key === "Escape") {
       setNewTaskTitle("");
@@ -78,24 +82,50 @@ export function LinkedTasksPanel({
     }
   };
 
+  const canAdd = !!newTaskTitle.trim();
+
   return (
-    <div className="border-t border-white/10 px-6 py-3 bg-[#0a0a0f]/50">
-      <div className="flex items-center justify-between mb-2">
+    <div
+      className={cn(
+        "linked-tasks-panel border-t border-white/10 bg-[#0a0a0f]/50",
+        compact ? "px-0 py-3" : "px-4 md:px-6 py-3",
+      )}
+    >
+      <div className={cn("flex items-center mb-2", compact ? "mb-1.5" : "justify-between")}>
         <div className="text-xs font-medium text-[#71717a] flex items-center gap-2">
           <LinkIcon className="h-3.5 w-3.5" />
           LINKED TASKS
         </div>
-        <div className="text-[10px] text-[#c084fc] font-mono">
-          {linkedTaskIds.length} linked
-        </div>
+        {!compact && (
+          <div className="text-[10px] text-[#c084fc] font-mono">
+            {linkedTaskIds.length} linked
+          </div>
+        )}
       </div>
 
-      <div className="space-y-1 mb-3">
+      <div className={cn("mb-3", compact ? "space-y-0 mb-2" : "space-y-1")}>
         {linkedTasks.length === 0 ? (
           <div className="text-[11px] text-[#71717a] italic py-1">No tasks linked yet</div>
+        ) : compact ? (
+          linkedTasks.map((task) => {
+            const due = formatDueDate(task.dueDate ?? undefined);
+            const isDone = task.status === "done";
+            return (
+              <TaskRow
+                key={task.id}
+                task={task}
+                isDone={isDone}
+                isOpLoading={togglingId === task.id}
+                due={due}
+                showAssignee
+                onOpen={() => onOpenTask?.(task.id)}
+                onComplete={() => void handleToggleComplete(task)}
+              />
+            );
+          })
         ) : (
           linkedTasks.map((task) => {
-            const due = formatDueDate(task.dueDate);
+            const due = formatDueDate(task.dueDate ?? undefined);
             const recurringLabel = task.recurringRule
               ? getRecurringLabel(task.recurringRule)
               : "";
@@ -205,7 +235,7 @@ export function LinkedTasksPanel({
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className={cn("flex flex-col", compact ? "gap-2" : "gap-2")}>
         <select
           className="w-full text-sm bg-[#111114] border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30 touch-manipulation"
           onChange={async (e) => {
@@ -219,38 +249,68 @@ export function LinkedTasksPanel({
         >
           <option value="">+ Link existing task...</option>
           {tasks
-            .filter(t => !linkedTaskIds.includes(t.id))
+            .filter((t) => !linkedTaskIds.includes(t.id))
             .slice(0, 20)
-            .map(t => (
+            .map((t) => (
               <option key={t.id} value={t.id}>
                 {t.title}
               </option>
             ))}
         </select>
 
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Create new task for this note..."
-            className="flex-1 text-sm bg-[#111114] border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30 placeholder:text-[#52525b] touch-manipulation"
-            disabled={isCreating || !onCreateTaskAndLink}
-          />
-          <button
-            onClick={handleCreateTask}
-            disabled={!newTaskTitle.trim() || isCreating || !onCreateTaskAndLink}
-            className="btn btn-primary text-xs px-4 py-2 flex items-center gap-1.5 disabled:opacity-50 touch-manipulation"
-            title="Create and link new task"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add
-          </button>
-        </div>
-        <div className="text-[10px] text-[#52525b] px-1">
-          Press Enter to create instantly
-        </div>
+        {compact ? (
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Create new task for this note…"
+              className="input w-full text-sm px-3 py-2.5 rounded-xl min-h-0"
+              disabled={isCreating || !onCreateTaskAndLink}
+              aria-label="New task title"
+            />
+            {newTaskTitle.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleCreateTask()}
+                disabled={!canAdd || isCreating || !onCreateTaskAndLink}
+                className={cn(
+                  "w-full rounded-xl text-sm font-medium px-4 py-2.5 transition",
+                  canAdd && !isCreating ? "btn btn-primary" : "btn btn-secondary opacity-45",
+                )}
+              >
+                {isCreating ? "Adding…" : "Add"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Create new task for this note..."
+                className="flex-1 text-sm bg-[#111114] border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30 placeholder:text-[#52525b] touch-manipulation"
+                disabled={isCreating || !onCreateTaskAndLink}
+              />
+              <button
+                onClick={() => void handleCreateTask()}
+                disabled={!newTaskTitle.trim() || isCreating || !onCreateTaskAndLink}
+                className="btn btn-primary text-xs px-4 py-2 flex items-center gap-1.5 disabled:opacity-50 touch-manipulation"
+                title="Create and link new task"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add
+              </button>
+            </div>
+            <div className="text-[10px] text-[#52525b] px-1">
+              Press Enter to create instantly
+            </div>
+          </>
+        )}
       </div>
 
       <ConfirmationModal

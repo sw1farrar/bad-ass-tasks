@@ -129,7 +129,7 @@ export function NoteEmailInboxesPanel() {
 
   if (!isSupabaseConfigured() || isDemoWorkspace) {
     return (
-      <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-[#71717a]">
+      <div className="settings-inbox-hint rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-[#71717a]">
         Email inboxes are available in live workspaces after database migration.
       </div>
     );
@@ -137,8 +137,8 @@ export function NoteEmailInboxesPanel() {
 
   return (
     <>
-      <div className="space-y-4">
-        <p className="text-xs text-[#71717a] leading-relaxed">
+      <div className="space-y-3 md:space-y-4">
+        <p className="text-[11px] md:text-xs text-[#71717a] leading-relaxed">
           Pick a parent note, get a private address, and every email sent there becomes a child note
           with the subject as the title. Anyone with the address can send in.
         </p>
@@ -147,13 +147,13 @@ export function NoteEmailInboxesPanel() {
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 rounded-xl border border-[#c084fc]/30 bg-[#c084fc]/10 px-4 py-2.5 text-sm text-[#e9d5ff] hover:bg-[#c084fc]/15"
+            className="w-full md:w-auto flex items-center justify-center gap-2 rounded-xl border border-[#c084fc]/30 bg-[#c084fc]/10 px-4 py-2.5 text-sm text-[#e9d5ff] hover:bg-[#c084fc]/15 min-h-[40px]"
           >
             <Plus className="h-4 w-4" />
             Create inbox
           </button>
         ) : (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3">
+          <div className="settings-inbox-create rounded-xl border border-white/10 bg-white/5 p-4 space-y-3">
             <div className="text-xs uppercase tracking-widest text-[#a1a1aa]">1. Choose parent note</div>
             <div className="relative">
               <select
@@ -176,12 +176,12 @@ export function NoteEmailInboxesPanel() {
                 Create a note first. Grandchild notes cannot be parents.
               </p>
             )}
-            <div className="flex gap-2">
+            <div className="settings-inbox-actions flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
                 onClick={handleCreate}
                 disabled={!selectedParentId || creating}
-                className="btn btn-primary text-sm px-4 py-2 disabled:opacity-50"
+                className="btn btn-primary text-sm px-4 py-2 disabled:opacity-50 min-h-[40px]"
               >
                 {creating ? (
                   <>
@@ -198,7 +198,7 @@ export function NoteEmailInboxesPanel() {
                   setShowCreate(false);
                   setSelectedParentId("");
                 }}
-                className="rounded-xl border border-white/10 px-4 py-2 text-sm text-[#a1a1aa] hover:bg-white/5"
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm text-[#a1a1aa] hover:bg-white/5 min-h-[40px]"
               >
                 Cancel
               </button>
@@ -214,7 +214,7 @@ export function NoteEmailInboxesPanel() {
             {inboxes.map((inbox) => (
               <div
                 key={inbox.id}
-                className={`rounded-xl border p-4 space-y-3 ${
+                className={`settings-inbox-card rounded-xl border p-4 space-y-3 ${
                   inbox.isActive ? "border-white/10 bg-white/5" : "border-white/5 bg-white/[0.02] opacity-70"
                 }`}
               >
@@ -247,15 +247,15 @@ export function NoteEmailInboxesPanel() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 rounded-xl border border-[#c084fc]/20 bg-[#c084fc]/5 px-3 py-2.5">
-                  <Mail className="h-4 w-4 shrink-0 text-[#c084fc]" />
-                  <code className="flex-1 truncate text-xs text-[#e9d5ff] font-mono">
+                <div className="settings-inbox-email flex items-center gap-2 rounded-xl border border-[#c084fc]/20 bg-[#c084fc]/5 px-3 py-2.5">
+                  <Mail className="h-4 w-4 shrink-0 text-[#c084fc] hidden sm:block" />
+                  <code className="flex-1 min-w-0 text-xs text-[#e9d5ff] font-mono break-all sm:truncate">
                     {inbox.emailAddress}
                   </code>
                   <button
                     type="button"
                     onClick={() => copyAddress(inbox.emailAddress)}
-                    className="flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-[#a1a1aa] hover:bg-white/10 hover:text-white"
+                    className="settings-inbox-copy flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-[#a1a1aa] hover:bg-white/10 hover:text-white shrink-0"
                   >
                     <Copy className="h-3.5 w-3.5" />
                     Copy

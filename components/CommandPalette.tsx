@@ -9,6 +9,11 @@ import {
 import { useTaskStore } from "@/store/useTaskStore";
 import { toast } from "sonner";
 import { triggerHaptic } from "@/lib/utils";
+import {
+  buildTaskCompletionUndoContext,
+  showTaskCompletionFeedback,
+} from "@/features/tasks/lib/taskCompletionFeedback";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
 
 // Small local VisuallyHidden component to satisfy Radix Dialog accessibility
 // without adding new dependencies.
@@ -46,6 +51,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     tasks,
     notes,
     completeTask,
+    undoTaskCompletion,
     currentView,
     currentWorkspace,
     workspaces,
@@ -136,6 +142,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     });
   };
 
+  useScrollLock(open);
+
   // Agent 32: palette-local query for hybrid semantic (beyond cmdk fuzzy)
   const [paletteQuery, setPaletteQuery] = useState("");
 
@@ -164,27 +172,38 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [paletteQuery, tasks, notes]);
 
   const completeRandom = async () => {
-    const incomplete = tasks.filter(t => t.status !== "done");
+    const incomplete = tasks.filter((t) => t.status !== "done");
     if (incomplete.length === 0) {
       toast.info("Everything is already done. Legend.");
       return;
     }
     const random = incomplete[Math.floor(Math.random() * incomplete.length)];
+    const undoFallback = buildTaskCompletionUndoContext(
+      random,
+      workspaces.find((w) => w.id === random.workspaceId)?.name ?? currentWorkspace.name,
+    );
     const result = await completeTask(random.id);
     if (result === "advanced") {
-      toast.success(`Occurrence done: ${random.title}`, {
-        description: "Recurring series advanced to the next due date.",
+      showTaskCompletionFeedback("advanced", random, {
+        undoTaskCompletion,
+        undoFallback,
+        advancedTask: useTaskStore.getState().tasks.find((t) => t.id === random.id) ?? random,
       });
     } else if (result === "completed") {
-      toast.success(`Completed: ${random.title}`, {
-        description: "Nice work. What's next?",
+      showTaskCompletionFeedback("completed", random, {
+        undoTaskCompletion,
+        undoFallback,
+      });
+    } else {
+      toast.info("Could not complete task", {
+        description: "It may already be done or still syncing.",
       });
     }
   };
 
   // New power actions (live + context aware)
   const clearFilters = () => {
-    setTaskFilter({ search: "", status: undefined, recurring: undefined });
+    setTaskFilter({ search: "", status: undefined, recurring: "incomplete" });
     toast("Filters cleared");
   };
 

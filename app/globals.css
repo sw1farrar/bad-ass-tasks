@@ -458,8 +458,8 @@ body {
   }
 
   .task-row {
-    padding-top: 14px;
-    padding-bottom: 14px;
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 
   /* Agent 27: Enlarge remaining sub-44px targets on phones (priority/recurring badges, small controls in lists/notes) */
@@ -481,24 +481,76 @@ body {
     font-size: 11px;
   }
 
-  /* Slightly larger complete check affordance in task rows for fat fingers */
-  .task-row button[aria-label*="complete"],
-  .task-row button[aria-label*="Mark complete"] {
-    width: 28px;
-    height: 28px;
+  /* Task complete control — perfect circle (overrides global 44px min-height on buttons) */
+  .task-complete-btn {
+    aspect-ratio: 1;
+    border-radius: 9999px;
+    padding: 0 !important;
+    min-height: 0 !important;
+    min-width: 0 !important;
+    flex-shrink: 0;
+  }
+
+  .task-row .task-complete-btn {
+    width: 40px;
+    height: 40px;
+    min-height: 40px !important;
+    min-width: 40px !important;
+    max-height: 40px;
+    max-width: 40px;
+  }
+
+  .task-title {
+    line-height: 1.25;
   }
 
   /* Main scroll area gets breathing room above fixed bottom nav + safe area */
   .main-content {
-    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)) !important;
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)) !important;
   }
 
-  /* Top bar compaction on phones (prevents crowding) */
+  /* Top bar — row 1: brand + bell/avatar; row 2: edge-to-edge workspace */
   .top-bar {
-    height: 52px;
-    padding-left: 10px;
-    padding-right: 10px;
+    height: auto;
+    padding: 0;
     padding-top: max(6px, env(safe-area-inset-top, 4px));
+  }
+
+  .top-bar-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand actions"
+      "workspace workspace";
+    align-items: center;
+    width: 100%;
+  }
+
+  .top-bar-leading {
+    display: contents;
+  }
+
+  .top-bar-brand {
+    grid-area: brand;
+    min-width: 0;
+    padding: 6px 8px 6px max(12px, env(safe-area-inset-left, 12px));
+  }
+
+  .top-bar-workspace {
+    grid-area: workspace;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .top-bar-actions {
+    grid-area: actions;
+    justify-self: end;
+    padding: 6px max(12px, env(safe-area-inset-right, 12px)) 6px 4px;
+  }
+
+  /* .btn { display: inline-flex } wins over Tailwind hidden — force-hide logout on phones */
+  .top-bar-logout-desktop {
+    display: none !important;
   }
 
   /* General view header + content tightening on phones for density */
@@ -518,21 +570,101 @@ body {
     padding: 0 !important;
   }
   .notes-root .overflow-y-auto {
-    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)) !important;
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)) !important;
   }
 
-  /* Prevent horizontal overflow/crowding in top bar on narrow phones */
+  /* Edge-to-edge workspace row on phones */
   .top-bar .workspace-switcher,
-  .top-bar .workspace-name {
-    max-width: 108px;
+  .top-bar .workspace-name,
+  .top-bar .workspace-name-label {
+    max-width: none;
     min-width: 0;
+  }
+
+  .top-bar .workspace-switcher {
+    width: 100%;
+    min-height: 48px;
+    padding-right: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .top-bar .workspace-name {
+    width: 100%;
+    padding-right: 8px;
+  }
+
+  .top-bar .workspace-name-label {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    text-overflow: clip;
+    overflow: hidden;
+  }
+
+  .workspace-chevron {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .top-bar-workspace .absolute {
+    left: 0;
+    right: 0;
+    border-radius: 0;
+  }
+
+  /* Opaque mobile header menus — .glass alone reads too transparent over content */
+  .top-bar-menu-panel {
+    background: #111114 !important;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+
+  .top-bar-menu-panel > div:first-child {
+    background: #0a0a0f;
+  }
+
+  /* Mobile notifications dropdown — full width, opaque, flush below top bar */
+  .top-bar {
+    --notifications-panel-top: calc(
+      max(6px, env(safe-area-inset-top, 4px)) + 44px + 48px
+    );
+  }
+
+  .notifications-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: var(--notifications-panel-top) !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 0 1rem 1rem !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: #111114 !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.75) !important;
+  }
+
+  .notifications-panel .notifications-panel__header,
+  .notifications-panel .notifications-panel__footer {
+    background: #0a0a0f !important;
+  }
+
+  .notifications-panel .notifications-panel__list {
+    max-height: min(58vh, calc(100dvh - var(--notifications-panel-top) - 7rem)) !important;
   }
 
   /* Floating elements adjust for bottom nav — unified clearance to eliminate FAB/AI collisions on phones */
   .floating-quick-add,
   .fab,
   .ai-fab {
-    bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)); /* ~92px + safe: clears 56px nav + 12-16px visual gap */
+    bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)); /* ~84px + safe: clears compact nav + visual gap */
   }
   .fab { right: 16px; }
   .ai-fab { right: 16px; } /* align both; was conflicting 6/16 + different bottoms */
@@ -556,13 +688,21 @@ body {
 @media (max-width: 768px) {
   .bottom-nav {
     display: flex;
+    padding-top: 2px;
+    overflow: hidden;
+  }
+
+  .bottom-nav .bottom-nav-item {
+    min-height: 44px;
+    padding: 3px 4px 4px;
+    gap: 1px;
   }
 }
 
 /* Ultra-narrow phones (<360px): tighter but still >=44px targets, more breathing */
 @media (max-width: 360px) {
   .bottom-nav-item {
-    padding: 6px 1px 8px;
+    padding: 2px 1px 3px;
     font-size: 9px;
   }
   .bottom-nav-item .icon {
@@ -605,9 +745,9 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 6px 4px 8px;
-  min-height: 52px;
+  gap: 1px;
+  padding: 3px 4px 4px;
+  min-height: 44px;
   font-size: 10px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -638,16 +778,16 @@ body {
 }
 
 .bottom-nav-item--home .bottom-nav-item__icon-wrap {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   border: 1px solid rgba(192, 132, 252, 0.28);
   background: linear-gradient(
     135deg,
     rgba(192, 132, 252, 0.14) 0%,
     rgba(168, 85, 247, 0.06) 100%
   );
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .bottom-nav-item.bottom-nav-item--home.active .bottom-nav-item__icon-wrap {
@@ -663,15 +803,15 @@ body {
 }
 
 .bottom-nav-item .icon {
-  width: 22px;
-  height: 22px;
-  margin-bottom: 1px;
+  width: 20px;
+  height: 20px;
+  margin-bottom: 0;
 }
 
 /* Prominent FAB (mobile only, right side, above bottom nav) */
 .fab {
   position: fixed;
-  bottom: calc(5.5rem + env(safe-area-inset-bottom, 12px));
+  bottom: calc(5.25rem + env(safe-area-inset-bottom, 12px));
   right: 16px;
   z-index: 70;
   width: 56px;
@@ -911,6 +1051,19 @@ body {
 }
 
 /* === react-day-picker v9 — compact DateTimePicker === */
+.date-picker-backdrop {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+}
+
+.date-picker-sheet-desktop {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw - 2rem, 340px);
+  max-height: min(85dvh, 480px);
+}
+
 .rdp-compact .rdp-month_grid,
 .date-picker-panel .rdp-month_grid {
   width: 100%;
@@ -923,7 +1076,7 @@ body {
   margin: 0 auto;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .date-picker-panel .rdp-day_button {
     min-height: 40px !important;
     height: 40px !important;
@@ -983,6 +1136,27 @@ body {
 
   .mobile-bottom-sheet .p-6 {
     padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 12px));
+  }
+
+  .mobile-bottom-sheet .task-sheet-body {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 12px));
+  }
+
+  .mobile-bottom-sheet .task-sheet-header {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .task-drawer-sheet {
+    height: 92dvh;
+    max-height: 92dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .task-drawer-sheet .task-sheet-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 }
 
@@ -1200,49 +1374,147 @@ body {
 }
 
 /* ============================================
-   Modern, Calm, Tiny Sonner Toasts (Badazz Edition)
-   - Bottom-right so they never fight the main content or notes area
-   - Glassmorphism matching the rest of the UI
-   - Very compact (tiny padding, small text, short life)
-   - No close button by default (they auto-dismiss fast)
+   Sonner toasts (Badazz Edition)
+   - Success → rich green glass
+   - Error → rich red glass
+   - Info/default → neutral dark glass
    ============================================ */
 
-.sonner-toast {
-  font-size: 12.5px !important;
+.bat-sonner-toaster {
+  --gap: 8px !important;
+}
+
+@media (max-width: 767px) {
+  .bat-sonner-toaster {
+    bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)) !important;
+    right: max(0.75rem, env(safe-area-inset-right, 0.75rem)) !important;
+    left: max(0.75rem, env(safe-area-inset-left, 0.75rem)) !important;
+    width: auto !important;
+  }
+}
+
+[data-sonner-toast].bat-toast,
+[data-sonner-toast][data-styled="true"] {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  padding: 10px 14px !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  max-width: min(320px, calc(100vw - 1.5rem)) !important;
+  min-height: 40px !important;
+}
+
+[data-sonner-toast].bat-toast:not([data-type="success"]):not([data-type="error"]) {
+  background: rgba(17, 17, 20, 0.94) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f4f4f5 !important;
+  box-shadow:
+    0 10px 24px -10px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset !important;
+}
+
+.bat-toast__title,
+[data-sonner-toast] [data-title] {
+  font-weight: 600 !important;
+  letter-spacing: 0.15px !important;
+}
+
+.bat-toast__description,
+[data-sonner-toast] [data-description] {
+  font-size: 11.5px !important;
+  margin-top: 2px !important;
   line-height: 1.35 !important;
-  padding: 7px 11px 7px 11px !important;
-  border-radius: 10px !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  box-shadow: 0 6px 16px -4px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04) inset !important;
-  max-width: 280px !important;
-  min-height: 32px !important;
 }
 
-.sonner-toast [data-title] {
-  font-weight: 500 !important;
-  letter-spacing: 0.2px !important;
+[data-sonner-toast]:not([data-type="success"]):not([data-type="error"]) [data-description] {
+  color: #a1a1aa !important;
+  opacity: 1 !important;
 }
 
-.sonner-toast [data-description] {
-  font-size: 11px !important;
-  margin-top: 1px !important;
-  opacity: 0.85 !important;
+/* Positive / success — neon green glass */
+[data-sonner-toast].bat-toast--success,
+[data-sonner-toast][data-type="success"] {
+  background: linear-gradient(
+    145deg,
+    rgba(6, 78, 59, 0.97) 0%,
+    rgba(4, 47, 46, 0.98) 55%,
+    rgba(2, 32, 29, 0.99) 100%
+  ) !important;
+  border: 1px solid rgba(0, 255, 159, 0.4) !important;
+  color: #ecfdf5 !important;
+  box-shadow:
+    0 12px 30px -10px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 255, 159, 0.1) inset,
+    0 0 22px rgba(0, 255, 159, 0.12) !important;
 }
 
-/* Subtle neon accent on success toasts only (keeps them calm) */
-.sonner-toast[data-type="success"] {
-  border-color: rgba(192, 132, 252, 0.18) !important;
+[data-sonner-toast][data-type="success"] [data-title] {
+  color: #d1fae5 !important;
 }
 
-/* Errors stay visible but still tiny */
-.sonner-toast[data-type="error"] {
-  border-color: rgba(255, 51, 102, 0.25) !important;
+[data-sonner-toast][data-type="success"] [data-description] {
+  color: rgba(110, 231, 183, 0.92) !important;
+  opacity: 1 !important;
 }
 
-/* Tighter stacking so multiple quick toasts don't dominate */
-.sonner-toaster {
-  --gap: 6px !important;
+[data-sonner-toast][data-type="success"] [data-icon] {
+  color: #00ff9f !important;
+}
+
+[data-sonner-toast][data-type="success"] .bat-toast__action,
+[data-sonner-toast][data-type="success"] [data-button] {
+  background: rgba(0, 255, 159, 0.16) !important;
+  color: #00ff9f !important;
+  border: 1px solid rgba(0, 255, 159, 0.38) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  min-height: 30px !important;
+}
+
+[data-sonner-toast][data-type="success"] .bat-toast__action:hover,
+[data-sonner-toast][data-type="success"] [data-button]:hover {
+  background: rgba(0, 255, 159, 0.24) !important;
+}
+
+/* Failure / error — neon red glass */
+[data-sonner-toast].bat-toast--error,
+[data-sonner-toast][data-type="error"] {
+  background: linear-gradient(
+    145deg,
+    rgba(103, 17, 32, 0.97) 0%,
+    rgba(76, 11, 22, 0.98) 55%,
+    rgba(45, 8, 14, 0.99) 100%
+  ) !important;
+  border: 1px solid rgba(255, 51, 102, 0.45) !important;
+  color: #fff1f2 !important;
+  box-shadow:
+    0 12px 30px -10px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 51, 102, 0.12) inset,
+    0 0 22px rgba(255, 51, 102, 0.14) !important;
+}
+
+[data-sonner-toast][data-type="error"] [data-title] {
+  color: #ffe4e6 !important;
+}
+
+[data-sonner-toast][data-type="error"] [data-description] {
+  color: rgba(253, 164, 175, 0.92) !important;
+  opacity: 1 !important;
+}
+
+[data-sonner-toast][data-type="error"] [data-icon] {
+  color: #ff3366 !important;
+}
+
+[data-sonner-toast][data-type="error"] .bat-toast__action,
+[data-sonner-toast][data-type="error"] [data-button] {
+  background: rgba(255, 51, 102, 0.16) !important;
+  color: #fda4af !important;
+  border: 1px solid rgba(255, 51, 102, 0.38) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
 }
 
 /* Chat emoji picker: table grid (Tailwind scan + mobile button min-height safe) */

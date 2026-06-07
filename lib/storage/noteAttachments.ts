@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 
 export const NOTE_ATTACHMENTS_BUCKET = "note-attachments";
@@ -40,7 +39,7 @@ export async function uploadNoteAttachment(params: {
   contentId?: string | null;
 }): Promise<StoredNoteAttachment> {
   const supabase = createAdminSupabaseClient();
-  const attachmentId = randomUUID();
+  const attachmentId = crypto.randomUUID();
   const storagePath = buildNoteAttachmentStoragePath(
     params.workspaceId,
     params.noteId,

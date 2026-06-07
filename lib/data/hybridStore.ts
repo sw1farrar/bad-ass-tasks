@@ -12,6 +12,7 @@
  * useTaskStore for proper user context + strict separation. Phase 2 can migrate more.
  */
 
+import { apiFetch } from "@/lib/api/apiFetch";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
 import type { Task, TaskStatus, Priority, Note, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem } from "@/types";
@@ -24,6 +25,9 @@ import {
   normalizeNotificationPrefs,
 } from "@/lib/notifications/notificationPrefs";
 import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
+import { fanoutCommentNotifications } from "@/lib/notifications/fanoutCommentNotifications";
+import { fanoutTaskAssignedNotifications } from "@/lib/notifications/fanoutTaskAssigned";
+import { processDeadlineReminders } from "@/lib/notifications/processDeadlineReminders";
 import {
   isMissingNotificationPrefsColumn,
   warnMissingNotificationPrefsColumnOnce,
@@ -545,6 +549,13 @@ let inMemoryQueue: PendingOperation[] = []; // lazy-hydrated via loadPendingQueu
 function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"> & { timestamp?: string }): void {
   if (!isSupabaseLive()) return;
 
+  if (inMemoryQueue.length === 0) {
+    inMemoryQueue = loadPendingQueue().filter((queued) => {
+      const ws = String(queued?.workspaceId ?? "");
+      return !["w1", "w2"].includes(ws) && isSafeId(ws);
+    });
+  }
+
   // ID hygiene: enforce String() coercion + bad-UUID purge for BOTH targetId (task/note) and workspaceId.
   // Prevents enqueue of ops with bad IDs that would later cause uuid syntax errors or demo data in live sync.
   const target = op?.targetId;
@@ -563,6 +574,55 @@ function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"
 
   if (fullOp.entityType === "list" || fullOp.entityType === "list_item") {
     fullOp = sanitizeListPendingOp(fullOp);
+  }
+
+  // Coalesce rapid offline updates for the same entity (keeps queue small, last write wins).
+  if (fullOp.type === "update") {
+    const existingIdx = inMemoryQueue.findIndex(
+      (op) =>
+        op.type === "update" &&
+        op.entityType === fullOp.entityType &&
+        op.targetId === fullOp.targetId &&
+        op.workspaceId === fullOp.workspaceId,
+    );
+    if (existingIdx >= 0) {
+      const existing = inMemoryQueue[existingIdx];
+      inMemoryQueue = [...inMemoryQueue];
+      inMemoryQueue[existingIdx] = {
+        ...existing,
+        timestamp: fullOp.timestamp,
+        payload: { ...existing.payload, ...fullOp.payload },
+      };
+      savePendingQueue(inMemoryQueue);
+      return;
+    }
+    const hasPendingDelete = inMemoryQueue.some(
+      (op) =>
+        op.type === "delete" &&
+        op.entityType === fullOp.entityType &&
+        op.targetId === fullOp.targetId,
+    );
+    if (hasPendingDelete) {
+      return;
+    }
+    const createIdx = inMemoryQueue.findIndex(
+      (op) =>
+        op.type === "create" &&
+        op.entityType === fullOp.entityType &&
+        op.targetId === fullOp.targetId &&
+        op.workspaceId === fullOp.workspaceId,
+    );
+    if (createIdx >= 0) {
+      const existing = inMemoryQueue[createIdx];
+      inMemoryQueue = [...inMemoryQueue];
+      inMemoryQueue[createIdx] = {
+        ...existing,
+        timestamp: fullOp.timestamp,
+        payload: { ...existing.payload, ...fullOp.payload },
+      };
+      savePendingQueue(inMemoryQueue);
+      return;
+    }
   }
 
   inMemoryQueue = [...inMemoryQueue, fullOp];
@@ -628,7 +688,26 @@ export function getIsOnline(): boolean {
  * Creates always attempt insert (using client-generated UUID id we stored).
  * Returns summary for callers (store toasts etc).
  */
+let pendingOpsPromise: Promise<{
+  synced: number;
+  skippedConflicts: number;
+  failed: number;
+}> | null = null;
+
 export async function processPendingOperations(): Promise<{
+  synced: number;
+  skippedConflicts: number;
+  failed: number;
+}> {
+  if (pendingOpsPromise) return pendingOpsPromise;
+
+  pendingOpsPromise = processPendingOperationsInner().finally(() => {
+    pendingOpsPromise = null;
+  });
+  return pendingOpsPromise;
+}
+
+async function processPendingOperationsInner(): Promise<{
   synced: number;
   skippedConflicts: number;
   failed: number;
@@ -1106,7 +1185,15 @@ export async function createTask(input: {
 }
 
 /** Update an existing task (partial) */
-export async function updateTask(id: string, updates: Partial<Task>): Promise<boolean> {
+export async function updateTask(
+  id: string,
+  updates: Partial<Task> & {
+    workspaceId?: string;
+    actorUserId?: string | null;
+    actorName?: string;
+    previousAssigneeIds?: string[];
+  },
+): Promise<boolean> {
   if (!isSupabaseLive()) return false;
 
   const supabase = getClient();
@@ -1121,7 +1208,9 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<bo
   if (updates.dueDate !== undefined) payload.due_date = updates.dueDate;
   if (updates.tags !== undefined) payload.tags = updates.tags;
   // Harden: support additional Task fields used in UI / future
-  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
+  if (Object.prototype.hasOwnProperty.call(updates, "completedAt")) {
+    payload.completed_at = updates.completedAt ?? null;
+  }
   if (updates.timeEstimate !== undefined) payload.time_estimate = updates.timeEstimate;
   if (updates.linkedNoteIds !== undefined) payload.linked_note_ids = updates.linkedNoteIds;
 
@@ -1187,6 +1276,31 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<bo
       });
       logHybridError("updateTask", error);
       return true; // Still "succeeded" locally/queued
+    }
+
+    const newAssigneeIds = payload.assignee_ids as string[] | undefined;
+    const previousAssigneeIds = updates.previousAssigneeIds ?? [];
+    if (newAssigneeIds && updates.workspaceId && !["w1", "w2"].includes(updates.workspaceId)) {
+      const addedAssignees = newAssigneeIds.filter((uid) => !previousAssigneeIds.includes(uid));
+      if (addedAssignees.length > 0) {
+        void (async () => {
+          const [{ data: workspace }, { data: task }] = await Promise.all([
+            supabase.from("workspaces").select("name").eq("id", updates.workspaceId!).maybeSingle(),
+            supabase.from("tasks").select("title").eq("id", id).maybeSingle(),
+          ]);
+          await fanoutTaskAssignedNotifications({
+            supabase,
+            workspaceId: updates.workspaceId!,
+            workspaceName:
+              (workspace as { name?: string } | null)?.name?.trim() || "your workspace",
+            taskId: id,
+            taskTitle: (task as { title?: string } | null)?.title || "Task",
+            assigneeIds: addedAssignees,
+            actorUserId: updates.actorUserId,
+            actorName: updates.actorName || "Someone",
+          });
+        })().catch(() => {});
+      }
     }
 
     return true;
@@ -1867,6 +1981,8 @@ function mapNotificationRow(row: NotificationRow): Notification {
 }
 
 /** Fetch notifications for the current user in a workspace (or all if no ws). Supports unread filter. */
+export { processDeadlineReminders } from "@/lib/notifications/processDeadlineReminders";
+
 export async function getUserNotifications(
   userId: string,
   workspaceId?: string,
@@ -2152,6 +2268,59 @@ function mapCommentRow(row: any): Comment {
   };
 }
 
+/** Aggregate comment counts + latest activity per task (for task list indicators). */
+export async function getWorkspaceTaskCommentSummaries(
+  taskIds: string[],
+): Promise<Record<string, import("@/types").TaskCommentSummary>> {
+  if (!isSupabaseLive() || taskIds.length === 0) return {};
+
+  const supabase = getClient();
+  if (!supabase) return {};
+
+  try {
+    const { data, error } = await supabase
+      .from("comments")
+      .select("task_id, created_at, updated_at, user_id")
+      .in("task_id", taskIds);
+
+    if (error) {
+      logHybridError("getWorkspaceTaskCommentSummaries", error);
+      return {};
+    }
+
+    const map: Record<string, import("@/types").TaskCommentSummary> = {};
+    for (const row of (data ?? []) as Array<{
+      task_id: string | null;
+      created_at: string;
+      updated_at: string | null;
+      user_id: string;
+    }>) {
+      const taskId = row.task_id;
+      if (!taskId) continue;
+
+      const activityAt = ((row.updated_at as string | null) || (row.created_at as string));
+      const userId = row.user_id as string;
+      const existing = map[taskId];
+
+      if (!existing) {
+        map[taskId] = { count: 1, latestAt: activityAt, latestUserId: userId };
+        continue;
+      }
+
+      existing.count += 1;
+      if (new Date(activityAt).getTime() >= new Date(existing.latestAt).getTime()) {
+        existing.latestAt = activityAt;
+        existing.latestUserId = userId;
+      }
+    }
+
+    return map;
+  } catch (err) {
+    logHybridError("getWorkspaceTaskCommentSummaries", err);
+    return {};
+  }
+}
+
 /** Fetch comments for a task or note. Demo guarded. */
 export async function getComments(target: { taskId?: string; noteId?: string }): Promise<Comment[]> {
   if (!isSupabaseLive()) return [];
@@ -2226,27 +2395,106 @@ export async function createComment(params: {
       metadata: { commentId: created.id, contentPreview: params.content.slice(0, 80) },
     }).catch(() => {});
 
-    // Agent 31: Wire @mention notifications (use activity as source; fanout to mentioned users)
-    // Full: resolve handles via members list + prefs check + email via sendNotificationEmail
-    const mentionedHandles = extractMentions(params.content);
-    if (mentionedHandles.length > 0 && params.userId) {
-      createNotification({
-        workspaceId: params.workspaceId,
-        userId: params.userId, // demo: notify actor; prod: map handles -> real user_ids
-        type: 'mention',
-        title: `@mention in ${params.taskId ? 'task' : 'note'} comment`,
-        message: params.content.slice(0, 100),
-        metadata: { handles: mentionedHandles, commentId: created.id, actor: params.userId },
-        activityLogId: undefined,
-      }).catch(() => {});
-      // Email scaffold example (respects future prefs)
-      // sendNotificationEmail(..., 'mention', {title, message, ...}).catch(()=>{});
+    if (params.userId) {
+      void (async () => {
+        const [members, workspaceResult, taskResult] = await Promise.all([
+          getWorkspaceMembers(params.workspaceId),
+          supabase.from("workspaces").select("name").eq("id", params.workspaceId).maybeSingle(),
+          params.taskId
+            ? supabase.from("tasks").select("title, assignee_ids").eq("id", params.taskId).maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        const workspaceName =
+          (workspaceResult.data as { name?: string } | null)?.name?.trim() || "your workspace";
+        const actorName =
+          created.userName ||
+          created.userEmail?.split("@")[0] ||
+          "Someone";
+        const taskRow = taskResult.data as { title?: string; assignee_ids?: string[] } | null;
+
+        if (params.userId) {
+          await fanoutCommentNotifications({
+            supabase,
+            workspaceId: params.workspaceId,
+            workspaceName,
+            actorUserId: params.userId,
+            actorName,
+            content: params.content,
+            commentId: created.id,
+            taskId: params.taskId,
+            noteId: params.noteId,
+            taskTitle: taskRow?.title,
+            taskAssigneeIds: taskRow?.assignee_ids ?? [],
+            members,
+          });
+        }
+      })().catch(() => {});
     }
 
     return created;
   } catch (err) {
     logHybridError("createComment", err);
     return null;
+  }
+}
+
+/** Update a comment (author only). */
+export async function updateComment(
+  commentId: string,
+  content: string,
+  userId: string,
+): Promise<Comment | null> {
+  if (!isSupabaseLive()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  const trimmed = content.trim();
+  if (!trimmed) return null;
+
+  try {
+    const { data, error } = await (supabase.from("comments") as any)
+      .update({ content: trimmed, updated_at: new Date().toISOString() })
+      .eq("id", commentId)
+      .eq("user_id", userId)
+      .select(`*, profiles(full_name, email)`)
+      .single();
+
+    if (error) {
+      logHybridError("updateComment", error);
+      return null;
+    }
+
+    return mapCommentRow(data);
+  } catch (err) {
+    logHybridError("updateComment", err);
+    return null;
+  }
+}
+
+/** Delete a comment (author only). */
+export async function deleteComment(commentId: string, userId: string): Promise<boolean> {
+  if (!isSupabaseLive()) return false;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("comments") as any)
+      .delete()
+      .eq("id", commentId)
+      .eq("user_id", userId);
+
+    if (error) {
+      logHybridError("deleteComment", error);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    logHybridError("deleteComment", err);
+    return false;
   }
 }
 
@@ -2620,6 +2868,15 @@ export async function acceptInvite(inviteId: string): Promise<string | null> {
   if (!supabase) return null;
 
   try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.id && user.email) {
+      await supabase.from("profiles").upsert({ id: user.id, email: user.email } as never, {
+        onConflict: "id",
+      });
+    }
+
     const { data, error } = await (supabase.rpc as any)("accept_workspace_invite", {
       p_invite_id: inviteId,
     });
@@ -2646,7 +2903,7 @@ export async function updateMemberRole(
   if (typeof window === "undefined") return false;
 
   try {
-    const response = await fetch("/api/workspace/member-role", {
+    const response = await apiFetch("/api/workspace/member-role", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -2682,7 +2939,7 @@ export async function transferWorkspaceOwnership(
   if (typeof window === "undefined") return { ok: false, error: "Ownership transfer must run in the browser" };
 
   try {
-    const response = await fetch("/api/workspace/transfer-ownership", {
+    const response = await apiFetch("/api/workspace/transfer-ownership", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -2831,7 +3088,7 @@ export async function sendInviteEmail(
   }
 
   try {
-    const response = await fetch("/api/communications/invite", {
+    const response = await apiFetch("/api/communications/invite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -2867,7 +3124,7 @@ export async function updateWorkspace(
   if (["w1", "w2"].includes(workspaceId)) return false;
 
   try {
-    const response = await fetch("/api/workspace/update-details", {
+    const response = await apiFetch("/api/workspace/update-details", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2959,6 +3216,7 @@ let activeTaskChannel: any = null;
 let activeNoteChannel: any = null;
 let activeInviteChannel: any = null;
 let activeMemberChannel: any = null;
+let activeRealtimeCleanup: (() => void) | null = null;
 
 // Track the workspace we are currently actively subscribed for (prevents double-subscribe on rapid switchWorkspace + initializeFromSupabase)
 // This let is intentionally module-private. Use __getCurrentRealtimeWorkspaceIdForTests() / __reset... for tests only.
@@ -2999,10 +3257,7 @@ export function subscribeToWorkspaceRealtime(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
       `(currentRealtimeWorkspaceId=${currentRealtimeWorkspaceId}). Skipping to avoid postgres_changes-after-subscribe crash on rapid switch.`
     );
-    return () => {
-      // Intentionally a fresh no-op. The previously returned cleanup fn from the original subscribe call
-      // remains the correct way to teardown when the consumer unmounts/switches.
-    };
+    return activeRealtimeCleanup ?? (() => {});
   }
 
   // === TEARDOWN PRIOR (one of the teardown paths: MUST clear guard) ===
@@ -3123,7 +3378,7 @@ export function subscribeToWorkspaceRealtime(
   }
 
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
-  return () => {
+  activeRealtimeCleanup = () => {
     if (activeTaskChannel && supabase) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
       activeTaskChannel = null;
@@ -3140,8 +3395,10 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeMemberChannel).catch(() => {});
       activeMemberChannel = null;
     }
-    currentRealtimeWorkspaceId = null; // clearing in teardown path (makes guard safe for next subscribe)
+    currentRealtimeWorkspaceId = null;
+    activeRealtimeCleanup = null;
   };
+  return activeRealtimeCleanup;
 }
 
 // Basic presence helper stub (full in store integration for Phase 2 presence indicators)

@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Loader2 } from "lucide-react";
-import { cn, formatDueDate, getRecurringLabel } from "@/lib/utils";
+import { Check, Loader2, Repeat } from "lucide-react";
+import { cn, formatDueDate, getRecurringLabel, triggerHaptic } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskRow } from "./TaskRow";
+import { TaskCommentIndicator } from "./TaskCommentIndicator";
+import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { useTaskStore } from "@/store/useTaskStore";
 
 export interface TasksTableProps {
   tasks: Task[];
@@ -13,6 +17,7 @@ export interface TasksTableProps {
   onComplete: (id: string) => void;
   onAddTask: (title: string) => Promise<unknown>;
   onSwipeComplete?: (id: string) => void;
+  showAssignee?: boolean;
 }
 
 export function TasksTable({
@@ -22,18 +27,34 @@ export function TasksTable({
   onComplete,
   onAddTask,
   onSwipeComplete,
+  showAssignee = true,
 }: TasksTableProps) {
   const [quickTitle, setQuickTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+  const isMobile = useIsMobileViewport();
+  const { taskCommentSummaries, taskCommentsReadAt, currentWorkspace, user } = useTaskStore();
+  const showQuickAddButton = !isMobile || quickTitle.length > 0 || isAdding;
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     const title = quickTitle.trim();
     if (!title || isAdding) return;
     setIsAdding(true);
+    const titleToAdd = title;
+    setQuickTitle("");
     try {
-      await onAddTask(title);
-      setQuickTitle("");
+      const created = (await onAddTask(titleToAdd)) as { id?: string } | null;
+      if (created?.id) {
+        setHighlightTaskId(created.id);
+        triggerHaptic("light");
+        window.setTimeout(() => setHighlightTaskId(null), 2200);
+        requestAnimationFrame(() => {
+          document
+            .getElementById(`task-row-${created.id}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+      }
     } finally {
       setIsAdding(false);
     }
@@ -41,42 +62,47 @@ export function TasksTable({
 
   return (
     <div className="flex flex-col gap-3 min-h-0">
-      <form onSubmit={handleQuickAdd} className="flex flex-col sm:flex-row gap-2">
+      <form onSubmit={handleQuickAdd} className="tasks-quick-add flex flex-col sm:flex-row gap-2">
         <input
           id="task-quick-add"
           value={quickTitle}
           onChange={(e) => setQuickTitle(e.target.value)}
           placeholder="Add a task…"
           disabled={isAdding}
-          className="input flex-1 px-4 py-2.5 rounded-xl text-sm min-h-[44px]"
+          className="input flex-1 px-3 md:px-4 py-2.5 rounded-xl text-sm min-h-[44px]"
           aria-label="Quick add task"
         />
-        <button
-          type="submit"
-          disabled={isAdding || !quickTitle.trim()}
-          className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
-        >
-          {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
-        </button>
+        {showQuickAddButton ? (
+          <button
+            type="submit"
+            disabled={isAdding || !quickTitle.trim()}
+            className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
+          >
+            {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+          </button>
+        ) : null}
       </form>
 
       <div className="md:hidden space-y-1">
         {tasks.length === 0 ? (
-          <div className="p-8 text-center text-[#71717a] text-sm rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="tasks-empty-state p-6 md:p-8 text-center text-[#71717a] text-sm rounded-2xl border border-white/10 bg-white/[0.02]">
             No tasks yet.
           </div>
         ) : (
           tasks.map((task) => {
-            const due = formatDueDate(task.dueDate);
+            const due = formatDueDate(task.dueDate ?? undefined);
             const isDone = task.status === "done";
             const loading = !!taskLoadingStates?.[task.id];
             return (
               <TaskRow
                 key={task.id}
+                rowId={`task-row-${task.id}`}
                 task={task}
                 isDone={isDone}
                 isOpLoading={loading}
+                isHighlighted={highlightTaskId === task.id}
                 due={due}
+                showAssignee={showAssignee}
                 onOpen={onOpenTask}
                 onComplete={onComplete}
                 onSwipeComplete={onSwipeComplete}
@@ -92,32 +118,44 @@ export function TasksTable({
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-wide text-[#71717a] border-b border-white/10 bg-white/[0.03]">
                 <th className="w-10 p-3 font-medium" scope="col" />
-                <th className="p-3 font-medium min-w-[200px]" scope="col">
+                <th className="p-3 font-medium min-w-[12rem]" scope="col">
                   Title
-                </th>
-                <th className="p-3 font-medium w-24 hidden md:table-cell" scope="col">
-                  Status
                 </th>
                 <th className="p-3 font-medium w-28 hidden lg:table-cell" scope="col">
                   Due
                 </th>
-                <th className="p-3 font-medium w-32 hidden xl:table-cell" scope="col">
-                  Assignee
+                <th className="p-3 font-medium w-32 hidden md:table-cell" scope="col">
+                  Repeat
                 </th>
+                {showAssignee ? (
+                  <th className="p-3 font-medium w-32 hidden xl:table-cell" scope="col">
+                    Assignee
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
               {tasks.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-[#71717a] text-sm">
+                  <td colSpan={showAssignee ? 5 : 4} className="p-8 text-center text-[#71717a] text-sm">
                     No tasks yet.
                   </td>
                 </tr>
               ) : (
                 tasks.map((task) => {
-                  const due = formatDueDate(task.dueDate);
+                  const due = formatDueDate(task.dueDate ?? undefined);
                   const isDone = task.status === "done";
                   const loading = !!taskLoadingStates?.[task.id];
+                  const commentState = getTaskCommentIndicatorState(
+                    task.id,
+                    taskCommentSummaries,
+                    taskCommentsReadAt,
+                    currentWorkspace.id,
+                    user?.id,
+                  );
+                  const recurringLabel = task.recurringRule
+                    ? getRecurringLabel(task.recurringRule)
+                    : null;
 
                   return (
                     <tr
@@ -135,7 +173,7 @@ export function TasksTable({
                           onClick={() => !loading && onComplete(task.id)}
                           disabled={loading}
                           className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-full border transition",
+                            "task-complete-btn flex h-6 w-6 items-center justify-center rounded-full border p-0 transition",
                             isDone
                               ? "bg-[#00ff9f] border-[#c084fc] text-black"
                               : "border-[#3a3a42] hover:border-[#c084fc]"
@@ -149,26 +187,23 @@ export function TasksTable({
                           ) : null}
                         </button>
                       </td>
-                      <td className="p-3 align-middle min-w-0">
-                        <div
-                          className={cn(
-                            "font-medium truncate",
-                            isDone && "line-through text-[#71717a]"
-                          )}
-                        >
-                          {task.title}
-                        </div>
-                        {task.recurringRule && (
-                          <span
-                            className="text-[10px] text-[#c084fc]/80 flex items-center gap-0.5"
-                            title={getRecurringLabel(task.recurringRule)}
+                      <td className="px-3 py-2 align-middle min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className={cn(
+                              "font-medium leading-tight truncate min-w-0",
+                              isDone && "line-through text-[#71717a]"
+                            )}
                           >
-                            ↻ {getRecurringLabel(task.recurringRule)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 align-middle hidden md:table-cell capitalize text-[#a1a1aa] text-xs">
-                        {task.status}
+                            {task.title}
+                          </div>
+                          {commentState.hasComments && (
+                            <TaskCommentIndicator
+                              count={commentState.count}
+                              unread={commentState.unread}
+                            />
+                          )}
+                        </div>
                       </td>
                       <td className="p-3 align-middle hidden lg:table-cell">
                         {due ? (
@@ -185,18 +220,33 @@ export function TasksTable({
                           <span className="text-[#71717a]">—</span>
                         )}
                       </td>
-                      <td className="p-3 align-middle hidden xl:table-cell text-xs text-[#a1a1aa] truncate max-w-[8rem]">
-                        {task.assignee ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#c084fc]/15 text-[#c084fc] text-[10px] font-medium">
-                              {task.assignee === "You" ? "Y" : task.assignee.charAt(0).toUpperCase()}
-                            </span>
-                            <span className="truncate">{task.assignee}</span>
+                      <td className="p-3 align-middle hidden md:table-cell">
+                        {recurringLabel ? (
+                          <span
+                            className="tasks-table-repeat inline-flex max-w-[9rem] items-center gap-1 rounded-md border border-[#c084fc]/25 bg-[#c084fc]/10 px-2 py-0.5 text-[11px] font-medium text-[#c084fc]"
+                            title={recurringLabel}
+                          >
+                            <Repeat className="h-3 w-3 shrink-0" aria-hidden />
+                            <span className="truncate">{recurringLabel}</span>
                           </span>
                         ) : (
-                          "—"
+                          <span className="text-[#71717a]">—</span>
                         )}
                       </td>
+                      {showAssignee ? (
+                        <td className="p-3 align-middle hidden xl:table-cell text-xs text-[#a1a1aa] truncate max-w-[8rem]">
+                          {task.assignee ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#c084fc]/15 text-[#c084fc] text-[10px] font-medium">
+                                {task.assignee === "You" ? "Y" : task.assignee.charAt(0).toUpperCase()}
+                              </span>
+                              <span className="truncate">{task.assignee}</span>
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })

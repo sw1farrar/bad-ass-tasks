@@ -1,5 +1,11 @@
 import type { Task, WorkspaceMember } from "@/types";
 
+export function getAssigneeFirstName(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed === "You" || trimmed === "Team member") return trimmed;
+  return trimmed.split(/\s+/)[0] || trimmed;
+}
+
 export function getMemberDisplayName(
   member: WorkspaceMember,
   currentUserId?: string
@@ -11,6 +17,35 @@ export function getMemberDisplayName(
     member.userId?.slice(0, 8) ||
     "Member"
   );
+}
+
+/** Handle inserted after @ in comments (matches fanout mention resolution). */
+export function getMemberMentionHandle(member: WorkspaceMember): string {
+  const username = member.username?.trim().toLowerCase();
+  if (username) return username;
+
+  const firstName = member.fullName?.trim().split(/\s+/)[0];
+  if (firstName) {
+    const normalized = firstName.toLowerCase().replace(/[^a-z0-9_.-]/g, "");
+    return normalized || firstName.toLowerCase();
+  }
+
+  return member.userId?.slice(0, 8) || "member";
+}
+
+export function memberMatchesMentionQuery(
+  member: WorkspaceMember,
+  query: string,
+  currentUserId?: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+
+  const display = getMemberDisplayName(member, currentUserId).toLowerCase();
+  const handle = getMemberMentionHandle(member).toLowerCase();
+  const fullName = member.fullName?.trim().toLowerCase() || "";
+
+  return display.includes(q) || handle.includes(q) || fullName.includes(q);
 }
 
 export function isSharedWorkspace(members: WorkspaceMember[]): boolean {

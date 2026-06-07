@@ -6,7 +6,7 @@
 // If you still see the error, you MUST hard-refresh + restart dev server + delete .next.
 // Fixed 2026-05-29.
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Star, ChevronRight, ChevronDown, Paperclip, Loader2 } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
@@ -17,6 +17,7 @@ import {
   NoteHeader,
   NoteLinkedTaskBadge,
   NoteTreeGutter,
+  NoteMobileDrawer,
 } from "./components";
 import {
   useNoteSearch,
@@ -27,8 +28,10 @@ import {
   useNoteAttachmentCounts,
 } from "./hooks";
 import { cn } from "@/lib/utils";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 import {
   ensureAncestryExpanded,
+  ensureMobileTreeContext,
   loadExpandedNotesFromStorage,
   persistExpandedNotes,
 } from "./lib/noteTreeExpansion";
@@ -121,12 +124,33 @@ export function NotesView({
   // NoteHeader receives autoFocusTitle={true} for that id and will focus+select the title input,
   // then call onTitleAutoFocusDone so we can clear the flag. This gives "create → start typing title" UX.
   const [pendingAutoFocusTitleId, setPendingAutoFocusTitleId] = useState<string | null>(null);
+  const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null);
+  const [mobileDraft, setMobileDraft] = useState<{ title: string; content: string } | null>(null);
+  const [isSavingMobileNote, setIsSavingMobileNote] = useState(false);
+  const openedNoteSnapshotRef = useRef<{
+    noteId: string;
+    title: string;
+    content: string;
+  } | null>(null);
 
   // "Open families" state: which notes currently have their direct children revealed in the list.
   // Persisted so the user's manual expand/collapse choices for each family survive refresh (per request).
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() =>
     loadExpandedNotesFromStorage(),
   );
+
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 768,
+  );
+
+  useEffect(() => {
+    const update = () => {
+      setIsMobile(typeof window !== "undefined" && window.innerWidth < 768);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   // Extracted search logic (M2 extraction)
   const { searchQuery, setSearchQuery, filteredNotes, isSearching } = useNoteSearch(notes);
@@ -189,10 +213,9 @@ export function NotesView({
   }, []);
 
   /**
-   * Sticky disclosure + reveal path (row click):
-   * - First click on a branch: select + expand direct children only (one level).
-   * - Second click while already selected: toggle direct children.
-   * - Chevron count badge: toggle only (no selection change).
+   * Desktop sticky disclosure (row click):
+   * - First click on a branch: select + expand direct children.
+   * - Reselect while selected: toggle collapse.
    */
   const handleNoteRowSelect = React.useCallback(
     (noteId: string, hasChildren?: boolean) => {
@@ -218,18 +241,57 @@ export function NotesView({
     [selectedNoteId, notes, onSelectNote, toggleExpansion],
   );
 
-  // Deep links (search pick, backlink jump, new sub-note): reveal ancestor path only.
+  /**
+   * Mobile row tap (drawer-first):
+   * - Tap note: open drawer + reveal ancestor path + direct children behind sheet.
+   * - Tap same note again: close drawer only (preserve tree expansion).
+   * - Chevron is the sole expand/collapse control (see NoteListItem).
+   */
+  const handleMobileNoteRowSelect = React.useCallback(
+    (noteId: string) => {
+      if (selectedNoteId === noteId) {
+        onSelectNote(null);
+        return;
+      }
+
+      onSelectNote(noteId);
+      setExpandedNotes((prev) => {
+        const next = new Set(prev);
+        ensureMobileTreeContext(noteId, notes, next);
+        persistExpandedNotes(next);
+        return next;
+      });
+    },
+    [selectedNoteId, notes, onSelectNote],
+  );
+
+  const handleListNoteSelect = React.useCallback(
+    (noteId: string, hasChildren?: boolean) => {
+      if (isMobile) {
+        handleMobileNoteRowSelect(noteId);
+        return;
+      }
+      handleNoteRowSelect(noteId, hasChildren);
+    },
+    [isMobile, handleMobileNoteRowSelect, handleNoteRowSelect],
+  );
+
+  // Deep links (search pick, backlink jump, new sub-note): reveal path; mobile adds branch context.
   React.useEffect(() => {
     if (!selectedNoteId) return;
     setExpandedNotes((prev) => {
       const next = new Set(prev);
       const sizeBefore = next.size;
-      ensureAncestryExpanded(selectedNoteId, notes, next);
+      if (isMobile) {
+        ensureMobileTreeContext(selectedNoteId, notes, next);
+      } else {
+        ensureAncestryExpanded(selectedNoteId, notes, next);
+      }
       if (next.size === sizeBefore) return prev;
       persistExpandedNotes(next);
       return next;
     });
-  }, [selectedNoteId, notes]);
+  }, [selectedNoteId, notes, isMobile]);
 
   // Inbound email notes: auto-expand parent branch so new children are visible immediately.
   const seenInboundNoteIdsRef = React.useRef<Set<string>>(new Set());
@@ -295,9 +357,12 @@ export function NotesView({
   // to the top whenever the user selects a different note. This is the expected "I just opened
   // this note, start reading from the top" behavior in world-class apps.
   React.useEffect(() => {
-    if (selectedNoteId && detailScrollRef.current) {
-      detailScrollRef.current.scrollTo({ top: 0, behavior: 'auto' });
+    if (!selectedNoteId) return;
+    if (detailScrollRef.current) {
+      detailScrollRef.current.scrollTo({ top: 0, behavior: "auto" });
     }
+    const drawerBody = document.querySelector(".notes-drawer-body");
+    drawerBody?.scrollTo({ top: 0, behavior: "auto" });
   }, [selectedNoteId]);
 
   // NOTE: getBacklinkCount / getBacklinkNotes now come exclusively from the single-source
@@ -314,6 +379,7 @@ export function NotesView({
     onDelete,
     depth,
     hasChildren,
+    directChildCount = 0,
     subtreeCount,
     isInActiveFamily,
     onToggleChildren,
@@ -322,6 +388,7 @@ export function NotesView({
     isLastSibling,
     linkedTaskStats,
     attachmentCount = 0,
+    isMobile = false,
   }: {
     note: Note;
     isSelected: boolean;
@@ -329,6 +396,7 @@ export function NotesView({
     onDelete: (id: string, e?: React.MouseEvent) => void;
     depth: number;
     hasChildren?: boolean;
+    directChildCount?: number;
     subtreeCount?: number;
     isInActiveFamily?: boolean;
     onToggleChildren?: (noteId: string) => void;
@@ -339,6 +407,8 @@ export function NotesView({
     isLastSibling?: boolean;
     linkedTaskStats: ReturnType<typeof getNoteLinkedTaskStats>;
     attachmentCount?: number;
+    /** Mobile: row tap selects only; chevron is the only expand/collapse affordance. */
+    isMobile?: boolean;
   }) {
 
     const preview = note.title || "Untitled";
@@ -383,12 +453,13 @@ export function NotesView({
         aria-level={depth + 1}
         aria-label={`${preview}${subtreeCount && subtreeCount > 1 ? `, ${subtreeCount} notes in branch` : ''}${isSelected ? ', selected' : ''}`}
         onClick={() => {
-          onSelect(note.id, !!hasChildren);
+          // Mobile: never pass hasChildren — row opens drawer only; chevron handles tree disclosure.
+          onSelect(note.id, isMobile ? false : !!hasChildren);
         }}
         onKeyDown={(e) => {
           if ((e.key === " " || e.key === "Enter") && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            onSelect(note.id, !!hasChildren);
+            onSelect(note.id, isMobile ? false : !!hasChildren);
           }
         }}
         tabIndex={0}
@@ -408,24 +479,55 @@ export function NotesView({
             </div>
           </div>
 
-          {hasChildren && subtreeCount && subtreeCount > 1 && (
+          {hasChildren &&
+            (isMobile ? directChildCount > 0 : subtreeCount && subtreeCount > 1) && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleChildren?.(note.id);
               }}
-              className="note-tree-subtree-toggle ml-auto flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] tabular-nums
-                         text-[#71717a]/70 hover:text-[#c084fc] hover:bg-white/10 active:bg-white/15
-                         transition-all focus-visible:ring-1 focus-visible:ring-[#c084fc]/50"
-              aria-label={isOpen ? "Collapse sub-notes" : "Expand sub-notes"}
-              title={`${subtreeCount} note${subtreeCount === 1 ? "" : "s"} in branch — click to ${isOpen ? "collapse" : "expand"}`}
+              className={cn(
+                "note-tree-subtree-toggle ml-auto flex shrink-0 items-center rounded-md transition-all focus-visible:ring-1 focus-visible:ring-[#c084fc]/50",
+                isMobile
+                  ? "note-tree-subtree-toggle--mobile gap-1 px-2 py-1 text-[11px] font-medium"
+                  : "gap-0.5 px-1.5 py-0.5 text-[10px] tabular-nums text-[#71717a]/70 hover:text-[#c084fc] hover:bg-white/10 active:bg-white/15",
+              )}
+              aria-label={
+                isOpen
+                  ? "Hide sub-notes"
+                  : isMobile
+                    ? `Show ${directChildCount} sub-note${directChildCount === 1 ? "" : "s"}`
+                    : "Expand sub-notes"
+              }
+              title={
+                isMobile
+                  ? isOpen
+                    ? "Hide sub-notes"
+                    : `Show ${directChildCount} sub-note${directChildCount === 1 ? "" : "s"}`
+                  : `${subtreeCount} note${subtreeCount === 1 ? "" : "s"} in branch — click to ${isOpen ? "collapse" : "expand"}`
+              }
             >
-              <span className="font-medium">{subtreeCount}</span>
-              {isOpen ? (
-                <ChevronDown className="h-3 w-3" />
+              {isMobile ? (
+                <>
+                  <span className="note-tree-subtree-toggle__label">
+                    {isOpen ? "Hide" : `Show ${directChildCount}`}
+                  </span>
+                  {isOpen ? (
+                    <ChevronDown className="note-tree-subtree-toggle__chevron h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="note-tree-subtree-toggle__chevron h-4 w-4" />
+                  )}
+                </>
               ) : (
-                <ChevronRight className="h-3 w-3" />
+                <>
+                  <span className="font-medium">{subtreeCount}</span>
+                  {isOpen ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3" />
+                  )}
+                </>
               )}
             </button>
           )}
@@ -589,6 +691,7 @@ export function NotesView({
           onDelete={onDelete}
           depth={depth}
           hasChildren={directChildCount > 0}
+          directChildCount={directChildCount}
           subtreeCount={subtreeCounts.get(note.id) ?? 1}
           isInActiveFamily={isInActiveFamily(note.id)}
           onToggleChildren={toggleExpansion}
@@ -599,6 +702,7 @@ export function NotesView({
           isLastSibling={isLastSibling}
           linkedTaskStats={getNoteLinkedTaskStats(note, tasks)}
           attachmentCount={attachmentCounts[note.id] ?? 0}
+          isMobile={isMobile}
         />
       );
 
@@ -654,22 +758,212 @@ export function NotesView({
     ));
   };
 
-  const [mobileLayoutClass, setMobileLayoutClass] = useState("");
+  const mobileLayoutClass = isMobile ? "notes-mobile-list" : "";
 
   useEffect(() => {
-    const update = () => {
-      if (typeof window === "undefined" || window.innerWidth >= 768) {
-        setMobileLayoutClass("");
-        return;
-      }
-      setMobileLayoutClass(
-        selectedNoteId ? "notes-mobile-detail" : "notes-mobile-list"
-      );
+    if (!isMobile || !selectedNoteId) {
+      openedNoteSnapshotRef.current = null;
+      setMobileDraft(null);
+      return;
+    }
+
+    if (openedNoteSnapshotRef.current?.noteId === selectedNoteId) {
+      return;
+    }
+
+    const note = notes.find((n) => n.id === selectedNoteId);
+    if (!note) return;
+
+    const snapshot = {
+      noteId: note.id,
+      title: note.title || "",
+      content: note.content || "",
     };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [selectedNoteId]);
+    openedNoteSnapshotRef.current = snapshot;
+    setMobileDraft({ title: snapshot.title, content: snapshot.content });
+  }, [isMobile, selectedNoteId, notes]);
+
+  const handleDrawerCancel = useCallback(async () => {
+    const snapshot = openedNoteSnapshotRef.current;
+    if (snapshot) {
+      await onUpdateNote(snapshot.noteId, {
+        title: snapshot.title,
+        content: snapshot.content,
+      });
+    }
+    openedNoteSnapshotRef.current = null;
+    setMobileDraft(null);
+    onSelectNote(null);
+  }, [onUpdateNote, onSelectNote]);
+
+  const handleDrawerSave = useCallback(async () => {
+    if (!selectedNoteId || !mobileDraft) return;
+    setIsSavingMobileNote(true);
+    try {
+      await onUpdateNote(selectedNoteId, {
+        title: mobileDraft.title,
+        content: mobileDraft.content,
+      });
+      openedNoteSnapshotRef.current = null;
+      setMobileDraft(null);
+      onSelectNote(null);
+    } finally {
+      setIsSavingMobileNote(false);
+    }
+  }, [selectedNoteId, mobileDraft, onUpdateNote, onSelectNote]);
+
+  const renderNoteDetail = (compact?: boolean) => {
+    if (!selectedNote) return null;
+
+    const selectedDepth = getNoteDepth(selectedNote.id);
+    const canCreateSub = !!onCreateSubNote && selectedDepth < 2;
+    const draftNote =
+      compact && mobileDraft
+        ? { ...selectedNote, title: mobileDraft.title, content: mobileDraft.content }
+        : selectedNote;
+
+    return (
+      <div
+        ref={compact ? undefined : detailScrollRef}
+        className={cn(
+          "notes-editor-scroll",
+          compact
+            ? "notes-editor-scroll--drawer notes-drawer-content"
+            : "flex-1 overflow-y-auto min-h-0",
+        )}
+      >
+        <div
+          className={cn(
+            "note-content-card w-full overflow-hidden flex flex-col",
+            compact ? "rounded-none border-0 mb-0" : "rounded-xl border mb-4",
+          )}
+        >
+          <NoteHeader
+            selectedNote={draftNote}
+            onTitleChange={(value) => {
+              if (compact) {
+                setMobileDraft((prev) => (prev ? { ...prev, title: value } : prev));
+                return;
+              }
+              onUpdateNote(selectedNote.id, { title: value });
+            }}
+            onDelete={() => handleDeleteNote(selectedNote.id)}
+            linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
+            backlinkCount={getBacklinkCount(notes, selectedNote.id)}
+            onCreateSubNote={
+              canCreateSub
+                ? () => {
+                    onCreateSubNote(selectedNote.id).then((newId) => {
+                      if (newId) {
+                        onSelectNote(newId);
+                        setPendingAutoFocusTitleId(newId);
+                      }
+                    });
+                  }
+                : undefined
+            }
+            autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
+            onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
+            compact={compact}
+            drawer={compact}
+          />
+          <TipTapEditor
+            key={selectedNote.id}
+            noteId={selectedNote.id}
+            className="!rounded-none !border-0 bg-transparent"
+            content={draftNote.content}
+            onChange={(newContent) => {
+              if (compact) {
+                setMobileDraft((prev) =>
+                  prev && newContent !== prev.content ? { ...prev, content: newContent } : prev,
+                );
+                return;
+              }
+              if (newContent === selectedNote.content) return;
+              onUpdateNote(selectedNote.id, { content: newContent });
+            }}
+            tasks={tasks}
+            onOpenTask={onOpenTask}
+            onCreateTaskAndEmbed={onCreateTaskAndEmbed}
+            onToggleStatus={onToggleTaskStatus}
+            onUpdateTask={onUpdateTask}
+            onLinkNoteToNote={onLinkNoteToNote}
+            onOpenNote={onOpenNote}
+            notes={notes}
+            linkedItems={(selectedNote.linkedTaskIds || [])
+              .map((taskId) => {
+                const t = tasks.find((tt) => tt.id === taskId);
+                return t ? { id: t.id, title: t.title, type: "task" as const } : null;
+              })
+              .filter(Boolean) as Array<{ id: string; title: string; type: "task" | "note" }>}
+            linkableItems={[
+              ...notes
+                .filter((n) => n.id !== selectedNote.id)
+                .map((n) => ({ id: n.id, title: n.title || "Untitled Note", type: "note" as const })),
+              ...tasks.map((t) => ({ id: t.id, title: t.title, type: "task" as const })),
+            ]}
+            backlinks={computedBacklinks}
+            onMentionLinked={
+              onMentionLinked ||
+              ((item) => {
+                if (item.type === "task") {
+                  onLinkTaskToNote?.(selectedNote.id, item.id);
+                } else if (item.type === "note") {
+                  onLinkNoteToNote?.(selectedNote.id, item.id);
+                }
+              })
+            }
+            onMentionsChanged={onMentionsChangedProp || onMentionsChanged}
+            onRemoveLinked={onRemoveLinked}
+            onRemoveBacklink={onRemoveBacklink}
+            compactToolbar={compact}
+            belowToolbar={
+              isLive ? (
+                <NoteAttachmentsPanel
+                  embedded
+                  compact={compact}
+                  selectedNote={selectedNote}
+                  countHint={attachmentCounts[selectedNote.id]}
+                  countsReady={!attachmentCountsLoading}
+                  onCountChange={setNoteCount}
+                />
+              ) : undefined
+            }
+          />
+        </div>
+
+        <LinkedTasksPanel
+          selectedNote={selectedNote}
+          tasks={tasks}
+          onLinkTaskToNote={onLinkTaskToNote}
+          onUnlinkTaskFromNote={onUnlinkTaskFromNote}
+          onOpenTask={onOpenTask}
+          onToggleTaskComplete={onToggleTaskComplete}
+          onCreateTaskAndLink={onCreateTaskAndLink}
+          compact={compact}
+        />
+
+        {compact && (
+          <div className="notes-drawer-delete px-0 pt-2 pb-4">
+            <button
+              type="button"
+              onClick={() => setPendingDeleteNoteId(selectedNote.id)}
+              className={cn(
+                "w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight",
+                "text-white bg-gradient-to-r from-[#9f1239] via-[#be123c] to-[#e11d48]",
+                "border border-[#fb7185]/35 shadow-[0_8px_24px_rgba(190,18,57,0.28)]",
+                "hover:from-[#881337] hover:via-[#9f1239] hover:to-[#be123c]",
+                "active:scale-[0.98] transition",
+              )}
+              aria-label="Delete note"
+            >
+              Delete note
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className={cn("flex h-full min-h-0 overflow-hidden notes-root", mobileLayoutClass)}>
@@ -684,7 +978,7 @@ export function NotesView({
         />
 
         {/* Search — clean, no icon, full modern treatment */}
-        <div className="px-3 py-2 border-b border-white/10">
+        <div className="notes-sidebar-search px-3 py-2 border-b border-white/10">
           <input
             type="text"
             placeholder="Search notes..."
@@ -742,150 +1036,37 @@ export function NotesView({
                 const isSelected = note.id === selectedNoteId;
                 // In search we still show a flat list, but we can still show the count badge
                 const kids = notes.filter((n) => (n.parentNoteId || null) === note.id);
+                const hasChildren = kids.length > 0;
                 return (
                   <NoteListItem
                     key={note.id}
                     note={note}
                     isSelected={isSelected}
-                    onSelect={onSelectNote}
+                    onSelect={handleListNoteSelect}
                     onDelete={handleDeleteNote}
                     depth={0}
-                    hasChildren={kids.length > 0}
+                    hasChildren={hasChildren}
+                    directChildCount={kids.length}
                     subtreeCount={subtreeCounts.get(note.id) ?? 1}
                     isInActiveFamily={false}
                     onToggleChildren={toggleExpansion}
                     isOpen={false}
                     linkedTaskStats={getNoteLinkedTaskStats(note, tasks)}
                     attachmentCount={attachmentCounts[note.id] ?? 0}
+                    isMobile={isMobile}
                   />
                 );
               });
             })()
           ) : (
-            renderNoteTree(displayNotes, selectedNoteId, handleNoteRowSelect, handleDeleteNote)
+            renderNoteTree(displayNotes, selectedNoteId, handleListNoteSelect, handleDeleteNote)
           )}
         </div>
       </div>
 
-      <div className="notes-editor-panel relative flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="notes-editor-panel relative flex-1 flex flex-col min-w-0 overflow-hidden hidden md:flex">
         {selectedNote ? (
-            <div className="flex-1 flex flex-col min-h-0">
-            {mobileLayoutClass === "notes-mobile-detail" && (
-              <button
-                type="button"
-                onClick={() => onSelectNote(null)}
-                className="md:hidden mx-4 mt-3 mb-1 flex items-center gap-2 min-h-[44px] px-2 -ml-2 text-sm text-[#c084fc] hover:bg-white/5 rounded-xl text-left transition"
-              >
-                ← Back to notes
-              </button>
-            )}
-            {/* Depth check for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
-                We only offer the "Sub-note" button when the selected note is not already a grandchild. */}
-            {/* FIX: Single scrollable container for the entire note detail (editor + panels).
-                This ensures long content and the Linked Tasks / Links panels are never cut off. */}
-            {/* FIX: One scroll container for editor content + bottom panels.
-                Long notes and the Linked Tasks / Links sections will now scroll together. */}
-            <div ref={detailScrollRef} className="notes-editor-scroll flex-1 overflow-y-auto min-h-0">
-              <div className="note-content-card w-full rounded-xl border overflow-hidden flex flex-col mb-4">
-              {(() => {
-                const selectedDepth = getNoteDepth(selectedNote.id);
-                const canCreateSub = !!onCreateSubNote && selectedDepth < 2;
-                return (
-                  <NoteHeader
-                    selectedNote={selectedNote}
-                    onTitleChange={(value) => {
-                      onUpdateNote(selectedNote.id, { title: value });
-                    }}
-                    onDelete={() => handleDeleteNote(selectedNote.id)}
-                    linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
-                    backlinkCount={getBacklinkCount(notes, selectedNote.id)}
-                    onCreateSubNote={canCreateSub ? () => {
-                      onCreateSubNote(selectedNote.id).then((newId) => {
-                        if (newId) {
-                          onSelectNote(newId);
-                          setPendingAutoFocusTitleId(newId);
-                        }
-                      });
-                    } : undefined}
-                    autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
-                    onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
-                  />
-                );
-              })()}
-              <TipTapEditor
-                key={selectedNote.id}
-                noteId={selectedNote.id}
-                className="!rounded-none !border-0 bg-transparent"
-                content={selectedNote.content}
-                onChange={(newContent) => {
-                  // Smart guard: skip only if identical to last known server/client value.
-                  // Structural changes (new paragraphs via Enter, pasted images) are always emitted
-                  // immediately from the editor, so we must not drop them.
-                  if (newContent === selectedNote.content) return;
-                  onUpdateNote(selectedNote.id, { content: newContent });
-                }}
-                tasks={tasks}
-                onOpenTask={onOpenTask}
-                onCreateTaskAndEmbed={onCreateTaskAndEmbed}
-                onToggleStatus={onToggleTaskStatus}
-                onUpdateTask={onUpdateTask}
-                onLinkNoteToNote={onLinkNoteToNote}
-                onOpenNote={onOpenNote}
-                notes={notes}
-                // Real bidirectional data for the editor's Links & Backlinks panel (M2 deepening)
-                linkedItems={(selectedNote.linkedTaskIds || [])
-                  .map(taskId => {
-                    const t = tasks.find(tt => tt.id === taskId);
-                    return t ? { id: t.id, title: t.title, type: "task" as const } : null;
-                  })
-                  .filter(Boolean) as Array<{ id: string; title: string; type: "task" | "note" }>}
-
-                // Real items for the in-editor /link picker — all other notes + tasks in the workspace
-                linkableItems={[
-                  ...notes
-                    .filter(n => n.id !== selectedNote.id)
-                    .map(n => ({ id: n.id, title: n.title || "Untitled Note", type: "note" as const })),
-                  ...tasks.map(t => ({ id: t.id, title: t.title, type: "task" as const })),
-                ]}
-
-                // Real backlinks now come from the centralized useBacklinks hook (task symmetry + mention scanning).
-                backlinks={computedBacklinks}
-
-                onMentionLinked={onMentionLinked || ((item) => {
-                  if (item.type === "task") {
-                    onLinkTaskToNote?.(selectedNote.id, item.id);
-                  } else if (item.type === "note") {
-                    onLinkNoteToNote?.(selectedNote.id, item.id);
-                  }
-                })}
-                onMentionsChanged={onMentionsChangedProp || onMentionsChanged}
-                onRemoveLinked={onRemoveLinked}
-                onRemoveBacklink={onRemoveBacklink}
-                belowToolbar={
-                  isLive ? (
-                    <NoteAttachmentsPanel
-                      embedded
-                      selectedNote={selectedNote}
-                      countHint={attachmentCounts[selectedNote.id]}
-                      onCountChange={setNoteCount}
-                    />
-                  ) : undefined
-                }
-              />
-              </div>
-
-              {/* Real Bidirectional Task Linking (Milestone 2) — inside the scroll container so the entire detail view (long editor + linking UI) scrolls together. */}
-              <LinkedTasksPanel
-                selectedNote={selectedNote}
-                tasks={tasks}
-                onLinkTaskToNote={onLinkTaskToNote}
-                onUnlinkTaskFromNote={onUnlinkTaskFromNote}
-                onOpenTask={onOpenTask}
-                onToggleTaskComplete={onToggleTaskComplete}
-                onCreateTaskAndLink={onCreateTaskAndLink}
-              />
-            </div>
-          </div>
+          <div className="flex-1 flex flex-col min-h-0">{renderNoteDetail()}</div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-center p-12">
             <div>
@@ -910,6 +1091,33 @@ export function NotesView({
           </div>
         )}
       </div>
+
+      {isMobile && (
+        <NoteMobileDrawer
+          open={!!selectedNote && !!mobileDraft}
+          onSave={() => void handleDrawerSave()}
+          onCancel={() => void handleDrawerCancel()}
+          isSaving={isSavingMobileNote}
+        >
+          {renderNoteDetail(true)}
+        </NoteMobileDrawer>
+      )}
+
+      <ConfirmationModal
+        open={!!pendingDeleteNoteId}
+        onOpenChange={(open) => !open && setPendingDeleteNoteId(null)}
+        title="Delete this note?"
+        highlight={selectedNote?.title || "Untitled Note"}
+        description="This note and its content will be permanently removed. Linked tasks will stay in your workspace."
+        confirmText="Delete note"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!pendingDeleteNoteId) return;
+          await handleDeleteNote(pendingDeleteNoteId);
+          setPendingDeleteNoteId(null);
+          onSelectNote(null);
+        }}
+      />
     </div>
   );
 }

@@ -33,7 +33,10 @@ CREATE POLICY "Targets can delete their own pending invites" ON workspace_invite
     accepted_at IS NULL AND
     (
       invited_user_id = auth.uid()
-      OR email = (SELECT email FROM profiles WHERE id = auth.uid())
+      OR lower(email) = lower(COALESCE(
+        (SELECT email FROM profiles WHERE id = auth.uid()),
+        (SELECT email FROM auth.users WHERE id = auth.uid())
+      ))
     )
   );
 
@@ -109,7 +112,10 @@ BEGIN
   -- Authorization: the invited target (by user_id or email) OR an owner/admin of the workspace
   IF NOT (
     v_invite.invited_user_id = auth.uid() 
-    OR v_invite.email = (SELECT email FROM profiles WHERE id = auth.uid())
+    OR lower(v_invite.email) = lower(COALESCE(
+      (SELECT email FROM profiles WHERE id = auth.uid()),
+      (SELECT email FROM auth.users WHERE id = auth.uid())
+    ))
     OR EXISTS (
       SELECT 1 FROM workspace_members wm 
       WHERE wm.workspace_id = v_invite.workspace_id 
@@ -178,7 +184,13 @@ AS $$
 DECLARE
   v_invite RECORD;
   v_ws_id UUID;
+  v_caller_email TEXT;
 BEGIN
+  SELECT COALESCE(p.email, u.email) INTO v_caller_email
+  FROM auth.users u
+  LEFT JOIN profiles p ON p.id = u.id
+  WHERE u.id = auth.uid();
+
   SELECT * INTO v_invite FROM workspace_invites 
   WHERE id = p_invite_id 
     AND accepted_at IS NULL 
@@ -186,6 +198,16 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Invite not found, already accepted, or expired';
+  END IF;
+
+  IF v_invite.invited_user_id IS NOT NULL AND v_invite.invited_user_id <> auth.uid() THEN
+    RAISE EXCEPTION 'This invite was sent to a different user';
+  END IF;
+
+  IF v_invite.email IS NOT NULL AND (
+    v_caller_email IS NULL OR lower(v_caller_email) <> lower(v_invite.email)
+  ) THEN
+    RAISE EXCEPTION 'This invite was sent to a different email address';
   END IF;
 
   v_ws_id := v_invite.workspace_id;

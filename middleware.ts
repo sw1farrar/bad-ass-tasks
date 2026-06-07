@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { isDualAuthEnforced, isDualAuthSatisfied } from "@/lib/auth/dualAuth";
+import { isDualAuthEnforced, isDualAuthSatisfied } from "@/lib/auth/dualAuthEdge";
 
 export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,11 +51,17 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/auth") ||
     pathname.startsWith("/invite");
 
+  const isPublicApi =
+    pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/api/webhooks/") ||
+    pathname.startsWith("/api/invite/");
+
   const isDualAuthExemptApi =
     pathname.startsWith("/api/auth/dual-auth") ||
     pathname.startsWith("/api/auth/signup") ||
     pathname.startsWith("/api/auth/resend-verification") ||
-    pathname.startsWith("/api/webhooks/brevo-inbound");
+    pathname.startsWith("/api/webhooks/brevo-inbound") ||
+    pathname.startsWith("/api/invite/");
 
   // Block paused users (platform admin can pause accounts)
   if (user && !isAuthPage) {
@@ -67,7 +73,7 @@ export async function middleware(request: NextRequest) {
         .maybeSingle();
 
       if ((profile as { access_paused?: boolean } | null)?.access_paused) {
-        if (pathname.startsWith("/api/admin")) {
+        if (pathname.startsWith("/api/")) {
           return NextResponse.json({ error: "Account paused" }, { status: 403 });
         }
         const url = request.nextUrl.clone();
@@ -88,16 +94,25 @@ export async function middleware(request: NextRequest) {
     isDualAuthEnforced() &&
     pathname.startsWith("/api/") &&
     !isDualAuthExemptApi &&
-    !isDualAuthSatisfied(request, user.id)
+    !(await isDualAuthSatisfied(request, user.id))
   ) {
     return NextResponse.json({ error: "dual_auth_required" }, { status: 403 });
   }
 
-  // If user is not logged in and trying to access protected routes, redirect to login
-  if (!user && !isAuthPage && pathname !== "/") {
-    // For the prototype, we allow the beautiful demo to run without auth.
-    // In production, uncomment the redirect:
-    // return NextResponse.redirect(new URL("/login", request.url));
+  // Unauthenticated API calls → JSON 401 (never HTML redirect)
+  if (!user && pathname.startsWith("/api/") && !isPublicApi) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Production: redirect unauthenticated users away from protected pages
+  if (
+    process.env.NODE_ENV === "production" &&
+    !user &&
+    !isAuthPage &&
+    pathname !== "/" &&
+    !pathname.startsWith("/api/")
+  ) {
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return supabaseResponse;

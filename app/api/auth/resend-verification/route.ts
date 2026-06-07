@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isBrevoConfigured, sendVerificationEmail } from "@/lib/brevo";
+import { checkRateLimit } from "@/lib/auth/rateLimit";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 
 type ResendBody = {
@@ -40,6 +41,14 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "A valid email and password are required to resend the code." },
       { status: 400 },
+    );
+  }
+
+  const rate = checkRateLimit(`resend-verification:${email}`, 5, 60 * 60 * 1000);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many resend attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
     );
   }
 

@@ -5,6 +5,7 @@ import {
   isDualAuthSatisfied,
   setDualAuthCookie,
 } from "@/lib/auth/dualAuth";
+import { checkRateLimit, resetRateLimit } from "@/lib/auth/rateLimit";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -32,8 +33,16 @@ export async function POST(request: NextRequest) {
   }
 
   if (isDualAuthSatisfied(request, user.id)) {
-    const response = NextResponse.json({ ok: true, alreadyVerified: true });
-    return response;
+    return NextResponse.json({ ok: true, alreadyVerified: true });
+  }
+
+  const rateKey = `dual-auth-verify:${user.id}`;
+  const rate = checkRateLimit(rateKey, 10, 15 * 60 * 1000);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many verification attempts. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
+    );
   }
 
   let body: VerifyBody;
@@ -84,5 +93,6 @@ export async function POST(request: NextRequest) {
     rememberDevice: !!body.rememberDevice,
   });
   setDualAuthCookie(response, user.id, !!body.rememberDevice);
+  resetRateLimit(rateKey);
   return response;
 }

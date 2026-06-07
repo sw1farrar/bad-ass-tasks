@@ -52,11 +52,18 @@ BEGIN
   INTO v_count
   FROM dual_auth_challenges
   WHERE user_id = p_user_id
-    AND created_at >= v_window_start;
+    AND created_at >= v_window_start
+    AND consumed_at IS NULL;
 
   IF v_count >= 3 THEN
     RETURN jsonb_build_object('action', 'rate_limited');
   END IF;
+
+  UPDATE dual_auth_challenges
+  SET consumed_at = NOW()
+  WHERE user_id = p_user_id
+    AND consumed_at IS NULL
+    AND expires_at > NOW();
 
   INSERT INTO dual_auth_challenges (user_id, code_hash, expires_at)
   VALUES (p_user_id, p_code_hash, p_expires_at);

@@ -55,24 +55,21 @@ export default function RootLayout({
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
-        <Toaster 
-          position="bottom-right" 
+        <Toaster
+          position="bottom-right"
+          theme="dark"
           closeButton={false}
           richColors={false}
-          duration={1200}
-          className="sonner-toast"
-          style={{
-            "--normal-bg": "rgba(17,17,20,0.92)",
-            "--normal-border": "rgba(255,255,255,0.06)",
-            "--normal-text": "#f4f4f5",
-            "--success-bg": "rgba(17,17,20,0.92)",
-            "--error-bg": "rgba(17,17,20,0.92)",
-          } as React.CSSProperties}
+          duration={4000}
+          className="bat-sonner-toaster"
           toastOptions={{
             classNames: {
-              toast: "glass border border-white/10 shadow-xl backdrop-blur-xl",
-              title: "text-sm font-medium",
-              description: "text-xs text-[#a1a1aa] mt-0.5",
+              toast: "bat-toast",
+              title: "bat-toast__title",
+              description: "bat-toast__description",
+              success: "bat-toast--success",
+              error: "bat-toast--error",
+              actionButton: "bat-toast__action",
             },
           }}
         />

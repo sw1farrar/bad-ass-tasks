@@ -21,7 +21,7 @@ export function HomeDueTaskRow({
   onOpen,
   onComplete,
 }: HomeDueTaskRowProps) {
-  const due = formatDueDate(task.dueDate);
+  const due = formatDueDate(task.dueDate ?? undefined);
   const isDone = task.status === "done";
 
   return (

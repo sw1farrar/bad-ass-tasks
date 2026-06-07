@@ -15,12 +15,12 @@ describe("workspace invite email", () => {
     );
 
     expect(html).toContain("Badazz Tasks");
-    expect(html).toContain("You&apos;re invited");
+    expect(html).toContain("You're invited");
     expect(html).toContain("Alex");
     expect(html).toContain("Product Team");
     expect(html).toContain("https://badazztasks.com/invite/11111111-1111-4111-8111-111111111111");
-    expect(html).toContain("#0a0a0f");
-    expect(html).toContain("#c084fc");
+    expect(html).toContain("#f4f4f5");
+    expect(html).toContain("#7c3aed");
     expect(html).toContain("set your password");
   });
 });

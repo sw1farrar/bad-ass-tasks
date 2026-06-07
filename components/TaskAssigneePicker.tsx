@@ -3,12 +3,15 @@
 import { User } from "lucide-react";
 import type { WorkspaceMember } from "@/types";
 import { getMemberDisplayName, isSharedWorkspace } from "@/lib/assignee";
+import { cn } from "@/lib/utils";
 
 interface TaskAssigneePickerProps {
   members: WorkspaceMember[];
   currentUserId?: string;
   value: string | null;
   onChange: (userId: string | null) => void;
+  /** Hides helper copy and tightens spacing for mobile sheets */
+  compact?: boolean;
 }
 
 export function TaskAssigneePicker({
@@ -16,18 +19,22 @@ export function TaskAssigneePicker({
   currentUserId,
   value,
   onChange,
+  compact = false,
 }: TaskAssigneePickerProps) {
   if (!isSharedWorkspace(members)) return null;
 
   return (
     <div>
-      <div className="text-[#71717a] mb-2 flex items-center gap-2">
-        <User className="h-4 w-4" /> Responsible
+      <div className={cn("text-[#71717a] flex items-center gap-2", compact ? "mb-1.5 text-xs" : "mb-2")}>
+        <User className="h-4 w-4" /> {compact ? "Assignee" : "Responsible"}
       </div>
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className="w-full bg-[#111114] border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30"
+        className={cn(
+          "w-full bg-[#111114] border border-white/10 rounded-xl px-3 text-sm focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30",
+          compact ? "py-2" : "py-2.5"
+        )}
         aria-label="Assign task to a workspace member"
       >
         <option value="">Unassigned</option>
@@ -37,9 +44,11 @@ export function TaskAssigneePicker({
           </option>
         ))}
       </select>
-      <p className="text-[10px] text-[#71717a] mt-1.5">
-        Who should own this task in your shared workspace.
-      </p>
+      {!compact && (
+        <p className="text-[10px] text-[#71717a] mt-1.5">
+          Who should own this task in your shared workspace.
+        </p>
+      )}
     </div>
   );
 }

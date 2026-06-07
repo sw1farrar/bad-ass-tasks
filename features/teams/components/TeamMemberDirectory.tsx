@@ -53,22 +53,22 @@ export function TeamMemberDirectory({
   const onlineCount = members.filter((m) => onlineUserIds.has(m.userId)).length;
 
   return (
-    <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-      <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
-        <div>
-          <div className="font-medium">Team directory</div>
+    <div className="team-directory-panel glass rounded-2xl border border-white/10 overflow-hidden">
+      <div className="team-directory-header px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+        <div className="min-w-0">
+          <div className="font-medium text-sm md:text-base">Team directory</div>
           <div className="text-[10px] text-[#71717a] mt-0.5">
             {members.length} member{members.length === 1 ? "" : "s"}
             {onlineCount > 0 && (
-              <span className="text-[#34d399] ml-2">{onlineCount} online now</span>
+              <span className="text-[#34d399] ml-1.5">{onlineCount} online</span>
             )}
           </div>
         </div>
-        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-[#c084fc]" />}
+        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-[#c084fc] shrink-0" />}
       </div>
 
       {members.length === 0 ? (
-        <div className="p-8 text-center text-[#71717a] text-sm">No members</div>
+        <div className="p-6 md:p-8 text-center text-[#71717a] text-sm">No members</div>
       ) : (
         <div className="divide-y divide-white/10">
           {sortedMembers.map((member) => {
@@ -83,75 +83,77 @@ export function TeamMemberDirectory({
             return (
               <div
                 key={member.userId}
-                className="px-5 py-4 flex items-center gap-4 hover:bg-white/[0.03] transition-colors"
+                className="team-directory-member flex hover:bg-white/[0.03] transition-colors"
               >
-                <div className="relative shrink-0">
-                  {member.avatarUrl ? (
-                    <img
-                      src={member.avatarUrl}
-                      alt=""
-                      className="h-10 w-10 rounded-full object-cover border border-white/10"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-[#c084fc]/15 border border-[#c084fc]/25 flex items-center justify-center text-sm font-medium text-[#c084fc]">
-                      {getMemberInitials(member, currentUserId)}
-                    </div>
-                  )}
-                  {isOnline && (
-                    <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#34d399] border-2 border-[#0a0a0f]" />
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-[#f4f4f5] truncate">{displayName}</span>
-                    {member.username && !isSelf && (
-                      <span className="text-[10px] text-[#71717a] font-mono truncate">
-                        @{member.username}
-                      </span>
+                <div className="team-directory-member__main">
+                  <div className="relative shrink-0">
+                    {member.avatarUrl ? (
+                      <img
+                        src={member.avatarUrl}
+                        alt=""
+                        className="h-10 w-10 rounded-full object-cover border border-white/10"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-[#c084fc]/15 border border-[#c084fc]/25 flex items-center justify-center text-sm font-medium text-[#c084fc]">
+                        {getMemberInitials(member, currentUserId)}
+                      </div>
                     )}
-                    <span
-                      className={cn(
-                        "text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 border",
-                        member.role === "owner"
-                          ? "bg-[#c084fc]/10 text-[#c084fc] border-[#c084fc]/30"
-                          : member.role === "admin"
-                            ? "bg-white/5 text-[#a1a1aa] border-white/10"
-                            : "bg-white/5 text-[#71717a] border-white/10"
-                      )}
-                    >
-                      {formatRoleLabel(member.role)}
-                    </span>
+                    {isOnline && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#34d399] border-2 border-[#0a0a0f]" />
+                    )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-[10px] text-[#71717a]">
-                    {presenceLabel && (
-                      <span className={isOnline ? "text-[#34d399]" : undefined}>{presenceLabel}</span>
-                    )}
-                    {joined && (
-                      <>
-                        {presenceLabel && <span>·</span>}
-                        <span>{joined}</span>
-                      </>
-                    )}
-                    {member.location && (
-                      <>
-                        <span>·</span>
-                        <span>{member.location}</span>
-                      </>
-                    )}
-                    {openTasks > 0 && (
-                      <>
-                        <span>·</span>
-                        <span className="text-[#a1a1aa]">
-                          {openTasks} open task{openTasks === 1 ? "" : "s"}
+
+                  <div className="team-directory-member__identity flex-1 min-w-0">
+                    <div className="team-directory-member__name-row">
+                      <span className="font-medium text-[#f4f4f5] truncate">{displayName}</span>
+                      {member.username && !isSelf && (
+                        <span className="team-directory-username text-[10px] text-[#71717a] font-mono truncate">
+                          @{member.username}
                         </span>
-                      </>
-                    )}
+                      )}
+                      <span
+                        className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 border",
+                          member.role === "owner"
+                            ? "bg-[#c084fc]/10 text-[#c084fc] border-[#c084fc]/30"
+                            : member.role === "admin"
+                              ? "bg-white/5 text-[#a1a1aa] border-white/10"
+                              : "bg-white/5 text-[#71717a] border-white/10"
+                        )}
+                      >
+                        {formatRoleLabel(member.role)}
+                      </span>
+                    </div>
+                    <div className="team-directory-member__meta flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-[#71717a]">
+                      {presenceLabel && (
+                        <span className={isOnline ? "text-[#34d399]" : undefined}>{presenceLabel}</span>
+                      )}
+                      {joined && (
+                        <>
+                          {presenceLabel && <span aria-hidden>·</span>}
+                          <span>{joined}</span>
+                        </>
+                      )}
+                      {member.location && (
+                        <>
+                          <span aria-hidden>·</span>
+                          <span className="truncate max-w-[10rem]">{member.location}</span>
+                        </>
+                      )}
+                      {openTasks > 0 && (
+                        <>
+                          <span aria-hidden>·</span>
+                          <span className="text-[#a1a1aa]">
+                            {openTasks} open task{openTasks === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {renderMemberActions && (
-                  <div className="shrink-0 flex items-center gap-2">
+                  <div className="team-directory-member__actions">
                     {renderMemberActions(member, isSelf)}
                   </div>
                 )}

@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  ArrowUpRight,
   Check,
+  ChevronDown,
   Home,
   MessageCircle,
   User,
   Zap,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useTaskStore } from "@/store/useTaskStore";
 import type { ActivityLog, Task, WorkspaceMember } from "@/types";
 import { isSharedWorkspace } from "@/lib/assignee";
@@ -39,6 +40,7 @@ export function TeamCollaborationPanel({
   onOpenHome,
   onOpenChat,
 }: TeamCollaborationPanelProps) {
+  const [activityExpanded, setActivityExpanded] = useState(false);
   const refreshRecentActivity = useTaskStore((s) => s.refreshRecentActivity);
 
   useEffect(() => {
@@ -66,28 +68,28 @@ export function TeamCollaborationPanel({
   const owner = members.find((m) => m.role === "owner");
 
   return (
-    <div className="space-y-4">
+    <div className="team-collab-panel space-y-3 md:space-y-4">
       {/* Your slice */}
-      <div className="glass rounded-2xl border border-[#c084fc]/20 p-5">
-        <div className="flex items-center gap-2 text-sm font-medium text-[#e5e5e7] mb-3">
-          <User className="h-4 w-4 text-[#c084fc]" />
-          Your work in this team
+      <div className="team-collab-your-work glass rounded-2xl border border-[#c084fc]/20 p-4 md:p-5">
+        <div className="flex items-center gap-2 text-sm font-medium text-[#e5e5e7] mb-2 md:mb-3">
+          <User className="h-4 w-4 text-[#c084fc] shrink-0" />
+          <span className="truncate">Your work</span>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm mb-4">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm mb-3 md:mb-4">
           <span>
-            <span className="text-2xl font-semibold tabular-nums text-[#f4f4f5]">
+            <span className="text-xl md:text-2xl font-semibold tabular-nums text-[#f4f4f5]">
               {stats.assignedToMe}
             </span>
-            <span className="text-[#71717a] ml-1.5">assigned to you</span>
+            <span className="text-[#71717a] ml-1 text-xs md:text-sm">assigned</span>
           </span>
           {stats.myOverdue > 0 && (
             <span className="text-[#ff3366]">
-              <span className="text-2xl font-semibold tabular-nums">{stats.myOverdue}</span>
-              <span className="ml-1.5">overdue</span>
+              <span className="text-xl md:text-2xl font-semibold tabular-nums">{stats.myOverdue}</span>
+              <span className="ml-1 text-xs md:text-sm">overdue</span>
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="team-collab-actions flex flex-wrap gap-2">
           <button
             type="button"
             onClick={onOpenTasks}
@@ -118,26 +120,26 @@ export function TeamCollaborationPanel({
       </div>
 
       {/* Workspace pulse */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="glass rounded-2xl border border-white/10 p-4">
-          <div className="text-[10px] uppercase tracking-widest text-[#71717a]">Open</div>
-          <div className="text-2xl font-semibold tabular-nums mt-1">{stats.openCount}</div>
+      <div className="team-collab-stats grid grid-cols-4 gap-2 md:gap-3">
+        <div className="team-collab-stat glass rounded-xl md:rounded-2xl border border-white/10 p-3 md:p-4">
+          <div className="team-collab-stat-label text-[10px] uppercase tracking-widest text-[#71717a]">Open</div>
+          <div className="team-collab-stat-value text-xl md:text-2xl font-semibold tabular-nums mt-0.5 md:mt-1">{stats.openCount}</div>
         </div>
-        <div className="glass rounded-2xl border border-white/10 p-4">
-          <div className="text-[10px] uppercase tracking-widest text-[#71717a]">Due today</div>
-          <div className="text-2xl font-semibold tabular-nums mt-1 text-[#c084fc]">
+        <div className="team-collab-stat glass rounded-xl md:rounded-2xl border border-white/10 p-3 md:p-4">
+          <div className="team-collab-stat-label text-[10px] uppercase tracking-widest text-[#71717a]">Today</div>
+          <div className="team-collab-stat-value text-xl md:text-2xl font-semibold tabular-nums mt-0.5 md:mt-1 text-[#c084fc]">
             {stats.dueTodayCount}
           </div>
         </div>
-        <div className="glass rounded-2xl border border-white/10 p-4">
-          <div className="text-[10px] uppercase tracking-widest text-[#71717a]">Overdue</div>
-          <div className="text-2xl font-semibold tabular-nums mt-1 text-[#ff3366]">
+        <div className="team-collab-stat glass rounded-xl md:rounded-2xl border border-white/10 p-3 md:p-4">
+          <div className="team-collab-stat-label text-[10px] uppercase tracking-widest text-[#71717a]">Late</div>
+          <div className="team-collab-stat-value text-xl md:text-2xl font-semibold tabular-nums mt-0.5 md:mt-1 text-[#ff3366]">
             {stats.overdueCount}
           </div>
         </div>
-        <div className="glass rounded-2xl border border-white/10 p-4">
-          <div className="text-[10px] uppercase tracking-widest text-[#71717a]">Online</div>
-          <div className="text-2xl font-semibold tabular-nums mt-1 text-[#34d399]">
+        <div className="team-collab-stat glass rounded-xl md:rounded-2xl border border-white/10 p-3 md:p-4">
+          <div className="team-collab-stat-label text-[10px] uppercase tracking-widest text-[#71717a]">Online</div>
+          <div className="team-collab-stat-value text-xl md:text-2xl font-semibold tabular-nums mt-0.5 md:mt-1 text-[#34d399]">
             {stats.onlineCount}
           </div>
         </div>
@@ -145,8 +147,8 @@ export function TeamCollaborationPanel({
 
       {/* Who's responsible */}
       {showAssigneeSection && (
-        <div className="glass rounded-2xl border border-white/10 p-5">
-          <div className="text-sm font-medium text-[#e5e5e7] mb-3">Who&apos;s responsible</div>
+        <div className="team-collab-assignees glass rounded-2xl border border-white/10 p-4 md:p-5">
+          <div className="text-sm font-medium text-[#e5e5e7] mb-2 md:mb-3">Who&apos;s responsible</div>
           <div className="flex flex-wrap gap-2">
             {assigneeBreakdown.map((item) => (
               <span
@@ -173,38 +175,52 @@ export function TeamCollaborationPanel({
         </div>
       )}
 
-      {/* Recent activity */}
+      {/* Recent activity — collapsed by default */}
       <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-        <div className="px-5 py-3 border-b border-white/10 bg-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-2 font-medium text-sm">
-            <Zap className="h-4 w-4 text-[#c084fc]" />
-            Recent team activity
+        <button
+          type="button"
+          onClick={() => setActivityExpanded((open) => !open)}
+          className={cn(
+            "team-collab-section-header w-full px-5 py-3 bg-white/5 flex items-center justify-between gap-2 text-left transition-colors hover:bg-white/[0.07]",
+            activityExpanded && "border-b border-white/10",
+          )}
+          aria-expanded={activityExpanded}
+        >
+          <div className="flex items-center gap-2 font-medium text-sm min-w-0">
+            <Zap className="h-4 w-4 text-[#c084fc] shrink-0" />
+            <span className="truncate">Recent activity</span>
+            {activityFeed.length > 0 && (
+              <span className="text-[10px] font-mono text-[#71717a] shrink-0">
+                {activityFeed.length}
+              </span>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={onOpenHome}
-            className="text-[10px] text-[#c084fc] flex items-center gap-1 hover:underline"
-          >
-            Home <ArrowUpRight className="h-3 w-3" />
-          </button>
-        </div>
-        {activityFeed.length === 0 ? (
-          <div className="p-6 text-sm text-[#71717a] text-center">
-            No recent activity yet. Completing tasks and editing notes will show up here.
-          </div>
-        ) : (
-          <div className="divide-y divide-white/10">
-            {activityFeed.map((item) => (
-              <div key={item.id} className="px-5 py-3.5">
-                <div className="text-sm text-[#e5e5e7]">{item.headline}</div>
-                {item.detail && (
-                  <div className="text-xs text-[#71717a] mt-0.5 truncate">{item.detail}</div>
-                )}
-                <div className="text-[10px] text-[#52525b] mt-1 font-mono">{item.timeLabel}</div>
-              </div>
-            ))}
-          </div>
-        )}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-[#71717a] shrink-0 transition-transform",
+              activityExpanded && "rotate-180",
+            )}
+            aria-hidden
+          />
+        </button>
+        {activityExpanded &&
+          (activityFeed.length === 0 ? (
+            <div className="p-6 text-sm text-[#71717a] text-center">
+              No recent activity yet. Completing tasks and editing notes will show up here.
+            </div>
+          ) : (
+            <div className="divide-y divide-white/10">
+              {activityFeed.map((item) => (
+                <div key={item.id} className="team-activity-item px-5 py-3.5">
+                  <div className="text-sm text-[#e5e5e7]">{item.headline}</div>
+                  {item.detail && (
+                    <div className="text-xs text-[#71717a] mt-0.5 truncate">{item.detail}</div>
+                  )}
+                  <div className="text-[10px] text-[#52525b] mt-1 font-mono">{item.timeLabel}</div>
+                </div>
+              ))}
+            </div>
+          ))}
       </div>
     </div>
   );

@@ -18,8 +18,8 @@ describe("dual auth email", () => {
     expect(html).toContain("482913");
     expect(html).toContain("Badazz Tasks");
     expect(html).toContain("Verify your sign-in");
-    expect(html).toContain("#0a0a0f");
-    expect(html).toContain("#c084fc");
+    expect(html).toContain("#f4f4f5");
+    expect(html).toContain("#7c3aed");
     expect(html).toContain("https://badazztasks.com");
   });
 

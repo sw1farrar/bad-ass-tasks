@@ -241,7 +241,7 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
       }
 
       toast.success(
-        rememberDevice ? "Device remembered for 30 days" : "Signed in securely",
+        rememberDevice ? "This device is trusted" : "Signed in securely",
       );
       onVerifiedRef.current();
     } catch {
@@ -335,9 +335,9 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
               <span className="text-sm text-[#a1a1aa] leading-snug">
                 <span className="flex items-center gap-1.5 text-[#f4f4f5] font-medium">
                   <ShieldCheck className="h-3.5 w-3.5 text-[#c084fc]" />
-                  Remember this device for 30 days
+                  Trust this device
                 </span>
-                Skip this step on this browser until 30 days after your last sign-in.
+                Skip verification on this browser until you clear site data or use another device.
               </span>
             </label>
 

@@ -120,16 +120,16 @@ export function TeamsAdminDashboard({
   };
 
   return (
-    <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-      <div className="px-5 py-3 border-b border-white/10 bg-white/5">
-        <div className="font-semibold flex items-center gap-2 text-lg tracking-tight mb-1">
-          <BarChart3 className="h-5 w-5 text-[#c084fc]" /> Data &amp; admin tools
+    <div className="teams-admin-dashboard glass rounded-2xl border border-white/10 overflow-hidden">
+      <div className="teams-admin-header px-5 py-3 border-b border-white/10 bg-white/5">
+        <div className="font-semibold flex items-center gap-2 text-base md:text-lg tracking-tight mb-0.5 md:mb-1">
+          <BarChart3 className="h-5 w-5 text-[#c084fc] shrink-0" /> Data &amp; admin
         </div>
-        <p className="text-[11px] text-[#71717a] mb-3">
+        <p className="text-[11px] text-[#71717a] mb-2 md:mb-3 hidden md:block">
           Export, import, templates, and workspace insights for your team.
         </p>
 
-        <div className="flex gap-1 text-xs overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory touch-pan-x">
+        <div className="teams-admin-tabs flex gap-1 text-xs overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory touch-pan-x">
           {(
             [
               { id: "overview" as const, label: "Overview", icon: BarChart3 },
@@ -159,7 +159,7 @@ export function TeamsAdminDashboard({
       </div>
 
       {adminTab === "overview" && (
-        <div className="p-5">
+        <div className="teams-admin-body p-4 md:p-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
             <div className="bg-white/5 rounded-xl p-3 border border-white/10">
               <div className="text-[#71717a] text-xs flex items-center gap-1">
@@ -212,7 +212,7 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "exports" && (
-        <div className="p-5 border-t border-white/10">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10">
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => useTaskStore.getState().exportWorkspace("json")}
@@ -247,7 +247,7 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "imports" && (
-        <div className="p-5 border-t border-white/10 space-y-4">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10 space-y-4">
           <div className="flex flex-wrap gap-3 items-center">
             <div>
               <div className="flex gap-2 text-xs">
@@ -386,7 +386,7 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "templates" && (
-        <div className="p-5 border-t border-white/10">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
             {(useTaskStore.getState().getAdminTemplateLibrary?.() || []).map(
               (tpl: { title: string; type: string; description?: string; tags?: string[] }, idx: number) => (
@@ -435,7 +435,7 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "insights" && (
-        <div className="p-5 border-t border-white/10 space-y-4 text-sm">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10 space-y-4 text-sm">
           <div className="flex items-center justify-end">
             <button
               onClick={loadInsights}

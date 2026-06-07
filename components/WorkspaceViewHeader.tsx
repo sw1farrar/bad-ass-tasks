@@ -13,6 +13,12 @@ export interface WorkspaceViewHeaderProps {
   className?: string;
   /** compact: Notes sidebar. inline: title row (Tasks/Lists). inline-centered: centered title row (Team). */
   variant?: "default" | "compact" | "inline" | "inline-centered";
+  /** Hide the "Workspace" label on viewports below md (Tasks page mobile density). */
+  hideWorkspaceLabelOnMobile?: boolean;
+  /** Hide the workspace name badge on viewports below md (shown in top bar on phones). */
+  hideWorkspaceNameOnMobile?: boolean;
+  /** Hide meta line (e.g. task counts) on viewports below md. */
+  hideMetaOnMobile?: boolean;
 }
 
 export function WorkspaceViewHeader({
@@ -24,6 +30,9 @@ export function WorkspaceViewHeader({
   actions,
   className,
   variant = "default",
+  hideWorkspaceLabelOnMobile = false,
+  hideWorkspaceNameOnMobile = false,
+  hideMetaOnMobile = false,
 }: WorkspaceViewHeaderProps) {
   const workspaceLabel = workspaceName.trim() || "Loading…";
 
@@ -31,11 +40,19 @@ export function WorkspaceViewHeader({
     <>
       {icon ? <span className="shrink-0 text-[#c084fc]">{icon}</span> : null}
       <h1 className="text-2xl md:text-3xl font-semibold tracking-tight shrink-0">{title}</h1>
-      <span className="text-[10px] font-medium uppercase tracking-widest text-[#71717a] shrink-0">
+      <span
+        className={cn(
+          "text-[10px] font-medium uppercase tracking-widest text-[#71717a] shrink-0",
+          hideWorkspaceLabelOnMobile && "hidden md:inline",
+        )}
+      >
         Workspace
       </span>
       <span
-        className="inline-flex min-w-0 max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-2.5 py-0.5 text-xs sm:text-sm font-semibold tracking-tight text-[#e9d5ff] truncate"
+        className={cn(
+          "inline-flex min-w-0 max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-2.5 py-0.5 text-xs sm:text-sm font-semibold tracking-tight text-[#e9d5ff] truncate",
+          hideWorkspaceNameOnMobile && "hidden md:inline-flex",
+        )}
         title={workspaceLabel}
       >
         {workspaceLabel}
@@ -86,7 +103,13 @@ export function WorkspaceViewHeader({
           <p className="text-sm text-[#71717a] mt-1.5 leading-relaxed">{description}</p>
         ) : null}
         {meta ? (
-          <p className={cn("text-sm text-[#71717a]", description ? "mt-1 text-xs font-mono" : "mt-1")}>
+          <p
+            className={cn(
+              "text-sm text-[#71717a]",
+              description ? "mt-1 text-xs font-mono" : "mt-1",
+              hideMetaOnMobile && "hidden md:block",
+            )}
+          >
             {meta}
           </p>
         ) : null}

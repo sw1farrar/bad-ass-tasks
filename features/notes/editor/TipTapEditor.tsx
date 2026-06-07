@@ -120,6 +120,8 @@ interface TipTapEditorProps {
   minHeight?: string;
   /** Optional slot rendered directly below the formatting toolbar */
   belowToolbar?: React.ReactNode;
+  /** Compact icon-only toolbar for mobile drawer */
+  compactToolbar?: boolean;
   // Future-proof callbacks for advanced slash/linking features (non-breaking; parent wires store actions)
   onCreateTaskFromSlash?: (suggestedTitle?: string) => void;
   onCreateNoteFromSlash?: (suggestedTitle?: string) => void;
@@ -188,6 +190,7 @@ export function TipTapEditor({
   className,
   minHeight = "240px",
   belowToolbar,
+  compactToolbar,
   onCreateTaskFromSlash,
   onCreateNoteFromSlash,
   onInsertEmbed,
@@ -287,6 +290,18 @@ export function TipTapEditor({
     setSlashPosition(null);
     setSelectedSlashIndex(0);
   }, []);
+
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileViewport(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const isCompactToolbar = compactToolbar ?? isMobileViewport;
 
   const editor = useEditor({
     // Client-only editor; avoid Next.js hydration warning and first-paint delay.
@@ -1427,7 +1442,9 @@ export function TipTapEditor({
 
   useEffect(() => {
     const resolvePortalTarget = () => {
-      const panel = editorBodyRef.current?.closest(".notes-editor-panel");
+      const panel = editorBodyRef.current?.closest(
+        ".notes-editor-panel, .notes-drawer-body",
+      );
       setCollapsePortalTarget(panel instanceof HTMLElement ? panel : null);
     };
     resolvePortalTarget();
@@ -1503,8 +1520,9 @@ export function TipTapEditor({
       onClick={onClick}
       title={title}
       className={cn(
-        "flex h-8 w-8 items-center justify-center rounded-lg transition-all active:scale-95",
-        "hover:bg-black/5 border border-transparent",
+        "flex shrink-0 items-center justify-center rounded-md transition-all active:scale-95",
+        "hover:bg-black/5 border border-transparent touch-manipulation",
+        isCompactToolbar ? "h-6 w-6 min-h-6 min-w-6 rounded-sm" : "h-8 w-8 rounded-lg",
         isActive
           ? "bg-[#7c3aed]/15 text-[#7c3aed] border-[#7c3aed]/30"
           : "text-[var(--note-canvas-text-muted,#71717a)] hover:text-[var(--note-canvas-text,#18181b)] hover:bg-black/5"
@@ -1513,6 +1531,14 @@ export function TipTapEditor({
       {children}
     </button>
   );
+
+  const toolbarIconClass = isCompactToolbar ? "h-3 w-3" : "h-4 w-4";
+  const toolbarDividerClass = cn(
+    "bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] shrink-0",
+    isCompactToolbar ? "w-px h-3 mx-0" : "w-px h-5 mx-1",
+  );
+  const compactToolbarRowClass =
+    "notes-editor-toolbar__row flex items-center flex-nowrap w-full";
 
   return (
     <div
@@ -1535,142 +1561,234 @@ export function TipTapEditor({
           e.target.value = "";
         }}
       />
-      {/* Basic Toolbar - clean, keyboard-friendly, no custom extensions */}
-      <div className="flex items-center gap-1 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] px-3 py-2 flex-wrap">
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          isActive={editor.isActive("bold")}
-          title="Bold (⌘B)"
-        >
-          <Bold className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          isActive={editor.isActive("italic")}
-          title="Italic (⌘I)"
-        >
-          <Italic className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-          isActive={editor.isActive("strike")}
-          title="Strikethrough"
-        >
-          <span className="text-xs font-bold line-through">S</span>
-        </ToolbarButton>
-
-        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          isActive={editor.isActive("heading", { level: 1 })}
-          title="Heading 1"
-        >
-          <Heading1 className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          isActive={editor.isActive("heading", { level: 2 })}
-          title="Heading 2"
-        >
-          <Heading2 className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-          isActive={editor.isActive("heading", { level: 3 })}
-          title="Heading 3"
-        >
-          <Heading3 className="h-4 w-4" />
-        </ToolbarButton>
-
-        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          isActive={editor.isActive("bulletList")}
-          title="Bullet List"
-        >
-          <List className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          isActive={editor.isActive("orderedList")}
-          title="Numbered List"
-        >
-          <ListOrdered className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          isActive={editor.isActive("blockquote")}
-          title="Blockquote"
-        >
-          <Quote className="h-4 w-4" />
-        </ToolbarButton>
-
-        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-          isActive={editor.isActive("codeBlock")}
-          title="Code Block"
-        >
-          <Code className="h-4 w-4" />
-        </ToolbarButton>
-
-        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
-
-        <ToolbarButton
-          onClick={() =>
-            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-          }
-          isActive={editor.isActive("table")}
-          title="Insert table"
-        >
-          <Table2 className="h-4 w-4" />
-        </ToolbarButton>
-
-        <div className="flex-1" />
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().undo().run()}
-          isActive={false}
-          title="Undo (⌘Z)"
-        >
-          <Undo2 className="h-4 w-4" />
-        </ToolbarButton>
-
-        <ToolbarButton
-          onClick={() => editor.chain().focus().redo().run()}
-          isActive={false}
-          title="Redo (⌘⇧Z)"
-        >
-          <Redo2 className="h-4 w-4" />
-        </ToolbarButton>
-
-        {/* Image insert — world-class paste/drop + click preview experience */}
-        <ToolbarButton
-          onClick={() => imageUploadInputRef.current?.click()}
-          isActive={false}
-          title="Upload image (paste or drag & drop also work)"
-        >
-          <ImageIcon className="h-4 w-4" />
-        </ToolbarButton>
-
-      </div>
+      {/* Formatting toolbar — two compact rows on mobile */}
+      {isCompactToolbar ? (
+        <div className="notes-editor-toolbar notes-editor-toolbar--compact border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] flex flex-col gap-0 px-0.5 py-0.5">
+          <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--primary justify-between gap-0")}>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleBold().run()}
+              isActive={editor.isActive("bold")}
+              title="Bold (⌘B)"
+            >
+              <Bold className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleItalic().run()}
+              isActive={editor.isActive("italic")}
+              title="Italic (⌘I)"
+            >
+              <Italic className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+              isActive={editor.isActive("strike")}
+              title="Strikethrough"
+            >
+              <span className="text-[9px] font-bold leading-none line-through">S</span>
+            </ToolbarButton>
+            <div className={toolbarDividerClass} />
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              isActive={editor.isActive("heading", { level: 1 })}
+              title="Heading 1"
+            >
+              <Heading1 className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              isActive={editor.isActive("heading", { level: 2 })}
+              title="Heading 2"
+            >
+              <Heading2 className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+              isActive={editor.isActive("heading", { level: 3 })}
+              title="Heading 3"
+            >
+              <Heading3 className={toolbarIconClass} />
+            </ToolbarButton>
+          </div>
+          <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--secondary justify-between gap-0")}>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+              isActive={editor.isActive("bulletList")}
+              title="Bullet List"
+            >
+              <List className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+              isActive={editor.isActive("orderedList")}
+              title="Numbered List"
+            >
+              <ListOrdered className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+              isActive={editor.isActive("blockquote")}
+              title="Blockquote"
+            >
+              <Quote className={toolbarIconClass} />
+            </ToolbarButton>
+            <div className={toolbarDividerClass} />
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+              isActive={editor.isActive("codeBlock")}
+              title="Code Block"
+            >
+              <Code className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() =>
+                editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+              }
+              isActive={editor.isActive("table")}
+              title="Insert table"
+            >
+              <Table2 className={toolbarIconClass} />
+            </ToolbarButton>
+            <div className={toolbarDividerClass} />
+            <ToolbarButton
+              onClick={() => editor.chain().focus().undo().run()}
+              isActive={false}
+              title="Undo (⌘Z)"
+            >
+              <Undo2 className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().redo().run()}
+              isActive={false}
+              title="Redo (⌘⇧Z)"
+            >
+              <Redo2 className={toolbarIconClass} />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => imageUploadInputRef.current?.click()}
+              isActive={false}
+              title="Upload image (paste or drag & drop also work)"
+            >
+              <ImageIcon className={toolbarIconClass} />
+            </ToolbarButton>
+          </div>
+        </div>
+      ) : (
+        <div className="notes-editor-toolbar flex items-center gap-1 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] px-3 py-2 flex-wrap">
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            isActive={editor.isActive("bold")}
+            title="Bold (⌘B)"
+          >
+            <Bold className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            isActive={editor.isActive("italic")}
+            title="Italic (⌘I)"
+          >
+            <Italic className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+            isActive={editor.isActive("strike")}
+            title="Strikethrough"
+          >
+            <span className="text-xs font-bold line-through">S</span>
+          </ToolbarButton>
+          <div className={toolbarDividerClass} />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            isActive={editor.isActive("heading", { level: 1 })}
+            title="Heading 1"
+          >
+            <Heading1 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            isActive={editor.isActive("heading", { level: 2 })}
+            title="Heading 2"
+          >
+            <Heading2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            isActive={editor.isActive("heading", { level: 3 })}
+            title="Heading 3"
+          >
+            <Heading3 className={toolbarIconClass} />
+          </ToolbarButton>
+          <div className={toolbarDividerClass} />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            isActive={editor.isActive("bulletList")}
+            title="Bullet List"
+          >
+            <List className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            isActive={editor.isActive("orderedList")}
+            title="Numbered List"
+          >
+            <ListOrdered className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            isActive={editor.isActive("blockquote")}
+            title="Blockquote"
+          >
+            <Quote className={toolbarIconClass} />
+          </ToolbarButton>
+          <div className={toolbarDividerClass} />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            isActive={editor.isActive("codeBlock")}
+            title="Code Block"
+          >
+            <Code className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() =>
+              editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+            }
+            isActive={editor.isActive("table")}
+            title="Insert table"
+          >
+            <Table2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <div className={toolbarDividerClass} />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().undo().run()}
+            isActive={false}
+            title="Undo (⌘Z)"
+          >
+            <Undo2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().redo().run()}
+            isActive={false}
+            title="Redo (⌘⇧Z)"
+          >
+            <Redo2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => imageUploadInputRef.current?.click()}
+            isActive={false}
+            title="Upload image (paste or drag & drop also work)"
+          >
+            <ImageIcon className={toolbarIconClass} />
+          </ToolbarButton>
+        </div>
+      )}
 
       {belowToolbar}
 
       {/* Editable Area (Placeholder extension provides native hint inside editor) */}
       <div
         className={cn(
-          "p-5 bg-[var(--note-canvas-bg,#f8f8f6)] relative",
-          needsCollapse && contentExpanded && "pb-20",
+          "bg-[var(--note-canvas-bg,#f8f8f6)] relative",
+          isCompactToolbar ? "notes-editor-body py-3 px-0" : "p-5",
+          needsCollapse && contentExpanded && (isCompactToolbar ? "pb-16" : "pb-20"),
         )}
         style={{ minHeight: isContentCollapsed ? undefined : minHeight }}
         onClick={() => editor.chain().focus().run()}

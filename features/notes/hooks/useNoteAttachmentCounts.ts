@@ -10,6 +10,7 @@ export function useNoteAttachmentCounts(workspaceId: string | undefined) {
   const refresh = useCallback(async () => {
     if (!workspaceId || !isSupabaseConfigured() || ["w1", "w2"].includes(workspaceId)) {
       setCounts({});
+      setLoading(false);
       return;
     }
 

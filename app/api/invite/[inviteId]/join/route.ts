@@ -14,6 +14,15 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+async function ensureProfileEmail(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  userId: string,
+  email: string | null | undefined,
+) {
+  if (!email) return;
+  await supabase.from("profiles").upsert({ id: userId, email } as never, { onConflict: "id" });
+}
+
 async function acceptInviteForUser(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>, inviteId: string) {
   type RpcClient = {
     rpc: (
@@ -78,8 +87,8 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     try {
+      await ensureProfileEmail(supabase, sessionUser.id, sessionUser.email);
       const workspaceId = await acceptInviteForUser(supabase, inviteId);
-      await supabase.from("profiles").upsert({ id: sessionUser.id } as never, { onConflict: "id" });
       return NextResponse.json({ ok: true, workspaceId });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not accept invitation.";
@@ -123,8 +132,8 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
+    await ensureProfileEmail(supabase, signInData.user.id, signInData.user.email);
     const workspaceId = await acceptInviteForUser(supabase, inviteId);
-    await supabase.from("profiles").upsert({ id: signInData.user.id } as never, { onConflict: "id" });
     return NextResponse.json({ ok: true, workspaceId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Signed in, but could not accept invitation.";

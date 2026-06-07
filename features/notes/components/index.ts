@@ -13,4 +13,5 @@ export { NoteAttachmentsPanel } from "./NoteAttachmentsPanel";
 export { NoteHeader } from "./NoteHeader";
 export { NoteLinkedTaskBadge } from "./NoteLinkedTaskBadge";
 export { NoteTreeGutter } from "./NoteTreeGutter";
+export { NoteMobileDrawer } from "./NoteMobileDrawer";
 

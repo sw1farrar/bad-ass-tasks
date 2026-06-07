@@ -5,17 +5,19 @@ import {
   Bell,
   Check,
   ListChecks,
+  Lock,
   MessageCircle,
   Zap,
 } from "lucide-react";
 import { getListColorStyle } from "@/store/listSlice";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
-import { cn, triggerHaptic } from "@/lib/utils";
+import { cn, formatDueDate, triggerHaptic } from "@/lib/utils";
 import { buildAttentionItems, type HomeFocusItem } from "./lib/buildAttentionItems";
 import { isHomeAllCaughtUp } from "./lib/isHomeAllCaughtUp";
 import { sortUpcomingFocusItems } from "./lib/buildUpcomingFocus";
 import { HomeDueTaskRow } from "./components/HomeDueTaskRow";
+import { TaskRow } from "@/features/tasks/components/TaskRow";
 import { WorkspaceOpenTasksGraphic } from "./components/WorkspaceOpenTasksGraphic";
 import "@/features/lists/lists-workspace.css";
 import "./home-workspace.css";
@@ -47,7 +49,13 @@ export interface WorkspacePulse {
   assignedToYou?: number;
   listCount?: number;
   openListItemsCount?: number;
+  noteCount?: number;
+  taskCount?: number;
   memberCount?: number;
+}
+
+function formatInventoryCount(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 interface HomeViewProps {
@@ -134,7 +142,7 @@ export function HomeView({
   if (pendingInvites > 0) summaryParts.push(`${pendingInvites} invite${pendingInvites === 1 ? "" : "s"}`);
   if (checklistItemsTotal > 0) {
     summaryParts.push(
-      `${checklistItemsTotal} checklist item${checklistItemsTotal === 1 ? "" : "s"}`,
+      `${checklistItemsTotal} list item${checklistItemsTotal === 1 ? "" : "s"}`,
     );
   }
   if (unreadCount > 0 && pendingInvites === 0) summaryParts.push(`${unreadCount} unread`);
@@ -156,7 +164,8 @@ export function HomeView({
   });
 
   return (
-    <div className="max-w-5xl mx-auto pt-2 md:pt-4">
+    <div className="home-root">
+      <div className="home-workspace max-w-5xl mx-auto pt-2 md:pt-4">
       <div className="mb-8">
         <div className="text-3xl md:text-4xl font-semibold tracking-tight">
           {getGreeting()}
@@ -254,13 +263,19 @@ export function HomeView({
             const overdue = pulse?.overdue ?? 0;
             const unread = pulse?.unreadNotifications ?? 0;
             const unreadChat = pulse?.unreadChat ?? false;
-            const online = pulse?.onlineCount;
             const isCurrent = pulse?.isCurrent ?? false;
             const breakdown = pulse?.assigneeBreakdown ?? [];
             const assignedToYou = pulse?.assignedToYou ?? 0;
-            const openListItems = pulse?.openListItemsCount ?? 0;
             const listCount = pulse?.listCount ?? 0;
+            const noteCount = pulse?.noteCount ?? 0;
+            const taskCount = pulse?.taskCount ?? openTasks;
             const memberCount = pulse?.memberCount;
+            const isPrivateWorkspace = typeof memberCount === "number" && memberCount === 1;
+            const inventoryLabel = [
+              formatInventoryCount(listCount, "list", "lists"),
+              formatInventoryCount(noteCount, "note", "notes"),
+              formatInventoryCount(taskCount, "task", "tasks"),
+            ].join(" · ");
 
             const activateWorkspace = () => {
               triggerHaptic("light");
@@ -287,100 +302,126 @@ export function HomeView({
                     : "border-white/10",
                 )}
               >
-                <div className="flex items-start gap-3">
-                    <WorkspaceOpenTasksGraphic
-                      openTasks={openTasks}
-                      overdue={overdue}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold flex items-start justify-between gap-2">
-                        <span className="break-words min-w-0 flex-1 leading-snug pr-1">{ws.name}</span>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          {(unread > 0 || unreadChat) && (
-                            <div className="flex items-center gap-1">
-                              {unread > 0 && (
-                                <span
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#c084fc] text-black text-[10px] font-bold shadow-[0_0_12px_rgba(192,132,252,0.35)]"
-                                  title={`${unread} unread notification${unread === 1 ? "" : "s"} in this workspace`}
-                                  aria-label={`${unread} unread notifications`}
-                                >
-                                  <Bell className="h-3 w-3" aria-hidden />
-                                  {unread > 99 ? "99+" : unread}
-                                </span>
-                              )}
-                              {unreadChat && (
-                                <span
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#ff3366] text-white text-[10px] font-bold shadow-[0_0_12px_rgba(255,51,102,0.35)]"
-                                  title="Unread team messages in this workspace"
-                                  aria-label="Unread team messages"
-                                >
-                                  <MessageCircle className="h-3 w-3" aria-hidden />
-                                  Chat
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-[#a1a1aa] font-mono">
-                            {formatRoleLabel(ws.role)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#71717a] mt-2">
-                        {typeof memberCount === "number" && (
-                          <span>
-                            {memberCount} teammate{memberCount === 1 ? "" : "s"}
-                          </span>
-                        )}
+                <div className="absolute top-3 right-3 hidden md:flex items-center gap-1 z-10">
+                  {unread > 0 && (
+                    <span
+                      className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#c084fc] text-black text-[9px] font-bold"
+                      title={`${unread} unread notification${unread === 1 ? "" : "s"} in this workspace`}
+                      aria-label={`${unread} unread notifications`}
+                    >
+                      <Bell className="h-2.5 w-2.5" aria-hidden />
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
+                  {unreadChat && (
+                    <span
+                      className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#ff3366] text-white text-[9px] font-bold"
+                      title="Unread team messages in this workspace"
+                      aria-label="Unread team messages"
+                    >
+                      <MessageCircle className="h-2.5 w-2.5" aria-hidden />
+                    </span>
+                  )}
+                  {!isPrivateWorkspace && ws.role && (
+                    <span className="text-[8px] uppercase tracking-wider px-1.5 py-px rounded bg-white/5 text-[#71717a] font-semibold">
+                      {formatRoleLabel(ws.role)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="md:hidden flex items-start gap-1.5 mb-2.5 min-w-0">
+                  <div className="font-semibold leading-snug break-words min-w-0 flex-1 text-[15px]">
+                    {ws.name}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                    {isPrivateWorkspace && (
+                      <span
+                        className="inline-flex items-center justify-center shrink-0 h-5 w-5 rounded border border-white/10 bg-white/[0.04] text-[#a1a1aa]"
+                        title="Private workspace"
+                        aria-label="Private workspace"
+                      >
+                        <Lock className="h-2.5 w-2.5" aria-hidden />
+                      </span>
+                    )}
+                    {unread > 0 && (
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#c084fc] text-black text-[9px] font-bold"
+                        title={`${unread} unread notification${unread === 1 ? "" : "s"} in this workspace`}
+                        aria-label={`${unread} unread notifications`}
+                      >
+                        <Bell className="h-2.5 w-2.5" aria-hidden />
+                        {unread > 99 ? "99+" : unread}
+                      </span>
+                    )}
+                    {unreadChat && (
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#ff3366] text-white text-[9px] font-bold"
+                        title="Unread team messages in this workspace"
+                        aria-label="Unread team messages"
+                      >
+                        <MessageCircle className="h-2.5 w-2.5" aria-hidden />
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 max-md:pr-0 md:pr-14">
+                  <WorkspaceOpenTasksGraphic
+                    openTasks={openTasks}
+                    overdue={overdue}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="hidden md:block font-semibold leading-snug break-words pr-1">
+                      {ws.name}
+                    </div>
+                    <div className="text-[11px] text-[#71717a] max-md:mt-0 md:mt-2 tabular-nums leading-snug">
+                      {inventoryLabel}
+                    </div>
+                    {(overdue > 0 || due > 0 || assignedToYou > 0) && (
+                      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] mt-1.5">
                         {assignedToYou > 0 && (
-                          <span className="text-[#c084fc]">{assignedToYou} due for you</span>
+                          <span
+                            className={cn(
+                              "text-[#c084fc]",
+                              isPrivateWorkspace && "max-md:hidden",
+                            )}
+                          >
+                            {assignedToYou} for you
+                          </span>
                         )}
                         {due > 0 && (
-                          <span className={overdue > 0 ? "text-[#ff3366]" : ""}>{due} due</span>
-                        )}
-                        {overdue > 0 && <span className="text-[#ff3366]">{overdue} overdue</span>}
-                        {typeof online === "number" && online > 0 && (
-                          <span className="text-[#34d399]">{online} online</span>
-                        )}
-                        {openListItems > 0 && (
-                          <span>
-                            {openListItems} checklist item{openListItems === 1 ? "" : "s"}
+                          <span className={overdue > 0 ? "text-[#ff3366]" : "text-[#a1a1aa]"}>
+                            {due} due
                           </span>
                         )}
-                        {listCount > 0 && openListItems === 0 && (
-                          <span>{listCount} list{listCount === 1 ? "" : "s"}</span>
-                        )}
-                        {unreadChat && (
-                          <span className="text-[#ff3366]">Unread messages</span>
-                        )}
-                        {openTasks === 0 &&
-                          assignedToYou === 0 &&
-                          due === 0 &&
-                          overdue === 0 &&
-                          unread === 0 &&
-                          !unreadChat &&
-                          openListItems === 0 &&
-                          listCount === 0 &&
-                          (!online || online === 0) && <span>All clear</span>}
+                        {overdue > 0 && <span className="text-[#ff3366]">{overdue} overdue</span>}
                       </div>
-                    </div>
+                    )}
                   </div>
-                  {breakdown.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {breakdown.slice(0, 3).map((item) => (
-                        <span
-                          key={item.label}
-                          className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/[0.03] text-[#a1a1aa]"
-                          title={`${item.label}: ${item.count} open task${item.count === 1 ? "" : "s"}`}
-                        >
-                          {item.label}: {item.count}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                </div>
+
+                {breakdown.length > 0 && (
+                  <div
+                    className={cn(
+                      "mt-2 flex flex-wrap gap-1.5 min-w-0",
+                      isPrivateWorkspace && "max-md:hidden",
+                    )}
+                  >
+                    {breakdown.slice(0, 3).map((item) => (
+                      <span
+                        key={item.label}
+                        className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/[0.03] text-[#a1a1aa]"
+                        title={`${item.label}: ${item.count} open task${item.count === 1 ? "" : "s"}`}
+                      >
+                        {item.label}: {item.count}
+                      </span>
+                    ))}
+                  </div>
+                )}
                   {isCurrent && (
-                    <div className="text-[10px] text-[#c084fc] mt-2 font-medium">Current workspace</div>
+                    <div className="hidden md:block text-[10px] text-[#c084fc] mt-2 font-medium">Current workspace</div>
                   )}
-                <div className="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                <div className="hidden md:flex gap-2 mt-3 pt-3 border-t border-white/5">
                   {(
                     [
                       { label: "Tasks", view: "tasks" as const },
@@ -418,17 +459,41 @@ export function HomeView({
               Past due, today &amp; tomorrow · by priority
             </div>
           </div>
-          <div className="space-y-2">
-            {dueAttentionFocus.slice(0, 8).map((item) => (
-              <HomeDueTaskRow
-                key={`${item.workspaceId}-${item.task.id}`}
-                task={item.task}
-                workspaceName={item.workspaceName}
-                isOpLoading={!!taskLoadingStates[item.task.id]}
-                onOpen={() => onOpenFocusTask(item)}
-                onComplete={() => onCompleteFocusTask(item)}
-              />
-            ))}
+          <div className="home-due-tasks max-md:space-y-1 md:space-y-2">
+            {dueAttentionFocus.slice(0, 8).map((item) => {
+              const due = formatDueDate(item.task.dueDate ?? undefined);
+              const isDone = item.task.status === "done";
+              const loading = !!taskLoadingStates[item.task.id];
+
+              return (
+                <React.Fragment key={`${item.workspaceId}-${item.task.id}`}>
+                  <div className="md:hidden">
+                    <TaskRow
+                      rowId={`home-task-row-${item.task.id}`}
+                      task={item.task}
+                      isDone={isDone}
+                      isOpLoading={loading}
+                      due={due}
+                      workspaceName={item.workspaceName}
+                      showAssignee={false}
+                      commentWorkspaceId={item.workspaceId}
+                      onOpen={() => onOpenFocusTask(item)}
+                      onComplete={() => onCompleteFocusTask(item)}
+                      onSwipeComplete={() => onCompleteFocusTask(item)}
+                    />
+                  </div>
+                  <div className="hidden md:block">
+                    <HomeDueTaskRow
+                      task={item.task}
+                      workspaceName={item.workspaceName}
+                      isOpLoading={loading}
+                      onOpen={() => onOpenFocusTask(item)}
+                      onComplete={() => onCompleteFocusTask(item)}
+                    />
+                  </div>
+                </React.Fragment>
+              );
+            })}
           </div>
         </div>
       )}
@@ -494,6 +559,7 @@ export function HomeView({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

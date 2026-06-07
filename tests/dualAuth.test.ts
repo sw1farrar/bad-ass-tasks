@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   DUAL_AUTH_COOKIE_NAME,
-  DUAL_AUTH_REMEMBER_DAYS,
+  DUAL_AUTH_REMEMBER_MAX_AGE_SEC,
   DUAL_AUTH_SEND_COOLDOWN_MS,
   computeDualAuthRetryAfterSeconds,
   generateDualAuthCode,
@@ -12,6 +12,7 @@ import {
   setDualAuthCookie,
   shouldPreserveDualAuthCookieOnSignOut,
 } from "@/lib/auth/dualAuth";
+import { isDualAuthSatisfied as isDualAuthSatisfiedEdge } from "@/lib/auth/dualAuthEdge";
 import { NextRequest, NextResponse } from "next/server";
 
 describe("dual auth helpers", () => {
@@ -50,7 +51,7 @@ describe("dual auth helpers", () => {
     expect(first).not.toBe(otherUser);
   });
 
-  it("accepts a valid trusted-device cookie for the same user", () => {
+  it("accepts a valid trusted-device cookie for the same user", async () => {
     const response = NextResponse.next();
     setDualAuthCookie(response, "user-123", true);
 
@@ -65,13 +66,15 @@ describe("dual auth helpers", () => {
 
     expect(isDualAuthSatisfied(request, "user-123")).toBe(true);
     expect(isDualAuthSatisfied(request, "other-user")).toBe(false);
+    expect(await isDualAuthSatisfiedEdge(request, "user-123")).toBe(true);
+    expect(await isDualAuthSatisfiedEdge(request, "other-user")).toBe(false);
   });
 
-  it("uses a 30-day remember window for trusted devices", () => {
+  it("uses a long-lived remember cookie for trusted devices", () => {
     const response = NextResponse.next();
     setDualAuthCookie(response, "user-123", true);
     const cookie = response.cookies.get(DUAL_AUTH_COOKIE_NAME);
-    expect(cookie?.maxAge).toBe(DUAL_AUTH_REMEMBER_DAYS * 24 * 60 * 60);
+    expect(cookie?.maxAge).toBe(DUAL_AUTH_REMEMBER_MAX_AGE_SEC);
   });
 
   it("requires admin + brevo before dual auth is enforced", () => {

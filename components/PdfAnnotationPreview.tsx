@@ -9,9 +9,12 @@ import {
   Maximize2,
   Trash2,
   Undo2,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { PreviewMobileActions } from "@/components/PreviewMobileActions";
+import type { PreviewFileRef } from "@/lib/preview/mobileFileActions";
 import {
   type PdfHighlightAnnotation,
   PDF_HIGHLIGHT_COLORS,
@@ -34,6 +37,13 @@ type PdfAnnotationPreviewProps = {
   initialAnnotations?: PdfHighlightAnnotation[];
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: (annotations: PdfHighlightAnnotation[]) => void;
+  /** Mobile read-only preview — compact toolbar, pinch zoom, no highlighting */
+  mobilePreview?: boolean;
+  /** Share / save / close row rendered above PDF controls on mobile */
+  mobileChrome?: {
+    file: PreviewFileRef;
+    onClose: () => void;
+  };
 };
 
 type PageRender = {
@@ -72,7 +82,16 @@ export const PdfAnnotationPreview = React.forwardRef<
   PdfAnnotationPreviewHandle,
   PdfAnnotationPreviewProps
 >(function PdfAnnotationPreview(
-  { url, attachmentId, noteId, initialAnnotations = [], onDirtyChange, onSaved },
+  {
+    url,
+    attachmentId,
+    noteId,
+    initialAnnotations = [],
+    onDirtyChange,
+    onSaved,
+    mobilePreview = false,
+    mobileChrome,
+  },
   ref,
 ) {
   const [pages, setPages] = useState<PageRender[]>([]);
@@ -95,6 +114,8 @@ export const PdfAnnotationPreview = React.forwardRef<
   const rootRef = useRef<HTMLDivElement>(null);
   const annotationsRef = useRef(annotations);
   const activeColorRef = useRef(activeColor);
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef(1);
 
   useEffect(() => {
     annotationsRef.current = annotations;
@@ -334,8 +355,36 @@ export const PdfAnnotationPreview = React.forwardRef<
     [applyAnnotations, recordUndo],
   );
 
+  const handlePinchTouchStart = useCallback(
+    (event: React.TouchEvent) => {
+      if (!mobilePreview || event.touches.length !== 2) return;
+      const a = event.touches[0];
+      const b = event.touches[1];
+      pinchStartDistRef.current = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      pinchStartZoomRef.current = zoomScale;
+    },
+    [mobilePreview, zoomScale],
+  );
+
+  const handlePinchTouchMove = useCallback(
+    (event: React.TouchEvent) => {
+      if (!mobilePreview || event.touches.length !== 2 || pinchStartDistRef.current === null) return;
+      event.preventDefault();
+      const a = event.touches[0];
+      const b = event.touches[1];
+      const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const ratio = dist / pinchStartDistRef.current;
+      setZoomScale(clampZoom(pinchStartZoomRef.current * ratio));
+    },
+    [clampZoom, mobilePreview],
+  );
+
+  const handlePinchTouchEnd = useCallback(() => {
+    pinchStartDistRef.current = null;
+  }, []);
+
   const startAreaHighlight = useCallback((pageNumber: number, event: React.PointerEvent) => {
-    if (event.button !== 0) return;
+    if (mobilePreview || event.button !== 0) return;
 
     const pageEl = pageRefs.current[pageNumber];
     if (!pageEl) return;
@@ -386,7 +435,7 @@ export const PdfAnnotationPreview = React.forwardRef<
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
-  }, [addAreaHighlight]);
+  }, [addAreaHighlight, mobilePreview]);
 
   const removeHighlight = (id: string) => {
     recordUndo();
@@ -443,59 +492,107 @@ export const PdfAnnotationPreview = React.forwardRef<
     <div
       ref={rootRef}
       tabIndex={-1}
-      className="pdf-preview-root flex h-full flex-col bg-[#e8e8e6] outline-none"
+      className={cn(
+        "pdf-preview-root flex h-full min-h-0 flex-col bg-[#e8e8e6] outline-none",
+        mobilePreview && "pdf-preview-root--mobile",
+      )}
     >
+      {mobilePreview && mobileChrome && (
+        <div
+          className="pdf-preview-mobile-chrome flex shrink-0 items-center justify-end gap-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <PreviewMobileActions file={mobileChrome.file} />
+          <button
+            type="button"
+            onClick={mobileChrome.onClose}
+            className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+            aria-label="Close preview"
+          >
+            <X className="h-[18px] w-[18px]" />
+          </button>
+        </div>
+      )}
+
       <div
-        className="pdf-preview-toolbar flex shrink-0 flex-wrap items-center gap-2 border-b border-black/10 bg-white/90 px-3 py-2 md:gap-3 md:px-4"
+        className={cn(
+          "pdf-preview-toolbar flex shrink-0 items-center border-b border-black/10 bg-white",
+          mobilePreview
+            ? "justify-between gap-2 px-2 py-2"
+            : "flex-wrap gap-2 bg-white/95 px-3 py-2 backdrop-blur-sm md:gap-3 md:px-4",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
             title="Zoom out"
             onClick={() => setZoomScale((prev) => clampZoom(prev - ZOOM_STEP))}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5"
+            className={cn(
+              "flex items-center justify-center rounded-lg text-[#52525b] active:bg-black/8",
+              mobilePreview ? "h-10 w-10" : "h-7 w-7 hover:bg-black/5",
+            )}
             aria-label="Zoom out"
           >
             <ZoomOut className="h-4 w-4" />
           </button>
-          <span className="min-w-[44px] text-center text-[11px] font-medium text-[#52525b]">
+          <button
+            type="button"
+            title="Reset zoom"
+            onClick={() => setZoomScale(1)}
+            className={cn(
+              "min-w-[52px] text-center font-medium text-[#52525b]",
+              mobilePreview ? "px-1 text-[12px]" : "text-[11px]",
+            )}
+            aria-label="Reset zoom"
+          >
             {Math.round(zoomScale * 100)}%
-          </span>
+          </button>
           <button
             type="button"
             title="Zoom in"
             onClick={() => setZoomScale((prev) => clampZoom(prev + ZOOM_STEP))}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5"
+            className={cn(
+              "flex items-center justify-center rounded-lg text-[#52525b] active:bg-black/8",
+              mobilePreview ? "h-10 w-10" : "h-7 w-7 hover:bg-black/5",
+            )}
             aria-label="Zoom in"
           >
             <ZoomIn className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            title="Fit width"
-            onClick={() => setZoomScale(1)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5"
-            aria-label="Fit width"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
+          {!mobilePreview && (
+            <button
+              type="button"
+              title="Fit width"
+              onClick={() => setZoomScale(1)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5"
+              aria-label="Fit width"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
-        <div className="h-5 w-px bg-black/10" />
-
-        <div className="flex items-center gap-1">
+        <div className={cn("flex items-center gap-0.5", mobilePreview && "ml-auto")}>
           <button
             type="button"
             title="Previous page"
             disabled={currentPage <= 1}
             onClick={() => scrollToPage(Math.max(1, currentPage - 1))}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5 disabled:opacity-35"
+            className={cn(
+              "flex items-center justify-center rounded-lg text-[#52525b] disabled:opacity-35",
+              mobilePreview ? "h-10 w-10 active:bg-black/8" : "h-7 w-7 hover:bg-black/5",
+            )}
             aria-label="Previous page"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="min-w-[72px] text-center text-[11px] font-medium text-[#52525b]">
+          <span
+            className={cn(
+              "text-center font-medium text-[#52525b]",
+              mobilePreview ? "min-w-[64px] text-[12px]" : "min-w-[72px] text-[11px]",
+            )}
+          >
             {currentPage} / {pages.length || 1}
           </span>
           <button
@@ -503,68 +600,85 @@ export const PdfAnnotationPreview = React.forwardRef<
             title="Next page"
             disabled={currentPage >= pages.length}
             onClick={() => scrollToPage(Math.min(pages.length, currentPage + 1))}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5 disabled:opacity-35"
+            className={cn(
+              "flex items-center justify-center rounded-lg text-[#52525b] disabled:opacity-35",
+              mobilePreview ? "h-10 w-10 active:bg-black/8" : "h-7 w-7 hover:bg-black/5",
+            )}
             aria-label="Next page"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="h-5 w-px bg-black/10" />
+        {!mobilePreview && (
+          <>
+            <div className="h-5 w-px bg-black/10" />
 
-        <Highlighter className="h-4 w-4 text-[#7c3aed]" />
-        <span className="hidden text-[10px] text-[#a1a1aa] sm:inline">Drag to highlight</span>
-        <div className="flex items-center gap-1.5">
-          {PDF_HIGHLIGHT_COLORS.map((c) => (
+            <Highlighter className="h-4 w-4 text-[#7c3aed]" />
+            <span className="hidden text-[10px] text-[#a1a1aa] sm:inline">Drag to highlight</span>
+            <div className="flex items-center gap-1.5">
+              {PDF_HIGHLIGHT_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  title={c.label}
+                  onClick={() => setActiveColor(c.value)}
+                  className={cn(
+                    "h-6 w-6 rounded-full border-2 transition-transform",
+                    activeColor === c.value
+                      ? "border-[#7c3aed] scale-110"
+                      : "border-black/15 hover:border-black/30",
+                  )}
+                  style={{ backgroundColor: c.value }}
+                  aria-label={`${c.label} highlight`}
+                />
+              ))}
+            </div>
+
+            <div className="h-5 w-px bg-black/10" />
+
             <button
-              key={c.id}
               type="button"
-              title={c.label}
-              onClick={() => setActiveColor(c.value)}
-              className={cn(
-                "h-6 w-6 rounded-full border-2 transition-transform",
-                activeColor === c.value
-                  ? "border-[#7c3aed] scale-110"
-                  : "border-black/15 hover:border-black/30",
-              )}
-              style={{ backgroundColor: c.value }}
-              aria-label={`${c.label} highlight`}
-            />
-          ))}
-        </div>
+              title="Undo highlight (Ctrl+Z)"
+              disabled={!undoAvailable}
+              onClick={undoHighlight}
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[#52525b] hover:bg-black/5 disabled:opacity-35"
+              aria-label="Undo highlight"
+            >
+              <Undo2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Undo</span>
+            </button>
+            <button
+              type="button"
+              title="Clear all highlights"
+              disabled={!annotations.length}
+              onClick={clearHighlights}
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[#52525b] hover:bg-black/5 disabled:opacity-35"
+              aria-label="Clear all highlights"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Clear</span>
+            </button>
 
-        <div className="h-5 w-px bg-black/10" />
-
-        <button
-          type="button"
-          title="Undo highlight (Ctrl+Z)"
-          disabled={!undoAvailable}
-          onClick={undoHighlight}
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[#52525b] hover:bg-black/5 disabled:opacity-35"
-          aria-label="Undo highlight"
-        >
-          <Undo2 className="h-4 w-4" />
-          <span className="hidden sm:inline">Undo</span>
-        </button>
-        <button
-          type="button"
-          title="Clear all highlights"
-          disabled={!annotations.length}
-          onClick={clearHighlights}
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[#52525b] hover:bg-black/5 disabled:opacity-35"
-          aria-label="Clear all highlights"
-        >
-          <Trash2 className="h-4 w-4" />
-          <span className="hidden sm:inline">Clear</span>
-        </button>
-
-        {saving && <span className="ml-auto text-[10px] text-[#7c3aed]">Saving…</span>}
-        {!saving && isDirty && attachmentId && (
-          <span className="ml-auto text-[10px] text-[#a1a1aa]">Unsaved changes</span>
+            {saving && <span className="ml-auto text-[10px] text-[#7c3aed]">Saving…</span>}
+            {!saving && isDirty && attachmentId && (
+              <span className="ml-auto text-[10px] text-[#a1a1aa]">Unsaved changes</span>
+            )}
+          </>
         )}
       </div>
 
-      <div ref={scrollRef} className="pdf-preview-scroll relative flex-1 overflow-auto p-6 md:p-10">
+      <div
+        ref={scrollRef}
+        className={cn(
+          "pdf-preview-scroll relative flex-1 overflow-auto",
+          mobilePreview ? "px-2 py-2 pb-[calc(2.75rem+env(safe-area-inset-bottom))]" : "p-6 md:p-10",
+        )}
+        onTouchStart={handlePinchTouchStart}
+        onTouchMove={handlePinchTouchMove}
+        onTouchEnd={handlePinchTouchEnd}
+        onTouchCancel={handlePinchTouchEnd}
+      >
         {(loading || renderFitWidth === null) && (
           <div className="flex min-h-[280px] items-center justify-center text-[#71717a]">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -580,7 +694,7 @@ export const PdfAnnotationPreview = React.forwardRef<
 
         {!loading && !error && pages.length > 0 && (
         <div
-          className="mx-auto flex w-full flex-col gap-6"
+          className={cn("mx-auto flex w-full flex-col", mobilePreview ? "gap-3" : "gap-6")}
           style={{ width: `${zoomScale * 100}%`, maxWidth: zoomScale > 1 ? "none" : "100%" }}
         >
           {pages.map((page) => (
@@ -589,13 +703,18 @@ export const PdfAnnotationPreview = React.forwardRef<
               ref={(el) => {
                 pageAnchorRefs.current[page.pageNumber] = el;
               }}
-              className="relative w-full pb-6"
+              className={cn("relative w-full", mobilePreview ? "pb-1" : "pb-6")}
             >
               <div
                 ref={(el) => {
                   pageRefs.current[page.pageNumber] = el;
                 }}
-                className="pdf-page-surface relative mx-auto w-full cursor-crosshair bg-white shadow-[0_8px_32px_rgba(0,0,0,0.12)] ring-1 ring-black/10 touch-none select-none"
+                className={cn(
+                  "pdf-page-surface relative mx-auto w-full bg-white select-none",
+                  mobilePreview
+                    ? "shadow-[0_4px_20px_rgba(0,0,0,0.1)] ring-1 ring-black/8"
+                    : "cursor-crosshair shadow-[0_8px_32px_rgba(0,0,0,0.12)] ring-1 ring-black/10 touch-none",
+                )}
                 style={{ aspectRatio: `${page.baseWidth} / ${page.baseHeight}` }}
                 onPointerDown={(event) => startAreaHighlight(page.pageNumber, event)}
                 onClick={(e) => e.stopPropagation()}
@@ -615,13 +734,19 @@ export const PdfAnnotationPreview = React.forwardRef<
                         <button
                           key={`${annotation.id}-${idx}`}
                           type="button"
-                          title="Remove highlight"
+                          title={mobilePreview ? undefined : "Remove highlight"}
+                          tabIndex={mobilePreview ? -1 : undefined}
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
-                            removeHighlight(annotation.id);
+                            if (!mobilePreview) removeHighlight(annotation.id);
                           }}
-                          className="pointer-events-auto absolute cursor-pointer transition-opacity hover:opacity-60"
+                          className={cn(
+                            "absolute transition-opacity",
+                            mobilePreview
+                              ? "pointer-events-none"
+                              : "pointer-events-auto cursor-pointer hover:opacity-60",
+                          )}
                           style={{
                             left: `${rect.x * 100}%`,
                             top: `${rect.y * 100}%`,
@@ -647,9 +772,11 @@ export const PdfAnnotationPreview = React.forwardRef<
                   )}
                 </div>
               </div>
-              <span className="absolute bottom-0 left-0 text-[10px] text-[#71717a]">
-                Page {page.pageNumber}
-              </span>
+              {!mobilePreview && (
+                <span className="absolute bottom-0 left-0 text-[10px] text-[#71717a]">
+                  Page {page.pageNumber}
+                </span>
+              )}
             </div>
           ))}
         </div>

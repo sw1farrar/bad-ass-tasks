@@ -33,6 +33,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Clearing a due date also clears recurrence — rules require an anchor date. */
+export function applyTaskUpdateSideEffects(updates: Partial<Task>): Partial<Task> {
+  const normalized = { ...updates };
+  if (
+    Object.prototype.hasOwnProperty.call(normalized, "dueDate") &&
+    (normalized.dueDate === undefined || normalized.dueDate === null)
+  ) {
+    normalized.dueDate = null;
+    normalized.recurringRule = null;
+    normalized.exceptionDates = undefined;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(normalized, "status") &&
+    normalized.status !== "done"
+  ) {
+    normalized.completedAt = undefined;
+  }
+  return normalized;
+}
+
 // Natural language task parser (demo quality — makes the app feel magical; types from @/types)
 export function parseNaturalLanguage(input: string): Partial<Task> {
   const result: Partial<Task> = {
@@ -817,8 +837,24 @@ export function templateToNotePayload(tpl: (typeof TEMPLATE_LIBRARY)[number]) {
   };
 }
 
-/** Light haptic feedback on supported mobile browsers. */
+let userHasGesturedForHaptics = false;
+let hapticGestureListenersAttached = false;
+
+function attachHapticGestureListeners() {
+  if (typeof window === "undefined" || hapticGestureListenersAttached) return;
+  hapticGestureListenersAttached = true;
+  const markGesture = () => {
+    userHasGesturedForHaptics = true;
+  };
+  window.addEventListener("pointerdown", markGesture, { passive: true });
+  window.addEventListener("keydown", markGesture, { passive: true });
+  window.addEventListener("touchstart", markGesture, { passive: true });
+}
+
+/** Light haptic feedback on supported mobile browsers (requires prior user gesture). */
 export function triggerHaptic(kind: "light" | "medium" | "success" | "error" = "light") {
+  attachHapticGestureListeners();
+  if (!userHasGesturedForHaptics) return;
   if (typeof navigator === "undefined" || !("vibrate" in navigator)) return;
   const patterns: Record<string, number | number[]> = {
     light: 8,

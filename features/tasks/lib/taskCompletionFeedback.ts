@@ -1,0 +1,65 @@
+import { toast } from "sonner";
+import type { Task } from "@/types";
+import { formatLocalDateShort, triggerHaptic } from "@/lib/utils";
+
+export type TaskCompletionUndoContext = {
+  task: Task;
+  workspaceId: string;
+  workspaceName: string;
+};
+
+export function buildTaskCompletionUndoContext(
+  task: Task,
+  workspaceName: string,
+): TaskCompletionUndoContext {
+  return {
+    task,
+    workspaceId: task.workspaceId,
+    workspaceName,
+  };
+}
+
+export function showTaskCompletionFeedback(
+  result: "advanced" | "completed",
+  taskBeforeComplete: Task,
+  opts: {
+    undoTaskCompletion: (id: string, fallback: TaskCompletionUndoContext) => Promise<boolean>;
+    undoFallback: TaskCompletionUndoContext;
+    triggerCelebration?: () => void;
+    onCompleted?: () => void;
+    advancedTask?: Task | null;
+  },
+): void {
+  const undoAction = {
+    label: "Undo",
+    onClick: () => {
+      void opts.undoTaskCompletion(taskBeforeComplete.id, opts.undoFallback).then((ok) => {
+        if (ok) {
+          triggerHaptic("light");
+        } else {
+          toast.error("Could not undo", { description: "Try reopening the task manually." });
+        }
+      });
+    },
+  };
+
+  if (result === "advanced") {
+    const nextLabel = opts.advancedTask?.dueDate
+      ? formatLocalDateShort(opts.advancedTask.dueDate)
+      : "";
+    toast.success("Recurrence advanced", {
+      description: `${taskBeforeComplete.title}${nextLabel ? ` → next due ${nextLabel}` : ""}`,
+      duration: 10000,
+      action: undoAction,
+    });
+    return;
+  }
+
+  opts.triggerCelebration?.();
+  toast.success("Task completed", {
+    description: taskBeforeComplete.title,
+    duration: 10000,
+    action: undoAction,
+  });
+  opts.onCompleted?.();
+}

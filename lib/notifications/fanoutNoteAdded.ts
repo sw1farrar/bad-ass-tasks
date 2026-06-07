@@ -5,12 +5,7 @@ import {
   isMissingNotificationPrefsColumn,
   warnMissingNotificationPrefsColumnOnce,
 } from "@/lib/notifications/schemaFallback";
-import {
-  DEFAULT_NOTIFICATION_PREFS,
-  normalizeNotificationPrefs,
-  shouldDeliverNotification,
-} from "@/lib/notifications/notificationPrefs";
-import { sendNotificationEmail } from "@/lib/notifications/sendNotificationEmail";
+import { deliverNotification } from "@/lib/notifications/deliverNotification";
 
 export type FanoutNoteAddedParams = {
   workspaceId: string;
@@ -62,32 +57,6 @@ function buildNotificationCopy(params: {
     title: "New note added",
     message: `${params.actorName} added "${title}" to ${params.workspaceName}.`,
   };
-}
-
-async function insertInAppNotification(
-  supabase: any,
-  payload: {
-    workspaceId: string;
-    userId: string;
-    title: string;
-    message: string;
-    link: string;
-    metadata: Record<string, unknown>;
-  },
-): Promise<void> {
-  const { error } = await (supabase.from("notifications") as any).insert({
-    workspace_id: payload.workspaceId,
-    user_id: payload.userId,
-    type: NOTIFICATION_TYPE,
-    title: payload.title,
-    message: payload.message,
-    link: payload.link,
-    metadata: payload.metadata,
-  });
-
-  if (error) {
-    logError("fanoutNoteAdded:createNotification", error);
-  }
 }
 
 /**
@@ -157,54 +126,30 @@ export async function fanoutNoteAddedNotifications(params: FanoutNoteAddedParams
     const metadata = {
       note_id: noteId,
       note_title: params.noteTitle,
-      workspace_id: workspaceId,
-      workspace_name: workspaceName,
-      actor_user_id: actorUserId,
       actor_name: actorName,
       source: params.source ?? "manual",
     };
 
     await Promise.all(
-      memberRows.map(async (member) => {
+      memberRows.map((member) => {
         const recipientId = member.user_id;
-        if (!recipientId) return;
-        if (actorUserId && recipientId === actorUserId) return;
-
-        const prefs = normalizeNotificationPrefs(
-          member.profiles?.notification_prefs ?? DEFAULT_NOTIFICATION_PREFS,
-        );
-
-        const deliverInApp = shouldDeliverNotification(prefs, workspaceId, NOTIFICATION_TYPE, "inApp");
-        const deliverEmail = shouldDeliverNotification(prefs, workspaceId, NOTIFICATION_TYPE, "email");
-
-        const tasks: Promise<unknown>[] = [];
-
-        if (deliverInApp) {
-          tasks.push(
-            insertInAppNotification(supabase, {
-              workspaceId,
-              userId: recipientId,
-              title: copy.title,
-              message: copy.message,
-              link,
-              metadata,
-            }),
-          );
-        }
-
-        if (deliverEmail && member.profiles?.email) {
-          tasks.push(
-            sendNotificationEmail(member.profiles.email, NOTIFICATION_TYPE, {
-              title: copy.title,
-              message: copy.message,
-              workspaceName,
-              link,
-              actor: actorName,
-            }),
-          );
-        }
-
-        await Promise.all(tasks);
+        if (!recipientId) return Promise.resolve();
+        return deliverNotification({
+          supabase,
+          workspaceId,
+          recipientUserId: recipientId,
+          type: NOTIFICATION_TYPE,
+          title: copy.title,
+          message: copy.message,
+          link,
+          workspaceName,
+          actorUserId,
+          metadata,
+          recipientProfile: {
+            email: member.profiles?.email ?? null,
+            notification_prefs: member.profiles?.notification_prefs,
+          },
+        });
       }),
     );
   } catch (err) {

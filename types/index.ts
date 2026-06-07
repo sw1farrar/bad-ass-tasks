@@ -13,7 +13,7 @@ export interface Task {
   description: string;
   status: TaskStatus;
   priority: Priority;
-  dueDate?: string;
+  dueDate?: string | null;
   /** Resolved display label (enriched from assigneeIds + workspace members) */
   assignee?: string;
   /** Primary assignee user id(s); persisted to tasks.assignee_ids in Supabase */
@@ -207,6 +207,13 @@ export interface Comment {
   userEmail?: string;
 }
 
+/** Aggregated comment metadata for task list indicators */
+export interface TaskCommentSummary {
+  count: number;
+  latestAt: string;
+  latestUserId: string;
+}
+
 export interface Command {
   id: string;
   label: string;
@@ -262,10 +269,13 @@ export interface Notification {
   activityLogId?: string;
 }
 
-export interface NotificationPrefs {
-  email: boolean;
+export interface NotificationTypeChannelPrefs {
   inApp: boolean;
-  types: Record<NotificationType, boolean>;
+  email: boolean;
+}
+
+export interface NotificationPrefs {
+  types: Record<NotificationType, NotificationTypeChannelPrefs>;
   perWorkspace?: Record<string, { muted?: boolean; email?: boolean }>;
   muteUntil?: string | null;
 }

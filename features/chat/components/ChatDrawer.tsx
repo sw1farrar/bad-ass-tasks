@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import { X } from "lucide-react";
 import { triggerHaptic } from "@/lib/utils";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import type { WorkspaceChatController } from "../hooks/useWorkspaceChat";
 import { WorkspaceChatPanel, type WorkspaceChatPanelProps } from "./WorkspaceChatPanel";
 
@@ -21,14 +22,7 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  useScrollLock(open);
 
   const handleClose = () => {
     triggerHaptic("light");

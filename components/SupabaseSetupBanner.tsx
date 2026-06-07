@@ -9,7 +9,10 @@ export function SupabaseSetupBanner() {
   if (isSupabaseConfigured() || dismissed) return null;
 
   return (
-    <div className="fixed top-[calc(3.25rem+env(safe-area-inset-top,4px))] left-1/2 -translate-x-1/2 z-[65] max-w-[min(26rem,calc(100vw-1.5rem))] w-full mx-3 md:top-auto md:bottom-[calc(5.25rem+env(safe-area-inset-bottom,0))] md:max-w-xl md:z-[60]">
+    <div
+      data-landing-capture-hide
+      className="fixed top-[calc(3.25rem+env(safe-area-inset-top,4px))] left-1/2 -translate-x-1/2 z-[65] max-w-[min(26rem,calc(100vw-1.5rem))] w-full mx-3 md:top-auto md:bottom-[calc(5.25rem+env(safe-area-inset-bottom,0))] md:max-w-xl md:z-[60]"
+    >
       <div className="glass border border-[#c084fc]/30 rounded-2xl md:rounded-2xl px-3 py-1.5 md:px-6 md:py-4 text-xs md:text-sm shadow-2xl">
         <div className="flex items-start gap-4">
           <div className="text-[#c084fc] text-xl mt-0.5">🚀</div>

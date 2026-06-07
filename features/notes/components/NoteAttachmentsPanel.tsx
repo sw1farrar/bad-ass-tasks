@@ -5,6 +5,7 @@ import {
   Paperclip,
   Upload,
   Trash2,
+  X,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -156,12 +157,60 @@ function AttachmentFileTypeIcon({ kind }: { kind: AttachmentFileKind }) {
   return <FileText className="h-4 w-4 text-[#52525b]" aria-hidden="true" />;
 }
 
-function AttachmentIconSkeleton({ wide = false }: { wide?: boolean }) {
+function AttachmentRemoveButton({
+  compact,
+  fileName,
+  onRemove,
+}: {
+  compact: boolean;
+  fileName: string;
+  onRemove: () => void;
+}) {
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-black/12 bg-white/95 text-[#52525b] shadow-sm active:scale-95 touch-manipulation"
+        aria-label={`Remove ${fileName}`}
+      >
+        <X className="h-2 w-2" strokeWidth={2.5} aria-hidden />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onRemove();
+      }}
+      className="absolute -right-1 -top-1 rounded-full border border-black/10 bg-white p-1 text-[#71717a] opacity-0 shadow-md transition-opacity hover:text-red-500 group-hover:opacity-100"
+      aria-label={`Delete ${fileName}`}
+    >
+      <Trash2 className="h-3 w-3" aria-hidden />
+    </button>
+  );
+}
+
+function AttachmentIconSkeleton({
+  wide = false,
+  compact = false,
+}: {
+  wide?: boolean;
+  compact?: boolean;
+}) {
   return (
     <div
       className={cn(
-        "h-12 shrink-0 animate-pulse rounded-lg border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-black/[0.06]",
-        wide ? "w-[7.75rem]" : "w-12",
+        "shrink-0 animate-pulse border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-black/[0.06]",
+        compact
+          ? "h-9 w-9 rounded-md"
+          : cn("h-12 rounded-lg", wide ? "w-[7.75rem]" : "w-12"),
       )}
       aria-hidden
     />
@@ -172,15 +221,21 @@ interface NoteAttachmentsPanelProps {
   selectedNote: Note;
   /** Render as footer inside the note editor card */
   embedded?: boolean;
+  /** Mobile drawer — tighter layout + native photo picker */
+  compact?: boolean;
   /** Known count from workspace-level cache while per-note details load */
   countHint?: number;
+  /** Workspace attachment counts have finished loading (enables skip when count is 0) */
+  countsReady?: boolean;
   onCountChange?: (noteId: string, count: number) => void;
 }
 
 export function NoteAttachmentsPanel({
   selectedNote,
   embedded = false,
+  compact = false,
   countHint,
+  countsReady = false,
   onCountChange,
 }: NoteAttachmentsPanelProps) {
   const [attachments, setAttachments] = useState<NoteAttachmentRow[]>([]);
@@ -196,6 +251,18 @@ export function NoteAttachmentsPanel({
   } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<NoteAttachmentRow | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileViewport(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const useNativePhotoPicker = compact || isMobileViewport;
 
   const syncCount = useCallback(
     (list: NoteAttachmentRow[]) => {
@@ -209,6 +276,21 @@ export function NoteAttachmentsPanel({
 
     const noteId = selectedNote.id;
     let cancelled = false;
+
+    // Wait for workspace counts before deciding whether a fetch is needed.
+    if (!countsReady) {
+      setAttachments([]);
+      setLoading(false);
+      return;
+    }
+
+    const expectedCount = countHint ?? 0;
+    if (expectedCount === 0) {
+      setAttachments([]);
+      setLoading(false);
+      return;
+    }
+
     setAttachments([]);
     setLoading(true);
 
@@ -230,7 +312,7 @@ export function NoteAttachmentsPanel({
     return () => {
       cancelled = true;
     };
-  }, [selectedNote.id, onCountChange]);
+  }, [selectedNote.id, onCountChange, countHint, countsReady]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files?.length || uploading) return;
@@ -316,33 +398,45 @@ export function NoteAttachmentsPanel({
       ? attachments.length
       : null;
 
-  const skeletonCount = loading
-    ? Math.min(Math.max(countHint ?? 2, 1), 6)
-    : 0;
+  const skeletonCount =
+    loading && (countHint ?? 0) > 0
+      ? Math.min(Math.max(countHint ?? 1, 1), 6)
+      : 0;
 
   return (
     <>
       <div
         className={cn(
           embedded
-            ? "border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)] px-3 py-2 md:px-4"
+            ? cn(
+                "note-attachments-embedded border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)]",
+                compact ? "note-attachments-embedded--compact px-3 py-1" : "px-3 py-2 md:px-4",
+              )
             : "border-t border-[var(--note-canvas-border,rgba(24,24,27,0.1))] px-4 md:px-6 py-4 space-y-3",
         )}
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-[var(--note-canvas-text-muted,#71717a)]">
-            <Paperclip className="h-3 w-3 text-[#7c3aed]" />
+        <div className={cn("flex items-center justify-between gap-2", compact ? "mb-1" : "mb-2")}>
+          <div
+            className={cn(
+              "flex items-center gap-1 text-[var(--note-canvas-text-muted,#71717a)]",
+              compact
+                ? "text-[9px] uppercase tracking-wide"
+                : "gap-1.5 text-[10px] uppercase tracking-widest",
+            )}
+          >
+            <Paperclip className={cn("text-[#7c3aed]", compact ? "h-2.5 w-2.5" : "h-3 w-3")} />
             Attachments
-            {loading && (
+            {loading && (countHint ?? 0) > 0 && (
               <Loader2
-                className="h-3 w-3 animate-spin text-[#7c3aed]/70"
+                className={cn("animate-spin text-[#7c3aed]/70", compact ? "h-2.5 w-2.5" : "h-3 w-3")}
                 aria-hidden
               />
             )}
             {displayCount != null && displayCount > 0 && (
               <span
                 className={cn(
-                  "rounded-full bg-black/5 px-1.5 py-0.5 font-mono text-[9px] text-[var(--note-canvas-text-secondary,#52525b)]",
+                  "rounded-full bg-black/5 font-mono text-[var(--note-canvas-text-secondary,#52525b)]",
+                  compact ? "px-1 py-0 text-[8px]" : "px-1.5 py-0.5 text-[9px]",
                   loading && "opacity-70",
                 )}
                 title={loading ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}` : undefined}
@@ -356,36 +450,55 @@ export function NoteAttachmentsPanel({
               ref={fileInputRef}
               type="file"
               multiple
+              accept={useNativePhotoPicker ? "image/*" : undefined}
               className="hidden"
+              aria-hidden
               onChange={(e) => handleUpload(e.target.files)}
             />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-1 rounded-lg border border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-white px-2 py-1 text-[10px] text-[var(--note-canvas-text,#18181b)] hover:bg-black/5 disabled:opacity-50"
+              className={cn(
+                "flex items-center justify-center border border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-white text-[var(--note-canvas-text,#18181b)] hover:bg-black/5 disabled:opacity-50 touch-manipulation transition-colors",
+                compact
+                  ? "h-6 w-6 min-h-6 min-w-6 rounded-md p-0"
+                  : "gap-1 rounded-lg px-2 py-1 text-[10px]",
+              )}
+              aria-label={useNativePhotoPicker ? "Attach photo or take picture" : "Attach file"}
+              title={useNativePhotoPicker ? "Photo library or camera" : "Attach file"}
             >
-              {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-              Attach
+              {uploading ? (
+                <Loader2 className={cn("animate-spin", compact ? "h-3 w-3" : "h-3 w-3")} />
+              ) : (
+                <Upload className={cn(compact ? "h-3 w-3" : "h-3 w-3")} />
+              )}
+              {!compact && "Attach"}
             </button>
           </div>
         </div>
 
-        {loading ? (
-          <div className="space-y-2" role="status" aria-live="polite" aria-label="Loading attachments">
-            <div className="flex flex-wrap gap-1.5">
+        {loading && skeletonCount > 0 ? (
+          <div className={cn(compact ? "space-y-1" : "space-y-2")} role="status" aria-live="polite" aria-label="Loading attachments">
+            <div className={cn("flex flex-wrap", compact ? "gap-1" : "gap-1.5")}>
               {Array.from({ length: skeletonCount }).map((_, index) => (
-                <AttachmentIconSkeleton key={index} wide={index % 3 === 1} />
+                <AttachmentIconSkeleton
+                  key={index}
+                  wide={!compact && index % 3 === 1}
+                  compact={compact}
+                />
               ))}
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-[#71717a]">
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-              <span>
-                {displayCount != null && displayCount > 0
-                  ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}…`
-                  : "Loading attachments…"}
-              </span>
-            </div>
+            {!compact && (
+              <div className="flex items-center gap-1.5 text-xs text-[#71717a]">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                <span>
+                  {displayCount != null && displayCount > 0
+                    ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}…`
+                    : "Loading attachments…"}
+                </span>
+              </div>
+            )}
           </div>
         ) : attachments.length === 0 ? (
           embedded ? null : (
@@ -394,9 +507,11 @@ export function NoteAttachmentsPanel({
             </div>
           )
         ) : (
-          <div className="flex flex-wrap gap-1.5">
+          <div className={cn("flex flex-wrap", compact ? "gap-1" : "gap-1.5")}>
             {attachments.map((att) => {
               const isImage = isImageAttachment(att.mimeType, att.fileName);
+              const thumbSize = compact ? "h-9 w-9" : "h-12 w-12";
+              const thumbRadius = compact ? "rounded-md" : "rounded-lg";
 
               if (isImage) {
                 return (
@@ -404,7 +519,11 @@ export function NoteAttachmentsPanel({
                     <button
                       type="button"
                       onClick={() => openPreview(att)}
-                      className="relative h-12 w-12 overflow-hidden rounded-lg border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white hover:border-[#7c3aed]/35 shadow-sm transition-colors"
+                      className={cn(
+                        "relative overflow-hidden border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white hover:border-[#7c3aed]/35 shadow-sm transition-colors",
+                        thumbSize,
+                        thumbRadius,
+                      )}
                       title={att.fileName}
                     >
                       {att.previewUrl ? (
@@ -416,18 +535,15 @@ export function NoteAttachmentsPanel({
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[#71717a]">
-                          <ImageIcon className="h-5 w-5" />
+                          <ImageIcon className={compact ? "h-4 w-4" : "h-5 w-5"} />
                         </div>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(att)}
-                      className="absolute -right-1 -top-1 rounded-full bg-white p-1 text-[#71717a] opacity-0 shadow-md border border-black/10 hover:text-red-500 group-hover:opacity-100 transition-opacity"
-                      aria-label={`Delete ${att.fileName}`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    <AttachmentRemoveButton
+                      compact={compact}
+                      fileName={att.fileName}
+                      onRemove={() => setPendingDelete(att)}
+                    />
                   </div>
                 );
               }
@@ -437,7 +553,10 @@ export function NoteAttachmentsPanel({
               return (
                 <div
                   key={att.id}
-                  className="group relative flex h-12 w-[7.75rem] shrink-0 overflow-hidden rounded-lg border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white shadow-sm"
+                  className={cn(
+                    "group relative flex shrink-0 overflow-hidden border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white shadow-sm",
+                    compact ? "h-9 w-[6.25rem] rounded-md" : "h-12 w-[7.75rem] rounded-lg",
+                  )}
                 >
                   <button
                     type="button"
@@ -447,18 +566,29 @@ export function NoteAttachmentsPanel({
                   >
                     <div
                       className={cn(
-                        "flex w-9 shrink-0 items-center justify-center",
+                        "flex shrink-0 items-center justify-center",
+                        compact ? "w-7" : "w-9",
                         fileStyle.railClass,
                       )}
                       aria-label={fileStyle.label}
                     >
                       <AttachmentFileTypeIcon kind={fileKind} />
                     </div>
-                    <div className="flex min-w-0 flex-1 flex-col justify-center px-1.5 py-1">
-                      <span className="truncate text-[10px] font-medium leading-tight text-[var(--note-canvas-text,#18181b)]">
+                    <div className={cn("flex min-w-0 flex-1 flex-col justify-center", compact ? "px-1 py-0.5" : "px-1.5 py-1")}>
+                      <span
+                        className={cn(
+                          "truncate font-medium leading-tight text-[var(--note-canvas-text,#18181b)]",
+                          compact ? "text-[9px]" : "text-[10px]",
+                        )}
+                      >
                         {att.fileName}
                       </span>
-                      <div className="truncate text-[9px] leading-tight text-[var(--note-canvas-text-muted,#71717a)]">
+                      <div
+                        className={cn(
+                          "truncate leading-tight text-[var(--note-canvas-text-muted,#71717a)]",
+                          compact ? "text-[8px]" : "text-[9px]",
+                        )}
+                      >
                         {formatBytes(att.sizeBytes)}
                         {att.source === "email" && (
                           <span className="ml-1.5 inline-flex items-center gap-0.5 text-[var(--note-canvas-text-secondary,#52525b)]">
@@ -468,14 +598,11 @@ export function NoteAttachmentsPanel({
                       </div>
                     </div>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(att)}
-                    className="absolute -right-1 -top-1 rounded-full bg-white p-1 text-[#71717a] opacity-0 shadow-md border border-black/10 hover:text-red-500 group-hover:opacity-100 transition-opacity"
-                    aria-label={`Delete ${att.fileName}`}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  <AttachmentRemoveButton
+                    compact={compact}
+                    fileName={att.fileName}
+                    onRemove={() => setPendingDelete(att)}
+                  />
                 </div>
               );
             })}

@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Download, FileText, Loader2 } from "lucide-react";
+import { PreviewMobileActions } from "@/components/PreviewMobileActions";
 import { toast } from "sonner";
 import { ImagePreviewModal } from "@/features/notes/editor/components/ImagePreviewModal";
 import {
@@ -13,7 +14,9 @@ import {
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { ExcelPreview } from "@/components/ExcelPreview";
 import type { PdfHighlightAnnotation } from "@/lib/pdf/annotations";
-import { cn } from "@/lib/utils";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import { cn, triggerHaptic } from "@/lib/utils";
 
 export type FilePreviewTarget = {
   url: string;
@@ -50,24 +53,34 @@ function isXlsxMime(mime?: string, fileName?: string): boolean {
   return /\.xlsx?$/i.test(fileName ?? "");
 }
 
-function OfficeLoadingState() {
+function OfficeLoadingState({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex min-h-[280px] items-center justify-center px-8 py-16 text-[#71717a]">
+    <div
+      className={cn(
+        "flex items-center justify-center text-[#71717a]",
+        compact ? "min-h-[50dvh] px-6" : "min-h-[280px] px-8 py-16",
+      )}
+    >
       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
       Preparing preview…
     </div>
   );
 }
 
-function OfficeErrorState({ message }: { message: string }) {
+function OfficeErrorState({ message, compact = false }: { message: string; compact?: boolean }) {
   return (
-    <div className="flex min-h-[280px] items-center justify-center bg-white p-8 text-center text-sm text-[#71717a]">
+    <div
+      className={cn(
+        "flex items-center justify-center bg-white p-8 text-center text-sm text-[#71717a]",
+        compact ? "min-h-[50dvh]" : "min-h-[280px]",
+      )}
+    >
       {message}
     </div>
   );
 }
 
-function DocxPreview({ file }: { file: FilePreviewTarget }) {
+function DocxPreview({ file, compact = false }: { file: FilePreviewTarget; compact?: boolean }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const styleRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +130,7 @@ function DocxPreview({ file }: { file: FilePreviewTarget }) {
     }
 
     void load();
+
     return () => {
       cancelled = true;
       if (bodyRef.current) bodyRef.current.innerHTML = "";
@@ -124,26 +138,35 @@ function DocxPreview({ file }: { file: FilePreviewTarget }) {
     };
   }, [file.url, file.mimeType, file.fileName]);
 
-  if (error) return <OfficeErrorState message={error} />;
+  if (error) return <OfficeErrorState message={error} compact={compact} />;
 
   return (
-    <div className="docx-preview-root relative min-h-[280px]">
+    <div
+      className={cn(
+        "docx-preview-root relative w-full max-w-full",
+        compact ? "docx-preview-root--compact min-h-0" : "min-h-[280px]",
+      )}
+    >
       <div ref={styleRef} className="docx-preview-styles" aria-hidden />
-      {loading ? <OfficeLoadingState /> : null}
+      {loading ? (
+        <div className={cn(compact ? "docx-preview-loading-overlay" : "relative")}>
+          <OfficeLoadingState compact={compact} />
+        </div>
+      ) : null}
       <div
         ref={bodyRef}
-        className={cn("docx-preview-body", loading && "invisible absolute inset-0 overflow-hidden")}
+        className={cn("docx-preview-body", loading && !compact && "invisible absolute inset-0 overflow-hidden")}
       />
     </div>
   );
 }
 
-function OfficePreview({ file }: { file: FilePreviewTarget }) {
+function OfficePreview({ file, compact = false }: { file: FilePreviewTarget; compact?: boolean }) {
   if (isDocxMime(file.mimeType, file.fileName)) {
-    return <DocxPreview file={file} />;
+    return <DocxPreview file={file} compact={compact} />;
   }
   if (isXlsxMime(file.mimeType, file.fileName)) {
-    return <ExcelPreview url={file.url} />;
+    return <ExcelPreview url={file.url} compact={compact} />;
   }
   return null;
 }
@@ -153,6 +176,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
   const [pdfDirty, setPdfDirty] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const pdfRef = useRef<PdfAnnotationPreviewHandle>(null);
+  const isMobile = useIsMobileViewport();
 
   useEffect(() => {
     setMounted(true);
@@ -168,6 +192,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
   const finishClose = useCallback(() => {
     setPdfDirty(false);
     setShowSavePrompt(false);
+    triggerHaptic("light");
     onClose();
   }, [onClose]);
 
@@ -178,7 +203,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
       return;
     }
     finishClose();
-  }, [file, finishClose]);
+  }, [file, finishClose, isMobile]);
 
   const close = useCallback(() => attemptClose(), [attemptClose]);
 
@@ -191,19 +216,19 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
     return () => window.removeEventListener("keydown", handleKey);
   }, [file, close]);
 
-  useEffect(() => {
-    if (!file) return;
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = original;
-    };
-  }, [file]);
+  useScrollLock(!!file);
 
   if (!mounted || !file) return null;
 
   if (isImageMime(file.mimeType, file.fileName)) {
-    return <ImagePreviewModal src={file.url} alt={file.fileName} onClose={finishClose} />;
+    return (
+      <ImagePreviewModal
+        src={file.url}
+        alt={file.fileName}
+        mimeType={file.mimeType}
+        onClose={finishClose}
+      />
+    );
   }
 
   const handleDownload = () => {
@@ -213,10 +238,13 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    triggerHaptic("light");
   };
 
   const showPdf = isPdfMime(file.mimeType, file.fileName);
-  const showOffice = isDocxMime(file.mimeType, file.fileName) || isXlsxMime(file.mimeType, file.fileName);
+  const showDocx = isDocxMime(file.mimeType, file.fileName);
+  const showOffice = showDocx || isXlsxMime(file.mimeType, file.fileName);
+  const mobileDocxChrome = isMobile && showDocx;
 
   const handleSaveHighlights = async () => {
     const ok = await pdfRef.current?.save();
@@ -235,56 +263,116 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999]"
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="file-preview-overlay fixed inset-0 z-[10050]"
             role="dialog"
             aria-modal="true"
             aria-label="File preview"
           >
-            <div
-              className="absolute inset-0 bg-[#050508]/90 backdrop-blur-xl"
+            <button
+              type="button"
+              className={cn(
+                "absolute inset-0",
+                isMobile ? "bg-[#050508]/96 backdrop-blur-xl" : "bg-[#050508]/90 backdrop-blur-xl",
+              )}
               onClick={close}
-              aria-hidden
+              aria-label="Close preview"
             />
 
-            <div className="relative z-10 flex h-full w-full flex-col pointer-events-none p-4 md:p-6">
-              <div
-                className="pointer-events-auto mb-3 flex shrink-0 items-center justify-between gap-3"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex min-w-0 items-center gap-2 text-sm text-white/80">
-                  <FileText className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{file.fileName}</span>
+            <div
+              className={cn(
+                "file-preview-shell relative z-10 flex h-full w-full flex-col",
+                isMobile ? "pointer-events-auto" : "pointer-events-none p-4 md:p-6",
+              )}
+            >
+              {/* Header — PDF/Word mobile use dedicated in-preview or typed chrome */}
+              {mobileDocxChrome ? (
+                <div
+                  className="file-preview-mobile-chrome file-preview-mobile-chrome--docx pointer-events-auto flex shrink-0 items-center justify-between gap-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="file-preview-mobile-chrome__leading">
+                    <FileText className="h-4 w-4 shrink-0 text-[#2B579A]" aria-hidden />
+                    <div className="file-preview-mobile-chrome__meta">
+                      <span className="file-preview-mobile-chrome__type">Word document</span>
+                      <span className="file-preview-mobile-chrome__name">{file.fileName}</span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <PreviewMobileActions file={file} />
+                    <button
+                      type="button"
+                      onClick={close}
+                      className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+                      aria-label="Close preview"
+                    >
+                      <X className="h-[18px] w-[18px]" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleDownload}
-                    className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 hover:bg-white/10"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download
-                  </button>
-                  <button
-                    type="button"
-                    onClick={close}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10"
-                    aria-label="Close preview"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+              ) : !(isMobile && showPdf) ? (
+                <div
+                  className={cn(
+                    "pointer-events-auto flex shrink-0 items-center justify-between gap-2",
+                    isMobile ? "file-preview-mobile-chrome" : "mb-3",
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {!isMobile && (
+                    <div className="flex min-w-0 items-center gap-2 text-sm text-white/80">
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{file.fileName}</span>
+                    </div>
+                  )}
 
-              {/* Click outside the document (gray margin) closes the modal */}
+                  <div className={cn("flex items-center gap-2", isMobile && "ml-auto")}>
+                    {!isMobile && (
+                      <button
+                        type="button"
+                        onClick={handleDownload}
+                        className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 hover:bg-white/10"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download
+                      </button>
+                    )}
+                    {isMobile && <PreviewMobileActions file={file} />}
+                    <button
+                      type="button"
+                      onClick={close}
+                      className={cn(
+                        "relative z-10 flex items-center justify-center rounded-full text-white/70 hover:bg-white/10",
+                        isMobile
+                          ? "h-11 w-11 shrink-0 border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+                          : "h-9 w-9",
+                      )}
+                      aria-label="Close preview"
+                    >
+                      <X className={isMobile ? "h-[18px] w-[18px]" : "h-4 w-4"} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Document stage */}
               <div
-                className="pointer-events-auto flex flex-1 min-h-0 items-start justify-center overflow-hidden"
-                onClick={close}
+                className={cn(
+                  "pointer-events-auto flex min-h-0 flex-1 items-stretch justify-center overflow-hidden",
+                  isMobile && "file-preview-mobile-body",
+                )}
+                onClick={isMobile ? undefined : close}
               >
                 <div
                   className={cn(
-                    "flex h-full max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.45)]",
-                    showOffice || showPdf ? "bg-[#e8e8e6]" : "bg-[#18181b]",
+                    "flex h-full w-full flex-col overflow-hidden",
+                    isMobile
+                      ? "max-h-full max-w-full bg-[#e8e8e6]"
+                      : cn(
+                          "max-h-full max-w-5xl rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.45)]",
+                          showOffice || showPdf ? "bg-[#e8e8e6]" : "bg-[#18181b]",
+                        ),
                   )}
+                  onClick={(e) => e.stopPropagation()}
                 >
                   {showPdf ? (
                     <PdfAnnotationPreview
@@ -299,22 +387,33 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                           onPdfAnnotationsSaved?.(file.attachmentId, annotations);
                         }
                       }}
+                      mobilePreview={isMobile}
+                      mobileChrome={
+                        isMobile
+                          ? {
+                              file: {
+                                url: file.url,
+                                fileName: file.fileName,
+                                mimeType: file.mimeType,
+                              },
+                              onClose: close,
+                            }
+                          : undefined
+                      }
                     />
                   ) : showOffice ? (
                     isXlsxMime(file.mimeType, file.fileName) ? (
-                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden" onClick={close}>
-                        <div className="min-h-0 flex-1" onClick={(e) => e.stopPropagation()}>
-                          <OfficePreview file={file} />
-                        </div>
+                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <OfficePreview file={file} compact={isMobile} />
                       </div>
                     ) : (
-                      <div className="flex-1 overflow-y-auto" onClick={close}>
-                        <div
-                          className="mx-auto w-full max-w-none"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <OfficePreview file={file} />
-                        </div>
+                      <div
+                        className={cn(
+                          "docx-preview-scroll-host flex-1 min-w-0 min-h-0",
+                          isMobile && "pb-[calc(1rem+env(safe-area-inset-bottom))]",
+                        )}
+                      >
+                        <OfficePreview file={file} compact={isMobile} />
                       </div>
                     )
                   ) : (
@@ -332,10 +431,11 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                 </div>
               </div>
 
-              <p className="pointer-events-none mt-2 text-center text-[10px] tracking-widest text-white/35">
-                Click outside the document to close · ESC
-                {showPdf && pdfDirty ? " · unsaved highlights" : ""}
-              </p>
+              {!isMobile && showPdf && pdfDirty && (
+                <p className="pointer-events-none mt-2 text-center text-[10px] tracking-wide text-white/40">
+                  Unsaved highlights
+                </p>
+              )}
             </div>
           </motion.div>
         )}

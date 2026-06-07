@@ -1,38 +1,79 @@
-import type { NotificationPrefs, NotificationType } from "@/types";
+import type {
+  NotificationPrefs,
+  NotificationType,
+  NotificationTypeChannelPrefs,
+} from "@/types";
+
+export const NOTIFICATION_TYPES: NotificationType[] = [
+  "mention",
+  "comment",
+  "invite",
+  "task_assigned",
+  "deadline",
+  "activity",
+];
+
+const DEFAULT_TYPE_CHANNELS: NotificationTypeChannelPrefs = {
+  inApp: true,
+  email: true,
+};
 
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
-  email: true,
-  inApp: true,
   types: {
-    mention: true,
-    comment: true,
-    invite: true,
-    task_assigned: true,
-    deadline: true,
-    activity: true,
+    mention: { ...DEFAULT_TYPE_CHANNELS },
+    comment: { ...DEFAULT_TYPE_CHANNELS },
+    invite: { ...DEFAULT_TYPE_CHANNELS },
+    task_assigned: { ...DEFAULT_TYPE_CHANNELS },
+    deadline: { ...DEFAULT_TYPE_CHANNELS },
+    activity: { ...DEFAULT_TYPE_CHANNELS },
   },
   perWorkspace: {},
   muteUntil: null,
 };
 
-/** Merge stored JSONB (schema may use legacy `assignment` key) into app NotificationPrefs. */
+function normalizeTypeEntry(
+  raw: unknown,
+  globalInApp: boolean,
+  globalEmail: boolean,
+): NotificationTypeChannelPrefs {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const entry = raw as Record<string, unknown>;
+    return {
+      inApp: entry.inApp !== false,
+      email: entry.email !== false,
+    };
+  }
+
+  const legacyEnabled = raw !== false;
+  return {
+    inApp: legacyEnabled && globalInApp !== false,
+    email: legacyEnabled && globalEmail !== false,
+  };
+}
+
+/** Merge stored JSONB (legacy global + boolean per-type) into channel matrix. */
 export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
   const source = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const rawTypes = (source.types && typeof source.types === "object" ? source.types : {}) as Record<
     string,
-    boolean | undefined
+    unknown
   >;
 
+  const globalInApp = source.inApp !== false;
+  const globalEmail = source.email !== false;
+
+  const assignmentLegacy = rawTypes.assignment;
+  const taskAssignedRaw =
+    rawTypes.task_assigned !== undefined ? rawTypes.task_assigned : assignmentLegacy;
+
   return {
-    email: source.email !== false,
-    inApp: source.inApp !== false,
     types: {
-      mention: rawTypes.mention !== false,
-      comment: rawTypes.comment !== false,
-      invite: rawTypes.invite !== false,
-      task_assigned: rawTypes.task_assigned !== false && rawTypes.assignment !== false,
-      deadline: rawTypes.deadline !== false,
-      activity: rawTypes.activity !== false,
+      mention: normalizeTypeEntry(rawTypes.mention, globalInApp, globalEmail),
+      comment: normalizeTypeEntry(rawTypes.comment, globalInApp, globalEmail),
+      invite: normalizeTypeEntry(rawTypes.invite, globalInApp, globalEmail),
+      task_assigned: normalizeTypeEntry(taskAssignedRaw, globalInApp, globalEmail),
+      deadline: normalizeTypeEntry(rawTypes.deadline, globalInApp, globalEmail),
+      activity: normalizeTypeEntry(rawTypes.activity, globalInApp, globalEmail),
     },
     perWorkspace:
       source.perWorkspace && typeof source.perWorkspace === "object"
@@ -40,6 +81,28 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
         : {},
     muteUntil: typeof source.muteUntil === "string" ? source.muteUntil : null,
   };
+}
+
+export function getNotificationTypePref(
+  prefs: NotificationPrefs,
+  type: NotificationType,
+): NotificationTypeChannelPrefs {
+  return prefs.types[type] ?? { ...DEFAULT_TYPE_CHANNELS };
+}
+
+export function mergeNotificationTypePrefs(
+  current: NotificationPrefs["types"],
+  updates?: Partial<Record<NotificationType, Partial<NotificationTypeChannelPrefs>>>,
+): NotificationPrefs["types"] {
+  if (!updates) return current;
+
+  const next = { ...current };
+  for (const type of NOTIFICATION_TYPES) {
+    const patch = updates[type];
+    if (!patch) continue;
+    next[type] = { ...current[type], ...patch };
+  }
+  return next;
 }
 
 export function isNotificationMuted(prefs: NotificationPrefs, workspaceId: string): boolean {
@@ -62,8 +125,6 @@ export function shouldDeliverNotification(
   const perWs = prefs.perWorkspace?.[workspaceId];
   if (channel === "email" && perWs?.email === false) return false;
 
-  const globalChannel = channel === "inApp" ? prefs.inApp : prefs.email;
-  if (globalChannel === false) return false;
-
-  return prefs.types[type] !== false;
+  const typePref = getNotificationTypePref(prefs, type);
+  return channel === "inApp" ? typePref.inApp !== false : typePref.email !== false;
 }

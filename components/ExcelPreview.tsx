@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 type ExcelPreviewProps = {
   url: string;
+  compact?: boolean;
 };
 
 type CellPosition = { row: number; col: number };
@@ -22,7 +23,7 @@ function mergeAt(row: number, col: number, merges: SpreadsheetMerge[]): Spreadsh
   return merges.find((m) => m.row === row && m.col === col);
 }
 
-export function ExcelPreview({ url }: ExcelPreviewProps) {
+export function ExcelPreview({ url, compact = false }: ExcelPreviewProps) {
   const [sheets, setSheets] = useState<SpreadsheetSheet[]>([]);
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -157,7 +158,12 @@ export function ExcelPreview({ url }: ExcelPreviewProps) {
 
   if (loading) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center text-[#71717a]">
+      <div
+        className={cn(
+          "flex h-full items-center justify-center text-[#71717a]",
+          compact ? "min-h-[50dvh]" : "min-h-[280px]",
+        )}
+      >
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         Loading spreadsheet…
       </div>
@@ -166,7 +172,12 @@ export function ExcelPreview({ url }: ExcelPreviewProps) {
 
   if (error || !activeSheet) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center bg-white p-8 text-center text-sm text-[#71717a]">
+      <div
+        className={cn(
+          "flex h-full items-center justify-center bg-white p-8 text-center text-sm text-[#71717a]",
+          compact ? "min-h-[50dvh]" : "min-h-[280px]",
+        )}
+      >
         {error ?? "Preview unavailable. Download the file instead."}
       </div>
     );
@@ -175,15 +186,28 @@ export function ExcelPreview({ url }: ExcelPreviewProps) {
   const colCount = activeSheet.rows[0]?.length ?? 0;
 
   return (
-    <div className="excel-preview flex h-full min-h-0 flex-col bg-[#f3f3f3]">
+    <div className={cn("excel-preview flex h-full min-h-0 flex-col bg-[#f3f3f3]", compact && "excel-preview--compact")}>
       <div
-        className="flex shrink-0 items-center gap-2 border-b border-[#d4d4d4] bg-white px-3 py-2"
+        className={cn(
+          "flex shrink-0 items-center gap-2 border-b border-[#d4d4d4] bg-white",
+          compact ? "px-2 py-1.5" : "px-3 py-2",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="min-w-[52px] rounded border border-[#d4d4d4] bg-[#fafafa] px-2 py-1 text-center text-xs font-semibold text-[#217346]">
+        <span
+          className={cn(
+            "shrink-0 rounded border border-[#d4d4d4] bg-[#fafafa] text-center font-semibold text-[#217346]",
+            compact ? "min-w-[44px] px-1.5 py-0.5 text-[10px]" : "min-w-[52px] px-2 py-1 text-xs",
+          )}
+        >
           {selectedAddress}
         </span>
-        <div className="min-w-0 flex-1 truncate rounded border border-[#d4d4d4] bg-white px-2 py-1 text-sm text-[#18181b]">
+        <div
+          className={cn(
+            "min-w-0 flex-1 truncate rounded border border-[#d4d4d4] bg-white text-[#18181b]",
+            compact ? "px-2 py-0.5 text-xs" : "px-2 py-1 text-sm",
+          )}
+        >
           {selectedCell?.display ?? ""}
         </div>
       </div>
@@ -191,11 +215,14 @@ export function ExcelPreview({ url }: ExcelPreviewProps) {
       <div
         ref={gridRef}
         tabIndex={0}
-        className="excel-preview-grid min-h-0 flex-1 overflow-auto outline-none"
+        className={cn(
+          "excel-preview-grid min-h-0 flex-1 overflow-auto outline-none",
+          compact && sheets.length <= 1 && "pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <table className="excel-preview-table border-collapse">
-          <thead className="sticky top-0 z-20">
+          <thead className={cn("sticky top-0", compact ? "z-[8]" : "z-20")}>
             <tr>
               <th className="excel-preview-corner" />
               {Array.from({ length: colCount }, (_, col) => (
@@ -253,7 +280,12 @@ export function ExcelPreview({ url }: ExcelPreviewProps) {
 
       {sheets.length > 1 && (
         <div
-          className="flex shrink-0 gap-0.5 overflow-x-auto border-t border-[#d4d4d4] bg-[#f3f3f3] px-2 py-1"
+          className={cn(
+            "excel-preview-tabs flex shrink-0 gap-0.5 overflow-x-auto border-t border-[#d4d4d4] bg-[#f3f3f3] touch-pan-x",
+            compact
+              ? "px-2 py-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+              : "px-2 py-1",
+          )}
           onClick={(e) => e.stopPropagation()}
         >
           {sheets.map((sheet, index) => (
@@ -265,7 +297,8 @@ export function ExcelPreview({ url }: ExcelPreviewProps) {
                 setSelection({ row: 0, col: 0 });
               }}
               className={cn(
-                "rounded-t px-3 py-1.5 text-xs font-medium transition-colors",
+                "shrink-0 rounded-t font-medium transition-colors touch-manipulation",
+                compact ? "px-2.5 py-2 text-[11px]" : "px-3 py-1.5 text-xs",
                 index === activeSheetIndex
                   ? "bg-white text-[#217346] shadow-sm"
                   : "text-[#52525b] hover:bg-white/70",

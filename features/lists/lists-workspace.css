@@ -1,3 +1,28 @@
+/* Lists workspace — full width on mobile; capped readable column on desktop */
+
+.lists-root {
+  width: 100%;
+  min-height: 0;
+}
+
+.lists-root .lists-workspace {
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .main-content:has(> .lists-root) {
+    padding: 0 !important;
+  }
+
+  .lists-root .lists-workspace {
+    padding-left: max(6px, env(safe-area-inset-left, 6px));
+    padding-right: max(6px, env(safe-area-inset-right, 6px));
+    padding-top: 0.5rem;
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    gap: 0.625rem;
+  }
+}
+
 .lists-workspace {
   --list-card-radius: 1rem;
 }

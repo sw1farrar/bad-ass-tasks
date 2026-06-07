@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary } from "@/types";
+import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  mergeNotificationTypePrefs,
+} from "@/lib/notifications/notificationPrefs";
 import {
   buildListHighlightsForWorkspace,
   computeWorkspaceListStats,
@@ -23,9 +28,10 @@ import {
   SAMPLE_LIST_ITEMS,
   type ListSliceActions,
 } from "@/store/listSlice";
-import { buildAssigneeBreakdown, enrichTasksWithAssignees, resolveAssigneeLabel } from "@/lib/assignee";
+import { buildAssigneeBreakdown, enrichTasksWithAssignees, getMemberDisplayName, resolveAssigneeLabel } from "@/lib/assignee";
+import { deliverNotification, recipientAllowsNotificationChannel } from "@/lib/notifications/deliverNotification";
 import { mapRealtimeNoteRow, mergeRealtimeNoteUpdate } from "@/lib/notes/mapRealtimeNoteRow";
-import { generateId, parseNaturalLanguage, getNextRecurringDue, toDueDateStorage } from "@/lib/utils";
+import { generateId, parseNaturalLanguage, getNextRecurringDue, toDueDateStorage, applyTaskUpdateSideEffects } from "@/lib/utils";
 import { startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, parseLocalDate, toLocalDateString } from "@/lib/datetime";
 import {
   canDeleteWorkspace,
@@ -49,7 +55,7 @@ import {
   createTask as createTaskSupabase,
   updateTask as updateTaskSupabase,
   deleteTask as deleteTaskSupabase,
-  moveTask as moveTaskSupabase,
+
   getNotes,
   createNote as createNoteSupabase,
   updateNote as updateNoteSupabase,
@@ -83,6 +89,9 @@ import {
   // Comments (Agent 14 realtime collab)
   getComments,
   createComment,
+  updateComment as updateCommentHybrid,
+  deleteComment as deleteCommentHybrid,
+  getWorkspaceTaskCommentSummaries,
   // Agent 18: Admin/Export/Import/Templates/Stats + enhanced audit logging
   getWorkspaceStats,
   exportWorkspaceData,
@@ -96,10 +105,9 @@ import {
   hasTemplateTag,
   // Agent 31: Notifications foundation (in-app + email for mentions/comments/invites/assignments/deadlines)
   getUserNotifications,
-  createNotification,
+  processDeadlineReminders,
   markNotificationsRead,
   getUnreadNotificationCount,
-  sendNotificationEmail,
   extractMentions,
   deleteNotification,
   clearAllNotifications,
@@ -208,12 +216,14 @@ interface TaskState extends ListSliceActions {
   taskFilter: {
     status?: TaskStatus[];
     search: string;
-    // Agent 13: recurring-aware filtering
-    recurring?: "all" | "only" | "none";
+    // Agent 13: list filter — open tasks by recurrence, or completed-only view
+    recurring?: "all" | "incomplete" | "only" | "none" | "completed";
   };
   selectedTaskId: string | null;
   isCommandPaletteOpen: boolean;
   isKeyboardCheatsheetOpen: boolean;
+  /** Increment to fire the global completion confetti (tasks, list items, etc.). */
+  celebrationTrigger: number;
   isInitializing: boolean;
 
   // Per-task operation loading states (Phase 1: individual CRUD feedback + optimistic)
@@ -242,6 +252,8 @@ interface TaskState extends ListSliceActions {
   // Comments (Agent 14)
   comments: Comment[];
   isLoadingComments: boolean;
+  taskCommentSummaries: Record<string, TaskCommentSummary>;
+  taskCommentsReadAt: Record<string, string>;
 
   // Agent 31: Notification center state (bell + list, realtime, prefs)
   notifications: Notification[];
@@ -275,6 +287,11 @@ interface TaskState extends ListSliceActions {
   updateTask: (id: string, updates: Partial<Task>) => Promise<boolean | null>;
   deleteTask: (id: string) => Promise<boolean | null>;
   completeTask: (id: string) => Promise<"advanced" | "completed" | null>;
+  /** Reopen a recently completed task (toast undo); restores Home focus slices when needed. */
+  undoTaskCompletion: (
+    id: string,
+    fallback?: { task: Task; workspaceId: string; workspaceName: string },
+  ) => Promise<boolean>;
   moveTask: (id: string, newStatus: TaskStatus) => Promise<boolean | null>;
   reorderTasks: (activeId: string, overId: string) => void;
 
@@ -294,6 +311,7 @@ interface TaskState extends ListSliceActions {
   selectTask: (id: string | null) => void;
   toggleCommandPalette: (open?: boolean) => void;
   toggleKeyboardCheatsheet: (open?: boolean) => void;
+  triggerCelebration: () => void;
 
   // Workspace (demo in !live mode)
   switchWorkspace: (id: string) => void;
@@ -347,6 +365,10 @@ interface TaskState extends ListSliceActions {
   // Comments (Agent 14 realtime + @mentions polish)
   fetchComments: (target: { taskId?: string; noteId?: string }) => Promise<void>;
   addComment: (content: string, target: { taskId?: string; noteId?: string; parentCommentId?: string }) => Promise<boolean>;
+  updateComment: (commentId: string, content: string) => Promise<boolean>;
+  deleteComment: (commentId: string) => Promise<boolean>;
+  fetchTaskCommentSummaries: () => Promise<void>;
+  markTaskCommentsRead: (taskId: string) => void;
 
   // Agent 31: Notifications (bell center, realtime, prefs, email for key events)
   fetchNotifications: (unreadOnly?: boolean) => Promise<void>;
@@ -628,6 +650,8 @@ export const useTaskStore = create<TaskState>()(
       isLoadingMembers: false,
       comments: [],
       isLoadingComments: false,
+      taskCommentSummaries: {},
+      taskCommentsReadAt: {},
 
       // Agent 31 notifications defaults
       notifications: [],
@@ -641,10 +665,11 @@ export const useTaskStore = create<TaskState>()(
       liveEditing: {},
 
       currentView: "home",
-      taskFilter: { search: "" },
+      taskFilter: { search: "", recurring: "incomplete" },
       selectedTaskId: null,
       isCommandPaletteOpen: false,
       isKeyboardCheatsheetOpen: false,
+      celebrationTrigger: 0,
       isInitializing: false,
       taskLoadingStates: {},
 
@@ -795,6 +820,8 @@ export const useTaskStore = create<TaskState>()(
         set((state) => ({
           isKeyboardCheatsheetOpen: open !== undefined ? open : !state.isKeyboardCheatsheetOpen,
         })),
+      triggerCelebration: () =>
+        set((state) => ({ celebrationTrigger: state.celebrationTrigger + 1 })),
 
       switchWorkspace: (id) => {
         const ws = get().workspaces.find((w) => w.id === id);
@@ -802,7 +829,16 @@ export const useTaskStore = create<TaskState>()(
           // Teardown prior realtime before switching context
           get().teardownWorkspaceRealtime();
 
-          set({ currentWorkspace: ws, members: [], invites: [], onlineUsers: [] });
+          set({
+            currentWorkspace: ws,
+            members: [],
+            invites: [],
+            onlineUsers: [],
+            tasks: [],
+            notes: [],
+            selectedTaskId: null,
+            isInitializing: true,
+          });
           saveLastWorkspaceId(get().user?.id, id);
           // Re-initialize data when switching workspaces (important when using Supabase)
           get().initializeFromSupabase();
@@ -822,8 +858,8 @@ export const useTaskStore = create<TaskState>()(
       },
 
       getFilteredTasks: () => {
-        const { tasks, taskFilter } = get();
-        let result = [...tasks];
+        const { tasks, taskFilter, currentWorkspace } = get();
+        let result = tasks.filter((t) => t.workspaceId === currentWorkspace.id);
 
         if (taskFilter.search) {
           const q = taskFilter.search.toLowerCase();
@@ -838,17 +874,26 @@ export const useTaskStore = create<TaskState>()(
           result = result.filter((t) => taskFilter.status!.includes(t.status));
         }
 
-        // Agent 13 recurring-aware filter (non-breaking; "only" = has rule, "none" = no rule)
-        if (taskFilter.recurring && taskFilter.recurring !== "all") {
-          if (taskFilter.recurring === "only") {
-            result = result.filter((t) => !!t.recurringRule);
-          } else if (taskFilter.recurring === "none") {
-            result = result.filter((t) => !t.recurringRule);
-          }
+        const listFilter = taskFilter.recurring ?? "incomplete";
+
+        if (listFilter === "completed") {
+          result = result.filter((t) => t.status === "done");
+        } else if (listFilter === "incomplete") {
+          result = result.filter((t) => t.status !== "done");
+        } else if (listFilter === "only") {
+          result = result.filter((t) => t.status !== "done" && !!t.recurringRule);
+        } else if (listFilter === "none") {
+          result = result.filter((t) => t.status !== "done" && !t.recurringRule);
         }
 
-        // Sort: incomplete first, then by due date, then newest created
+        // Sort: open tasks by due date; completed by most recently completed
         return result.sort((a, b) => {
+          if (listFilter === "completed") {
+            const aDone = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+            const bDone = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+            return bDone - aDone;
+          }
+
           if (a.status === "done" && b.status !== "done") return 1;
           if (b.status === "done" && a.status !== "done") return -1;
 
@@ -894,6 +939,7 @@ export const useTaskStore = create<TaskState>()(
           }
 
           const workspaceId = get().currentWorkspace.id;
+          const requestWorkspaceId = workspaceId;
 
           // Guard: Never query Supabase with invalid or demo workspace IDs.
           // An empty string (or w1/w2) will cause "invalid input syntax for type uuid" errors.
@@ -964,8 +1010,29 @@ export const useTaskStore = create<TaskState>()(
           // Samples are ONLY for pure demo mode (!isSupabaseLive).
           const members = get().members || [];
           const userId = get().user?.id;
+
+          // Keep in-flight / queued creates visible until the server row exists (avoids flash-empty after add)
+          const serverTaskIds = new Set(realTasks.map((t) => t.id));
+          const pendingTaskIds = new Set(
+            getPendingOperations()
+              .filter((op) => op.entityType === "task" && op.workspaceId === workspaceId)
+              .map((op) => op.targetId),
+          );
+          const loadingStates = get().taskLoadingStates;
+          const localOnlyTasks = get().tasks.filter(
+            (t) =>
+              t.workspaceId === workspaceId &&
+              !serverTaskIds.has(t.id) &&
+              (loadingStates[t.id] || pendingTaskIds.has(t.id)),
+          );
+          const mergedTasks = [...localOnlyTasks, ...realTasks];
+
+          if (get().currentWorkspace.id !== requestWorkspaceId) {
+            return;
+          }
+
           set({
-            tasks: enrichTasksWithAssignees(realTasks, members, userId),
+            tasks: enrichTasksWithAssignees(mergedTasks, members, userId),
             notes: realNotes,
             workspaceLists: nextLists,
             listItems: nextItems,
@@ -974,6 +1041,8 @@ export const useTaskStore = create<TaskState>()(
             pendingSyncCount: getPendingCount(),
             lastSyncAt: new Date().toISOString(),
           });
+
+          void get().fetchTaskCommentSummaries();
 
           // Phase 2: after data load for a real ws, fetch collab + start realtime subs + presence
           if (isSupabaseLive() && !["w1", "w2"].includes(workspaceId)) {
@@ -1776,66 +1845,66 @@ export const useTaskStore = create<TaskState>()(
         }));
 
         if (isSupabaseLive()) {
-          try {
-            const created = await createTaskSupabase({
-              workspaceId,
-              id: tempId, // Pass so hybrid can use consistent client id for offline queue path
-              title: optimisticTask.title,
-              description: optimisticTask.description,
-              status: optimisticTask.status,
-              priority: optimisticTask.priority,
-              dueDate: optimisticTask.dueDate,
-              tags: optimisticTask.tags,
-              // recurring + exceptions forwarding (Agent 13, built on Agent 8)
-              ...(optimisticTask.recurringRule ? { recurringRule: optimisticTask.recurringRule } : {}),
-              ...(optimisticTask.exceptionDates && optimisticTask.exceptionDates.length ? { exceptionDates: optimisticTask.exceptionDates } : {}),
-            } as any);
+          // Return optimistic task immediately; persist in background so mobile list updates without waiting on network.
+          void (async () => {
+            try {
+              const created = await createTaskSupabase({
+                workspaceId,
+                id: tempId,
+                title: optimisticTask.title,
+                description: optimisticTask.description,
+                status: optimisticTask.status,
+                priority: optimisticTask.priority,
+                dueDate: optimisticTask.dueDate,
+                tags: optimisticTask.tags,
+                ...(optimisticTask.recurringRule ? { recurringRule: optimisticTask.recurringRule } : {}),
+                ...(optimisticTask.exceptionDates && optimisticTask.exceptionDates.length
+                  ? { exceptionDates: optimisticTask.exceptionDates }
+                  : {}),
+              } as any);
 
-            if (created) {
-              // Replace temp with real server entity (id will match when we supplied it)
+              if (created) {
+                set((state) => {
+                  const nextLoading = { ...state.taskLoadingStates };
+                  delete nextLoading[tempId];
+                  return {
+                    tasks: state.tasks.map((t) => (t.id === tempId ? created : t)),
+                    taskLoadingStates: nextLoading,
+                    selectedTaskId: state.selectedTaskId === tempId ? created.id : state.selectedTaskId,
+                    pendingSyncCount: getPendingCount(),
+                    lastSyncAt: new Date().toISOString(),
+                  };
+                });
+
+                logActivity({
+                  workspaceId,
+                  userId: get().user?.id,
+                  actionType: "task.created",
+                  targetType: "task",
+                  targetId: created.id,
+                  metadata: { title: created.title, priority: created.priority },
+                });
+              } else {
+                throw new Error("Supabase create returned null");
+              }
+            } catch {
               set((state) => {
                 const nextLoading = { ...state.taskLoadingStates };
                 delete nextLoading[tempId];
                 return {
-                  tasks: state.tasks.map((t) => (t.id === tempId ? created : t)),
                   taskLoadingStates: nextLoading,
-                  selectedTaskId: state.selectedTaskId === tempId ? created.id : state.selectedTaskId,
                   pendingSyncCount: getPendingCount(),
-                  lastSyncAt: new Date().toISOString(),
+                  isOnline: getIsOnline(),
                 };
               });
-
-              // Log key event only on successful remote persist
-              logActivity({
-                workspaceId,
-                userId: get().user?.id,
-                actionType: "task.created",
-                targetType: "task",
-                targetId: created.id,
-                metadata: { title: created.title, priority: created.priority },
+              toast.warning("Saved locally (queued for sync)", {
+                description: "Offline or Supabase unreachable. Will sync automatically when back online.",
+                duration: 4500,
               });
-
-              return created;
-            } else {
-              throw new Error("Supabase create returned null");
             }
-          } catch (err) {
-            // Hybrid layer now queues automatically on offline/failure. Keep optimistic change (persists via new strategy).
-            set((state) => {
-              const nextLoading = { ...state.taskLoadingStates };
-              delete nextLoading[tempId];
-              return {
-                taskLoadingStates: nextLoading,
-                pendingSyncCount: getPendingCount(),
-                isOnline: getIsOnline(),
-              };
-            });
-            toast.warning("Saved locally (queued for sync)", {
-              description: "Offline or Supabase unreachable. Will sync automatically when back online.",
-              duration: 4500,
-            });
-            return optimisticTask;
-          }
+          })();
+
+          return optimisticTask;
         } else {
           // Demo mode - already optimistic, no remote, clear loading
           set((state) => {
@@ -1851,7 +1920,7 @@ export const useTaskStore = create<TaskState>()(
         const prevTask = resolveTaskInStore(get(), id);
         if (!prevTask) return null;
 
-        const normalizedUpdates = { ...updates };
+        const normalizedUpdates = applyTaskUpdateSideEffects(updates);
         if (normalizedUpdates.assigneeIds !== undefined) {
           normalizedUpdates.assignee = resolveAssigneeLabel(
             normalizedUpdates.assigneeIds,
@@ -1865,16 +1934,31 @@ export const useTaskStore = create<TaskState>()(
           ...patchTaskInSlices(state, id, (t) => {
             const merged = { ...t, ...normalizedUpdates };
             if (
-              Object.prototype.hasOwnProperty.call(updates, "recurringRule") &&
-              (updates.recurringRule === null || updates.recurringRule === undefined)
+              Object.prototype.hasOwnProperty.call(normalizedUpdates, "dueDate") &&
+              (normalizedUpdates.dueDate === undefined || normalizedUpdates.dueDate === null)
+            ) {
+              delete merged.dueDate;
+            }
+            if (
+              Object.prototype.hasOwnProperty.call(normalizedUpdates, "recurringRule") &&
+              (normalizedUpdates.recurringRule === null || normalizedUpdates.recurringRule === undefined)
             ) {
               delete merged.recurringRule;
               if (
-                Object.prototype.hasOwnProperty.call(updates, "exceptionDates") &&
-                updates.exceptionDates === undefined
+                Object.prototype.hasOwnProperty.call(normalizedUpdates, "exceptionDates") &&
+                normalizedUpdates.exceptionDates === undefined
               ) {
                 delete merged.exceptionDates;
               }
+            }
+            if (
+              Object.prototype.hasOwnProperty.call(normalizedUpdates, "completedAt") &&
+              (normalizedUpdates.completedAt === undefined || normalizedUpdates.completedAt === null)
+            ) {
+              delete merged.completedAt;
+            }
+            if (merged.status !== "done") {
+              delete merged.completedAt;
             }
             return merged;
           }),
@@ -1883,7 +1967,21 @@ export const useTaskStore = create<TaskState>()(
 
         if (isSupabaseLive()) {
           try {
-            const ok = await updateTaskSupabase(id, { ...normalizedUpdates, workspaceId: prevTask.workspaceId });
+            const actorUserId = get().user?.id;
+            const actorMember = get().members.find((m) => m.userId === actorUserId);
+            const actorLabel = actorMember
+              ? getMemberDisplayName(actorMember, actorUserId)
+              : get().user?.email?.split("@")[0] || "Someone";
+            const actorName = actorLabel === "You"
+              ? get().user?.email?.split("@")[0] || "Someone"
+              : actorLabel;
+            const ok = await updateTaskSupabase(id, {
+              ...normalizedUpdates,
+              workspaceId: prevTask.workspaceId,
+              actorUserId,
+              actorName,
+              previousAssigneeIds: prevTask.assigneeIds ?? [],
+            });
             if (!ok) throw new Error("Supabase update failed");
 
             // Success: keep optimistic, clear loading + refresh pending (in case it queued inside hybrid)
@@ -1992,7 +2090,7 @@ export const useTaskStore = create<TaskState>()(
           const next = getNextRecurringDue(
             prevTask.recurringRule,
             advanceFrom,
-            prevTask.dueDate,
+            prevTask.dueDate ?? undefined,
             prevTask.exceptionDates
           );
           if (next) {
@@ -2092,6 +2190,98 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
+      undoTaskCompletion: async (id, fallback) => {
+        if (get().taskLoadingStates[id]) return false;
+
+        let existing = resolveTaskInStore(get(), id);
+
+        if (!existing && fallback) {
+          const reopened: Task = { ...fallback.task, status: "todo" };
+          delete reopened.completedAt;
+
+          set((s) => {
+            const hasInTasks = s.tasks.some((t) => t.id === id);
+            const hasInToday = s.globalTodayFocus.some((f) => f.task.id === id);
+            const hasInOpen = s.globalOpenTaskFocus.some((f) => f.task.id === id);
+
+            let nextTasks = s.tasks;
+            if (s.currentWorkspace.id === fallback.workspaceId) {
+              nextTasks = hasInTasks
+                ? s.tasks.map((t) => (t.id === id ? reopened : t))
+                : [reopened, ...s.tasks];
+            } else if (hasInTasks) {
+              nextTasks = s.tasks.map((t) => (t.id === id ? reopened : t));
+            }
+
+            let nextOpen = hasInOpen
+              ? patchHomeFocusSlice(s.globalOpenTaskFocus, id, () => reopened)
+              : [
+                  {
+                    task: reopened,
+                    workspaceId: fallback.workspaceId,
+                    workspaceName: fallback.workspaceName,
+                  },
+                  ...s.globalOpenTaskFocus,
+                ].slice(0, 16);
+
+            const nextToday = hasInToday
+              ? patchHomeFocusSlice(s.globalTodayFocus, id, () => reopened)
+              : s.globalTodayFocus;
+
+            return {
+              tasks: nextTasks,
+              globalOpenTaskFocus: nextOpen,
+              globalTodayFocus: nextToday,
+            };
+          });
+          existing = resolveTaskInStore(get(), id);
+        }
+
+        if (!existing) return false;
+
+        const revertPatch: Partial<Task> = {
+          status: "todo",
+          completedAt: undefined,
+        };
+        if (fallback?.task) {
+          if (fallback.task.dueDate !== undefined) {
+            revertPatch.dueDate = fallback.task.dueDate;
+          }
+          if (fallback.task.recurringRule) {
+            revertPatch.recurringRule = fallback.task.recurringRule;
+          }
+          if (fallback.task.exceptionDates) {
+            revertPatch.exceptionDates = [...fallback.task.exceptionDates];
+          }
+        }
+
+        const ok = await get().updateTask(id, revertPatch);
+        if (!ok) return false;
+
+        get().refreshHomeTaskFocusFromStore();
+
+        if (fallback) {
+          const hasLocalTasks = get().tasks.some((t) => t.workspaceId === fallback.workspaceId);
+          if (!hasLocalTasks) {
+            const stats = get().globalWorkspaceStats[fallback.workspaceId];
+            if (stats) {
+              set({
+                globalWorkspaceStats: {
+                  ...get().globalWorkspaceStats,
+                  [fallback.workspaceId]: {
+                    ...stats,
+                    openCount: stats.openCount + 1,
+                    doneCount: Math.max(0, stats.doneCount - 1),
+                  },
+                },
+              });
+            }
+          }
+        }
+
+        return true;
+      },
+
       moveTask: async (id, newStatus) => {
         const prevTask = get().tasks.find((t) => t.id === id);
         if (!prevTask) return null;
@@ -2101,56 +2291,7 @@ export const useTaskStore = create<TaskState>()(
           return result !== null;
         }
 
-        // OPTIMISTIC status change
-        set((state) => ({
-          tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, status: newStatus } : t
-          ),
-          taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
-        }));
-
-        if (isSupabaseLive()) {
-          try {
-            const ok = await moveTaskSupabase(id, newStatus, prevTask.workspaceId);
-            if (!ok) throw new Error("Supabase move failed");
-
-            // Success: keep + sync state (consistent policy)
-            set((state) => {
-              const next = { ...state.taskLoadingStates };
-              delete next[id];
-              return {
-                taskLoadingStates: next,
-                pendingSyncCount: getPendingCount(),
-                isOnline: getIsOnline(),
-                lastSyncAt: new Date().toISOString(),
-              };
-            });
-            return true;
-          } catch (err) {
-            // On transient: KEEP optimistic (status already changed in UI via kanban or direct). Queue handles. No revert.
-            set((state) => {
-              const next = { ...state.taskLoadingStates };
-              delete next[id];
-              return {
-                taskLoadingStates: next,
-                pendingSyncCount: getPendingCount(),
-                isOnline: getIsOnline(),
-              };
-            });
-            toast.info("Move kept locally", {
-              description: "Status change queued for sync.",
-              duration: 3000,
-            });
-            return null;
-          }
-        } else {
-          set((state) => {
-            const next = { ...state.taskLoadingStates };
-            delete next[id];
-            return { taskLoadingStates: next };
-          });
-          return true;
-        }
+        return await get().updateTask(id, { status: newStatus });
       },
 
       // ------------------------------------------------------------------
@@ -2271,6 +2412,7 @@ export const useTaskStore = create<TaskState>()(
       // ------------------------------------------------------------------
       syncPendingWrites: async () => {
         if (!isSupabaseLive()) return;
+        if (get().isSyncing) return;
 
         const currentPending = getPendingCount();
         if (currentPending === 0) {
@@ -2448,59 +2590,66 @@ export const useTaskStore = create<TaskState>()(
             toast.success("Invite created", { description: "Share the link with your teammate." });
           }
 
-          // Create notification for the recipient (powers bell + global banner).
-          // Note: direct insert may be constrained by RLS until policy updated for pre-membership invite targets.
+          const wsName = get().currentWorkspace.name;
+
           if (invitedUserId) {
-            try {
-              const wsName = get().currentWorkspace.name;
-              const notifPayload = {
-                user_id: invitedUserId,
-                workspace_id: wsId,
-                type: 'invite',
-                title: 'Workspace Invite',
-                message: `${inviterDisplayName} invited you to join "${wsName}"`,
-                link: `/teams`,
-                metadata: {
-                  invite_id: inviteId,
-                  workspace_id: wsId,
-                  workspace_name: wsName,
-                  invited_by: currentUserId,
-                  invited_by_name: inviterDisplayName,
-                  role: role,
-                },
-              };
-              const { data: notifData, error: notifErr } = await (supabaseClient.from('notifications') as any).insert(notifPayload);
-              if (notifErr) {
-                console.warn("[store] Failed to create invite notification (RLS or schema?)", notifErr, "payload:", notifPayload);
-              } else {
-                // Optimistically surface in sender's notifs list too (in case they view it)
-                try { get().fetchNotifications?.().catch(() => {}); } catch {}
-              }
-            } catch (e) {
-              console.warn("[store] Failed to create invite notification (exception)", e);
-            }
+            deliverNotification({
+              supabase: supabaseClient,
+              workspaceId: wsId,
+              recipientUserId: invitedUserId,
+              type: "invite",
+              title: "Workspace invite",
+              message: `${inviterDisplayName} invited you to join "${wsName}"`,
+              link: "/teams",
+              workspaceName: wsName,
+              actorUserId: currentUserId,
+              deliverEmail: false,
+              metadata: {
+                invite_id: inviteId,
+                invited_by: currentUserId,
+                invited_by_name: inviterDisplayName,
+                role,
+              },
+            })
+              .then(() => get().fetchNotifications?.().catch(() => {}))
+              .catch(() => {});
           }
 
           if (email) {
-            const wsName = get().currentWorkspace.name;
-            sendInviteEmail(wsId, inviteId, email, wsName, {
-              role,
-              inviterName: inviterDisplayName,
-            })
-              .then((sent) => {
-                if (sent) {
-                  toast.success("Invite email sent", { description: email });
-                } else {
+            const shouldSendInviteEmail = invitedUserId
+              ? await recipientAllowsNotificationChannel({
+                  supabase: supabaseClient,
+                  recipientUserId: invitedUserId,
+                  workspaceId: wsId,
+                  type: "invite",
+                  channel: "email",
+                })
+              : true;
+
+            if (shouldSendInviteEmail) {
+              sendInviteEmail(wsId, inviteId, email, wsName, {
+                role,
+                inviterName: inviterDisplayName,
+              })
+                .then((sent) => {
+                  if (sent) {
+                    toast.success("Invite email sent", { description: email });
+                  } else {
+                    toast.message("Invite created", {
+                      description: "Email could not be sent — share the invite link manually.",
+                    });
+                  }
+                })
+                .catch(() => {
                   toast.message("Invite created", {
                     description: "Email could not be sent — share the invite link manually.",
                   });
-                }
-              })
-              .catch(() => {
-                toast.message("Invite created", {
-                  description: "Email could not be sent — share the invite link manually.",
                 });
+            } else {
+              toast.message("Invite created", {
+                description: "In-app notification sent. Email is disabled in their preferences.",
               });
+            }
           }
         } else {
           toast.error("Failed to create invite");
@@ -2869,9 +3018,51 @@ export const useTaskStore = create<TaskState>()(
         try {
           const list = await getComments(target);
           set({ comments: list, isLoadingComments: false });
+          if (target.taskId) {
+            const summaries = buildTaskCommentSummaries(list, [target.taskId]);
+            if (summaries[target.taskId]) {
+              set({
+                taskCommentSummaries: {
+                  ...get().taskCommentSummaries,
+                  [target.taskId]: summaries[target.taskId],
+                },
+              });
+            }
+          }
         } catch {
           set({ isLoadingComments: false });
         }
+      },
+      fetchTaskCommentSummaries: async () => {
+        const workspaceId = get().currentWorkspace.id;
+        const taskIds = get()
+          .tasks.filter((t) => t.workspaceId === workspaceId)
+          .map((t) => t.id);
+        if (!taskIds.length) {
+          set({ taskCommentSummaries: {} });
+          return;
+        }
+
+        if (!isSupabaseLive()) {
+          set({
+            taskCommentSummaries: buildTaskCommentSummaries(get().comments || [], taskIds),
+          });
+          return;
+        }
+
+        const summaries = await getWorkspaceTaskCommentSummaries(taskIds);
+        set({ taskCommentSummaries: summaries });
+      },
+      markTaskCommentsRead: (taskId) => {
+        const workspaceId = get().currentWorkspace.id;
+        const summary = get().taskCommentSummaries[taskId];
+        const readAt = summary?.latestAt || new Date().toISOString();
+        set({
+          taskCommentsReadAt: {
+            ...get().taskCommentsReadAt,
+            [taskCommentsReadKey(workspaceId, taskId)]: readAt,
+          },
+        });
       },
       addComment: async (content, target) => {
         const wsId = get().currentWorkspace.id;
@@ -2879,6 +3070,15 @@ export const useTaskStore = create<TaskState>()(
         if (!content.trim()) return false;
         // Optimistic add
         const tempId = `c_${Date.now()}`;
+        const selfMember = user?.id
+          ? (get().members || []).find((m) => m.userId === user.id)
+          : undefined;
+        const authorName =
+          get().myProfile?.fullName?.trim() ||
+          selfMember?.fullName?.trim() ||
+          selfMember?.username?.trim() ||
+          user?.email?.split("@")[0];
+
         const optimistic: Comment = {
           id: tempId,
           content: content.trim(),
@@ -2887,6 +3087,7 @@ export const useTaskStore = create<TaskState>()(
           noteId: target.noteId,
           parentCommentId: target.parentCommentId,
           createdAt: new Date().toISOString(),
+          userName: authorName || undefined,
           userEmail: user?.email || undefined,
         };
         set({ comments: [...(get().comments || []), optimistic] });
@@ -2905,6 +3106,20 @@ export const useTaskStore = create<TaskState>()(
           set({
             comments: (get().comments || []).map((c) => (c.id === tempId ? created : c)),
           });
+          if (target.taskId) {
+            const prev = get().taskCommentSummaries[target.taskId];
+            set({
+              taskCommentSummaries: {
+                ...get().taskCommentSummaries,
+                [target.taskId]: {
+                  count: (prev?.count || 0) + 1,
+                  latestAt: created.createdAt,
+                  latestUserId: created.userId,
+                },
+              },
+            });
+            get().markTaskCommentsRead(target.taskId);
+          }
           // Refresh activity if wired
           get().refreshRecentActivity?.().catch(() => {});
           return true;
@@ -2914,6 +3129,85 @@ export const useTaskStore = create<TaskState>()(
           toast.error("Failed to post comment (demo or live error)");
           return false;
         }
+      },
+      updateComment: async (commentId, content) => {
+        const user = get().user;
+        const trimmed = content.trim();
+        if (!trimmed) return false;
+
+        const existing = (get().comments || []).find((c) => c.id === commentId);
+        if (!existing) return false;
+
+        const ownerId = user?.id || "me";
+        if (existing.userId !== ownerId) return false;
+
+        const previous = existing.content;
+        const optimisticUpdatedAt = new Date().toISOString();
+        set({
+          comments: (get().comments || []).map((c) =>
+            c.id === commentId ? { ...c, content: trimmed, updatedAt: optimisticUpdatedAt } : c,
+          ),
+        });
+
+        if (!isSupabaseLive() || !user?.id) return true;
+
+        const updated = await updateCommentHybrid(commentId, trimmed, user.id);
+        if (updated) {
+          set({
+            comments: (get().comments || []).map((c) => (c.id === commentId ? updated : c)),
+          });
+          if (updated.taskId) {
+            const prev = get().taskCommentSummaries[updated.taskId];
+            if (prev) {
+              set({
+                taskCommentSummaries: {
+                  ...get().taskCommentSummaries,
+                  [updated.taskId]: {
+                    ...prev,
+                    latestAt: updated.updatedAt || updated.createdAt,
+                    latestUserId: updated.userId,
+                  },
+                },
+              });
+            }
+            get().markTaskCommentsRead(updated.taskId);
+          }
+          return true;
+        }
+
+        set({
+          comments: (get().comments || []).map((c) =>
+            c.id === commentId ? { ...c, content: previous, updatedAt: existing.updatedAt } : c,
+          ),
+        });
+        toast.error("Failed to update comment");
+        return false;
+      },
+      deleteComment: async (commentId) => {
+        const user = get().user;
+        const existing = (get().comments || []).find((c) => c.id === commentId);
+        if (!existing) return false;
+
+        const ownerId = user?.id || "me";
+        if (existing.userId !== ownerId) return false;
+
+        const snapshot = get().comments || [];
+        set({ comments: snapshot.filter((c) => c.id !== commentId) });
+
+        if (!isSupabaseLive() || !user?.id) {
+          if (existing.taskId) void get().fetchTaskCommentSummaries();
+          return true;
+        }
+
+        const ok = await deleteCommentHybrid(commentId, user.id);
+        if (ok) {
+          if (existing.taskId) void get().fetchTaskCommentSummaries();
+          return true;
+        }
+
+        set({ comments: snapshot });
+        toast.error("Failed to delete comment");
+        return false;
       },
 
       // Agent 31: Notification actions (full foundation: fetch, mark, count, prefs, realtime friendly)
@@ -2928,6 +3222,7 @@ export const useTaskStore = create<TaskState>()(
         }
         set({ isLoadingNotifications: true });
         try {
+          processDeadlineReminders(user.id).catch(() => {});
           const notifs = await getUserNotifications(user.id, undefined, 50, unreadOnly);
           const count = await getUnreadNotificationCount(user.id, undefined);
           set({ notifications: notifs, unreadNotifCount: count, isLoadingNotifications: false });
@@ -2997,16 +3292,11 @@ export const useTaskStore = create<TaskState>()(
         set({ notificationPrefs: prefs });
       },
       updateNotificationPrefs: async (updates) => {
-        const current = get().notificationPrefs || {
-          email: true,
-          inApp: true,
-          types: { mention: true, comment: true, invite: true, task_assigned: true, deadline: true, activity: true },
-          perWorkspace: {},
-        } as NotificationPrefs;
+        const current = get().notificationPrefs || DEFAULT_NOTIFICATION_PREFS;
         const next = {
           ...current,
           ...updates,
-          types: { ...current.types, ...(updates.types || {}) },
+          types: mergeNotificationTypePrefs(current.types, updates.types),
           perWorkspace: { ...current.perWorkspace, ...(updates.perWorkspace || {}) },
         };
         set({ notificationPrefs: next });
@@ -3244,7 +3534,12 @@ export const useTaskStore = create<TaskState>()(
                     priority: newRow.priority ?? t.priority,
                     dueDate: newRow.due_date ?? t.dueDate,
                     tags: newRow.tags ?? t.tags,
-                    completedAt: newRow.completed_at ?? t.completedAt,
+                    completedAt:
+                      (newRow.status ?? t.status) === "done"
+                        ? (Object.prototype.hasOwnProperty.call(newRow, "completed_at")
+                            ? (newRow.completed_at ?? undefined)
+                            : t.completedAt)
+                        : undefined,
                   } as Task;
                   if (Object.prototype.hasOwnProperty.call(newRow, "assignee_ids")) {
                     next.assigneeIds = newRow.assignee_ids ?? [];
@@ -3794,6 +4089,7 @@ export const useTaskStore = create<TaskState>()(
             currentView: state.currentView,
             taskFilter: state.taskFilter,
             myProfile: state.myProfile,
+            taskCommentsReadAt: state.taskCommentsReadAt,
           };
         }
         return {
@@ -3804,6 +4100,7 @@ export const useTaskStore = create<TaskState>()(
           currentWorkspace: state.currentWorkspace,
           workspaces: state.workspaces,
           myProfile: state.myProfile,
+          taskCommentsReadAt: state.taskCommentsReadAt,
         };
       },
     }
@@ -3822,6 +4119,28 @@ if (typeof window !== "undefined") {
     const persistedView = (state as { currentView?: string })?.currentView;
     if (persistedView === "calendar" || persistedView === "today") {
       useTaskStore.setState({ currentView: "home" });
+    }
+    const persistedFilter = (state as { taskFilter?: TaskState["taskFilter"] })?.taskFilter;
+    if (persistedFilter) {
+      const recurring = persistedFilter.recurring;
+      const validRecurring = new Set<TaskState["taskFilter"]["recurring"]>([
+        "all",
+        "incomplete",
+        "only",
+        "none",
+        "completed",
+      ]);
+      const normalizedRecurring: TaskState["taskFilter"]["recurring"] =
+        !recurring || recurring === "only" || recurring === "none"
+          ? "incomplete"
+          : validRecurring.has(recurring)
+            ? recurring
+            : "incomplete";
+      if (recurring !== normalizedRecurring) {
+        useTaskStore.setState({
+          taskFilter: { ...persistedFilter, recurring: normalizedRecurring },
+        });
+      }
     }
     if (isSupabaseLive() && state) {
       const currId = (state as any).currentWorkspace?.id || "";

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseNaturalLanguage,
   formatDueDate,
@@ -12,6 +12,8 @@ import {
   normalizeExceptionKey,
   toLocalDateString,
   getRecurrenceEndDescription,
+  applyTaskUpdateSideEffects,
+  triggerHaptic,
 } from '@/lib/utils';
 import type { Priority } from '@/types';
 
@@ -196,6 +198,53 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
       expect(isDueDatePast(todayStored)).toBe(false);
       const yesterday = toDueDateStorage(new Date(startOfLocalToday().getTime() - 86400000));
       expect(isDueDatePast(yesterday)).toBe(true);
+    });
+  });
+
+  describe('triggerHaptic', () => {
+    const vibrate = vi.fn();
+
+    beforeEach(() => {
+      vibrate.mockClear();
+      Object.defineProperty(navigator, 'vibrate', {
+        value: vibrate,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('skips vibrate before user gesture', () => {
+      triggerHaptic('light');
+      expect(vibrate).not.toHaveBeenCalled();
+    });
+
+    it('vibrates after a user gesture', () => {
+      triggerHaptic('light');
+      window.dispatchEvent(new Event('pointerdown'));
+      triggerHaptic('light');
+      expect(vibrate).toHaveBeenCalledWith(8);
+    });
+  });
+
+  describe('applyTaskUpdateSideEffects', () => {
+    it('clears recurrence when due date is removed', () => {
+      const result = applyTaskUpdateSideEffects({
+        dueDate: null,
+        recurringRule: 'FREQ=WEEKLY',
+        exceptionDates: ['2026-06-01'],
+      });
+      expect(result.recurringRule).toBeNull();
+      expect(result.exceptionDates).toBeUndefined();
+    });
+
+    it('clears completedAt when status is not done', () => {
+      const result = applyTaskUpdateSideEffects({
+        status: 'todo',
+      });
+      expect(result.completedAt).toBeUndefined();
     });
   });
 

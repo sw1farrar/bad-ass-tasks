@@ -4,8 +4,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { triggerHaptic } from "@/lib/utils";
+import { cn, triggerHaptic } from "@/lib/utils";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
 
 const SPRING = { type: "spring" as const, damping: 28, stiffness: 320, mass: 0.85 };
 
@@ -18,16 +18,23 @@ export interface BottomSheetProps {
   ariaLabel?: string;
   className?: string;
   panelClassName?: string;
+  backdropClassName?: string;
   zIndex?: number;
   /** Desktop max width (tailwind class) */
   desktopMaxWidth?: string;
+  /** Mobile presentation: bottom sheet (default) or centered dialog */
+  mobileLayout?: "sheet" | "centered";
   showClose?: boolean;
   showDragHandle?: boolean;
   enableDragDismiss?: boolean;
 }
 
 function useIsMobileSheet(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(`(max-width: ${breakpoint - 1}px)`).matches,
+  );
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
@@ -48,24 +55,24 @@ export function BottomSheet({
   ariaLabel,
   className,
   panelClassName,
+  backdropClassName,
   zIndex = 260,
   desktopMaxWidth = "max-w-md",
+  mobileLayout = "sheet",
   showClose = true,
   showDragHandle = true,
   enableDragDismiss = true,
 }: BottomSheetProps) {
-  const [mounted, setMounted] = useState(false);
+  const [mounted] = useState(() => typeof window !== "undefined");
   const [dragY, setDragY] = useState(0);
   const isMobile = useIsMobileSheet();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const handleClose = useCallback(() => {
     triggerHaptic("light");
     onClose();
   }, [onClose]);
+
+  useScrollLock(open);
 
   useEffect(() => {
     if (!open) return;
@@ -74,14 +81,8 @@ export function BottomSheet({
       if (e.key === "Escape") handleClose();
     };
 
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, handleClose]);
 
   const handleDragEnd = (_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -94,92 +95,130 @@ export function BottomSheet({
 
   if (!mounted) return null;
 
-  const mobileSheet = isMobile;
+  const useMobileSheet = isMobile && mobileLayout === "sheet";
+  const useMobileCentered = isMobile && mobileLayout === "centered";
+
+  const backdropClasses = cn(
+    "absolute inset-0",
+    backdropClassName ??
+      (useMobileSheet
+        ? "sheet-backdrop"
+        : useMobileCentered
+          ? "bg-black/[0.88] backdrop-blur-md"
+          : "bg-black/70"),
+  );
 
   return createPortal(
     <AnimatePresence onExitComplete={() => setDragY(0)}>
       {open && (
         <div
-          className={cn(
-            "fixed inset-0 flex p-0 md:p-4",
-            mobileSheet ? "items-end sheet-backdrop" : "items-center justify-center bg-black/70",
-            className
-          )}
+          className={cn("fixed inset-0", className)}
           style={{ zIndex }}
-          onClick={handleClose}
+          role="presentation"
         >
           <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-label={ariaLabel || title}
+            key="bottom-sheet-backdrop"
+            className={backdropClasses}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            onClick={handleClose}
+            aria-hidden="true"
+          />
+
+          <div
             className={cn(
-              "relative w-full bg-[#0f0f12] border border-white/10 shadow-2xl flex flex-col overflow-hidden",
-              mobileSheet
-                ? "mobile-bottom-sheet rounded-t-3xl max-h-[92dvh]"
-                : cn("rounded-3xl max-h-[min(90vh,880px)]", desktopMaxWidth),
-              panelClassName
+              "relative z-10 flex h-full w-full pointer-events-none",
+              useMobileSheet ? "items-end justify-center" : "items-center justify-center p-4",
             )}
-            onClick={(e) => e.stopPropagation()}
-            drag={mobileSheet && enableDragDismiss ? "y" : false}
-            dragConstraints={{ top: 0, bottom: 400 }}
-            dragElastic={0.15}
-            onDrag={(_e, info) => {
-              if (mobileSheet) setDragY(Math.max(0, info.offset.y));
-            }}
-            onDragEnd={mobileSheet && enableDragDismiss ? handleDragEnd : undefined}
-            initial={mobileSheet ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
-            animate={mobileSheet ? { y: dragY, opacity: 1 } : { scale: 1, opacity: 1 }}
-            exit={mobileSheet ? { y: "100%", opacity: 0 } : { scale: 0.96, opacity: 0 }}
-            transition={SPRING}
-            style={mobileSheet ? { touchAction: "pan-y" } : undefined}
           >
-            {mobileSheet && showDragHandle && (
-              <div className="sheet-drag-handle shrink-0" aria-hidden="true" />
-            )}
-
-            {(title || showClose) && (
-              <div
-                className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-white/10"
-                style={
-                  mobileSheet
-                    ? { paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }
-                    : undefined
-                }
-              >
-                {title ? (
-                  <h2 className="font-semibold text-base tracking-tight text-[#f4f4f5] min-w-0 truncate">
-                    {title}
-                  </h2>
-                ) : (
-                  <span />
-                )}
-                {showClose && (
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#71717a] hover:text-white hover:bg-white/10 transition active:scale-95"
-                    aria-label="Close"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div
-              className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-              style={{
-                paddingBottom: mobileSheet
-                  ? "max(1rem, env(safe-area-inset-bottom, 12px))"
-                  : undefined,
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label={ariaLabel || title}
+              className={cn(
+                "pointer-events-auto w-full bg-[#0f0f12] border border-white/10 shadow-2xl flex flex-col overflow-hidden",
+                useMobileSheet && "mobile-bottom-sheet rounded-t-3xl max-h-[92dvh]",
+                useMobileCentered &&
+                  "max-w-[min(20rem,calc(100vw-2rem))] mx-auto rounded-2xl max-h-[min(85dvh,640px)]",
+                !isMobile && cn("rounded-3xl max-h-[min(90vh,880px)]", desktopMaxWidth),
+                panelClassName,
+              )}
+              onClick={(e) => e.stopPropagation()}
+              drag={useMobileSheet && enableDragDismiss ? "y" : false}
+              dragConstraints={{ top: 0, bottom: 400 }}
+              dragElastic={0.15}
+              onDrag={(_e, info) => {
+                if (useMobileSheet) setDragY(Math.max(0, info.offset.y));
               }}
+              onDragEnd={useMobileSheet && enableDragDismiss ? handleDragEnd : undefined}
+              initial={
+                useMobileSheet
+                  ? { y: "100%" }
+                  : { scale: 0.96, opacity: 0 }
+              }
+              animate={
+                useMobileSheet
+                  ? { y: dragY, opacity: 1 }
+                  : { scale: 1, opacity: 1 }
+              }
+              exit={
+                useMobileSheet
+                  ? { y: "100%", opacity: 0 }
+                  : { scale: 0.96, opacity: 0 }
+              }
+              transition={SPRING}
+              style={useMobileSheet ? { touchAction: "pan-y" } : undefined}
             >
-              {children}
-            </div>
-          </motion.div>
+              {useMobileSheet && showDragHandle && (
+                <div className="sheet-drag-handle shrink-0" aria-hidden="true" />
+              )}
+
+              {(title || showClose) && (
+                <div
+                  className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-white/10"
+                  style={
+                    useMobileSheet
+                      ? { paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }
+                      : undefined
+                  }
+                >
+                  {title ? (
+                    <h2 className="font-semibold text-base tracking-tight text-[#f4f4f5] min-w-0 truncate">
+                      {title}
+                    </h2>
+                  ) : (
+                    <span />
+                  )}
+                  {showClose && (
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#71717a] hover:text-white hover:bg-white/10 transition active:scale-95"
+                      aria-label="Close"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+                style={{
+                  paddingBottom: useMobileSheet
+                    ? "max(1rem, env(safe-area-inset-bottom, 12px))"
+                    : undefined,
+                }}
+              >
+                {children}
+              </div>
+            </motion.div>
+          </div>
         </div>
       )}
     </AnimatePresence>,
-    document.body
+    document.body,
   );
 }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Trash2, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { NoteLinkedTaskStats } from "../lib/noteLinkedTaskStats";
 import { NoteLinkedTaskBadge } from "./NoteLinkedTaskBadge";
 
@@ -25,6 +26,11 @@ interface NoteHeaderProps {
 
   /** Called once after we have performed the auto-focus + select for a newly created note. */
   onTitleAutoFocusDone?: () => void;
+
+  /** Tighter layout for mobile drawer */
+  compact?: boolean;
+  /** Mobile drawer: title only — no sub-note, badges, or delete in header */
+  drawer?: boolean;
 }
 
 /**
@@ -45,6 +51,8 @@ export function NoteHeader({
   onCreateSubNote,
   autoFocusTitle,
   onTitleAutoFocusDone,
+  compact,
+  drawer,
 }: NoteHeaderProps) {
   const [localTitle, setLocalTitle] = useState(selectedNote.title);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
@@ -84,8 +92,39 @@ export function NoteHeader({
     }
   };
 
+  const selectAllTitle = (e: React.FocusEvent<HTMLInputElement> | React.MouseEvent<HTMLInputElement>) => {
+    e.currentTarget.select();
+  };
+
+  if (drawer) {
+    return (
+      <div className="note-header note-header--drawer border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] px-3 pt-2 pb-1.5">
+        <input
+          ref={titleInputRef}
+          type="text"
+          value={localTitle}
+          onChange={(e) => {
+            setLocalTitle(e.target.value);
+            onTitleChange(e.target.value);
+          }}
+          onBlur={commitTitle}
+          onKeyDown={handleKeyDown}
+          onFocus={selectAllTitle}
+          onClick={selectAllTitle}
+          className="note-title-input w-full bg-transparent text-lg font-semibold tracking-tight text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none leading-snug caret-[#7c3aed]"
+          placeholder="Untitled Note"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="note-header px-4 sm:px-6 pt-4 pb-2 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+    <div
+      className={cn(
+        "note-header border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] flex flex-wrap items-center justify-between gap-2",
+        compact ? "px-3 pt-2.5 pb-1.5 gap-1.5" : "px-4 sm:px-6 pt-4 pb-2 sm:gap-4",
+      )}
+    >
       <input
         ref={titleInputRef}
         type="text"
@@ -93,35 +132,57 @@ export function NoteHeader({
         onChange={(e) => setLocalTitle(e.target.value)}
         onBlur={commitTitle}
         onKeyDown={handleKeyDown}
-        className="bg-transparent text-2xl font-semibold tracking-tighter text-[var(--note-canvas-text,#18181b)] placeholder:text-[var(--note-canvas-text-muted,#a1a1aa)] focus:outline-none flex-1 min-w-0"
+        onFocus={selectAllTitle}
+        onClick={selectAllTitle}
+        className={cn(
+          "bg-transparent font-semibold tracking-tighter text-[var(--note-canvas-text,#18181b)] placeholder:text-[var(--note-canvas-text-muted,#a1a1aa)] focus:outline-none flex-1 min-w-0",
+          compact ? "text-lg leading-snug" : "text-2xl",
+        )}
         placeholder="Untitled Note"
       />
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
         {onCreateSubNote && (
           <button
             onClick={onCreateSubNote}
-            className="text-xs text-[#7c3aed] hover:text-[#5b21b6] flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-[#7c3aed]/10 border border-[#7c3aed]/25 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40 focus-visible:outline-none font-medium"
+            className={cn(
+              "text-[#7c3aed] hover:text-[#5b21b6] flex items-center rounded-lg hover:bg-[#7c3aed]/10 border border-[#7c3aed]/25 touch-manipulation focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40 focus-visible:outline-none",
+              compact
+                ? "p-1.5 min-h-0"
+                : "text-xs gap-1.5 px-3 py-1.5 sm:py-1 min-h-[40px] sm:min-h-0 font-medium",
+            )}
             title="Create a new sub-note under this note"
             aria-label="Create sub-note"
           >
             <Plus className="h-3.5 w-3.5" />
-            Sub-note
+            {!compact && "Sub-note"}
           </button>
         )}
 
-        <NoteLinkedTaskBadge stats={linkedTaskStats} />
+        <NoteLinkedTaskBadge stats={linkedTaskStats} compact={compact} />
         {backlinkCount != null && backlinkCount > 0 && (
-          <div className="text-xs px-2 py-1 rounded bg-[#00ff9f]/10 text-[#00ff9f] border border-[#00ff9f]/20" title="Incoming backlinks (from centralized selector)">
+          <div
+            className={cn(
+              "rounded bg-[#00ff9f]/10 text-[#00ff9f] border border-[#00ff9f]/20",
+              compact ? "text-[10px] px-1.5 py-0.5" : "text-xs px-2 py-1",
+            )}
+            title="Incoming backlinks (from centralized selector)"
+          >
             ← {backlinkCount}
           </div>
         )}
 
         <button
           onClick={onDelete}
-          className="text-xs text-[var(--note-canvas-text-muted,#71717a)] hover:text-[#dc2626] flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-black/5 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#dc2626]/40 focus-visible:outline-none"
+          className={cn(
+            "text-[var(--note-canvas-text-muted,#71717a)] hover:text-[#dc2626] flex items-center rounded-lg hover:bg-black/5 touch-manipulation focus-visible:ring-1 focus-visible:ring-[#dc2626]/40 focus-visible:outline-none",
+            compact
+              ? "p-1.5 min-h-0"
+              : "text-xs gap-1.5 px-3 py-1.5 sm:py-1 min-h-[40px] sm:min-h-0",
+          )}
           aria-label="Delete current note"
         >
-          <Trash2 className="h-3.5 w-3.5" /> Delete
+          <Trash2 className="h-3.5 w-3.5" />
+          {!compact && "Delete"}
         </button>
       </div>
     </div>

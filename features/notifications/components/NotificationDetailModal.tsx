@@ -98,7 +98,11 @@ export function NotificationDetailModal({
       onClose={onClose}
       title={notification.title}
       zIndex={300}
-      panelClassName="glass-strong border-white/10"
+      mobileLayout="centered"
+      backdropClassName="bg-black/[0.9] backdrop-blur-md"
+      panelClassName="bg-[#111114] border-white/10"
+      showDragHandle={false}
+      enableDragDismiss={false}
     >
       <div className="p-5 text-sm">
         <div className="flex items-center gap-3 mb-4 text-[#c084fc]">

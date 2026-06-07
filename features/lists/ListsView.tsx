@@ -146,6 +146,9 @@ export function ListsView({
         variant="inline"
         title="Lists"
         workspaceName={workspaceName}
+        hideWorkspaceLabelOnMobile
+        hideWorkspaceNameOnMobile
+        hideMetaOnMobile
         icon={<ListChecks className="h-6 w-6" />}
         description={
           lists.length === 0

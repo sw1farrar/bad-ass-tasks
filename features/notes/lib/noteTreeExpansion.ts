@@ -29,6 +29,23 @@ export function ensureAncestryExpanded(
   }
 }
 
+/**
+ * Mobile accordion-behind-drawer: reveal ancestor path plus one level of branch
+ * context (parent's direct children via ancestry, and opened note's own children).
+ */
+export function ensureMobileTreeContext(
+  noteId: string,
+  allNotes: Note[],
+  target: Set<string>,
+): void {
+  ensureAncestryExpanded(noteId, allNotes, target);
+
+  const hasDirectChildren = allNotes.some((n) => n.parentNoteId === noteId);
+  if (hasDirectChildren) {
+    target.add(noteId);
+  }
+}
+
 export function loadExpandedNotesFromStorage(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {

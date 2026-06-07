@@ -1,4 +1,4 @@
-/* Tasks workspace — full main-column width on desktop (mirrors notes-root behavior) */
+/* Tasks workspace — full width on mobile; capped readable column on desktop */
 
 .tasks-root {
   width: 100%;
@@ -7,19 +7,79 @@
 
 .tasks-root .tasks-workspace {
   width: 100%;
-  max-width: none;
 }
 
 @media (max-width: 767px) {
   .main-content:has(> .tasks-root) {
-    padding-left: 0 !important;
-    padding-right: 0 !important;
+    padding: 0 !important;
   }
 
   .tasks-root .tasks-workspace {
-    padding-left: 1rem;
-    padding-right: 1rem;
-    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px));
+    padding-left: max(6px, env(safe-area-inset-left, 6px));
+    padding-right: max(6px, env(safe-area-inset-right, 6px));
+    padding-top: 0.5rem;
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    gap: 0.625rem;
+  }
+
+  .tasks-root .tasks-page-search,
+  .tasks-root .tasks-quick-add .input,
+  .tasks-root .tasks-quick-add .btn {
+    border-radius: 0.75rem;
+  }
+
+  .tasks-root .task-row {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    border-radius: 0.625rem;
+  }
+
+  /* Hide swipe-complete reveal until user drags (prevents green edge bleed) */
+  .tasks-root .swipe-action-bg {
+    opacity: 0;
+  }
+
+  .tasks-root .tasks-empty-state {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* Segmented recurrence pills — equal height/weight (overrides global 44px button min-height) */
+  .task-recurring-filters__track {
+    width: 100%;
+  }
+
+  .task-recurring-filter-pill {
+    min-height: 36px !important;
+    height: 36px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding-left: 6px;
+    padding-right: 6px;
+    border: none;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    font-size: 11px;
+  }
+
+  .task-recurring-filter-pill.is-active {
+    font-weight: 700;
+  }
+}
+
+@media (min-width: 768px) {
+  .task-recurring-filters__track {
+    display: inline-grid;
+    grid-template-columns: repeat(3, 7.5rem);
+  }
+
+  .task-recurring-filter-pill {
+    width: 100%;
+    height: 2.5rem;
+    min-height: 2.5rem !important;
+    padding-inline: 0.5rem;
+    line-height: 1;
+    flex: none;
   }
 }
 
@@ -45,11 +105,25 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 2rem;
+    padding: 1.5rem 1.25rem 2rem;
     margin-left: auto;
     margin-right: auto;
     width: 100%;
+    /* ~896px — comfortable task-list width (Linear / Todoist–style density) */
+    max-width: 56rem;
   }
+}
+
+@media (min-width: 1280px) {
+  .tasks-root .tasks-workspace {
+    padding-left: 1.75rem;
+    padding-right: 1.75rem;
+  }
+}
+
+/* Desktop table — compact metadata chips */
+.tasks-root .tasks-table-repeat {
+  line-height: 1.2;
 }
 
 /* Tasks nav — open / overdue indicator (sidebar + mobile bottom nav) */

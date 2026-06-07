@@ -1,5 +1,5 @@
 import type { ListItem, WorkspaceList } from "@/types";
-import { generateId } from "@/lib/utils";
+import { generateId, triggerHaptic } from "@/lib/utils";
 import {
   createListItem as createListItemSupabase,
   createWorkspaceList as createWorkspaceListSupabase,
@@ -80,7 +80,10 @@ type ListStoreSlice = {
   listItems: ListItem[];
 };
 
-type Get = () => ListStoreSlice & { currentWorkspace: { id: string } };
+type Get = () => ListStoreSlice & {
+  currentWorkspace: { id: string };
+  triggerCelebration: () => void;
+};
 type Set = (partial: Partial<ListStoreSlice> | ((state: ListStoreSlice) => Partial<ListStoreSlice>)) => void;
 
 function sortLists(lists: WorkspaceList[]): WorkspaceList[] {
@@ -258,23 +261,32 @@ export function createListSliceActions(get: Get, set: Set) {
     toggleListItem: async (id: string) => {
       const now = new Date().toISOString();
       const current = get().listItems.find((i) => i.id === id);
+      if (!current) return false;
+
+      const completing = !current.completed;
       set((state) => ({
         listItems: state.listItems.map((i) => {
           if (i.id !== id) return i;
-          const completed = !i.completed;
           return {
             ...i,
-            completed,
-            completedAt: completed ? now : undefined,
+            completed: completing,
+            completedAt: completing ? now : undefined,
             updatedAt: now,
           };
         }),
       }));
-      if (current && shouldPersistLists(current.workspaceId)) {
-        const completed = !current.completed;
+
+      if (completing) {
+        triggerHaptic("success");
+        get().triggerCelebration();
+      } else {
+        triggerHaptic("light");
+      }
+
+      if (shouldPersistLists(current.workspaceId)) {
         void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
-          completed,
-          completedAt: completed ? now : undefined,
+          completed: completing,
+          completedAt: completing ? now : undefined,
         });
       }
       return true;

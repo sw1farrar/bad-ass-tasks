@@ -79,8 +79,8 @@ describe("notificationPrefs", () => {
       inApp: true,
       types: { assignment: false, activity: true },
     });
-    expect(prefs.types.task_assigned).toBe(false);
-    expect(prefs.types.activity).toBe(true);
+    expect(prefs.types.task_assigned).toEqual({ inApp: false, email: false });
+    expect(prefs.types.activity).toEqual({ inApp: true, email: true });
   });
 
   it("respects per-workspace mute and channel toggles", () => {
@@ -90,12 +90,34 @@ describe("notificationPrefs", () => {
     };
     expect(shouldDeliverNotification(prefs, "ws1", "activity", "inApp")).toBe(false);
     expect(shouldDeliverNotification(DEFAULT_NOTIFICATION_PREFS, "ws1", "activity", "inApp")).toBe(true);
-    expect(shouldDeliverNotification({ ...DEFAULT_NOTIFICATION_PREFS, inApp: false }, "ws1", "activity", "inApp")).toBe(
-      false,
-    );
-    expect(shouldDeliverNotification({ ...DEFAULT_NOTIFICATION_PREFS, types: { ...DEFAULT_NOTIFICATION_PREFS.types, activity: false } }, "ws1", "activity", "email")).toBe(
-      false,
-    );
+    expect(
+      shouldDeliverNotification(
+        {
+          ...DEFAULT_NOTIFICATION_PREFS,
+          types: {
+            ...DEFAULT_NOTIFICATION_PREFS.types,
+            activity: { inApp: false, email: true },
+          },
+        },
+        "ws1",
+        "activity",
+        "inApp",
+      ),
+    ).toBe(false);
+    expect(
+      shouldDeliverNotification(
+        {
+          ...DEFAULT_NOTIFICATION_PREFS,
+          types: {
+            ...DEFAULT_NOTIFICATION_PREFS.types,
+            activity: { inApp: true, email: false },
+          },
+        },
+        "ws1",
+        "activity",
+        "email",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -222,7 +244,10 @@ describe("fanoutNoteAddedNotifications", () => {
           notification_prefs: {
             email: true,
             inApp: true,
-            types: { ...DEFAULT_NOTIFICATION_PREFS.types, activity: false },
+            types: {
+              ...DEFAULT_NOTIFICATION_PREFS.types,
+              activity: { inApp: false, email: false },
+            },
           },
         },
       },

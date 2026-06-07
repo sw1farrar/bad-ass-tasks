@@ -1,9 +1,13 @@
-/* PDF page — free-form area highlighting */
+/* PDF page — free-form area highlighting (desktop) */
 .pdf-page-surface {
   touch-action: none;
 }
 
-/* Word (.docx) preview — docx-preview paginated layout */
+.pdf-preview-root--mobile .pdf-page-surface {
+  touch-action: pan-y pinch-zoom;
+}
+
+/* Word (.docx) preview — native paginated layout (scroll on mobile) */
 .docx-preview-root {
   width: 100%;
 }
@@ -35,4 +39,144 @@
 
 .pdf-preview-scroll {
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.file-preview-overlay {
+  touch-action: manipulation;
+}
+
+.file-preview-shell {
+  height: 100dvh;
+}
+
+.file-preview-mobile-chrome {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 40;
+  isolation: isolate;
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding-right: 0.75rem;
+  padding-bottom: 0.5rem;
+  padding-left: 0.75rem;
+  background: rgba(5, 5, 8, 0.96);
+}
+
+.file-preview-mobile-chrome--docx {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.file-preview-mobile-chrome__leading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-preview-mobile-chrome__meta {
+  min-width: 0;
+}
+
+.file-preview-mobile-chrome__type {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.file-preview-mobile-chrome__name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+  max-width: 46vw;
+}
+
+.pdf-preview-mobile-chrome {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 30;
+  isolation: isolate;
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding-right: 0.75rem;
+  padding-bottom: 0.5rem;
+  padding-left: 0.75rem;
+  background: rgba(5, 5, 8, 0.96);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pdf-preview-root--mobile .pdf-preview-toolbar {
+  position: relative;
+  z-index: 20;
+}
+
+.file-preview-mobile-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.docx-preview-scroll-host {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+}
+
+.docx-preview-scroll-host .docx-preview-root,
+.docx-preview-scroll-host .docx-preview-body,
+.docx-preview-scroll-host .docx-preview-body .docx-preview-wrapper {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Mobile Word — tighter canvas padding; pages keep native width */
+.docx-preview-root--compact .docx-preview-body .docx-preview-wrapper {
+  padding: 12px 8px 16px !important;
+}
+
+.docx-preview-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8e8e6;
+  color: #71717a;
+}
+
+/* Mobile — other document previews */
+@media (max-width: 767px) {
+  .excel-preview--compact .excel-preview-cell {
+    font-size: 11px;
+    padding: 4px 6px;
+  }
+
+  .excel-preview--compact .excel-preview-col-header,
+  .excel-preview--compact .excel-preview-row-header {
+    font-size: 10px;
+    padding: 4px 6px;
+  }
+
+  .excel-preview--compact .excel-preview-corner {
+    z-index: 10;
+  }
+
+  .excel-preview--compact .excel-preview-col-header {
+    z-index: 8;
+  }
+
+  .excel-preview--compact .excel-preview-row-header {
+    z-index: 6;
+  }
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Settings, Trash2, Bell, Mail } from "lucide-react";
+import { Settings, Trash2, Bell, Mail, Pencil, Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { NoteEmailInboxesPanel } from "./components/NoteEmailInboxesPanel";
 import { TaskEmailInboxesPanel } from "./components/TaskEmailInboxesPanel";
@@ -9,6 +10,13 @@ import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { canDeleteWorkspace } from "@/lib/workspaceGuards";
 import type { NotificationType } from "@/types";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  getNotificationTypePref,
+  mergeNotificationTypePrefs,
+  NOTIFICATION_TYPES,
+} from "@/lib/notifications/notificationPrefs";
+import "./settings-workspace.css";
 
 const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   mention: "Mentions",
@@ -17,19 +25,6 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   task_assigned: "Task assignments",
   deadline: "Due date reminders",
   activity: "Workspace activity",
-};
-
-const DEFAULT_NOTIFICATION_PREFS = {
-  email: true,
-  inApp: true,
-  types: {
-    mention: true,
-    comment: true,
-    invite: true,
-    task_assigned: true,
-    deadline: true,
-    activity: true,
-  },
 };
 
 export function WorkspaceSettingsView() {
@@ -52,8 +47,9 @@ export function WorkspaceSettingsView() {
   );
 
   const [settingsName, setSettingsName] = useState(currentWorkspace.name);
-  const [settingsSlug, setSettingsSlug] = useState(currentWorkspace.slug);
+  const [isEditingName, setIsEditingName] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
 
@@ -61,22 +57,30 @@ export function WorkspaceSettingsView() {
 
   useEffect(() => {
     setSettingsName(currentWorkspace.name);
-    setSettingsSlug(currentWorkspace.slug);
+    setIsEditingName(false);
     setDeleteConfirmName("");
-  }, [currentWorkspace.id, currentWorkspace.name, currentWorkspace.slug]);
+  }, [currentWorkspace.id, currentWorkspace.name]);
 
-  const handleSaveWorkspaceSettings = async () => {
+  const handleCancelNameEdit = () => {
+    setSettingsName(currentWorkspace.name);
+    setIsEditingName(false);
+  };
+
+  const handleSaveWorkspaceName = async () => {
     if (!isOwner) return;
+    const trimmed = settingsName.trim();
+    if (!trimmed) {
+      toast.error("Workspace name cannot be empty");
+      return;
+    }
+    if (trimmed === currentWorkspace.name) {
+      setIsEditingName(false);
+      return;
+    }
     setIsSavingSettings(true);
     try {
-      const updates: { name?: string; slug?: string } = {};
-      if (settingsName.trim() && settingsName.trim() !== currentWorkspace.name) updates.name = settingsName.trim();
-      if (settingsSlug.trim() && settingsSlug.trim() !== currentWorkspace.slug) updates.slug = settingsSlug.trim();
-      if (Object.keys(updates).length === 0) {
-        toast.info("No changes to save");
-        return;
-      }
-      await updateWorkspaceDetails(updates);
+      await updateWorkspaceDetails({ name: trimmed });
+      setIsEditingName(false);
     } finally {
       setIsSavingSettings(false);
     }
@@ -101,16 +105,21 @@ export function WorkspaceSettingsView() {
     }
   };
 
-  const togglePref = (key: "email" | "inApp", value: boolean) => {
-    updateNotificationPrefs({ [key]: value });
-  };
-
-  const toggleTypePref = (type: NotificationType, value: boolean) => {
-    updateNotificationPrefs({ types: { ...prefs.types, [type]: value } });
+  const toggleTypeChannel = (
+    type: NotificationType,
+    channel: "inApp" | "email",
+    value: boolean,
+  ) => {
+    updateNotificationPrefs({
+      types: mergeNotificationTypePrefs(prefs.types, {
+        [type]: { [channel]: value },
+      }),
+    });
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-12">
+    <div className="settings-root">
+      <div className="settings-workspace flex flex-col gap-3 md:gap-6 pb-8 md:pb-12">
       <WorkspaceViewHeader
         variant="inline"
         title="Settings"
@@ -122,117 +131,144 @@ export function WorkspaceSettingsView() {
             <Bell className="h-6 w-6" />
           )
         }
-        description={
-          isOwner
-            ? "Workspace details, notifications, email-to-note inboxes, and destructive actions. Team membership lives on the Team page."
-            : "Notifications and email-to-note inboxes for this workspace."
-        }
+        hideWorkspaceLabelOnMobile
+        hideWorkspaceNameOnMobile
+        className="mb-0"
       />
 
-      {isOwner && (
-        <div className="glass rounded-2xl border border-white/10 p-5 space-y-4">
-          <div className="font-medium text-sm uppercase tracking-widest text-[#71717a]">General</div>
-          <div>
-            <label className="text-xs text-[#a1a1aa] block mb-1.5">Name</label>
+      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5">
+        <div className="settings-panel-header text-[10px] font-medium uppercase tracking-widest text-[#71717a] mb-1.5 md:mb-2">
+          Workspace
+        </div>
+        {isEditingName && isOwner ? (
+          <div className="flex items-center gap-2 min-w-0">
             <input
               value={settingsName}
               onChange={(e) => setSettingsName(e.target.value)}
-              className="input w-full px-4 py-2.5 rounded-xl text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveWorkspaceName();
+                if (e.key === "Escape") handleCancelNameEdit();
+              }}
+              className="input flex-1 min-w-0 px-4 py-2.5 rounded-xl text-sm"
               disabled={isSavingSettings}
+              autoFocus
+              aria-label="Workspace name"
             />
-          </div>
-          <div>
-            <label className="text-xs text-[#a1a1aa] block mb-1.5">Slug (unique URL-friendly ID)</label>
-            <input
-              value={settingsSlug}
-              onChange={(e) => setSettingsSlug(e.target.value)}
-              className="input w-full px-4 py-2.5 rounded-xl text-sm font-mono"
+            <button
+              type="button"
+              onClick={() => void handleSaveWorkspaceName()}
               disabled={isSavingSettings}
-            />
-            <div className="text-[10px] text-[#71717a] mt-1">Changing slug may affect bookmarks and invites.</div>
+              className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[#00ff9f] hover:bg-white/5 disabled:opacity-50"
+              aria-label="Save workspace name"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelNameEdit}
+              disabled={isSavingSettings}
+              className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[#71717a] hover:text-white hover:bg-white/5 disabled:opacity-50"
+              aria-label="Cancel editing workspace name"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button
-            onClick={handleSaveWorkspaceSettings}
-            disabled={isSavingSettings}
-            className="btn btn-primary text-sm px-5 py-2 disabled:opacity-60"
-          >
-            {isSavingSettings ? "Saving..." : "Save changes"}
-          </button>
-        </div>
-      )}
+        ) : (
+          <div className="flex items-center justify-between gap-3 min-w-0">
+            <div className="settings-workspace-name text-base md:text-lg font-semibold text-[#f4f4f5] truncate min-w-0">
+              {currentWorkspace.name}
+            </div>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsName(currentWorkspace.name);
+                  setIsEditingName(true);
+                }}
+                disabled={isSavingSettings}
+                className={cn(
+                  "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center",
+                  "text-[#a1a1aa] hover:text-[#c084fc] hover:bg-[#c084fc]/10 transition disabled:opacity-50",
+                )}
+                aria-label="Edit workspace name"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Notifications — all members */}
-      <div className="glass rounded-2xl border border-white/10 p-5 space-y-4">
-        {isOwner && (
-          <>
-            <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#71717a]">
-              <Bell className="h-4 w-4 text-[#c084fc]" />
-              Notifications
-            </div>
-            <p className="text-xs text-[#71717a]">Choose how you want to be notified for this workspace.</p>
-          </>
-        )}
-
-        <div className="space-y-3">
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
-            <span>In-app notifications</span>
-            <input
-              type="checkbox"
-              checked={prefs.inApp}
-              onChange={(e) => togglePref("inApp", e.target.checked)}
-              className="h-4 w-4 accent-[#c084fc]"
-            />
-          </label>
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
-            <span>Email notifications</span>
-            <input
-              type="checkbox"
-              checked={prefs.email}
-              onChange={(e) => togglePref("email", e.target.checked)}
-              className="h-4 w-4 accent-[#c084fc]"
-            />
-          </label>
+      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
+          <Bell className="h-4 w-4 text-[#c084fc] shrink-0" />
+          Notifications
         </div>
+        <p className="text-[11px] md:text-xs text-[#71717a] leading-relaxed">
+          Choose in-app and email delivery for each notification type.
+        </p>
 
-        <div className="pt-1 space-y-2">
-          <div className="text-xs text-[#a1a1aa] uppercase tracking-widest">Notification types</div>
-          {(Object.keys(NOTIFICATION_TYPE_LABELS) as NotificationType[]).map((type) => (
-            <label
-              key={type}
-              className="flex items-center justify-between gap-4 rounded-xl border border-white/10 px-4 py-2.5 text-sm"
-            >
-              <span className="text-[#e5e5e7]">{NOTIFICATION_TYPE_LABELS[type]}</span>
-              <input
-                type="checkbox"
-                checked={prefs.types?.[type] ?? true}
-                onChange={(e) => toggleTypePref(type, e.target.checked)}
-                className="h-4 w-4 accent-[#c084fc]"
-              />
-            </label>
-          ))}
+        <div className="settings-notif-matrix rounded-xl border border-white/10 overflow-hidden">
+          <div className="settings-notif-matrix__header grid items-center gap-2 px-3 md:px-4 py-2 border-b border-white/10 bg-white/[0.04] text-[10px] font-medium uppercase tracking-widest text-[#71717a]">
+            <span>Type</span>
+            <span className="text-center">In-app</span>
+            <span className="text-center">Email</span>
+          </div>
+          {NOTIFICATION_TYPES.map((type) => {
+            const typePref = getNotificationTypePref(prefs, type);
+            return (
+              <div
+                key={type}
+                className="settings-notif-matrix__row grid items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-white/10 last:border-b-0 text-sm"
+              >
+                <span className="text-[#e5e5e7] min-w-0 leading-snug">
+                  {NOTIFICATION_TYPE_LABELS[type]}
+                </span>
+                <label className="settings-notif-matrix__check flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={typePref.inApp}
+                    onChange={(e) => toggleTypeChannel(type, "inApp", e.target.checked)}
+                    className="h-4 w-4 accent-[#c084fc]"
+                    aria-label={`${NOTIFICATION_TYPE_LABELS[type]} in-app`}
+                  />
+                </label>
+                <label className="settings-notif-matrix__check flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={typePref.email}
+                    onChange={(e) => toggleTypeChannel(type, "email", e.target.checked)}
+                    className="h-4 w-4 accent-[#c084fc]"
+                    aria-label={`${NOTIFICATION_TYPE_LABELS[type]} email`}
+                  />
+                </label>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      <div className="glass rounded-2xl border border-white/10 p-5 space-y-4">
-        <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#71717a]">
-          <Mail className="h-4 w-4 text-[#c084fc]" />
-          Create note from email
+      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
+          <Mail className="h-4 w-4 text-[#c084fc] shrink-0" />
+          <span className="truncate">Note from email</span>
         </div>
         <NoteEmailInboxesPanel />
       </div>
 
-      <div className="glass rounded-2xl border border-white/10 p-5 space-y-4">
-        <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#71717a]">
-          <Mail className="h-4 w-4 text-[#c084fc]" />
-          Create task from email
+      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
+          <Mail className="h-4 w-4 text-[#c084fc] shrink-0" />
+          <span className="truncate">Task from email</span>
         </div>
         <TaskEmailInboxesPanel />
       </div>
 
       {/* Danger zone */}
       {isOwner && (
-        <div className="glass rounded-2xl border border-red-500/20 p-5">
-          <div className="flex items-center gap-2 text-red-400 text-xs uppercase tracking-widest mb-3">
+        <div className="settings-danger-panel glass rounded-2xl border border-red-500/20 p-4 md:p-5">
+          <div className="flex items-center gap-2 text-red-400 text-[10px] md:text-xs uppercase tracking-widest mb-2 md:mb-3">
             <Trash2 className="h-3.5 w-3.5" />
             Danger zone
           </div>
@@ -246,7 +282,7 @@ export function WorkspaceSettingsView() {
                 value={deleteConfirmName}
                 onChange={(e) => setDeleteConfirmName(e.target.value)}
                 placeholder={`Type "${currentWorkspace.name}" to confirm`}
-                className="w-full bg-[#111114] border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
+                className="settings-delete-input w-full bg-[#111114] border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
               />
               <button
                 type="button"
@@ -254,7 +290,7 @@ export function WorkspaceSettingsView() {
                 disabled={
                   isSavingSettings || isDeletingWorkspace || deleteConfirmName.trim() !== currentWorkspace.name
                 }
-                className="w-full py-2.5 rounded-xl bg-red-600/90 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-50"
+                className="settings-delete-btn w-full py-2.5 rounded-xl bg-red-600/90 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-50"
               >
                 {isDeletingWorkspace ? "Deleting..." : "Delete workspace forever"}
               </button>
@@ -267,6 +303,7 @@ export function WorkspaceSettingsView() {
         </div>
       )}
 
+      </div>
     </div>
   );
 }
