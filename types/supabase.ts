@@ -121,6 +121,9 @@ export interface Database {
           is_archived: boolean
           tags: string[]
           linked_task_ids: string[]
+          linked_note_ids?: string[] // M2 note-to-note links (added 2026-05-30)
+          sort_order?: number | null // M2 drag ordering within parent
+          snapshots?: Json | null // M2 version history array
           created_by: string | null
           created_at: string
           updated_at: string
@@ -135,6 +138,9 @@ export interface Database {
           is_archived?: boolean
           tags?: string[]
           linked_task_ids?: string[]
+          linked_note_ids?: string[] // M2
+          sort_order?: number | null // M2
+          snapshots?: Json | null // M2
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -149,6 +155,9 @@ export interface Database {
           is_archived?: boolean
           tags?: string[]
           linked_task_ids?: string[]
+          linked_note_ids?: string[] // M2
+          sort_order?: number | null // M2
+          snapshots?: Json | null // M2
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -186,6 +195,7 @@ export interface Database {
           email: string | null
           role: 'owner' | 'admin' | 'user'
           invited_by: string | null
+          invited_user_id: string | null
           expires_at: string | null
           accepted_at: string | null
           created_at: string
@@ -196,6 +206,7 @@ export interface Database {
           email?: string | null
           role?: 'owner' | 'admin' | 'user'
           invited_by?: string | null
+          invited_user_id?: string | null
           expires_at?: string | null
           accepted_at?: string | null
           created_at?: string
@@ -206,8 +217,58 @@ export interface Database {
           email?: string | null
           role?: 'owner' | 'admin' | 'user'
           invited_by?: string | null
+          invited_user_id?: string | null
           expires_at?: string | null
           accepted_at?: string | null
+          created_at?: string
+        }
+      },
+      workspace_messages: {
+        Row: {
+          id: string
+          workspace_id: string
+          user_id: string
+          body: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          user_id: string
+          body: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          user_id?: string
+          body?: string
+          created_at?: string
+        }
+      },
+      workspace_message_reactions: {
+        Row: {
+          id: string
+          workspace_id: string
+          message_id: string
+          user_id: string
+          emoji: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          message_id: string
+          user_id: string
+          emoji: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          message_id?: string
+          user_id?: string
+          emoji?: string
           created_at?: string
         }
       },

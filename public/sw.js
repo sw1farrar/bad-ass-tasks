@@ -43,8 +43,26 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
-  // Network first for API-like, cache first for shell/static
-  if (req.url.includes('/api/') || req.url.includes('supabase')) {
+  const url = new URL(req.url);
+
+  // === DEV + EXTENSION SAFETY (critical for Next.js Turbopack + HMR) ===
+  // Never intercept localhost, HMR, or chrome-extension requests.
+  // This prevents "chrome-extension scheme unsupported" and chunk loading failures in dev.
+  if (
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.protocol === 'chrome-extension:' ||
+    url.pathname.startsWith('/_next/webpack-hmr') ||
+    url.pathname.includes('__nextjs') ||
+    url.pathname.includes('/_next/static/chunks')
+  ) {
+    return; // Let the browser/dev server handle it completely
+  }
+
+  // === Production PWA logic only (safe http/https origins) ===
+
+  // Network first for API-like + Supabase (never cache auth/data calls)
+  if (url.pathname.includes('/api/') || url.hostname.includes('supabase')) {
     event.respondWith(
       fetch(req).catch(() => caches.match(req))
     );
@@ -56,8 +74,8 @@ self.addEventListener('fetch', (event) => {
       if (cached) return cached;
       return fetch(req)
         .then((res) => {
-          // Optionally cache new successful responses (runtime)
-          if (res && res.status === 200) {
+          // Runtime cache only for successful same-origin responses
+          if (res && res.status === 200 && url.origin === self.location.origin) {
             const resClone = res.clone();
             caches.open(CACHE_NAME).then((c) => c.put(req, resClone));
           }

@@ -3,15 +3,12 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Command } from "cmdk";
 import { 
-  Search, Plus, Calendar, CheckSquare, FileText, Users, 
-  Zap, ArrowRight, Clock, Briefcase, FilePlus, Hash, Filter, Target, Sparkles, Download, GitBranch
+  Search, Plus, CheckSquare, FileText, Users,
+  Zap, ArrowRight, Clock, Briefcase, FilePlus, Hash, Filter, Sparkles, Download, GitBranch
 } from "lucide-react";
 import { useTaskStore } from "@/store/useTaskStore";
 import { toast } from "sonner";
-import { 
-  generateDailyBriefing, generateDailyBriefingAI, extractActionItemsFromText, extractActionItemsFromTextAI, 
-  triggerHaptic, generateWeeklyBriefing, isXAIConfigured, getHybridSearchResults 
-} from "@/lib/utils";
+import { triggerHaptic } from "@/lib/utils";
 
 // Small local VisuallyHidden component to satisfy Radix Dialog accessibility
 // without adding new dependencies.
@@ -133,9 +130,18 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
     .slice(0, 6);
 
-  const semanticResults = useMemo(() => {
-    if (paletteQuery.trim().length < 2) return [];
-    return getHybridSearchResults(paletteQuery, { tasks, notes }, { limit: 9, minScore: 12 });
+  const searchResults = useMemo(() => {
+    const q = paletteQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const taskHits = tasks
+      .filter((t) => t.title.toLowerCase().includes(q))
+      .slice(0, 6)
+      .map((t) => ({ type: "task" as const, id: t.id, title: t.title }));
+    const noteHits = notes
+      .filter((n) => n.title.toLowerCase().includes(q))
+      .slice(0, 4)
+      .map((n) => ({ type: "note" as const, id: n.id, title: n.title }));
+    return [...taskHits, ...noteHits];
   }, [paletteQuery, tasks, notes]);
 
   const completeRandom = async () => {
@@ -152,30 +158,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   };
 
   // New power actions (live + context aware)
-  const focusP0s = () => {
-    setTaskFilter({ priority: ["P0"] });
-    setView("tasks");
-    toast.success("Focused on P0s", { description: "High-priority tasks only. Clear filter anytime." });
-  };
-
-  const openAIFromPalette = () => {
-    // Palette closes automatically via runCommand. Real open is in page (floating button).
-    // This surfaces the action powerfully in the command center.
-    toast("AI Assistant ready", {
-      description: "Click the floating ✨ AI button (bottom-right) or type in chat. Full inline AI coming Phase 7.",
-    });
-    setView("tasks"); // keep context
-  };
-
-  const goToKanban = () => {
-    setView("tasks");
-    toast.info("Tasks view — toggle Board in the header for full drag-and-drop Kanban", {
-      description: "Buttery @dnd-kit powered. Drag between columns or reorder.",
-    });
-  };
-
   const clearFilters = () => {
-    setTaskFilter({ search: "", priority: undefined, status: undefined });
+    setTaskFilter({ search: "", status: undefined, recurring: undefined });
     toast("Filters cleared");
   };
 
@@ -204,7 +188,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           <div className="flex items-center border-b border-white/10 px-4">
             <Search className="mr-3 h-4 w-4 text-[#c084fc]" />
             <Command.Input 
-              placeholder="Type command, task, note, or view... (fuzzy + hybrid semantic when typing)" 
+              placeholder="Search tasks, notes, or commands…"
               className="cmdk-input flex-1 py-4 text-[15px] placeholder:text-[#71717a] outline-none" 
               value={paletteQuery}
               onValueChange={setPaletteQuery}
@@ -214,7 +198,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
           <Command.List className="max-h-[420px] overflow-y-auto p-2 text-sm">
             <Command.Empty className="py-8 text-center text-[#71717a]">
-              No matches. Try "create", "P0", "kanban", "AI", "workspace", or type any task/note title.
+              No matches. Try create or a task title.
             </Command.Empty>
 
             {/* Quick Actions - core power moves + new Phase 2 power */}
@@ -226,7 +210,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <Plus className="h-4 w-4 text-[#c084fc]" />
                 <div className="flex-1">
                   <div>Create new task</div>
-                  <div className="text-xs text-[#71717a]">Natural language — "Ship v2 by Friday P0 @Sarah"</div>
+                  <div className="text-xs text-[#71717a]">Adds a new task to this workspace</div>
                 </div>
                 <div className="text-xs text-[#c084fc] font-mono">⌘N</div>
               </Command.Item>
@@ -250,15 +234,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <CheckSquare className="h-4 w-4 text-[#c084fc]" />
                 <div>Complete a random task</div>
                 <div className="ml-auto text-[10px] text-[#71717a] font-mono">lucky</div>
-              </Command.Item>
-
-              <Command.Item 
-                onSelect={() => runCommand(focusP0s)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-              >
-                <Target className="h-4 w-4 text-[#c084fc]" />
-                <div>Focus P0 priorities only</div>
-                <div className="ml-auto text-[10px] text-[#71717a] font-mono">power</div>
               </Command.Item>
 
               <Command.Item 
@@ -314,8 +289,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 { label: "Today", view: "today" as const, icon: Clock, shortcut: "1" },
                 { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "2" },
                 { label: "Notes", view: "notes" as const, icon: FileText, shortcut: "3" },
-                { label: "Calendar", view: "calendar" as const, icon: Calendar, shortcut: "4" },
-                { label: "Teams", view: "teams" as const, icon: Users, shortcut: "5" },
+                { label: "Team", view: "teams" as const, icon: Users, shortcut: "4" },
               ].map((item) => (
                 <Command.Item
                   key={item.view}
@@ -330,32 +304,30 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               ))}
             </Command.Group>
 
-            {/* Agent 32: Hybrid semantic results — pre-ranked with keyword + jaccard "semantic" + links + boosts. Magical discovery. */}
-            {semanticResults.length > 0 && (
-              <Command.Group heading="Semantic Matches (hybrid)" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#c084fc]/80 uppercase mt-2">
-                {semanticResults.map((r) => (
+            {searchResults.length > 0 && (
+              <Command.Group heading="Search" className="px-2 py-1.5 text-[10px] font-semibold text-[#71717a] uppercase mt-2">
+                {searchResults.map((r) => (
                   <Command.Item
-                    key={`sem-${r.id}`}
+                    key={`${r.type}-${r.id}`}
                     onSelect={() => runCommand(() => {
-                      if (r.type === 'task') {
+                      if (r.type === "task") {
                         setView("tasks");
                         selectTask(r.id);
                       } else {
                         setView("notes");
                       }
-                      toast.success(`${r.type === 'task' ? 'Task' : 'Note'} • ${r.score}% match`, {
-                        description: r.reasons.join(' + '),
-                      });
                     })}
                     className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-                    value={`${r.type} ${r.title} ${r.reasons.join(' ')}`}
+                    value={`${r.type} ${r.title}`}
                   >
-                    {r.type === 'task' ? <CheckSquare className="h-4 w-4 shrink-0" /> : <FileText className="h-4 w-4 shrink-0" />}
+                    {r.type === "task" ? (
+                      <CheckSquare className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0" />
+                    )}
                     <div className="flex-1 min-w-0 truncate">{r.title}</div>
-                    <div className="text-[9px] text-[#c084fc] font-mono shrink-0 tabular-nums">{r.score}%</div>
                   </Command.Item>
                 ))}
-                <div className="px-3 py-1 text-[9px] text-[#a1a1aa]">Hybrid: keyword + semantic overlap + graph links • Click to jump</div>
               </Command.Group>
             )}
 
@@ -371,11 +343,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                       toast.info("Task selected", { description: task.title });
                     })}
                     className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-                    value={`task ${task.title} ${task.priority} ${task.status} ${task.tags?.join(" ") || ""} ${task.assignee || ""}`}
+                    value={`task ${task.title} ${task.status} ${task.assignee || ""}`}
                   >
                     <CheckSquare className="h-4 w-4 shrink-0" />
                     <div className="flex-1 min-w-0 truncate">{task.title}</div>
-                    <div className="text-[10px] text-[#71717a] font-mono shrink-0">{task.priority} • {task.status}</div>
+                    <div className="text-[10px] text-[#71717a] font-mono shrink-0 capitalize">{task.status}</div>
                   </Command.Item>
                 ))}
                 <div className="px-3 py-1 text-[9px] text-[#a1a1aa]">Type to filter live across open tasks • Enter to jump + select</div>
@@ -403,89 +375,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               </Command.Group>
             )}
 
-            {/* Power Views & AI (more actions surfaced directly in palette) */}
-            <Command.Group heading="Power & AI" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
-              <Command.Item 
-                onSelect={() => runCommand(goToKanban)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-              >
-                <Sparkles className="h-4 w-4 text-[#c084fc]" />
-                <div>Go to Tasks • switch to Kanban board</div>
-                <div className="ml-auto text-[10px] text-[#71717a] font-mono">DND</div>
-              </Command.Item>
-
-              <Command.Item 
-                onSelect={() => runCommand(openAIFromPalette)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-              >
-                <Zap className="h-4 w-4 text-[#ff00aa]" />
-                <div>Open / focus AI assistant</div>
-                <div className="ml-auto text-[10px] text-[#71717a] font-mono">magic</div>
-              </Command.Item>
-
-              {/* Agent 32: Knowledge Graph entry point (visual relationships + discovery) */}
-              <Command.Item 
-                onSelect={() => runCommand(() => {
-                  toast("Knowledge Graph", {
-                    description: "Open the 🕸️ Knowledge Graph from the header (or Notes detail) for interactive map, link suggestions & semantic clusters.",
-                    duration: 5200,
-                  });
-                })}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-              >
-                <GitBranch className="h-4 w-4 text-[#c084fc]" />
-                <div>Open Knowledge Graph (relationships + suggestions)</div>
-                <div className="ml-auto text-[10px] text-[#71717a] font-mono">graph</div>
-              </Command.Item>
-
-              <Command.Item 
-                onSelect={() => runCommand(async () => {
-                  const realMode = isXAIConfigured();
-                  const briefing = realMode 
-                    ? await generateDailyBriefingAI(tasks, notes, recentActivity)
-                    : generateDailyBriefing(tasks, notes, recentActivity);
-                  toast.success(realMode ? "xAI Grok Daily Briefing" : "AI Daily Briefing (local)", {
-                    description: `${briefing.greeting} ${briefing.focusSuggestion}`,
-                    duration: 6000,
-                  });
-                  console.log("[Bad Ass Tasks AI Briefing]", briefing);
-                })}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-              >
-                <Zap className="h-4 w-4 text-[#ff00aa]" />
-                <div>Generate daily AI briefing</div>
-              </Command.Item>
-
-              <Command.Item 
-                onSelect={() => runCommand(async () => {
-                  if (notes.length === 0) {
-                    toast.info("No notes to extract from yet");
-                    return;
-                  }
-                  const realMode = isXAIConfigured();
-                  const sorted = [...notes].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-                  let total = 0;
-                  for (const note of sorted.slice(0, 3)) {
-                    const items = realMode 
-                      ? await extractActionItemsFromTextAI(note.content, note.title)
-                      : extractActionItemsFromText(note.content, note.title);
-                    for (const item of items.slice(0, 2)) {
-                      await addTask(`${item.title} ${item.priority}`);
-                      total++;
-                    }
-                  }
-                  toast.success(realMode ? `xAI Grok extracted ${total} tasks from recent notes` : `AI extracted ${total} tasks from recent notes`, {
-                    description: "Added via natural language. Open the ✨ AI panel for full linked extraction.",
-                    duration: 5000,
-                  });
-                })}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-              >
-                <Zap className="h-4 w-4 text-[#ff00aa]" />
-                <div>Extract tasks from recent notes</div>
-              </Command.Item>
-            </Command.Group>
-
             {/* Keyboard Shortcuts - fully documented inside palette for discoverability */}
             <Command.Group heading="Keyboard Shortcuts" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
               <Command.Item 
@@ -505,7 +394,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             </Command.Group>
 
             <div className="px-3 py-2 text-[11px] text-[#71717a] flex items-center justify-between border-t border-white/10 mt-2 pt-3">
-              <div>Pro tip: Type task title, "P0", "kanban", "AI", or note name for live results + power actions</div>
+              <div>Type a task or note name to jump there quickly</div>
               <div className="text-[#c084fc] flex items-center gap-1">Bad Ass Tasks <ArrowRight className="h-3 w-3" /></div>
             </div>
 

@@ -1,57 +1,20 @@
 ﻿"use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { 
-  Check, Plus, Search, Command, Calendar, Users, Settings, 
-  ChevronLeft, ChevronRight, Clock, Star, Zap, ArrowUpRight, Sparkles,
-  Loader2, User, LogOut, X, Trash2, GripVertical, Repeat, Download, Upload, FileText, BarChart3, RefreshCw, FileDown,
-  GitBranch, Network, Bell, Home
+import {
+  Check, Plus, Command, Users, Settings,
+  ChevronRight, Clock, Star, ArrowUpRight,
+  Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat,
+  Trash2, Search, RefreshCw, BarChart3, FileDown, Upload, FileText, Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  format,
-  addMonths,
-  subMonths,
-  startOfMonth,
-  endOfMonth,
-  startOfWeek,
-  endOfWeek,
-  eachDayOfInterval,
-  addDays,
-  isSameDay,
-  isToday,
-  startOfDay,
-  addWeeks,
-  subWeeks,
-} from "date-fns";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
-// @dnd-kit for real Kanban drag & drop (Phase 1)
-import {
-  DndContext,
-  closestCorners,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-  DragStartEvent,
-  DragOverlay,
-  useDroppable,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-
 import { useTaskStore } from "@/store/useTaskStore";
-import { useShallow } from "zustand/shallow";
-import { Task, Note, TaskStatus, Priority, ActivityLog, Notification } from "@/types";
-import { cn, formatDueDate, getPriorityColor, getRecurringLabel, getOccurrencesInRange, getNextRecurringDue, normalizeExceptionKey, triggerHaptic, getRecurrenceEndDescription, generateRecurringInstances, type RecurringInstanceInfo } from "@/lib/utils";
-import { jsonToNoteContent } from "@/lib/data/hybridStore"; // For clean plain-text previews even with rich JSONB stringified content from TipTap
+import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
+import { cn, formatDueDate, getNextRecurringDue, triggerHaptic, getUserFirstName } from "@/lib/utils";
+import { canDeleteWorkspace } from "@/lib/workspaceGuards";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { Confetti } from "@/components/Confetti";
@@ -59,238 +22,24 @@ import { SupabaseSetupBanner } from "@/components/SupabaseSetupBanner";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { AuthModal } from "@/components/AuthModal";
 import { TaskModal } from "@/components/TaskModal";
-import { AIChatPanel } from "@/components/AIChatPanel";
-import { TipTapEditor } from "@/features/notes/editor/TipTapEditor"; // Direct feature import (shim in components/ still exists for other legacy callers)
 import { NotesView } from "@/features/notes/NotesView";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
-import { HomeView } from "@/features/home"; // C4 Phase A: wired global hub (extracted placeholder now live)
-import { KnowledgeGraph } from "@/components/KnowledgeGraph";
-import { 
-  extractActionItemsFromText, extractActionItemsFromTextAI, generateDailyBriefing, generateDailyBriefingAI, generateWeeklyBriefing, generateWeeklyBriefingAI, isXAIConfigured,
-  getHybridSearchResults, buildKnowledgeGraph, suggestLinksForNote, suggestLinksForTask 
-} from "@/lib/utils";
+import { HomeView } from "@/features/home";
+import type { HomeFocusItem } from "@/features/home/lib/buildAttentionItems";
+import { TodayView } from "@/features/today";
+import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
+import { NotificationDetailModal } from "@/features/notifications";
+import { TasksTable } from "@/features/tasks/components/TasksTable";
+import { TaskRow } from "@/features/tasks/components/TaskRow";
 
 const VIEWS = [
   { id: "home", label: "Home", icon: Home },
   { id: "today", label: "Today", icon: Clock },
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Notes", icon: Star },
-  { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "teams", label: "Teams", icon: Users },
+  { id: "teams", label: "Team", icon: Users },
 ] as const;
-
-/* =====================================================================
-   Kanban DnD sub-components (real @dnd-kit, production-polished)
-   - SortableKanbanTask: per-card with explicit drag handle + useSortable + rich visuals/hints
-   - KanbanColumn: dedicated droppable wrapper (proper hook placement, reliable)
-   - KanbanBoard: DndContext + sensors + overlay + delegates to store.kanbanReorder (optimistic+persist)
-   - Buttery: 60fps transforms, clear drag-over, enhanced overlay, handle hints
-   - Multi-drag: planned (requires custom multi-select + overlay); single is rock-solid
-   - List DND: intentionally not wired here (conflicts with dynamic filters/sorts in getFilteredTasks; Board view is the manual reorder surface)
-   ===================================================================== */
-
-function SortableKanbanTask({ task, onOpen }: { task: Task; onOpen: (task: Task) => void }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 999 : undefined,
-    // Extra buttery scale on drag for premium feel
-    scale: isDragging ? "1.015" : undefined,
-  };
-
-  const due = task.dueDate ? formatDueDate(task.dueDate) : null;
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "glass rounded-xl p-3.5 border border-white/10 hover:border-[#c084fc]/30 transition-all cursor-default",
-        isDragging && "shadow-2xl ring-1 ring-[#c084fc]/40 border-[#c084fc]/40"
-      )}
-      data-dragging={isDragging}
-    >
-      <div className="flex justify-between items-start gap-2">
-        <div className="flex items-start gap-2 flex-1 min-w-0">
-          {/* Explicit drag handle: production quality, always discoverable, great a11y + micro-interaction hints */}
-          <div
-            {...listeners}
-            {...attributes}
-            className="mt-0.5 cursor-grab active:cursor-grabbing text-[#71717a] hover:text-[#c084fc] transition-all p-1 -ml-1 rounded hover:bg-white/10 select-none group/handle"
-            onClick={(e) => e.stopPropagation()}
-            title="Drag handle: reorder within column or move to another (hold &amp; drag)"
-            aria-label="Drag task to reorder or change status"
-            role="button"
-            tabIndex={0}
-          >
-            <GripVertical className="h-3.5 w-3.5 group-hover/handle:scale-110 transition" />
-          </div>
-          <div
-            onClick={() => onOpen(task)}
-            className="font-medium text-sm leading-tight flex-1 min-w-0 cursor-pointer"
-          >
-            {task.title}
-          </div>
-        </div>
-        <div className={`priority-badge priority-${task.priority.toLowerCase()} shrink-0`}>{task.priority}</div>
-      </div>
-
-      {due && (
-        <div className="mt-2 text-[11px] text-[#71717a] ml-6">
-          {due.label}
-        </div>
-      )}
-      {task.recurringRule && (
-        <div className="mt-1 text-[10px] text-[#c084fc]/80 ml-6 font-medium flex items-center gap-1">
-          → {getRecurringLabel(task.recurringRule)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Extracted for RULES OF HOOKS compliance + clean separation (production reliability)
-// Each column instance safely calls its own useDroppable at top level.
-function KanbanColumn({ 
-  col, 
-  tasks: colTasks, 
-  onOpenTask 
-}: { 
-  col: { status: TaskStatus; label: string }; 
-  tasks: Task[]; 
-  onOpenTask: (task: Task) => void;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: col.status });
-  const taskIds = colTasks.map((t) => t.id);
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "kanban-column rounded-2xl p-3 min-h-[420px] transition-all",
-        isOver && "drag-over ring-1 ring-inset ring-[#c084fc]/60 bg-[#c084fc]/[0.015]"
-      )}
-    >
-      <div className="flex items-center justify-between mb-3 px-2">
-        <div className="font-semibold text-sm tracking-wide text-[#a1a1aa]">{col.label}</div>
-        <div className="text-xs text-[#71717a] font-mono tabular-nums">{colTasks.length}</div>
-      </div>
-
-      <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
-        <div className="space-y-2 min-h-[320px]">
-          {colTasks.length === 0 && (
-            <div className="text-center py-8 text-xs text-[#71717a] border border-dashed border-white/10 rounded-xl flex items-center justify-center min-h-[120px]">
-              Drop tasks here
-            </div>
-          )}
-          {colTasks.map((task) => (
-            <SortableKanbanTask key={task.id} task={task} onOpen={onOpenTask} />
-          ))}
-        </div>
-      </SortableContext>
-    </div>
-  );
-}
-
-function KanbanBoard({ onOpenTask }: { onOpenTask: (task: Task) => void }) {
-  // Stable subscriptions only (prevents "getSnapshot should be cached" infinite loop)
-  const tasks = useTaskStore((state) => state.tasks);
-  const kanbanReorder = useTaskStore((state) => state.kanbanReorder);
-
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 }, // reliable click vs drag
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  // All derived data is memoized → stable snapshots for useSyncExternalStore
-  const activeTask = useMemo(() =>
-    activeId ? tasks.find((t) => t.id === activeId) : null,
-    [activeId, tasks]
-  );
-
-  const columns = useMemo(() => ([
-    { status: "backlog" as TaskStatus, label: "Backlog" },
-    { status: "todo" as TaskStatus, label: "Todo" },
-    { status: "doing" as TaskStatus, label: "Doing" },
-    { status: "done" as TaskStatus, label: "Done" },
-  ] as const), []);
-
-  const columnsWithTasks = useMemo(() => {
-    return columns.map((col) => ({
-      ...col,
-      tasks: tasks.filter((t) => t.status === col.status),
-    }));
-  }, [columns, tasks]);
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(String(event.active.id));
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveId(null);
-    if (!over || active.id === over.id) return;
-    // All logic + persist lives in the solid store.kanbanReorder (optimistic + hybrid)
-    kanbanReorder(String(active.id), String(over.id));
-  };
-
-  const handleDragCancel = () => setActiveId(null);
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="kanban-board flex md:grid md:grid-cols-4 gap-4 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 md:mx-0 md:px-0 md:overflow-visible touch-pan-x">
-        {columnsWithTasks.map((col) => (
-          <KanbanColumn 
-            key={col.status} 
-            col={col} 
-            tasks={col.tasks} 
-            onOpenTask={onOpenTask} 
-          />
-        ))}
-      </div>
-
-      <DragOverlay dropAnimation={{ duration: 160, easing: "cubic-bezier(0.23, 1, 0.32, 1)" }}>
-        {activeTask ? (
-          <div className="glass rounded-xl p-3.5 border border-white/10 shadow-2xl scale-[1.02] rotate-[0.5deg]">
-            <div className="flex justify-between items-start gap-2">
-              <div className="font-medium text-sm leading-tight">{activeTask.title}</div>
-              <div className={`priority-badge priority-${activeTask.priority.toLowerCase()} shrink-0`}>{activeTask.priority}</div>
-            </div>
-            {activeTask.dueDate && (
-              <div className="mt-2 text-[11px] text-[#71717a]">
-                {formatDueDate(activeTask.dueDate)?.label}
-              </div>
-            )}
-            <div className="mt-1.5 text-[9px] text-[#c084fc] font-mono tracking-widest opacity-70">DRAGGING</div>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
-  );
-}
 
 export default function BadAssTasks() {
   const {
@@ -328,7 +77,6 @@ export default function BadAssTasks() {
     createWorkspace,
     refreshRecentActivity,
     // C4 Phase A Home globals (separate slices)
-    globalRecentActivity,
     globalTodayFocus,
     fetchGlobalHomeAggregates,
     // Offline / sync (Agent 17 mobile polish — exposed from hybrid + store)
@@ -400,34 +148,46 @@ export default function BadAssTasks() {
   const isDemoWs = ["w1", "w2"].includes(currentWorkspace.id);
   const isSingleOwnerWorkspace = myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs;
 
-  const [showAddInput, setShowAddInput] = useState(false);
-  const [quickAddValue, setQuickAddValue] = useState("");
   const [confettiTrigger, setConfettiTrigger] = useState(0);
-  const [kanbanView, setKanbanView] = useState<"list" | "board">("list");
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const workspaceChat = useWorkspaceChat({
+    workspaceId: currentWorkspace.id,
+    userId: user?.id,
+    members,
+    isOpen: chatOpen,
+  });
+
+  const toggleChat = () => {
+    triggerHaptic("light");
+    setChatOpen((open) => !open);
+  };
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
-  const [showAIChat, setShowAIChat] = useState(false);
-
   // Refs for outside click detection
   const workspaceMenuRef = React.useRef<HTMLDivElement>(null);
   const notificationsRef = React.useRef<HTMLDivElement>(null);
   // Notification detail modal (opened from bell dropdown clicks for better readability + actions)
-  const [selectedNotification, setSelectedNotification] = useState<any>(null);
+  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   // Workspace creation UI state (inline in switcher dropdown — production real DB)
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [isCreatingLoading, setIsCreatingLoading] = useState(false);
-  const [isRefreshingActivity, setIsRefreshingActivity] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Modern confirmation modals state
-  const [pendingDeleteWorkspace, setPendingDeleteWorkspace] = useState(false);
   const [pendingDeleteNote, setPendingDeleteNote] = useState<string | null>(null);
   const [pendingRemoveMember, setPendingRemoveMember] = useState<{ userId: string; label: string } | null>(null);
   const [pendingRevokeInvite, setPendingRevokeInvite] = useState<{ inviteId: string; label: string } | null>(null);
   const [pendingResendInvite, setPendingResendInvite] = useState<{ inviteId: string; label: string } | null>(null);
   const [pendingLeaveWorkspace, setPendingLeaveWorkspace] = useState(false);
+  const [pendingDeleteNotification, setPendingDeleteNotification] = useState<string | null>(null);
+  const [pendingClearNotifications, setPendingClearNotifications] = useState(false);
+
+  const pendingDeleteNoteTitle = pendingDeleteNote
+    ? notes.find((n) => n.id === pendingDeleteNote)?.title || "Untitled Note"
+    : "";
 
   const handleConfirmRemoveMember = async () => {
     if (!pendingRemoveMember) return;
@@ -435,25 +195,36 @@ export default function BadAssTasks() {
     setPendingRemoveMember(null);
   };
 
-  const handleConfirmDeleteWorkspace = async () => {
-    if (myRole !== "owner") return;
-    if (deleteConfirmName.trim() !== currentWorkspace.name) {
-      toast.error("Type the exact workspace name to confirm deletion");
-      setPendingDeleteWorkspace(false);
-      return;
-    }
-    const ok = await deleteCurrentWorkspace();
-    if (ok) {
-      setShowWorkspaceSettings(false);
-      setDeleteConfirmName("");
-    }
-    setPendingDeleteWorkspace(false);
+  const handleConfirmRevokeInvite = async () => {
+    if (!pendingRevokeInvite) return;
+    await revokeInvite(pendingRevokeInvite.inviteId);
+    setPendingRevokeInvite(null);
   };
 
-  // Note delete confirmation now driven from useNoteOperations (extraction complete)
+  const handleConfirmResendInvite = async () => {
+    if (!pendingResendInvite) return;
+    await resendInvite(pendingResendInvite.inviteId);
+    setPendingResendInvite(null);
+  };
+
+  const handleConfirmDeleteNotification = async () => {
+    if (!pendingDeleteNotification) return;
+    await deleteNotification?.(pendingDeleteNotification);
+    setPendingDeleteNotification(null);
+  };
+
+  const handleConfirmClearNotifications = async () => {
+    await clearAllNotifications?.();
+    setPendingClearNotifications(false);
+  };
+
   const handleConfirmDeleteNote = async () => {
     if (!pendingDeleteNote) return;
-    await noteOps.confirmDeleteNote(pendingDeleteNote);
+    const deletedId = pendingDeleteNote;
+    const ok = await noteOps.confirmDeleteNote(deletedId);
+    if (ok && selectedNoteId === deletedId) {
+      setSelectedNoteId(null);
+    }
   };
 
   const handleConfirmLeaveWorkspace = async () => {
@@ -469,8 +240,6 @@ export default function BadAssTasks() {
     await exitWorkspace(wsId);
     setPendingLeaveWorkspace(false);
   };
-
-  // Final cleanup for any remaining raw confirms in this file will be done in follow-up if needed.
 
   // Close dropdowns when clicking outside
   React.useEffect(() => {
@@ -552,6 +321,11 @@ export default function BadAssTasks() {
   const [settingsSlug, setSettingsSlug] = useState("");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
+  const workspaceDeleteGuard = useMemo(
+    () => canDeleteWorkspace(currentWorkspace.id, workspaces, user?.id),
+    [currentWorkspace.id, workspaces, user?.id]
+  );
 
   // User profile self-edit (full name, username/handle, location). Triggered from top-right pill + Teams view.
   const [profileFullName, setProfileFullName] = useState("");
@@ -570,19 +344,9 @@ export default function BadAssTasks() {
   const [insights, setInsights] = useState<any>(null);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
 
-  // Agent 32: Semantic Search + Knowledge Graph state (delightful discovery, no new files for core)
-  const [isGraphOpen, setIsGraphOpen] = useState(false);
-  const [graphFocusId, setGraphFocusId] = useState<string | null>(null);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
-  const [searchResultType, setSearchResultType] = useState<'all' | 'task' | 'note'>('all');
-
   // PWA foundation: install prompt + service worker registration (mobile-first, demo safe)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
-
-  // Calendar state (Agent 8 — beautiful interactive month/week/timeline + drag reschedule)
-  const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
-  const [calendarMode, setCalendarMode] = useState<"month" | "week" | "timeline">("month");
 
   // Perf: memoize expensive filter + sort (large task lists, frequent re-renders from DnD/state)
   // Note: getFilteredTasks is stable from Zustand but computation is non-trivial.
@@ -637,15 +401,16 @@ export default function BadAssTasks() {
     }
   }, [user, acceptInviteLink]);
 
-  // Deep links for PWA shortcuts + shareable views (Agent 27): ?view=today|tasks|notes|calendar|teams
+  // Deep links for PWA shortcuts + shareable views (Agent 27): ?view=today|tasks|notes|teams
   // Initializes from manifest shortcuts (?view=...&source=pwa). Syncs on change for back/forward + share.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    const urlView = params.get("view") as any;
+    const rawView = params.get("view");
+    const urlView = rawView === "calendar" ? "tasks" : rawView;
     const validViews = VIEWS.map(v => v.id);
-    if (urlView && validViews.includes(urlView) && urlView !== currentView) {
-      setView(urlView);
+    if (urlView && validViews.includes(urlView as (typeof VIEWS)[number]["id"]) && urlView !== currentView) {
+      setView(urlView as (typeof VIEWS)[number]["id"]);
     }
   }, []); // one-time init on mount
 
@@ -714,201 +479,6 @@ export default function BadAssTasks() {
     };
   }, [pullDistance, isPullRefreshing, refreshRecentActivity, tasks]);
 
-  // Keyboard shortcuts - reliable, input-aware, keyboard-first experience
-  useEffect(() => {
-    const isInputActive = () => {
-      const el = document.activeElement as HTMLElement | null;
-      if (!el) return false;
-      const tag = el.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return true;
-      if (el.isContentEditable) return true;
-      if (el.closest("[data-cmdk-input]")) return true; // inside cmdk palette input
-      return false;
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const typing = isInputActive();
-      const paletteOpen = isCommandPaletteOpen;
-
-      // Always allow palette toggle (global power key)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        if (isKeyboardCheatsheetOpen) toggleKeyboardCheatsheet(false);
-        toggleCommandPalette();
-        return;
-      }
-
-      // Quick add (ΓîÿN) - only when not already typing in a field
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
-        if (typing) return;
-        e.preventDefault();
-        setShowAddInput(true);
-        setTimeout(() => {
-          const input = document.getElementById("quick-add") as HTMLInputElement;
-          input?.focus();
-        }, 10);
-        return;
-      }
-
-      // ? for keyboard cheatsheet (when not typing, not in palette)
-      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-        if (typing || paletteOpen) return;
-        e.preventDefault();
-        toggleKeyboardCheatsheet(true);
-        return;
-      }
-
-      // View switching (1-5) - number keys only when safe (not typing, not palette, not in modals)
-      if (!typing && !paletteOpen && !showAddInput && !showFullTaskModal && !showAuthModal && !isKeyboardCheatsheetOpen) {
-        if (e.key === "1") { setView("today"); return; }
-        if (e.key === "2") { setView("tasks"); return; }
-        if (e.key === "3") { setView("notes"); return; }
-        if (e.key === "4") { setView("calendar"); return; }
-        if (e.key === "5") { setView("teams"); return; }
-      }
-
-      // Close modals / sheets (Escape always respected, layered)
-      if (e.key === "Escape") {
-        if (isKeyboardCheatsheetOpen) {
-          toggleKeyboardCheatsheet(false);
-          return;
-        }
-        if (showAIChat) {
-          setShowAIChat(false);
-          return;
-        }
-        if (showAuthModal) {
-          setShowAuthModal(false);
-          return;
-        }
-        if (showFullTaskModal) {
-          setShowFullTaskModal(false);
-          // keep selection for context panel
-          return;
-        }
-        if (selectedTaskId) {
-          selectTask(null);
-          return;
-        }
-        if (selectedNoteId) {
-          setSelectedNoteId(null);
-          return;
-        }
-        if (showAddInput) {
-          setShowAddInput(false);
-          setQuickAddValue("");
-          return;
-        }
-        setShowWorkspaceMenu(false);
-        if (paletteOpen) {
-          toggleCommandPalette(false);
-        }
-        return;
-      }
-
-      // Space to complete selected task (only when a task is selected and not typing)
-      if (e.key === " " && selectedTaskId && !typing) {
-        e.preventDefault();
-        const task = tasks.find((t) => t.id === selectedTaskId);
-        if (task && task.status !== "done") {
-          handleComplete(task.id);
-        }
-        return;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    selectedTaskId,
-    selectedNoteId,
-    tasks,
-    toggleCommandPalette,
-    toggleKeyboardCheatsheet,
-    isCommandPaletteOpen,
-    isKeyboardCheatsheetOpen,
-    showAddInput,
-    showFullTaskModal,
-    showAuthModal,
-    showAIChat,
-    setView,
-  ]);
-
-  // Client-only sync display state to prevent hydration mismatch on the mobile sync indicator.
-  // Values like isOnline / pendingSyncCount can differ between server render and client
-  // (navigator.onLine + persisted queue rehydration).
-  useEffect(() => {
-    const updateSyncDisplay = () => {
-      const { isOnline, isSyncing, pendingSyncCount } = useTaskStore.getState();
-      setSyncDisplay({ isOnline, isSyncing, pendingSyncCount });
-    };
-
-    updateSyncDisplay();
-
-    const unsubscribe = useTaskStore.subscribe((state) => {
-      setSyncDisplay({
-        isOnline: state.isOnline,
-        isSyncing: state.isSyncing,
-        pendingSyncCount: state.pendingSyncCount,
-      });
-    });
-
-    const handleOnline = () => updateSyncDisplay();
-    const handleOffline = () => updateSyncDisplay();
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      unsubscribe();
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  // C4 Phase A Home Global Hub: Trigger cross-workspace aggregates when the user lands on Home.
-  // This was previously called directly inside renderHomeView(), which caused the React error:
-  // "Cannot update a component (CommandPalette) while rendering a different component (BadAssTasks)"
-  // because fetchGlobalHomeAggregates performs a Zustand setState internally.
-  // Effect is the correct place; the action itself remains idempotent + fully guarded.
-  useEffect(() => {
-    if (currentView === "home") {
-      fetchGlobalHomeAggregates?.().catch(() => {});
-    }
-  }, [currentView]);
-
-  // PWA: Register service worker for offline shell + handle beforeinstallprompt for native install experience.
-  // Only runs in browser; safe in demo. On mobile it enables "Add to Home Screen" + offline.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
-
-    // Register SW (non-blocking)
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then((reg) => {
-        console.log('[PWA] SW registered for offline shell:', reg.scope);
-      })
-      .catch((err) => console.warn('[PWA] SW registration failed (dev ok):', err));
-
-    // Install prompt capture (fires on eligible mobile Chrome/Edge/Safari etc.)
-    const handleBeforeInstall = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setShowInstallPrompt(true);
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-
-    // If already installed or not applicable, prompt won't fire.
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-    };
-  }, []);
-
-  // === STRICT AUTH GATE (addresses user requirement) ===
-  // When Supabase env keys are present, the app must NEVER render the productivity UI,
-  // workspace switcher, or the "LIVE" badge until a real user is authenticated.
-  // This was the root cause of the previous misleading experience (LIVE badge + full
-  // creation UI visible, but no user_id/workspace_id so nothing persisted).
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user;
   const showLandingGate = isConfigured && !user && !isAuthLoading;
@@ -917,56 +487,29 @@ export default function BadAssTasks() {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
+      if (outcome === "accepted") {
         toast.success("Thanks for installing!", { description: "Bad Ass Tasks is now on your home screen." });
       }
       setDeferredPrompt(null);
       setShowInstallPrompt(false);
       return;
     }
-    // Persistent fallback (no beforeinstallprompt or after dismiss) — common on iOS Safari etc.
-    triggerHaptic('light');
+    triggerHaptic("light");
     toast.info("Add to Home Screen", {
-      description: "Tap the Share button in your browser → 'Add to Home Screen' (or 'Install App'). Works great as PWA with offline support!",
+      description: "Use your browser Share menu → Add to Home Screen.",
       duration: 8000,
     });
   };
 
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!quickAddValue.trim()) return;
-
-    const res = await addTask(quickAddValue);
-    if (!res) {
-      toast.error("Failed to create task", { description: "Please try again." });
-      return;
-    }
-    const newTask = res;
-    
-    toast.success("Task captured", {
-      description: newTask.title,
-      action: {
-        label: "Open",
-        onClick: () => selectTask(newTask.id),
-      },
-    });
-
-    setQuickAddValue("");
-    setShowAddInput(false);
-    setView("tasks");
-  };
-
   const handleComplete = async (id: string) => {
-    triggerHaptic('success');
+    triggerHaptic("success");
     const task = tasks.find((t) => t.id === id);
     if (!task || task.status === "done" || taskLoadingStates?.[id]) return;
 
-    // Recurring engine integration (Agent 8): auto-advance due date instead of marking done
-    // Keeps the task alive and actionable. Full series/exception support in future engine phase.
     if (task.recurringRule) {
       const next = getNextRecurringDue(task.recurringRule, new Date(), task.dueDate, task.exceptionDates);
       if (next) {
-        await updateTask(id, { dueDate: next.toISOString() }); // Do NOT complete — advance the anchor (skips exceptions)
+        await updateTask(id, { dueDate: next.toISOString() });
         toast.success("Recurrence advanced", {
           description: `${task.title} → next due ${format(next, "MMM d")}`,
         });
@@ -974,10 +517,8 @@ export default function BadAssTasks() {
       }
     }
 
-    // Normal non-recurring path
     await completeTask(id);
     setConfettiTrigger((c) => c + 1);
-
     toast.success("Task completed", {
       description: task.title,
       action: {
@@ -989,21 +530,143 @@ export default function BadAssTasks() {
     });
   };
 
-  const handleAddFromNatural = async () => {
-    const input = prompt("What needs to get done?\n\nExamples:\n• Finish proposal by Friday P1\n• Call mom tomorrow @personal\n• Ship landing page P0");
-    if (input) {
-      const res = await addTask(input);
-      if (!res) {
-        toast.error("Failed to create task", { description: "Please try again." });
-        return;
-      }
-      const task = res;
-      toast.success(`Added: ${task.title}`);
-      setView("tasks");
+  const openTask = (task: Task) => {
+    selectTask(task.id);
+    setShowFullTaskModal(true);
+  };
+
+  const ensureWorkspaceForHomeAction = async (workspaceId: string) => {
+    if (currentWorkspace.id !== workspaceId) {
+      switchWorkspace(workspaceId);
+      await useTaskStore.getState().initializeFromSupabase();
     }
   };
 
-  // Handler to create additional workspace (real DB via RPC when live; demo safe). Production ready.
+  const handleHomeOpenFocusTask = async (item: HomeFocusItem) => {
+    await ensureWorkspaceForHomeAction(item.workspaceId);
+    const freshTask =
+      useTaskStore.getState().tasks.find((t) => t.id === item.task.id) || item.task;
+    openTask(freshTask);
+  };
+
+  const handleHomeCompleteFocusTask = async (item: HomeFocusItem) => {
+    await ensureWorkspaceForHomeAction(item.workspaceId);
+    await handleComplete(item.task.id);
+    fetchGlobalHomeAggregates();
+  };
+
+  const handleHomeAcceptInvite = async (inviteId: string) => {
+    const wsId = await acceptInviteLink(inviteId);
+    if (wsId) {
+      const toDelete = (notifications || [])
+        .filter((n: Notification) => n.metadata?.invite_id === inviteId)
+        .map((n: Notification) => n.id);
+      for (const id of toDelete) {
+        await deleteNotification?.(id);
+      }
+      await Promise.all([
+        fetchNotifications?.().catch(() => {}),
+        useTaskStore.getState().fetchUserWorkspaces?.().catch(() => {}),
+        fetchGlobalHomeAggregates(),
+      ]);
+    }
+  };
+
+  const handleHomeDeclineInvite = async (inviteId: string) => {
+    await declineReceivedInvite(inviteId);
+    await fetchNotifications?.().catch(() => {});
+    fetchGlobalHomeAggregates();
+  };
+
+  const handleHomeOpenNotification = (notification: Notification) => {
+    setSelectedNotification(notification);
+    setShowNotifications(true);
+    if (!notification.readAt) {
+      markNotifRead?.(notification.id);
+    }
+  };
+
+  const homeUserDisplayName = useMemo(() => {
+    const selfMember = members.find((m) => m.userId === user?.id);
+    const metaName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name;
+    return getUserFirstName({
+      profileFullName,
+      memberFullName: selfMember?.fullName,
+      authFullName: metaName,
+      username: selfMember?.username,
+      email: user?.email,
+    });
+  }, [user, profileFullName, members]);
+
+  const renderTaskRow = (task: Task) => {
+    const due = formatDueDate(task.dueDate);
+    const isDone = task.status === "done";
+    const isOpLoading = !!taskLoadingStates?.[task.id];
+    const onlineEditorsCount = (remoteCursors || []).filter(
+      (c: { itemId?: string; itemType?: string }) => c.itemId === task.id && c.itemType === "task"
+    ).length;
+
+    return (
+      <TaskRow
+        key={task.id}
+        task={task}
+        isDone={isDone}
+        isOpLoading={isOpLoading}
+        due={due}
+        onlineEditorsCount={onlineEditorsCount}
+        onOpen={openTask}
+        onComplete={handleComplete}
+        onSwipeComplete={(id) => handleComplete(id)}
+      />
+    );
+  };
+
+  const renderTodayView = () => (
+    <TodayView
+      todayTasks={todayTasks}
+      activeTaskCount={activeTaskCount}
+      setView={setView}
+      renderTaskRow={renderTaskRow}
+    />
+  );
+
+  const renderTasksView = () => (
+    <div className="flex flex-col gap-3 min-h-0 max-w-5xl">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+        <input
+          value={taskFilter.search || ""}
+          onChange={(e) => setTaskFilter({ search: e.target.value })}
+          placeholder="Filter tasks…"
+          className="input px-3 py-2.5 rounded-xl text-sm max-w-md"
+        />
+        <div className="flex gap-1.5 overflow-x-auto pb-1 text-[10px]">
+          {(["all", "only", "none"] as const).map((mode) => (
+            <button
+              key={`rec-${mode}`}
+              onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
+              className={cn(
+                "px-2 py-1 rounded-full border transition shrink-0",
+                (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
+                  ? "bg-[#c084fc] text-black border-[#c084fc]"
+                  : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+              )}
+            >
+              {mode === "all" ? "All" : mode === "only" ? "Recurring" : "One-off"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <TasksTable
+        tasks={filteredTasks}
+        taskLoadingStates={taskLoadingStates}
+        onOpenTask={openTask}
+        onComplete={handleComplete}
+        onAddTask={addTask}
+      />
+    </div>
+  );
+
   const handleCreateWorkspace = async () => {
     const name = newWorkspaceName.trim();
     if (!name) {
@@ -1014,7 +677,6 @@ export default function BadAssTasks() {
     try {
       const created = await createWorkspace(name);
       if (created) {
-        // Success path: store already toasts + switches + reloads data. Clean up local UI.
         setNewWorkspaceName("");
         setIsCreatingWorkspace(false);
         setShowWorkspaceMenu(false);
@@ -1024,7 +686,6 @@ export default function BadAssTasks() {
     }
   };
 
-  // Workspace settings handlers (owner-only; small self-contained modal)
   const openWorkspaceSettings = () => {
     if (myRole !== "owner") {
       toast.error("Only owners can access workspace settings");
@@ -1049,429 +710,195 @@ export default function BadAssTasks() {
         return;
       }
       const ok = await updateWorkspaceDetails(updates);
-      if (ok) {
-        setShowWorkspaceSettings(false);
-      }
+      if (ok) setShowWorkspaceSettings(false);
     } finally {
       setIsSavingSettings(false);
     }
   };
 
-  const handleDeleteWorkspace = () => {
+  const handleDeleteWorkspace = async () => {
     if (myRole !== "owner") return;
+    if (!workspaceDeleteGuard.allowed) {
+      toast.error(workspaceDeleteGuard.reason ?? "This workspace cannot be deleted");
+      return;
+    }
     if (deleteConfirmName.trim() !== currentWorkspace.name) {
       toast.error("Type the exact workspace name to confirm deletion");
       return;
     }
-    // Trigger the modern confirmation modal
-    setPendingDeleteWorkspace(true);
-  };
-
-  // Production activity log panel support: manual refresh wired to real hybrid getRecentActivity
-  const handleRefreshActivity = async () => {
-    if (!refreshRecentActivity) return;
-    setIsRefreshingActivity(true);
+    setIsDeletingWorkspace(true);
     try {
-      await refreshRecentActivity();
-      toast.success("Activity refreshed", { description: "Latest events from current workspace." });
+      const ok = await deleteCurrentWorkspace();
+      if (ok) {
+        setShowWorkspaceSettings(false);
+        setDeleteConfirmName("");
+      }
     } finally {
-      setIsRefreshingActivity(false);
+      setIsDeletingWorkspace(false);
     }
   };
 
-  const openTask = (task: Task) => {
-    selectTask(task.id);
-    setShowFullTaskModal(true);
-  };
+  // Keyboard shortcuts - reliable, input-aware, keyboard-first experience
+  useEffect(() => {
+    const isInputActive = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return true;
+      if (el.isContentEditable) return true;
+      if (el.closest("[data-cmdk-input]")) return true;
+      return false;
+    };
 
-  const renderTaskRow = (task: Task) => {
-    const due = formatDueDate(task.dueDate);
-    const isDone = task.status === "done";
-    const isOpLoading = !!taskLoadingStates?.[task.id];
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const typing = isInputActive();
+      const paletteOpen = isCommandPaletteOpen;
 
-    // Keyboard + screen reader support for primary task list items (WCAG AA: operable, named, keyboard accessible)
-    const handleTaskRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === "Enter" || e.key === " ") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        openTask(task);
+        if (isKeyboardCheatsheetOpen) toggleKeyboardCheatsheet(false);
+        toggleCommandPalette();
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+        if (typing) return;
+        e.preventDefault();
+        setView("tasks");
+        setTimeout(() => {
+          const input = document.getElementById("task-quick-add") as HTMLInputElement;
+          input?.focus();
+        }, 10);
+        return;
+      }
+
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        if (typing || paletteOpen) return;
+        e.preventDefault();
+        toggleKeyboardCheatsheet(true);
+        return;
+      }
+
+      if (!typing && !paletteOpen && !showFullTaskModal && !showAuthModal && !isKeyboardCheatsheetOpen) {
+        if (e.key === "1") { setView("today"); return; }
+        if (e.key === "2") { setView("tasks"); return; }
+        if (e.key === "3") { setView("notes"); return; }
+        if (e.key === "4") { setView("teams"); return; }
+      }
+
+      if (e.key === "Escape") {
+        if (isKeyboardCheatsheetOpen) {
+          toggleKeyboardCheatsheet(false);
+          return;
+        }
+        if (showAuthModal) {
+          setShowAuthModal(false);
+          return;
+        }
+        if (showFullTaskModal) {
+          setShowFullTaskModal(false);
+          return;
+        }
+        if (selectedTaskId) {
+          selectTask(null);
+          return;
+        }
+        if (selectedNoteId) {
+          setSelectedNoteId(null);
+          return;
+        }
+        setShowWorkspaceMenu(false);
+        if (paletteOpen) toggleCommandPalette(false);
+        return;
+      }
+
+      if (e.key === " " && selectedTaskId && !typing) {
+        e.preventDefault();
+        const task = tasks.find((t) => t.id === selectedTaskId);
+        if (task && task.status !== "done") {
+          handleComplete(task.id);
+        }
       }
     };
 
-    // Swipe-to-complete gesture (mobile native delight): left swipe completes (with reveal + haptic + undo toast).
-    // Uses framer-motion (already in project) + our .swipe-* CSS. Desktop unaffected.
-    const swipeThreshold = 120;
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedTaskId,
+    selectedNoteId,
+    tasks,
+    toggleCommandPalette,
+    toggleKeyboardCheatsheet,
+    isCommandPaletteOpen,
+    isKeyboardCheatsheetOpen,
+    showFullTaskModal,
+    showAuthModal,
+    setView,
+  ]);
 
-    const handleSwipeEnd = (_e: any, info: any) => {
-      if (isDone || isOpLoading) return;
-      const offsetX = info.offset?.x || 0;
-      const velocityX = info.velocity?.x || 0;
-      if (offsetX < -swipeThreshold || velocityX < -800) {
-        // Left swipe = complete
-        triggerHaptic('success');
-        handleComplete(task.id);
-      } else if (offsetX > swipeThreshold || velocityX > 800) {
-        // Right swipe = quick action: cycle priority (native delight, no modal needed)
-        triggerHaptic('medium');
-        const prioCycle: Priority[] = ["P0", "P1", "P2", "P3"];
-        const currentIdx = prioCycle.indexOf(task.priority);
-        const nextPrio = prioCycle[(currentIdx + 1) % prioCycle.length];
-        updateTask(task.id, { priority: nextPrio });
-        toast.success(`Priority → ${nextPrio}`, { description: task.title });
-      }
-    };
+  useEffect(() => {
+    if (!workspaces.length) return;
+    fetchGlobalHomeAggregates();
+  }, [workspaces, user?.id, fetchGlobalHomeAggregates]);
 
-    return (
-      <div key={task.id} className="swipe-container relative rounded-xl overflow-hidden mb-1">
-        {/* Reveal backgrounds (visible during drag) */}
-        <div className="swipe-action-bg complete" aria-hidden="true">
-          <Check className="h-5 w-5 mr-2" /> COMPLETE
-        </div>
-        <div className="swipe-action-bg actions" aria-hidden="true">
-          ACTIONS <ArrowUpRight className="h-4 w-4 ml-1" />
-        </div>
+  useEffect(() => {
+    if (currentView === "home") {
+      fetchGlobalHomeAggregates();
+    }
+  }, [currentView, fetchGlobalHomeAggregates]);
 
-        <motion.div
-          drag="x"
-          dragConstraints={{ left: -160, right: 120 }}
-          dragElastic={0.2}
-          onDragEnd={handleSwipeEnd}
-          whileTap={{ scale: 0.995 }}
-          className={cn(
-            "task-row group flex items-center gap-3 md:gap-4 px-4 md:px-5 py-2.5 md:py-3.5 rounded-xl border border-transparent cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#c084fc]/50 bg-[var(--bg-card)] relative z-10",
-            isDone && "completed"
-          )}
-          role="button"
-          tabIndex={0}
-          aria-label={`Task: ${task.title}${isDone ? " (completed)" : ""}${due ? `, due ${due.label}` : ""}. Swipe left to complete.`}
-          onClick={() => openTask(task)}
-          onKeyDown={handleTaskRowKeyDown}
-          style={{ touchAction: 'pan-y' }} // vertical scroll ok, horizontal captured by drag
-        >
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!isOpLoading && !isDone) {
-                triggerHaptic('success');
-                handleComplete(task.id);
-              }
-            }}
-            disabled={isOpLoading || isDone}
-            className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 disabled:opacity-60",
-              isDone 
-                ? "bg-[#00ff9f] border-[#c084fc] text-black" 
-                : "border-[#3a3a42] hover:border-[#c084fc] group-hover:border-[#c084fc]/70"
-            )}
-            aria-label={isDone ? "Completed" : isOpLoading ? "Updating task" : "Mark complete"}
-          >
-            {isOpLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : isDone ? (
-              <Check className="h-3.5 w-3.5" />
-            ) : null}
-          </button>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className={cn("task-title font-medium text-[14px] md:text-[15px] truncate", isDone && "line-through")}>
-                {task.title}
-              </div>
-              <div className={`priority-badge priority-${task.priority.toLowerCase()}`}>
-                {task.priority}
-              </div>
-              {task.recurringRule && (
-                <span className="recurring-badge text-[10px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 font-medium flex items-center gap-0.5" title={getRecurringLabel(task.recurringRule)}>
-                  → {getRecurringLabel(task.recurringRule).split(" ")[0]}
-                </span>
-              )}
-              {/* Agent 14: cross-client editing indicator on task row (who has it open/selected) */}
-              {(() => {
-                const editors = (onlineUsers || []).filter((u: any) => u.editingItemId === task.id && u.editingItemType === 'task' && u.userId !== user?.id);
-                if (editors.length === 0) return null;
-                return <span className="text-[9px] text-[#00ff9f] ml-1 font-mono" title={`Editing: ${editors.map((e:any)=>e.email||e.userId?.slice(0,6)).join(', ')}`}>Γ£Ä{editors.length}</span>;
-              })()}
-            </div>
-            {task.description && (
-              <div className="text-xs text-[#71717a] mt-0.5 line-clamp-1">{task.description}</div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3 text-sm">
-            {task.tags.length > 0 && (
-              <div className="hidden md:flex gap-1.5">
-                {task.tags.slice(0, 2).map((tag) => (
-                  <span key={tag} className="text-[10px] px-2 py-px rounded bg-white/5 text-[#a1a1aa]">{tag}</span>
-                ))}
-              </div>
-            )}
-
-            {task.assignee && (
-              <div className="text-[#71717a] text-xs hidden sm:block">{task.assignee}</div>
-            )}
-
-            {due && (
-              <div className={cn(
-                "due-badge text-xs font-medium",
-                due.variant === "overdue" && "due-overdue",
-                due.variant === "today" && "due-today",
-                due.variant === "soon" && "due-soon"
-              )}>
-                {due.label}
-              </div>
-            )}
-
-            <div className="text-[#71717a] text-xs font-mono w-14 text-right hidden lg:block">
-              {task.timeEstimate ? `${task.timeEstimate}m` : ""}
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    );
-  };
-
-  // Old button-based Kanban removed — replaced by real @dnd-kit implementation (see KanbanBoard + store.kanbanReorder above)
-
-  const renderTodayView = () => (
-    <div className="max-w-4xl mx-auto pt-4 md:pt-8">
-      <div className="mb-4 md:mb-8">
-        <div className="text-[#c084fc] text-[10px] md:text-sm font-semibold tracking-[3px] mb-0.5 md:mb-1">GOOD MORNING, ALEX</div>
-        <div className="flex items-center gap-2 md:gap-3">
-          <div className="text-3xl md:text-5xl font-semibold tracking-tighter">What matters today?</div>
-          <button
-            onClick={async () => {
-              const realMode = isXAIConfigured();
-              const b = realMode 
-                ? await generateDailyBriefingAI(tasks, notes, recentActivity)
-                : generateDailyBriefing(tasks, notes, recentActivity);
-              toast.success(realMode ? `xAI Grok: ${b.greeting}` : b.greeting, {
-                description: `${b.focusSuggestion} • ${b.stats.p0Count} P0s • ${b.stats.dueToday} due`,
-                duration: 7000,
-              });
-            }}
-            className="ml-2 text-xs px-3 py-1.5 rounded-full border border-[#ff00aa]/40 text-[#ff00aa] hover:bg-[#ff00aa]/10 flex items-center gap-1"
-            title="Generate smart AI daily briefing from your live data (real xAI when configured)"
-          >
-            <Sparkles className="h-3.5 w-3.5" /> AI Briefing
-          </button>
-          <button
-            onClick={async () => {
-              const realMode = isXAIConfigured();
-              const w = realMode 
-                ? await generateWeeklyBriefingAI(tasks, notes, recentActivity) as any
-                : generateWeeklyBriefing(tasks, notes, recentActivity) as any;
-              toast.success(realMode ? `xAI Grok: ${w.greeting}` : w.greeting, {
-                description: `${w.focusSuggestion} • ${w.weekActions?.[0] || ""} • Trend: ${w.trend || ""}`,
-                duration: 8000,
-              });
-            }}
-            className="ml-1 text-xs px-2.5 py-1.5 rounded-full border border-[#c084fc]/40 text-[#c084fc] hover:bg-[#c084fc]/10 flex items-center gap-1"
-            title="Generate AI weekly briefing with actionable insights"
-          >
-            Weekly
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="glass rounded-3xl p-6">
-          <div className="text-[#71717a] text-sm">Due today or overdue</div>
-          <div className="text-6xl font-semibold tabular-nums mt-2 text-[#ff3366]">{todayTasks.length}</div>
-          <div className="text-sm mt-1 text-[#a1a1aa]">Focus here first</div>
-        </div>
-        <div className="glass rounded-3xl p-6">
-          <div className="text-[#71717a] text-sm">Active tasks</div>
-          <div className="text-6xl font-semibold tabular-nums mt-2">{activeTaskCount}</div>
-          <div className="flex items-center gap-2 mt-2 text-[#c084fc] text-sm">
-            <Zap className="h-4 w-4" /> 3 high priority
-          </div>
-        </div>
-        <div className="glass rounded-3xl p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-[#71717a] text-sm">Focus score</div>
-            <div className="text-6xl font-semibold tabular-nums mt-1">87</div>
-          </div>
-          <div className="text-[#c084fc] text-sm mt-4">+12 from yesterday. You're in flow.</div>
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="font-semibold">Today's Priorities</div>
-          <button onClick={() => setView("tasks")} className="text-xs text-[#c084fc] flex items-center gap-1 hover:underline">
-            SEE ALL <ArrowUpRight className="h-3 w-3" />
-          </button>
-        </div>
-        <div className="space-y-1">
-          {todayTasks.length > 0 ? (
-            todayTasks.slice(0, 5).map(renderTaskRow)
-          ) : (
-            <div className="text-center py-12 text-[#71717a]">Nothing due today. You are clear.</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderTasksView = () => (
-    <div>
-      <div className="flex items-center justify-between mb-3 md:mb-6">
-        <div>
-          <div className="text-2xl md:text-3xl font-semibold tracking-tight">Tasks</div>
-          <div className="text-[#71717a] text-xs md:text-sm mt-0.5">{filteredTasks.length} tasks • {tasks.filter(t => t.status !== "done").length} open</div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <button 
-            onClick={() => setKanbanView("list")} 
-            className={cn("px-3 py-1 text-xs md:text-sm md:px-4 md:py-1.5 rounded-full transition", kanbanView === "list" ? "bg-white/10" : "hover:bg-white/5")}
-          >
-            List
-          </button>
-          <button 
-            onClick={() => setKanbanView("board")} 
-            className={cn("px-3 py-1 text-xs md:text-sm md:px-4 md:py-1.5 rounded-full transition", kanbanView === "board" ? "bg-white/10" : "hover:bg-white/5")}
-          >
-            Board
-          </button>
-          <button onClick={handleAddFromNatural} className="btn btn-secondary ml-1 text-xs md:text-sm px-3 md:px-4 py-1 md:py-2">
-            <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Natural</span> add
-          </button>
-        </div>
-      </div>
-
-      {/* Agent 32: Upgraded hybrid semantic global search + filters (replaces basic; drives results + graph) */}
-      <div className="flex flex-col gap-2 mb-3">
-        <div className="flex gap-2 items-center">
-          <input
-            value={globalSearchQuery}
-            onChange={(e) => {
-              setGlobalSearchQuery(e.target.value);
-              // Keep legacy filter in sync for list compatibility
-              setTaskFilter({ search: e.target.value });
-            }}
-            placeholder="Search tasks, notes, tags... (hybrid)"
-            className="input flex-1 px-3 py-2 md:py-2.5 rounded-2xl text-sm"
-          />
-          <button
-            onClick={() => setIsGraphOpen(true)}
-            className="btn btn-secondary px-2.5 py-2 text-xs md:text-sm flex items-center gap-1 border-[#c084fc]/40 hover:border-[#c084fc]"
-            title="Knowledge Graph"
-          >
-            <Network className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Graph</span>
-          </button>
-        </div>
-        {/* Compact mobile-first filter bar (was two tall rows — now single scrollable for density) */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 text-[10px] snap-x touch-pan-x">
-          {(['all','task','note'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setSearchResultType(t)}
-              className={cn(
-                "px-2.5 py-1 rounded-full border transition snap-start shrink-0",
-                searchResultType === t ? "bg-[#c084fc] text-black border-[#c084fc]" : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
-              )}
-            >
-              {t === 'all' ? 'All' : t === 'task' ? 'Tasks' : 'Notes'}
-            </button>
-          ))}
-          <button onClick={() => { setGlobalSearchQuery(""); setTaskFilter({ search: "" }); setSearchResultType('all'); }} className="px-2 py-1 text-[#71717a] hover:text-white shrink-0">Clear</button>
-          {/* Recurring filters inline on the same bar for compactness */}
-          {(["all", "only", "none"] as const).map((mode) => (
-            <button
-              key={`rec-${mode}`}
-              onClick={() => setTaskFilter({ recurring: mode === "all" ? undefined : mode })}
-              className={cn(
-                "px-2 py-1 rounded-full border transition snap-start shrink-0",
-                (mode === "all" && !taskFilter.recurring) || taskFilter.recurring === mode
-                  ? "bg-[#c084fc] text-black border-[#c084fc]"
-                  : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
-              )}
-            >
-              {mode === "all" ? "All tasks" : mode === "only" ? "Recurring" : "Non-recurring"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Agent 32: Live hybrid semantic results (when global query active) — delightful ranked cards with quick actions */}
-      {globalSearchQuery.trim().length > 1 && (() => {
-        const hybrid = getHybridSearchResults(globalSearchQuery, { tasks, notes }, { 
-          types: searchResultType === 'all' ? ['task','note'] : [searchResultType], 
-          limit: 12 
-        });
-        if (hybrid.length === 0) return null;
-        return (
-          <div className="mb-4 glass rounded-2xl p-3 border border-[#c084fc]/20">
-            <div className="flex items-center justify-between mb-2 px-1">
-              <div className="text-xs font-semibold tracking-widest text-[#c084fc]">SEMANTIC RESULTS • {hybrid.length} matches</div>
-              <button onClick={() => setIsGraphOpen(true)} className="text-[10px] text-[#c084fc] hover:underline flex items-center gap-1">View in Graph <Network className="h-3 w-3"/></button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {hybrid.map((r) => (
-                <div 
-                  key={r.id} 
-                  onClick={() => {
-                    if (r.type === 'task') {
-                      setView("tasks"); selectTask(r.id); setShowFullTaskModal(true);
-                    } else {
-                      setView("notes"); setSelectedNoteId(r.id);
-                    }
-                  }}
-                  className="group p-2.5 rounded-xl border border-white/10 hover:border-[#c084fc]/40 bg-white/5 cursor-pointer flex gap-2 text-sm"
-                >
-                  <div className="mt-0.5">{r.type === 'task' ? <Check className="h-4 w-4 text-[#c084fc]" /> : <Star className="h-4 w-4 text-[#00ff9f]" />}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate group-hover:text-[#c084fc]">{r.title}</div>
-                    <div className="text-[10px] text-[#71717a] truncate">{r.snippet}</div>
-                    <div className="text-[9px] mt-0.5 text-[#c084fc]/70 font-mono">{r.score}% • {r.reasons.join(' ')}</div>
-                  </div>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setIsGraphOpen(true); setGraphFocusId(r.id); }}
-                    className="self-start text-[9px] px-1.5 py-0.5 rounded bg-white/10 opacity-60 group-hover:opacity-100"
-                  >Graph</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-
-      {kanbanView === "list" ? (
-        <div className="space-y-1">
-          {filteredTasks.length > 0 ? filteredTasks.map(renderTaskRow) : (
-            <div className="text-center py-8 md:py-16 text-[#71717a] text-sm">No tasks match your filters.</div>
-          )}
-        </div>
-      ) : (
-        <KanbanBoard onOpenTask={openTask} />
-      )}
-    </div>
-  );
-
-  // renderHomeView (C4 Phase A wired): thin delegator to extracted + enriched HomeView.
-  // Original placeholder body deleted (deprecate duplicate). Real aggregates from separate global slices.
-  // Click handlers delegate to switchWorkspace (instant clean ws switch, full guards preserved).
   const renderHomeView = () => {
-    // NOTE: Data fetching for global aggregates was moved to a useEffect (see below).
-    // Calling fetchGlobalHomeAggregates() directly here caused the React error:
-    // "Cannot update a component (CommandPalette) while rendering a different component (BadAssTasks)"
-    // because the store action performs setState during render.
+    const workspacePulse = (workspaces || []).map((ws) => {
+      const wsFocus = (globalTodayFocus || []).filter((f) => f.workspaceId === ws.id);
+      const overdue = wsFocus.filter((f) => {
+        if (!f.task.dueDate) return false;
+        const due = new Date(f.task.dueDate);
+        const now = new Date();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        due.setHours(0, 0, 0, 0);
+        return due < todayStart;
+      }).length;
 
-    const dueCount = (globalTodayFocus || []).length;
-    const wsCount = (workspaces || []).length;
-    const aiSummary = wsCount > 0
-      ? `Across ${wsCount} workspace${wsCount === 1 ? "" : "s"}, you have ${dueCount} task${dueCount === 1 ? "" : "s"} due today or overdue. ${globalRecentActivity?.length || 0} recent cross-ws movements.`
-      : "Quiet across your worlds. Create tasks or join more workspaces for the pulse.";
+      return {
+        id: ws.id,
+        name: ws.name,
+        role: ws.role,
+        dueToday: wsFocus.length,
+        overdue,
+        unreadNotifications: (notifications || []).filter(
+          (n: Notification) => !n.readAt && n.workspaceId === ws.id
+        ).length,
+        isCurrent: currentWorkspace.id === ws.id,
+        onlineCount: currentWorkspace.id === ws.id ? (onlineUsers || []).length : undefined,
+      };
+    });
 
     return (
       <HomeView
+        userDisplayName={homeUserDisplayName}
         workspaces={workspaces}
         switchWorkspace={switchWorkspace}
         setView={setView}
-        // Real Phase A aggregates (user-scoped, separate slices, hybrid guarded)
         globalTodayFocus={globalTodayFocus}
-        globalRecentActivity={globalRecentActivity}
-        aiSummary={aiSummary}
+        notifications={notifications}
+        workspacePulse={workspacePulse}
+        taskLoadingStates={taskLoadingStates}
+        onQuickAddTask={() => {
+          setView("tasks");
+          setTimeout(() => {
+            const input = document.getElementById("task-quick-add") as HTMLInputElement | null;
+            input?.focus();
+          }, 10);
+        }}
+        onQuickAddNote={() => setView("notes")}
+        onOpenChat={() => setChatOpen(true)}
+        onOpenCommandPalette={() => toggleCommandPalette(true)}
+        onCompleteFocusTask={handleHomeCompleteFocusTask}
+        onOpenFocusTask={handleHomeOpenFocusTask}
+        onAcceptInvite={handleHomeAcceptInvite}
+        onDeclineInvite={handleHomeDeclineInvite}
+        onOpenNotification={handleHomeOpenNotification}
       />
     );
   };
@@ -1508,12 +935,15 @@ export default function BadAssTasks() {
         onDeleteNote={noteOps.onDeleteNote}
         onLinkTaskToNote={noteOps.onLinkTaskToNote}
         onUnlinkTaskFromNote={noteOps.onUnlinkTaskFromNote}
-        onOpenTask={openTask}
+        onOpenTask={(taskId) => {
+          const t = tasks.find((x) => x.id === taskId);
+          if (t) openTask(t);
+        }}
         onToggleTaskStatus={noteOps.onToggleTaskStatus}
         onUpdateTask={noteOps.onUpdateTask}
         onCreateTaskAndEmbed={noteOps.onCreateTaskAndEmbed}
+        onCreateTaskAndLink={noteOps.onCreateTaskAndLink}
         onCreateSubNote={noteOps.onCreateSubNote}
-        onReparentNote={noteOps.onReparentNote}
         onLinkNoteToNote={noteOps.onLinkNoteToNote}
         onUnlinkNoteFromNote={noteOps.onUnlinkNoteFromNote}
         onOpenNote={(noteId) => setSelectedNoteId(noteId)}  // Simple navigation for db-blocks and embeds
@@ -1534,411 +964,6 @@ export default function BadAssTasks() {
         // (receives the real link/unlink handlers from noteOps). Override only if needed.
         onMentionsChanged={undefined}
       />
-    );
-  };
-  /* =====================================================================
-     World-class Calendar + Recurring + Drag-to-reschedule (Agent 8 + Agent 25 Production Polish)
-     - Month / Week / Timeline views with virtual recurring instances (engine powered, exceptions honored)
-     - Intelligent drag: series anchor OR "this occurrence only" (skip + one-off duplicate)
-     - Skip ├ù on instance chips + full exception management
-     - End conditions (COUNT/UNTIL) surfaced in labels + calendar
-     - Uses generateRecurringInstances + getRecurrenceEndDescription for rich display
-     - Perf: bounded gen, suitable for large sets. Strict demo/live separation.
-     - Feels like Linear/Notion for recurring work.
-  ===================================================================== */
-  const renderCalendarView = () => {
-    const today = new Date();
-
-    // Compute visible range for current mode
-    let viewStart: Date;
-    let viewEnd: Date;
-    let days: Date[] = [];
-
-    if (calendarMode === "month") {
-      const monthStart = startOfMonth(calendarMonth);
-      const monthEnd = endOfMonth(calendarMonth);
-      viewStart = startOfWeek(monthStart, { weekStartsOn: 0 });
-      viewEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
-      days = eachDayOfInterval({ start: viewStart, end: viewEnd });
-    } else if (calendarMode === "week") {
-      viewStart = startOfWeek(calendarMonth, { weekStartsOn: 0 });
-      viewEnd = endOfWeek(calendarMonth, { weekStartsOn: 0 });
-      days = eachDayOfInterval({ start: viewStart, end: viewEnd });
-    } else {
-      // Timeline: 4 weeks around current
-      viewStart = startOfWeek(subWeeks(calendarMonth, 1), { weekStartsOn: 0 });
-      viewEnd = endOfWeek(addWeeks(calendarMonth, 2), { weekStartsOn: 0 });
-      days = eachDayOfInterval({ start: viewStart, end: viewEnd });
-    }
-
-    // Build map of dateKey -> tasks/instances visible that day (incl. recurring projections)
-    const dateKey = (d: Date) => format(startOfDay(d), "yyyy-MM-dd");
-    const dayMap: Record<string, { task: Task; isRecurringInstance: boolean; occurrenceDate: Date }[]> = {};
-
-    tasks.forEach((task) => {
-      if (task.status === "done" && !task.recurringRule) return; // hide done non-recurring
-
-      const anchor = task.dueDate;
-      const isRecurring = !!task.recurringRule;
-
-      if (!isRecurring && anchor) {
-        const dueD = startOfDay(new Date(anchor));
-        if (dueD >= viewStart && dueD <= viewEnd) {
-          const key = dateKey(dueD);
-          if (!dayMap[key]) dayMap[key] = [];
-          dayMap[key].push({ task, isRecurringInstance: false, occurrenceDate: dueD });
-        }
-      } else if (isRecurring && anchor) {
-        // Use engine (Agent 13: exceptions passed for accurate skip filtering)
-        const occs = getOccurrencesInRange(anchor, task.recurringRule!, addDays(viewStart, -2), addDays(viewEnd, 2), 40, task.exceptionDates);
-        occs.forEach((occ) => {
-          if (occ >= viewStart && occ <= viewEnd) {
-            const key = dateKey(occ);
-            if (!dayMap[key]) dayMap[key] = [];
-            // Avoid dup if anchor coincides
-            if (!dayMap[key].some((e) => e.task.id === task.id && isSameDay(e.occurrenceDate, occ))) {
-              dayMap[key].push({ task, isRecurringInstance: true, occurrenceDate: occ });
-            }
-          }
-        });
-      }
-    });
-
-    // Skip one occurrence handler (Agent 13 exception support) - updates master task exceptions array
-    const handleSkipOccurrence = async (taskId: string, occurrenceDate: Date) => {
-      const task = tasks.find((t) => t.id === taskId);
-      if (!task || !task.recurringRule) return;
-      const exKey = normalizeExceptionKey(occurrenceDate);
-      const currentEx = task.exceptionDates || [];
-      if (currentEx.some((ex) => normalizeExceptionKey(ex) === exKey)) return; // already skipped
-      const nextEx = [...currentEx, exKey];
-      await updateTask(taskId, { exceptionDates: nextEx });
-      toast.success("Occurrence skipped", {
-        description: `${task.title} — ${format(occurrenceDate, "MMM d")} excluded from series`,
-      });
-    };
-
-    // Drag handlers for reschedule (native, reliable, zero extra setup)
-    // Agent 13 enhanced: richer payload for recurring instances to provide better feedback (still reschedules series anchor per design; deeper UX for prod)
-    const handleDragStart = (e: React.DragEvent, taskId: string, isRecurringInstance = false, occurrenceDate?: Date) => {
-      const payload = occurrenceDate
-        ? `${taskId}|${isRecurringInstance ? occurrenceDate.toISOString() : ""}`
-        : taskId;
-      e.dataTransfer.setData("text/plain", payload);
-      e.dataTransfer.effectAllowed = "move";
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-    };
-
-    const handleDrop = async (e: React.DragEvent, targetDay: Date) => {
-      e.preventDefault();
-      const raw = e.dataTransfer.getData("text/plain");
-      if (!raw) return;
-      const [taskId, occIso] = raw.split("|");
-      if (!taskId) return;
-
-      const task = tasks.find((t) => t.id === taskId);
-      if (!task) return;
-
-      const isInstanceDrag = !!occIso;
-      const occurrenceDate = occIso ? new Date(occIso) : null;
-
-      // Preserve original time-of-day if present, else default to 09:00
-      let newDue: Date;
-      if (task.dueDate) {
-        const orig = new Date(task.dueDate);
-        newDue = new Date(targetDay);
-        newDue.setHours(orig.getHours(), orig.getMinutes(), 0, 0);
-      } else {
-        newDue = new Date(targetDay);
-        newDue.setHours(9, 0, 0, 0);
-      }
-      const newDueIso = newDue.toISOString();
-
-      if (isInstanceDrag && occurrenceDate && task.recurringRule) {
-        // Intelligent recurring handling (production UX): ask user series vs this occurrence only
-        const choice = window.confirm(
-          `Recurring instance dragged.\n\n` +
-          `OK = Move entire series anchor (affects all future)\n` +
-          `Cancel = Skip original occurrence + create standalone one-off task at new date (series unchanged)`
-        );
-
-        if (choice) {
-          // Series anchor move (current behavior)
-          await updateTask(taskId, { dueDate: newDueIso });
-          toast.success("Series rescheduled", {
-            description: `${task.title} anchor moved to ${format(newDue, "MMM d")} (future occurrences updated). Use Skip or modal for one-offs.`,
-          });
-        } else {
-          // One-off: skip the dragged-from occurrence, create independent copy on target
-          const exKey = normalizeExceptionKey(occurrenceDate);
-          const currentEx = task.exceptionDates || [];
-          if (!currentEx.some((ex) => normalizeExceptionKey(ex) === exKey)) {
-            await updateTask(taskId, { exceptionDates: [...currentEx, exKey] });
-          }
-          // Create one-off duplicate (non-recurring) at new date, copy key fields
-          try {
-            const res = await addTask(task.title);
-            if (!res) {
-              toast.error("Failed to create one-off task");
-              return;
-            }
-            const oneOff = res;
-            await updateTask(oneOff.id, {
-              dueDate: newDueIso,
-              priority: task.priority,
-              tags: task.tags || [],
-              timeEstimate: task.timeEstimate,
-              description: task.description || "",
-              // status defaults to todo
-            });
-            toast.success("One-off created", {
-              description: `${task.title} — occurrence skipped in series; standalone task added for ${format(newDue, "MMM d")}`,
-            });
-          } catch (e) {
-            toast.error("Could not create one-off (series skip applied)");
-          }
-        }
-      } else {
-        // Non-recurring or series drag: simple reschedule
-        await updateTask(taskId, { dueDate: newDueIso });
-        toast.success("Rescheduled", {
-          description: `${task.title} moved to ${format(newDue, "MMM d")}`,
-        });
-      }
-    };
-
-    const goPrev = () => {
-      if (calendarMode === "month") setCalendarMonth(subMonths(calendarMonth, 1));
-      else if (calendarMode === "week") setCalendarMonth(subWeeks(calendarMonth, 1));
-      else setCalendarMonth(subWeeks(calendarMonth, 2));
-    };
-    const goNext = () => {
-      if (calendarMode === "month") setCalendarMonth(addMonths(calendarMonth, 1));
-      else if (calendarMode === "week") setCalendarMonth(addWeeks(calendarMonth, 1));
-      else setCalendarMonth(addWeeks(calendarMonth, 2));
-    };
-    const goToday = () => {
-      const t = new Date();
-      setCalendarMonth(startOfMonth(t));
-    };
-
-    return (
-      <div className="max-w-[1200px] mx-auto pt-6 pb-12">
-        {/* Calendar Header — premium controls */}
-        <div className="flex items-center justify-between mb-6 px-2">
-          <div className="flex items-center gap-4">
-            <div className="text-3xl font-semibold tracking-tighter flex items-center gap-3">
-              <Calendar className="h-7 w-7 text-[#c084fc]" />
-              Calendar
-            </div>
-            <div className="text-sm text-[#71717a] font-mono">
-              {format(calendarMonth, "MMMM yyyy")}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Mode switcher — world class tabs */}
-            {(["month", "week", "timeline"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setCalendarMode(m)}
-                className={cn(
-                  "px-4 py-1.5 text-sm rounded-full transition font-medium border",
-                  calendarMode === m
-                    ? "bg-white/10 border-[#c084fc]/50 text-white"
-                    : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
-                )}
-              >
-                {m === "month" ? "Month" : m === "week" ? "Week" : "Timeline"}
-              </button>
-            ))}
-
-            <div className="w-px h-6 bg-white/10 mx-1" />
-
-            <button onClick={goPrev} className="p-2 rounded-xl hover:bg-white/5 border border-white/10 transition" aria-label="Previous period">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button onClick={goToday} className="px-4 py-1.5 text-sm rounded-full bg-white/5 hover:bg-white/10 border border-white/10">Today</button>
-            <button onClick={goNext} className="p-2 rounded-xl hover:bg-white/5 border border-white/10 transition" aria-label="Next period">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-
-            <button
-              onClick={() => {
-                // Quick demo: create recurring task shortcut
-                const title = prompt("Quick recurring task title? (e.g. Review metrics)");
-                if (title) {
-                  // Fire and forget via store (will be in todo by default)
-                  (async () => {
-                    const res = await addTask(`${title} weekly`);
-                    if (!res) {
-                      toast.error("Failed to create recurring task");
-                      return;
-                    }
-                    const t = res;
-                    await updateTask(t.id, { recurringRule: "FREQ=WEEKLY;BYDAY=MO" });
-                    toast("Recurring weekly task created");
-                    setCalendarMode("month");
-                  })();
-                }
-              }}
-              className="ml-2 text-xs px-3 py-1.5 rounded-full bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 hover:bg-[#c084fc]/20 flex items-center gap-1"
-            >
-              <Repeat className="h-3.5 w-3.5" /> + Weekly
-            </button>
-          </div>
-        </div>
-
-        {/* Legend (Agent 25 production polish) */}
-        <div className="flex items-center gap-4 text-xs text-[#71717a] mb-4 px-2 flex-wrap">
-          <div className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded bg-[#c084fc]" /> Due / scheduled</div>
-          <div className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded border border-[#c084fc] border-dashed" /> Recurring instance</div>
-          <div className="flex items-center gap-1.5 text-[#c084fc]/70">├ù = Skip (exception)</div>
-          <div>Drag: series (default) or one-off (confirm) • Full COUNT/UNTIL + exceptions in engine + modal • Click chip → details</div>
-        </div>
-
-        {/* MONTH / WEEK GRID */}
-        {(calendarMode === "month" || calendarMode === "week") && (
-          <div className={cn(
-            "grid gap-px bg-white/5 p-px rounded-3xl overflow-hidden border border-white/10",
-            calendarMode === "month" ? "grid-cols-7" : "grid-cols-7"
-          )}>
-            {/* Day headers */}
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
-              <div key={i} className="text-center py-2 text-[10px] font-mono tracking-[1px] text-[#71717a] bg-[#0a0a0f]">
-                {d}
-              </div>
-            ))}
-
-            {days.map((day, idx) => {
-              const key = dateKey(day);
-              const dayTasks = (dayMap[key] || []).slice(0, calendarMode === "month" ? 4 : 8);
-              const isCurrentMonth = calendarMode === "month" ? day.getMonth() === calendarMonth.getMonth() : true;
-              const isDayToday = isToday(day);
-
-              return (
-                <div
-                  key={idx}
-                  onDragOver={handleDragOver}
-                  onDrop={(e) => handleDrop(e, day)}
-                  className={cn(
-                    "min-h-[108px] p-2 bg-[#111114] border-r border-b border-white/5 transition group",
-                    !isCurrentMonth && calendarMode === "month" && "opacity-50 bg-[#0c0c10]",
-                    isDayToday && "ring-1 ring-inset ring-[#c084fc]/60 bg-[#c084fc]/[0.015]"
-                  )}
-                >
-                  <div className={cn(
-                    "text-xs font-mono mb-1.5 flex items-baseline justify-between",
-                    isDayToday ? "text-[#c084fc] font-semibold" : "text-[#a1a1aa]"
-                  )}>
-                    {format(day, "d")}
-                    {isDayToday && <span className="text-[9px] px-1 py-px bg-[#c084fc] text-black rounded">TODAY</span>}
-                  </div>
-
-                  <div className="space-y-1">
-                    {dayTasks.map(({ task, isRecurringInstance, occurrenceDate }, tIdx) => (
-                      <div
-                        key={`${task.id}-${tIdx}`}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, task.id, isRecurringInstance, occurrenceDate)}
-                        onClick={() => openTask(task)}
-                        className={cn(
-                          "text-[10px] px-2 py-1 rounded-lg cursor-grab active:cursor-grabbing border transition flex items-center gap-1.5 truncate",
-                          isRecurringInstance
-                            ? "bg-[#c084fc]/5 border-[#c084fc]/30 text-[#c084fc] hover:border-[#c084fc]/60"
-                            : "bg-white/5 border-white/10 hover:border-white/30 text-[#f4f4f5]"
-                        )}
-                        title={`${task.title}${isRecurringInstance ? ` (recurring inst ${format(occurrenceDate, "MMM d")} — drag for series or one-off; end: ${getRecurrenceEndDescription(task.recurringRule)})` : ""} — drag to reschedule`}
-                      >
-                        <span className="truncate flex-1">{task.title}</span>
-                        {task.recurringRule && (
-                          <span className="text-[#c084fc]/70 text-[9px] shrink-0">→</span>
-                        )}
-                        {isRecurringInstance && <span className="text-[8px] opacity-60">inst</span>}
-                        {isRecurringInstance && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSkipOccurrence(task.id, occurrenceDate);
-                            }}
-                            className="ml-1 text-[8px] opacity-60 hover:opacity-100 hover:text-red-400 px-0.5"
-                            title="Skip this occurrence (add exception)"
-                          >
-                            ├ù
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    {dayTasks.length === 0 && (
-                      <div className="h-6 text-[9px] text-[#71717a]/60 flex items-center justify-center border border-dashed border-white/10 rounded opacity-0 group-hover:opacity-100 transition">
-                        Drop to schedule
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* TIMELINE / GANTT VIEW — basic but delightful horizontal bars */}
-        {calendarMode === "timeline" && (
-          <div className="glass rounded-3xl p-6 overflow-x-auto">
-            <div className="min-w-[900px]">
-              <div className="text-sm text-[#71717a] mb-4">Timeline • {format(viewStart, "MMM d")} — {format(viewEnd, "MMM d, yyyy")}</div>
-
-              {tasks.filter(t => t.dueDate || t.recurringRule).slice(0, 12).map((task, i) => {
-                const anchor = task.dueDate ? new Date(task.dueDate) : today;
-                const estDays = Math.max(1, Math.round((task.timeEstimate || 60) / (8 * 60))); // rough days
-                const barStart = Math.max(0, Math.floor((anchor.getTime() - viewStart.getTime()) / (1000 * 86400)));
-                const barWidth = Math.max(2, estDays);
-
-                return (
-                  <div key={i} className="flex items-center gap-4 py-2 border-b border-white/5 last:border-0 group">
-                    <div className="w-48 truncate text-sm cursor-pointer hover:text-[#c084fc]" onClick={() => openTask(task)}>
-                      {task.title}
-                      {task.recurringRule && <span className="ml-2 text-[#c084fc] text-xs">→ {getRecurringLabel(task.recurringRule).slice(0,10)}</span>}
-                    </div>
-
-                    <div className="flex-1 relative h-5 bg-white/5 rounded">
-                      <div
-                        className={cn(
-                          "absolute h-5 rounded transition-all flex items-center px-2 text-[9px] font-medium cursor-grab active:cursor-grabbing",
-                          task.recurringRule ? "bg-[#c084fc]/70 text-black" : "bg-[#c084fc] text-black"
-                        )}
-                        style={{ left: `${Math.min(92, (barStart / 28) * 100)}%`, width: `${Math.min(35, barWidth * 3.2)}%` }}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, task.id, false, undefined)}
-                        onClick={() => openTask(task)}
-                        title={task.recurringRule ? "Drag to reschedule series anchor" : "Drag me to another day in month view, or click"}
-                      >
-                        {format(anchor, "MMM d")}
-                      </div>
-                    </div>
-
-                    <div className="w-20 text-right text-xs text-[#71717a] tabular-nums">
-                      {task.timeEstimate ? `${task.timeEstimate}m` : ""}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {tasks.filter(t => t.dueDate || t.recurringRule).length === 0 && (
-                <div className="text-center py-12 text-[#71717a]">No scheduled or recurring tasks yet. Create some with due dates!</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Footer hint */}
-        <div className="mt-4 text-center text-[10px] text-[#71717a]">
-          Drag chips: series or one-off (prompt) • ├ù skips occurrence • Modal: rich end conditions (Never/After N/Until), raw RRULE, unskips • Engine v25: COUNT+UNTIL+instances+perf (demo/live clean)
-        </div>
-      </div>
     );
   };
 
@@ -2041,10 +1066,7 @@ export default function BadAssTasks() {
             <div className="mx-auto mb-6 h-20 w-20 rounded-3xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
               <Users className="h-10 w-10 text-black" />
             </div>
-            <div className="text-4xl font-semibold tracking-tighter mb-3">Build your team</div>
-            <p className="text-xl text-[#a1a1aa] max-w-md mx-auto">
-              Workspaces shine when you have collaborators. Search for people in the database or send an invite.
-            </p>
+            <div className="text-4xl font-semibold tracking-tighter mb-3">Team</div>
 
             {/* Recipient context — only show for non-owners of this workspace */}
             {currentWorkspace.role && currentWorkspace.role !== 'owner' && (
@@ -2119,7 +1141,7 @@ export default function BadAssTasks() {
           {/* Prominent user search (Facebook-style "find friends") */}
           <div className="glass rounded-3xl p-8 border border-white/10 mb-8">
             <div className="font-semibold text-lg mb-4 flex items-center gap-2">
-              <Search className="h-5 w-5 text-[#c084fc]" /> Search for teammates
+              <Search className="h-5 w-5 text-[#c084fc]" /> Find people
             </div>
 
             <div className="relative">
@@ -2148,7 +1170,7 @@ export default function BadAssTasks() {
                     }
                   }, 350);
                 }}
-                placeholder="Search by name, @username or city (e.g. Jordan, @alex, Austin)"
+                placeholder="Name, @username, or city"
                 className="input w-full px-5 py-4 text-lg rounded-2xl mb-4 pr-10"
               />
               {teamSearchQuery && (
@@ -2208,9 +1230,7 @@ export default function BadAssTasks() {
                   </button>
                 </div>
 
-                <div className="text-[11px] text-[#71717a] text-center">
-                  TheyΓÇÖll receive an email (if provided) or can join via the link.
-                </div>
+
               </div>
             )}
 
@@ -2305,9 +1325,7 @@ export default function BadAssTasks() {
             {/* Always-visible "Invite by email" option — stays noticeable even with many results */}
 
 
-            <div className="text-[11px] text-[#71717a] mt-4">
-              Search name, username or city. Results preview details before you invite.
-            </div>
+
           </div>
 
 
@@ -2328,68 +1346,38 @@ export default function BadAssTasks() {
       <div className="max-w-4xl mx-auto space-y-8 pb-12">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <Users className="h-8 w-8 text-[#c084fc]" />
-              <div>
-                <div className="text-2xl font-semibold tracking-tighter">Teams &amp; Collaboration</div>
-                <div className="text-sm text-[#71717a] flex items-center gap-2">
-                  {currentWorkspace.name}
-                  {!isSingleOwnerWorkspace && (
-                    <span className="px-2 py-0.5 rounded bg-white/5 text-[10px] font-mono text-[#c084fc] border border-white/10">{myRole}</span>
-                  )}
-                  {isLive && !isDemoWs ? (
-                    <span className="text-[#00ff9f] text-[10px]">• LIVE REALTIME</span>
-                  ) : (
-                    <span className="text-[#71717a] text-[10px]">• DEMO (single-user)</span>
-                  )}
-                </div>
-              </div>
-            </div>
+          <div className="flex items-center gap-3">
+            <Users className="h-8 w-8 text-[#c084fc]" />
+            <div className="text-2xl font-semibold tracking-tighter">Team</div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => { fetchMembers(); fetchInvites(); }}
-              className="btn btn-ghost text-xs px-3 py-1.5"
-              disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-            >
-              Refresh
-            </button>
             {canManage && isLive && !isDemoWs && (
               <button
                 onClick={() => setShowInviteDialog(true)}
                 className="btn btn-primary text-sm flex items-center gap-2"
               >
-                <Plus className="h-4 w-4" /> Invite member
+                <Plus className="h-4 w-4" /> Invite
               </button>
             )}
             <button onClick={handleManualAccept} className="btn btn-ghost text-xs px-3 py-1.5" disabled={!isLive}>
-              Accept invite token
+              Accept invite
             </button>
           </div>
         </div>
 
-        {/* Presence indicators (basic realtime presence) */}
-        <div className="glass rounded-2xl p-5 border border-white/10">
-          <div className="flex items-center gap-2 mb-3 text-sm font-medium text-[#a1a1aa]">
-            <Zap className="h-4 w-4 text-[#c084fc]" /> Online in this workspace
-            <span className="ml-auto text-[10px] text-[#71717a] font-mono">{onlineUsers.length} here now</span>
-          </div>
-          {onlineUsers.length > 0 ? (
+        {/* Presence */}
+        {onlineUsers.length > 0 && (
+          <div className="glass rounded-2xl p-4 border border-white/10">
             <div className="flex flex-wrap gap-2">
               {onlineUsers.map((u) => (
-                <div key={u.userId || u.presenceRef} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00ff9f]/10 text-[#00ff9f] text-xs border border-[#00ff9f]/20" title={`${u.email || u.userId} • ${u.view || 'viewing'} ${u.editingItemId ? `editing ${u.editingItemType}` : ''}`}>
+                <div key={u.userId || u.presenceRef} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00ff9f]/10 text-[#00ff9f] text-xs border border-[#00ff9f]/20">
                   <div className="w-1.5 h-1.5 rounded-full bg-[#00ff9f] animate-pulse" />
-                  {(u as any).fullName || ((u as any).username ? `@${(u as any).username}` : "Anonymous teammate")}
-                  {u.view && <span className="opacity-60">•{u.view}</span>}
+                  {(u as any).fullName || ((u as any).username ? `@${(u as any).username}` : "Online")}
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="text-sm text-[#71717a]">No other users detected (you are the only one here, or realtime connecting...)</div>
-          )}
-          {!isLive && <div className="text-[11px] mt-2 text-[#c084fc]">Presence &amp; realtime require live Supabase connection.</div>}
-        </div>
+          </div>
+        )}
 
         {/* Profile editing lives in the avatar menu (top-right) to avoid duplication on the Teams page. */}
 
@@ -2401,9 +1389,7 @@ export default function BadAssTasks() {
           </div>
 
           {members.length === 0 ? (
-            <div className="p-8 text-center text-[#71717a] text-sm">
-              {isDemoWs ? "Demo workspaces are single-player. Switch to or create a live workspace to see real members." : "No members loaded yet. Create your first workspace or refresh."}
-            </div>
+            <div className="p-8 text-center text-[#71717a] text-sm">No members</div>
           ) : (
             <div className="divide-y divide-white/10 text-sm">
               {members.map((m) => {
@@ -2413,24 +1399,12 @@ export default function BadAssTasks() {
                   <div key={m.userId} className="px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-colors">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">
-                        {m.fullName || (m.username ? `@${m.username}` : "Unknown teammate")}
-                      </div>
-                      <div className="text-[11px] text-[#71717a] font-mono truncate flex items-center gap-2">
-                        {m.username && <span>@{m.username}</span>}
-                        {m.lastActiveAt && (
-                          <span className="text-[#a1a1aa]">
-                            last seen {new Date(m.lastActiveAt).toLocaleDateString()}
-                          </span>
-                        )}
+                        {m.fullName || (m.username ? `@${m.username}` : "Member")}
                       </div>
                     </div>
 
                     <div className="text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
                       {m.role}
-                    </div>
-
-                    <div className="text-[11px] text-[#71717a] hidden sm:block">
-                      {new Date(m.joinedAt).toLocaleDateString()}
                     </div>
 
                     {canActOnThis ? (
@@ -2467,10 +1441,7 @@ export default function BadAssTasks() {
                             toast.info("Leave workspace is a live Supabase feature");
                             return;
                           }
-                          if (!confirm(`Leave "${currentWorkspace.name}"? You will lose access to all its tasks and notes. This cannot be undone.`)) return;
-                          // Full store path: optimistic member removal + exit_workspace RPC (last-owner protected) + fetchUserWorkspaces + fetchMembers + teardown + switch.
-                          // Realtime onMemberChange DELETE will symmetrically clear state for this user across tabs + zero-orphan for survivors.
-                          await exitWorkspace(wsId);
+                          setPendingLeaveWorkspace(true);
                         }}
                         className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
                         disabled={!isLive}
@@ -2495,7 +1466,7 @@ export default function BadAssTasks() {
               <div className="font-medium">Pending Invites ({invites.length})</div>
             </div>
             {invites.length === 0 ? (
-              <div className="p-6 text-sm text-[#71717a]">No pending invites. Use the invite button above to add teammates.</div>
+              <div className="p-6 text-sm text-[#71717a]">None</div>
             ) : (
               <div className="divide-y divide-white/10 text-sm">
                 {invites.map((inv) => (
@@ -2506,7 +1477,7 @@ export default function BadAssTasks() {
                       <div>
                         {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
                       </div>
-                      <div className="text-[11px] text-[#71717a] font-mono">Role: {inv.role} • Created {new Date(inv.createdAt).toLocaleDateString()}</div>
+                      <div className="text-[11px] text-[#71717a] font-mono">{inv.role}</div>
                     </div>
                     <button
                       onClick={() => copyInviteLink(inv.id)}
@@ -2552,38 +1523,18 @@ export default function BadAssTasks() {
           <div className="glass rounded-2xl border border-white/10 overflow-hidden">
             {/* Header + Tabs */}
             <div className="px-5 py-3 border-b border-white/10 bg-white/5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="font-semibold flex items-center gap-2 text-lg tracking-tight">
-                  <Settings className="h-5 w-5 text-[#c084fc]" /> Admin Dashboard
-                  {!isSingleOwnerWorkspace && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-[#a1a1aa] font-mono">{myRole.toUpperCase()}</span>
-                  )}
-                  <span className="text-[10px] text-[#71717a]">• {currentWorkspace.name}</span>
-                </div>
-                <button
-                  onClick={async () => {
-                    try {
-                      const storeStats = await useTaskStore.getState().getWorkspaceStats();
-                      toast.success("Stats refreshed", { description: `${storeStats.taskCount || tasks.length} tasks • ${storeStats.completionRate || 0}% done • ${storeStats.overdueCount || 0} overdue` });
-                    } catch {
-                      toast.info("Stats updated from local data");
-                    }
-                  }}
-                  className="btn btn-ghost text-xs px-3 py-1 flex items-center gap-1"
-                  disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" /> Refresh
-                </button>
+              <div className="font-semibold flex items-center gap-2 text-lg tracking-tight mb-3">
+                <Settings className="h-5 w-5 text-[#c084fc]" /> Admin
               </div>
 
               {/* Tab Navigation - feels like dedicated powerful tool (mobile: scrollable row for touch) */}
               <div className="flex gap-1 text-xs overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory touch-pan-x">
                 {[
                   { id: 'overview', label: 'Overview', icon: BarChart3 },
-                  { id: 'exports', label: 'Export Data', icon: FileDown },
-                  { id: 'imports', label: 'Import & Restore', icon: Upload },
-                  { id: 'templates', label: 'Apply Templates', icon: FileText },
-                  { id: 'insights', label: 'Team Insights', icon: Users },
+                  { id: 'exports', label: 'Export', icon: FileDown },
+                  { id: 'imports', label: 'Import', icon: Upload },
+                  { id: 'templates', label: 'Templates', icon: FileText },
+                  { id: 'insights', label: 'Insights', icon: Users },
                 ].map((tab) => {
                   const Icon = tab.icon;
                   const active = adminTab === tab.id;
@@ -2617,55 +1568,42 @@ export default function BadAssTasks() {
                     <div className="text-2xl font-semibold tabular-nums mt-1 text-[#ff3366]">{tasks.filter(t => t.dueDate && new Date(t.dueDate).getTime() < Date.now() && t.status !== "done").length} <span className="text-xs text-[#a1a1aa]">/ ~{Math.round((tasks.filter(t => t.status === "done").length / Math.max(1, tasks.length)) * 100)}%</span></div>
                   </div>
                   <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <div className="text-[#71717a] text-xs">Activity Volume</div>
+                    <div className="text-[#71717a] text-xs">Activity</div>
                     <div className="text-2xl font-semibold tabular-nums mt-1">{recentActivity.length}</div>
-                    <div className="text-[10px] text-[#c084fc]">Recent events (full in Insights)</div>
                   </div>
                 </div>
-                <div className="text-[11px] text-[#71717a]">Use the tabs above for full exports, smart imports, starter templates, and deep team insights. All admin actions are audited in Activity log.</div>
               </div>
             )}
 
             {/* EXPORTS TAB — complete, useful, multiple formats */}
             {adminTab === 'exports' && (
-              <div className="p-5 border-t border-white/10 space-y-4">
-                <div>
-                  <div className="text-sm font-medium mb-1 flex items-center gap-2">Full Workspace Export <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">includes tasks, notes, members, activity</span></div>
-                  <div className="text-xs text-[#a1a1aa]">JSON = complete portable backup/restore. CSVs = analysis in Sheets/Excel. MD = human + Notion ready (now with team + activity sections).</div>
-                </div>
+              <div className="p-5 border-t border-white/10">
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('json')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> Full JSON</button>
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('csv')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> All CSVs (Tasks + Notes + Members + Activity)</button>
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('md')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> Enhanced Markdown</button>
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('all')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-primary text-xs px-4 py-2 flex items-center gap-2 bg-[#c084fc] text-black hover:bg-[#a855f7]"><Download className="h-4 w-4" /> Export EVERYTHING (recommended)</button>
+                  <button onClick={() => useTaskStore.getState().exportWorkspace('json')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> JSON</button>
+                  <button onClick={() => useTaskStore.getState().exportWorkspace('csv')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> CSV</button>
+                  <button onClick={() => useTaskStore.getState().exportWorkspace('md')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> Markdown</button>
+                  <button onClick={() => useTaskStore.getState().exportWorkspace('all')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-primary text-xs px-4 py-2 flex items-center gap-2 bg-[#c084fc] text-black hover:bg-[#a855f7]"><Download className="h-4 w-4" /> All</button>
                 </div>
-                <div className="text-[10px] text-[#71717a] pt-1">Exports are logged as admin.export.* actions. Perfect for audits, migrations, or external reporting.</div>
               </div>
             )}
 
             {/* IMPORTS TAB — with conflict handling + preview */}
             {adminTab === 'imports' && (
               <div className="p-5 border-t border-white/10 space-y-4">
-                <div>
-                  <div className="text-sm font-medium mb-1">Smart Import (JSON / CSV / MD)</div>
-                  <div className="text-xs text-[#a1a1aa]">Appends to workspace. Choose conflict strategy for safe repeated imports (e.g. from other tools or previous exports).</div>
-                </div>
-
                 <div className="flex flex-wrap gap-3 items-center">
                   <div>
-                    <div className="text-[10px] uppercase tracking-widest text-[#a1a1aa] mb-1">Conflict Strategy</div>
                     <div className="flex gap-2 text-xs">
                       <label className={`px-3 py-1 rounded-xl border cursor-pointer ${importStrategy === 'skip-dupe-titles' ? 'border-[#c084fc] bg-white/10' : 'border-white/20'}`}>
-                        <input type="radio" className="hidden" checked={importStrategy === 'skip-dupe-titles'} onChange={() => setImportStrategy('skip-dupe-titles')} /> Smart: skip duplicates (by title)
+                        <input type="radio" className="hidden" checked={importStrategy === 'skip-dupe-titles'} onChange={() => setImportStrategy('skip-dupe-titles')} /> Skip duplicates
                       </label>
                       <label className={`px-3 py-1 rounded-xl border cursor-pointer ${importStrategy === 'append' ? 'border-[#c084fc] bg-white/10' : 'border-white/20'}`}>
-                        <input type="radio" className="hidden" checked={importStrategy === 'append'} onChange={() => setImportStrategy('append')} /> Append everything
+                        <input type="radio" className="hidden" checked={importStrategy === 'append'} onChange={() => setImportStrategy('append')} /> Append all
                       </label>
                     </div>
                   </div>
 
                   <label className="btn btn-secondary text-xs px-4 py-2 cursor-pointer inline-flex items-center gap-2 mt-4">
-                    <Upload className="h-4 w-4" /> Choose File (JSON, CSV, MD/TXT)
+                    <Upload className="h-4 w-4" /> Choose file
                     <input
                       type="file"
                       accept=".json,.csv,.md,.txt"
@@ -2735,15 +1673,13 @@ export default function BadAssTasks() {
                     </div>
                   </div>
                 )}
-                <div className="text-[10px] text-[#71717a]">Imports logged as admin.import.bulk. After import, lists auto-refresh on live workspaces.</div>
               </div>
             )}
 
-            {/* TEMPLATES TAB — expanded high-quality library, easy apply */}
+            {/* TEMPLATES TAB */}
             {adminTab === 'templates' && (
               <div className="p-5 border-t border-white/10">
-                <div className="text-sm font-medium mb-2">High-Quality Starter Templates — click to apply instantly</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs mb-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
                   {(useTaskStore.getState().getAdminTemplateLibrary ? useTaskStore.getState().getAdminTemplateLibrary() : []).map((tpl: any, idx: number) => (
                     <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 hover:border-[#c084fc]/40 transition group">
                       <div className="flex items-start justify-between">
@@ -2773,15 +1709,13 @@ export default function BadAssTasks() {
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-[#71717a]">Templates create real items (tagged ΓÇ£from-templateΓÇ¥). Great for OKRs, launches, client work, retros. Add ΓÇ£templateΓÇ¥ tag to your own items to surface them in getTemplates().</div>
               </div>
             )}
 
-            {/* INSIGHTS TAB — activity summary, member contributions, overdue trends */}
+            {/* INSIGHTS TAB */}
             {adminTab === 'insights' && (
               <div className="p-5 border-t border-white/10 space-y-4 text-sm">
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">Admin &amp; Team Insights</div>
+                <div className="flex items-center justify-end">
                   <button
                     onClick={async () => {
                       setIsLoadingInsights(true);
@@ -2820,7 +1754,7 @@ export default function BadAssTasks() {
                     disabled={isLoadingInsights}
                     className="btn btn-ghost text-xs px-3 py-1 flex gap-1"
                   >
-                    <BarChart3 className="h-3.5 w-3.5" /> {isLoadingInsights ? "Analyzing..." : "Load / Refresh Deep Insights"}
+                    <BarChart3 className="h-3.5 w-3.5" /> {isLoadingInsights ? "Loading..." : "Refresh"}
                   </button>
                 </div>
 
@@ -2837,46 +1771,31 @@ export default function BadAssTasks() {
                       <div className="text-xs mt-1">By priority: {Object.entries(insights.overdueByPriority || {}).map(([p,c]) => `${p}:${c}`).join("  ") || "—"}</div>
                     </div>
                     <div className="bg-white/5 rounded-xl p-3 border border-white/10 md:col-span-2">
-                      <div className="text-xs text-[#71717a] mb-1.5">Top Contributors (by actions in activity log)</div>
+                      <div className="text-xs text-[#71717a] mb-1.5">Top contributors</div>
                       {insights.topContributors?.length ? (
                         <div className="flex flex-wrap gap-2">
                           {insights.topContributors.map(([user, count]: [string, number], i: number) => (
                             <div key={i} className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">{user.slice(0, 12)}: <span className="text-[#c084fc]">{count}</span></div>
                           ))}
                         </div>
-                      ) : <div className="text-xs">No activity data yet.</div>}
-                      <div className="text-[10px] text-[#71717a] mt-2">Contributions include all actions (tasks, notes, comments, admin ops). Great for spotting active leads.</div>
+                      ) : <div className="text-xs text-[#71717a]">No data</div>}
                     </div>
                   </div>
-                ) : (
-                  <div className="text-xs text-[#a1a1aa]">Click ΓÇ£Load / Refresh Deep InsightsΓÇ¥ for member contribution breakdown, overdue trends by priority, and admin action counts. Uses up to 500 recent events for accuracy.</div>
-                )}
+                ) : null}
               </div>
             )}
 
-            {/* Footer bar for admin section */}
-            <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#71717a]">
-              <div>Powerful admin tools for team leads. All actions (export, import, template apply, role changes) create immutable audit logs via <span className="font-mono">admin.*</span> events.</div>
-              {myRole === "owner" && (
-                <button onClick={openWorkspaceSettings} className="text-[#c084fc] hover:underline flex items-center gap-1">
-                  Open Core Workspace Settings (name, slug, delete) <Settings className="h-3 w-3" />
+            {myRole === "owner" && (
+              <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex justify-end">
+                <button onClick={openWorkspaceSettings} className="text-xs text-[#c084fc] hover:underline flex items-center gap-1">
+                  Workspace settings <Settings className="h-3 w-3" />
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Role enforcement notice */}
-        {!canManage && isLive && !isDemoWs && (
-          <div className="text-xs text-[#71717a] px-1">You are a regular member. Only workspace owners and admins can invite or manage members.</div>
-        )}
-
-        {/* Basic permissions visibility note (E04) */}
-        {isLive && !isDemoWs && (
-          <div className="text-[10px] text-[#71717a] px-1 pt-2">Activity, tasks & notes are visible to all workspace members (RLS). Full management requires owner/admin role.</div>
-        )}
-
-        {/* Invite Dialog (inline glass modal) */}
+        {/* Invite Dialog */}
         {showInviteDialog && (
           <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowInviteDialog(false)}>
             <div className="glass w-full max-w-md rounded-3xl p-6" onClick={(e) => e.stopPropagation()}>
@@ -2927,7 +1846,6 @@ export default function BadAssTasks() {
                     {isSendingInvite ? "Creating..." : "Create & Copy Invite Link"}
                   </button>
                 </div>
-                <div className="text-[11px] text-[#71717a] text-center">Link expires in 14 days. Recipient must sign in to accept.</div>
               </div>
             </div>
           </div>
@@ -2942,7 +1860,6 @@ export default function BadAssTasks() {
       case "today": return renderTodayView();
       case "tasks": return renderTasksView();
       case "notes": return renderNotesView();
-      case "calendar": return renderCalendarView();
       case "teams": return renderTeamsView();
       default: return renderHomeView();
     }
@@ -3120,7 +2037,7 @@ export default function BadAssTasks() {
                       )}
                       {notifications.length > 0 && (
                         <button
-                          onClick={() => clearAllNotifications?.()}
+                          onClick={() => setPendingClearNotifications(true)}
                           className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-red-400 hover:text-red-500"
                         >
                           Clear all
@@ -3165,7 +2082,7 @@ export default function BadAssTasks() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              deleteNotification?.(n.id);
+                              setPendingDeleteNotification(n.id);
                             }}
                             className="ml-1 p-1 text-[#71717a] hover:text-white rounded hover:bg-white/10"
                             aria-label="Remove notification"
@@ -3184,16 +2101,25 @@ export default function BadAssTasks() {
             </AnimatePresence>
           </div>
 
-          <div 
-            onClick={() => toggleCommandPalette(true)}
-            className="hidden md:flex items-center gap-2 bg-white/5 hover:bg-white/10 transition px-3 py-1.5 rounded-2xl cursor-pointer border border-white/10"
+          <button
+            type="button"
+            onClick={toggleChat}
+            className={cn(
+              "relative flex items-center justify-center h-9 w-9 rounded-xl border transition",
+              chatOpen
+                ? "border-[#c084fc]/50 bg-[#c084fc]/10 text-[#c084fc]"
+                : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40"
+            )}
+            aria-label={chatOpen ? "Collapse messages" : "Open messages"}
+            aria-expanded={chatOpen}
           >
-            <Command className="h-3.5 w-3.5" />
-            <span className="text-[#71717a]">⌘K</span>
-          </div>
-
-          <button onClick={handleAddFromNatural} className="btn btn-primary text-xs px-4 py-2">
-            <Plus className="h-3.5 w-3.5" /> QUICK ADD
+            <MessageCircle className="h-4 w-4" />
+            {workspaceChat.hasUnread && !chatOpen && (
+              <span
+                className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-[#ff3366] ring-2 ring-[#0a0a0f]"
+                aria-label="Unread messages"
+              />
+            )}
           </button>
 
           {/* Polished Auth + User Area (Phase 1 UX track) */}
@@ -3413,50 +2339,6 @@ export default function BadAssTasks() {
         </div>
       </div>
 
-      {/* Agent 32: The Knowledge Graph modal — visual, interactive, with hybrid suggestions for magical linking */}
-      <KnowledgeGraph
-        open={isGraphOpen}
-        onClose={() => { setIsGraphOpen(false); setGraphFocusId(null); }}
-        tasks={tasks}
-        notes={notes}
-        onOpenItem={(type, id) => {
-          if (type === 'task') {
-            setView("tasks");
-            selectTask(id);
-            setShowFullTaskModal(true);
-          } else {
-            setView("notes");
-            setSelectedNoteId(id);
-          }
-          setIsGraphOpen(false);
-        }}
-        onLinkItems={(fromType, fromId, toType, toId) => {
-          // Maintain bidirectional using existing data model (expandable to note<->note later)
-          if (fromType === 'note' && toType === 'task') {
-            const note = notes.find(n => n.id === fromId);
-            const task = tasks.find(t => t.id === toId);
-            if (note && task) {
-              const newNL = Array.from(new Set([...(note.linkedTaskIds || []), toId]));
-              updateNote(fromId, { linkedTaskIds: newNL });
-              const newTL = Array.from(new Set([...(task.linkedNoteIds || []), fromId]));
-              updateTask(toId, { linkedNoteIds: newTL as any });
-              toast.success("Linked bidirectionally", { description: "Graph & search now reflect the connection." });
-            }
-          } else if (fromType === 'task' && toType === 'note') {
-            const task = tasks.find(t => t.id === fromId);
-            const note = notes.find(n => n.id === toId);
-            if (task && note) {
-              const newTL = Array.from(new Set([...(task.linkedNoteIds || []), toId]));
-              updateTask(fromId, { linkedNoteIds: newTL as any });
-              const newNL = Array.from(new Set([...(note.linkedTaskIds || []), fromId]));
-              updateNote(toId, { linkedTaskIds: newNL });
-              toast.success("Linked bidirectionally", { description: "Graph & search now reflect the connection." });
-            }
-          }
-        }}
-        initialFocusId={graphFocusId}
-      />
-
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar — improved a11y: navigation landmark + aria */}
         <aside className="sidebar w-64 hidden lg:flex flex-col pt-3 px-3 border-r border-white/10" aria-label="Workspace navigation and views">
@@ -3526,18 +2408,6 @@ export default function BadAssTasks() {
                 >
                   <Icon className="h-4 w-4" />
                   {v.label}
-                  {/* Agent 14: live cross-view presence indicator (who is in this view right now) */}
-                  {(() => {
-                    const viewUsers = (onlineUsers || []).filter((u: any) => u.view === v.id);
-                    if (viewUsers.length === 0) return null;
-                    const names = viewUsers.map((u:any) => u.email?.split('@')[0] || u.userId?.slice(0,5)).join(', ');
-                    return (
-                      <span className="ml-1.5 text-[9px] text-[#00ff9f] font-mono flex items-center gap-0.5" title={`${names} viewing ${v.label}`}>
-                        ΓùÅ{viewUsers.length}
-                        {viewUsers.some((u: any) => u.editingItemId) && <span className="ml-0.5">✎</span>}
-                      </span>
-                    );
-                  })()}
                 </div>
               );
             })}
@@ -3711,112 +2581,30 @@ export default function BadAssTasks() {
           {currentViewComponent()}
         </main>
 
-        {/* Right Context Panel */}
-        <div className="hidden xl:flex w-80 border-l border-white/10 p-6 flex-col bg-[#0a0a0f]">
-          <div className="text-xs tracking-[2px] text-[#71717a] mb-4">CONTEXT</div>
-
-          {selectedTask ? (
-            <div className="glass rounded-2xl p-5">
-              <div className="font-semibold text-xl tracking-tighter pr-6">{selectedTask.title}</div>
-              <div className="mt-4 flex gap-2">
-                <div className={`priority-badge priority-${selectedTask.priority.toLowerCase()}`}>{selectedTask.priority}</div>
-                <div className="status-pill status-doing">{selectedTask.status}</div>
-              </div>
-
-              {selectedTask.description && (
-                <div className="mt-4 text-sm text-[#a1a1aa]">{selectedTask.description}</div>
-              )}
-
-              <div className="mt-6 space-y-3 text-sm">
-                <div className="flex justify-between"><span className="text-[#71717a]">Assignee</span> <span>{selectedTask.assignee || "Unassigned"}</span></div>
-                <div className="flex justify-between"><span className="text-[#71717a]">Due</span> <span>{selectedTask.dueDate ? format(new Date(selectedTask.dueDate), "EEEE, MMM d") : "—"}</span></div>
-                <div className="flex justify-between"><span className="text-[#71717a]">Estimate</span> <span>{selectedTask.timeEstimate || "—"} min</span></div>
-              </div>
-
-              <div className="flex gap-2 mt-8">
-                <button 
-                  onClick={() => handleComplete(selectedTask.id)} 
-                  disabled={!!taskLoadingStates?.[selectedTask.id]}
-                  className="btn btn-primary flex-1 text-sm py-2.5 disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {taskLoadingStates?.[selectedTask.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Mark done
-                </button>
-                <button 
-                  onClick={async () => { await deleteTask(selectedTask.id); selectTask(null); }} 
-                  disabled={!!taskLoadingStates?.[selectedTask.id]}
-                  className="btn btn-secondary flex-1 text-sm py-2.5 disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {taskLoadingStates?.[selectedTask.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Delete
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              {/* Full production activity log panel — wired to real getRecentActivity (hybrid) + refreshRecentActivity when LIVE */}
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-xs tracking-[2px] text-[#71717a]">
-                  <Zap className="h-3.5 w-3.5" />
-                  ACTIVITY LOG
-                </div>
-                {user && isSupabaseConfigured() && (
-                  <button
-                    onClick={handleRefreshActivity}
-                    disabled={isRefreshingActivity}
-                    className="text-[10px] text-[#c084fc] hover:text-white flex items-center gap-1 disabled:opacity-50 transition"
-                    title="Refresh activity from DB"
-                  >
-                    {isRefreshingActivity ? <Loader2 className="h-3 w-3 animate-spin" /> : "→"} refresh
-                  </button>
-                )}
-              </div>
-
-              {recentActivity && recentActivity.length > 0 ? (
-                <div className="space-y-1.5 text-[11px] max-h-[280px] overflow-auto pr-1 border border-white/5 rounded-xl p-1 bg-black/20">
-                  {recentActivity.slice(0, 15).map((log: ActivityLog) => {
-                    const action = log.actionType || "";
-                    let Icon = Zap;
-                    if (action.includes("task.completed") || action.includes("complete")) Icon = Check;
-                    else if (action.includes("created") || action.includes("task.")) Icon = Plus;
-                    else if (action.includes("workspace")) Icon = Users;
-                    else if (action.includes("note")) Icon = Star;
-                    return (
-                      <div key={log.id} className="rounded-lg bg-white/[0.025] border border-white/5 px-3 py-2 flex gap-2">
-                        <div className="mt-0.5 text-[#c084fc]/70"><Icon className="h-3.5 w-3.5" /></div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-[#e4e4e7] tracking-tight text-xs">{action.replace(/\./g, " ")}</div>
-                          {(log.metadata as any)?.title ? (
-                            <div className="text-[#a1a1aa] truncate text-[10px] mt-0.5">{String((log.metadata as any).title)}</div>
-                          ) : null}
-                          <div className="text-[#71717a] mt-1 text-[9px] tabular-nums flex items-center gap-1">
-                            {format(new Date(log.createdAt), "MMM d, HH:mm")}
-                            {log.userId ? <span className="opacity-50">• by {log.userId.slice(0, 8)}</span> : null}
-                            {(log.metadata as any)?.priority ? <span className="opacity-60">• {String((log.metadata as any).priority)}</span> : null}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-xs text-[#71717a] leading-snug rounded-xl border border-white/5 bg-black/10 p-3">
-                  {user && isSupabaseConfigured() 
-                    ? "No activity yet in this workspace. Create tasks/notes or switch workspaces to populate the log (persisted via Supabase + RLS). All members can view activity in this workspace." 
-                    : "Activity logging is enabled only in LIVE Supabase mode. Demo runs without persistent logs."}
-                </div>
-              )}
-
-              <div className="h-px bg-white/10 my-6" />
-              <div className="text-[#c084fc] text-xs">PRO TIP</div>
-              Press <span className="font-mono text-white">⌘K</span> for the command palette. It can do almost everything.
-            </div>
+        <motion.aside
+          className={cn(
+            "hidden xl:flex flex-col bg-[#0a0a0f] min-h-0 overflow-hidden shrink-0",
+            chatOpen && "border-l border-white/10"
           )}
-
-          <div className="mt-auto pt-8 text-[10px] text-[#71717a] leading-snug">
-            Built with obsession for people who ship.
+          initial={false}
+          animate={{
+            width: chatOpen ? 320 : 0,
+            opacity: chatOpen ? 1 : 0,
+          }}
+          transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
+          aria-hidden={!chatOpen}
+        >
+          <div className="w-80 h-full p-4 flex flex-col min-h-0">
+            <WorkspaceChatPanel
+              workspaceId={currentWorkspace.id}
+              workspaceName={currentWorkspace.name}
+              userId={user?.id}
+              members={members}
+              chat={workspaceChat}
+              onCollapse={() => setChatOpen(false)}
+            />
           </div>
-        </div>
+        </motion.aside>
       </div>
 
       {/* Mobile Bottom Navigation — native iOS/Android style, only <md via CSS + md:hidden
@@ -3826,7 +2614,7 @@ export default function BadAssTasks() {
         {VIEWS.map((v) => {
           const Icon = v.icon;
           const isActive = currentView === v.id;
-          const label = v.id === "calendar" ? "Cal" : v.label;
+          const label = v.label;
           return (
             <div
               key={v.id}
@@ -3853,48 +2641,15 @@ export default function BadAssTasks() {
         })}
       </nav>
 
-      {/* Mobile FAB — prominent, native position (bottom-right above bottom nav on phones).
-          Uses existing handleAddFromNatural (prompt + natural language parse + addTask + toast + switch to tasks).
-          Styled + hidden on desktop via globals.css .fab + @media. Touch optimized (56px, active scale).
-      */}
-      <button
-        onClick={() => {
-          triggerHaptic('medium');
-          handleAddFromNatural();
-        }}
-        className="fab md:hidden"
-        aria-label="Add new task"
-        title="Quick add task (natural language supported)"
-      >
-        <Plus className="h-7 w-7" />
-      </button>
-
-      {/* Floating Quick Add Bar (Tasks view) — hidden on mobile (replaced by prominent FAB + bottom nav) */}
-      <AnimatePresence>
-        {(showAddInput || currentView === "tasks") && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4 hidden md:block">
-            {!showAddInput ? (
-              <button 
-                onClick={() => setShowAddInput(true)}
-                className="w-full glass py-3 rounded-2xl text-sm flex items-center justify-center gap-2 border border-white/10 hover:border-[#c084fc]/40 active:scale-[0.985] transition"
-              >
-                <Plus className="h-4 w-4" /> Add task (ΓîÿN) — supports natural language
-              </button>
-            ) : (
-              <form onSubmit={handleQuickAdd} className="glass rounded-2xl p-1 border border-[#c084fc]/30">
-                <input
-                  id="quick-add"
-                  value={quickAddValue}
-                  onChange={(e) => setQuickAddValue(e.target.value)}
-                  placeholder='Type anything... "Finish proposal by Friday P0 @investors"'
-                  className="w-full bg-transparent px-5 py-3.5 text-sm outline-none placeholder:text-[#71717a]"
-                  autoFocus
-                />
-              </form>
-            )}
-          </div>
-        )}
-      </AnimatePresence>
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        chat={workspaceChat}
+        workspaceId={currentWorkspace.id}
+        workspaceName={currentWorkspace.name}
+        userId={user?.id}
+        members={members}
+      />
 
       {/* Command Palette */}
       <CommandPalette 
@@ -3979,20 +2734,34 @@ export default function BadAssTasks() {
               {myRole === "owner" && (
                 <div className="pt-4 border-t border-red-500/20">
                   <div className="text-xs uppercase tracking-widest text-red-400 mb-2">Danger Zone</div>
-                  <div className="text-[11px] text-[#a1a1aa] mb-2">Deleting removes the workspace, all tasks, notes, members and invites permanently.</div>
-                  <input
-                    value={deleteConfirmName}
-                    onChange={(e) => setDeleteConfirmName(e.target.value)}
-                    placeholder={`Type "${currentWorkspace.name}" to confirm`}
-                    className="w-full bg-[#111114] border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
-                  />
-                  <button
-                    onClick={handleDeleteWorkspace}
-                    disabled={isSavingSettings || deleteConfirmName.trim() !== currentWorkspace.name}
-                    className="w-full py-2 rounded-xl bg-red-600/90 hover:bg-red-600 text-white text-xs font-medium disabled:opacity-50"
-                  >
-                    Delete Workspace Forever
-                  </button>
+                  {workspaceDeleteGuard.allowed ? (
+                    <>
+                      <div className="text-[11px] text-[#a1a1aa] mb-2">
+                        Deleting removes the workspace, all tasks, notes, members and invites permanently. You will be switched to another workspace.
+                      </div>
+                      <input
+                        value={deleteConfirmName}
+                        onChange={(e) => setDeleteConfirmName(e.target.value)}
+                        placeholder={`Type "${currentWorkspace.name}" to confirm`}
+                        className="w-full bg-[#111114] border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
+                      />
+                      <button
+                        onClick={handleDeleteWorkspace}
+                        disabled={
+                          isSavingSettings ||
+                          isDeletingWorkspace ||
+                          deleteConfirmName.trim() !== currentWorkspace.name
+                        }
+                        className="w-full py-2 rounded-xl bg-red-600/90 hover:bg-red-600 text-white text-xs font-medium disabled:opacity-50"
+                      >
+                        {isDeletingWorkspace ? "Deleting..." : "Delete Workspace Forever"}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-[11px] text-[#a1a1aa] leading-relaxed">
+                      {workspaceDeleteGuard.reason}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -4000,17 +2769,6 @@ export default function BadAssTasks() {
           </div>
         </div>
       )}
-
-      {/* Floating AI button (Phase 7) — .ai-fab for mobile repositioning above nav (unified with FAB to prevent collision on phones) */}
-      <button
-        onClick={() => setShowAIChat(!showAIChat)}
-        className="ai-fab fixed bottom-6 right-4 z-[80] btn btn-primary px-4 py-2.5 rounded-2xl flex items-center gap-2 shadow-xl md:bottom-6 md:right-6 md:px-5 md:py-3"
-        aria-label="Open AI assistant"
-      >
-        <Sparkles className="h-4 w-4" /> <span className="hidden xs:inline">AI</span>
-      </button>
-
-      {showAIChat && <AIChatPanel onClose={() => setShowAIChat(false)} />}
 
       {/* Keyboard Cheatsheet - beautiful discoverable modal, keyboard-first (triggered by ? or palette) */}
       {isKeyboardCheatsheetOpen && (
@@ -4043,15 +2801,14 @@ export default function BadAssTasks() {
                 { cat: "Global Power", items: [
                   { key: "⌘K / Ctrl+K", desc: "Open / close Command Palette (your command center)" },
                   { key: "?", desc: "Open this keyboard cheatsheet from anywhere" },
-                  { key: "ΓîÿN / Ctrl+N", desc: "Quick add new task (natural language)" },
+                  { key: "⌘N / Ctrl+N", desc: "Focus task quick-add" },
                   { key: "ESC", desc: "Close any modal, sheet, or selection" },
                 ]},
                 { cat: "Navigation", items: [
                   { key: "1", desc: "Go to Today view" },
                   { key: "2", desc: "Go to All Tasks view" },
                   { key: "3", desc: "Go to Notes view" },
-                  { key: "4", desc: "Go to Calendar view" },
-                  { key: "5", desc: "Go to Teams view" },
+                  { key: "4", desc: "Go to Team" },
                 ]},
                 { cat: "Tasks & Action", items: [
                   { key: "Space", desc: "Complete currently selected task (in list)" },
@@ -4087,84 +2844,12 @@ export default function BadAssTasks() {
         </div>
       )}
 
-      {/* Keyboard hint */}
-      <div className="fixed bottom-3 right-4 text-[10px] text-[#71717a] hidden lg:block font-mono">
-        ⌘K palette • ⌘N add • 1-5 views • ? cheatsheet • Space complete
-        {!isSupabaseConfigured() && (
-          <span className="ml-2 text-[#71717a] hidden lg:inline">• Demo mode</span>
-        )}
-      </div>
-
-      {/* Notification detail modal (opened from bell) — readable full view + dismiss / actions */}
-      {selectedNotification && (
-        <div
-          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setSelectedNotification(null)}
-        >
-          <div
-            className="glass-strong w-full max-w-md rounded-3xl border border-white/10 p-6 text-sm shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="text-[#c084fc]">
-                  {selectedNotification.type === 'invite' && <Users className="h-5 w-5" />}
-                  {selectedNotification.type === 'mention' && <Zap className="h-5 w-5" />}
-                  {selectedNotification.type === 'comment' && <Star className="h-5 w-5" />}
-                  {selectedNotification.type === 'task_assigned' && <Check className="h-5 w-5" />}
-                  {selectedNotification.type === 'deadline' && <Clock className="h-5 w-5" />}
-                  {selectedNotification.type === 'activity' && <Zap className="h-5 w-5" />}
-                </div>
-                <div className="font-semibold text-lg tracking-tight">{selectedNotification.title}</div>
-              </div>
-              <button onClick={() => setSelectedNotification(null)} className="text-[#71717a] hover:text-white p-1"><X className="h-4 w-4" /></button>
-            </div>
-
-            <div className="text-[#e5e5e7] whitespace-pre-wrap mb-4 leading-relaxed">
-              {selectedNotification.message}
-            </div>
-
-            {selectedNotification.metadata && Object.keys(selectedNotification.metadata).length > 0 && (
-              <div className="mb-4 rounded-xl bg-black/30 border border-white/5 p-3 text-[11px] text-[#a1a1aa]">
-                <div className="font-mono text-[10px] mb-1 opacity-60">DETAILS</div>
-                {selectedNotification.metadata.workspace_name && <div>Workspace: <span className="text-white">{selectedNotification.metadata.workspace_name}</span></div>}
-                {selectedNotification.metadata.invited_by_name && <div>From: <span className="text-white">{selectedNotification.metadata.invited_by_name}</span></div>}
-                {selectedNotification.metadata.role && <div>Role: <span className="text-white">{selectedNotification.metadata.role}</span></div>}
-              </div>
-            )}
-
-            <div className="text-[10px] text-[#71717a] mb-5">
-              {new Date(selectedNotification.createdAt).toLocaleString()}
-            </div>
-
-            <div className="flex gap-2">
-              {selectedNotification.link && (
-                <button
-                  onClick={() => {
-                    if (selectedNotification.link) {
-                      if (selectedNotification.type === 'invite') setView('teams');
-                      else window.location.hash = selectedNotification.link;
-                    }
-                    setSelectedNotification(null);
-                  }}
-                  className="btn btn-primary text-sm flex-1"
-                >
-                  {selectedNotification.type === 'invite' ? 'View invites' : 'Go to link'}
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (!selectedNotification.readAt) markNotifRead?.(selectedNotification.id);
-                  setSelectedNotification(null);
-                }}
-                className="flex-1 rounded-xl border border-white/15 py-2 text-sm hover:bg-white/5"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NotificationDetailModal
+        notification={selectedNotification}
+        onClose={() => setSelectedNotification(null)}
+        onMarkRead={markNotifRead}
+        onViewChange={setView}
+      />
 
       {/* STRICT AUTH LANDING GATE OVERLAY
           Covers the entire shell (top bar, sidebar, views, everything) when Supabase is configured
@@ -4180,9 +2865,8 @@ export default function BadAssTasks() {
             </div>
 
             <h1 className="text-6xl font-semibold tracking-[-2.5px] mb-3">Bad Ass Tasks</h1>
-            <p className="text-2xl text-[#a1a1aa] tracking-[-0.6px] mb-2">"Get shit done. Beautifully."</p>
             <p className="text-[#71717a] max-w-md mx-auto mb-9 text-[15px]">
-              The ruthless, delightful productivity system for founders, builders &amp; teams who ship.
+              Sign in to access your workspaces, tasks, notes, and team chat.
             </p>
 
             <div className="flex flex-col items-center gap-3">
@@ -4203,24 +2887,13 @@ export default function BadAssTasks() {
         </div>
       )}
 
-      {/* Modern Confirmation Modals - temporarily commented to diagnose parse error */}
-      {/* 
-      <ConfirmationModal
-        open={pendingDeleteWorkspace}
-        onOpenChange={setPendingDeleteWorkspace}
-        title="Delete Workspace?"
-        description={`This will permanently delete "${currentWorkspace.name}" and ALL its tasks, notes, and members. This action cannot be undone.`}
-        confirmText="Delete Workspace"
-        variant="destructive"
-        onConfirm={handleConfirmDeleteWorkspace}
-      />
-
       <ConfirmationModal
         open={!!pendingDeleteNote}
         onOpenChange={(open) => !open && setPendingDeleteNote(null)}
-        title="Delete Note?"
-        description="This note will be permanently deleted. This cannot be undone."
-        confirmText="Delete Note"
+        title="Delete this note?"
+        highlight={pendingDeleteNoteTitle}
+        description="This note and its content will be permanently deleted. This cannot be undone."
+        confirmText="Delete note"
         variant="destructive"
         onConfirm={handleConfirmDeleteNote}
       />
@@ -4228,23 +2901,65 @@ export default function BadAssTasks() {
       <ConfirmationModal
         open={!!pendingRemoveMember}
         onOpenChange={(open) => !open && setPendingRemoveMember(null)}
-        title="Remove Member?"
-        description={`Are you sure you want to remove ${pendingRemoveMember?.label} from this workspace?`}
-        confirmText="Remove Member"
+        title="Remove team member?"
+        highlight={pendingRemoveMember?.label}
+        description="They will lose access to this workspace and all its tasks and notes."
+        confirmText="Remove member"
         variant="destructive"
         onConfirm={handleConfirmRemoveMember}
       />
 
       <ConfirmationModal
+        open={!!pendingRevokeInvite}
+        onOpenChange={(open) => !open && setPendingRevokeInvite(null)}
+        title="Revoke invite?"
+        highlight={pendingRevokeInvite?.label}
+        description="The invitation link will stop working and any pending notification will be cleared."
+        confirmText="Revoke invite"
+        variant="destructive"
+        onConfirm={handleConfirmRevokeInvite}
+      />
+
+      <ConfirmationModal
+        open={!!pendingResendInvite}
+        onOpenChange={(open) => !open && setPendingResendInvite(null)}
+        title="Resend invite?"
+        highlight={pendingResendInvite?.label}
+        description="A fresh invite link will be generated. The previous link will be revoked."
+        confirmText="Resend invite"
+        onConfirm={handleConfirmResendInvite}
+      />
+
+      <ConfirmationModal
         open={pendingLeaveWorkspace}
         onOpenChange={setPendingLeaveWorkspace}
-        title="Leave Workspace?"
-        description={`You will lose access to "${currentWorkspace.name}" and all its tasks and notes. This cannot be undone.`}
-        confirmText="Leave Workspace"
+        title="Leave this workspace?"
+        highlight={currentWorkspace.name}
+        description="You will lose access to all tasks, notes, and team chat in this workspace."
+        confirmText="Leave workspace"
         variant="destructive"
         onConfirm={handleConfirmLeaveWorkspace}
       />
-      */}
+
+      <ConfirmationModal
+        open={!!pendingDeleteNotification}
+        onOpenChange={(open) => !open && setPendingDeleteNotification(null)}
+        title="Delete notification?"
+        description="This notification will be permanently removed from your inbox."
+        confirmText="Delete"
+        variant="destructive"
+        onConfirm={handleConfirmDeleteNotification}
+      />
+
+      <ConfirmationModal
+        open={pendingClearNotifications}
+        onOpenChange={setPendingClearNotifications}
+        title="Clear all notifications?"
+        description={`This will permanently delete all ${notifications.length} notification${notifications.length === 1 ? "" : "s"} in your inbox.`}
+        confirmText="Clear all"
+        variant="destructive"
+        onConfirm={handleConfirmClearNotifications}
+      />
 
     </div>
   );

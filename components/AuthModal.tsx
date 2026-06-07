@@ -126,10 +126,15 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+    <div 
+      className="fixed inset-0 z-[200] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      onClick={onClose}
+      style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+    >
       <div 
-        className="glass w-full max-w-md rounded-3xl p-8 relative"
+        className="glass w-full max-w-md md:max-w-lg rounded-t-3xl md:rounded-3xl p-6 md:p-8 relative max-h-[85dvh] md:max-h-[80vh] overflow-auto"
         onClick={e => e.stopPropagation()}
+        style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}
       >
         <button onClick={onClose} aria-label="Close sign in modal" className="absolute top-5 right-5 text-[#71717a] hover:text-white">
           <X className="h-5 w-5" />

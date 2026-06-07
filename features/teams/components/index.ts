@@ -1,5 +1,7 @@
 /**
- * Teams UI components barrel.
+ * Teams UI components barrel (M0).
+ * Future: MemberRow, InviteCard, AdminDashboardTabs, etc.
  */
 
-export {};
+export { TeamsAdminDashboard } from "./TeamsAdminDashboard";
+export type { TeamsAdminDashboardProps, TeamsAdminInsights } from "./TeamsAdminDashboard";

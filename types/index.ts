@@ -38,7 +38,11 @@ export interface Note {
   updatedAt: string;
   tags: string[];
   linkedTaskIds: string[];
+  linkedNoteIds?: string[]; // M2 bidirectional note-to-note
   workspaceId: string;
+  parentNoteId?: string | null; // Milestone 2: note hierarchy support
+  sortOrder?: number; // M2 explicit drag ordering within parent (groundwork)
+  snapshots?: Array<{ ts: string; content: string; label: string }>; // M2 version history server persistence
 }
 
 export interface Workspace {
@@ -46,6 +50,8 @@ export interface Workspace {
   name: string;
   slug: string;
   role: "owner" | "admin" | "user";
+  owner_id?: string | null; // widened for hybridStore/page access to match schema (no behavior change)
+  createdAt?: string; // from workspaces.created_at — used to identify the original workspace
 }
 
 export interface WorkspaceMember {
@@ -98,6 +104,33 @@ export interface ActivityLog {
   targetId?: string;
   metadata: Record<string, unknown>; // Strengthened: no loose any
   createdAt: string;
+}
+
+export interface WorkspaceMessage {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+  /** Populated from profiles/members join when available */
+  authorName?: string;
+  authorUsername?: string;
+}
+
+export interface MessageReaction {
+  id: string;
+  messageId: string;
+  workspaceId: string;
+  userId: string;
+  emoji: string;
+  createdAt: string;
+}
+
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  userIds: string[];
+  reactedByMe: boolean;
 }
 
 export interface Comment {

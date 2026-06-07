@@ -297,15 +297,6 @@ body {
   letter-spacing: 0.3px;
 }
 
-/* Calendar grid cells + drag affordance */
-.calendar-day {
-  transition: background 120ms ease;
-}
-.calendar-day.drag-over {
-  background: rgba(192, 132, 252, 0.08) !important;
-  outline: 1px dashed #c084fc;
-}
-
 /* Confetti canvas */
 #confetti-canvas {
   position: fixed;
@@ -456,7 +447,7 @@ body {
      See 433-450 for the two !important blocks that were stealing the height.
   */
   .main-content:has(> .notes-root) {
-    padding-bottom: 0 !important;
+    padding: 0 !important;
   }
   .notes-root .overflow-y-auto {
     padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 10px)) !important;
@@ -522,7 +513,7 @@ body {
   }
 }
 
-/* General mobile compaction for any remaining large headers or sparse sections (Today, Calendar, etc.) */
+/* General mobile compaction for any remaining large headers or sparse sections */
 @media (max-width: 768px) {
   .main-content {
     /* already tightened earlier; this adds header scaling */
@@ -718,23 +709,7 @@ body {
   color: #d4d4d8;
 }
 
-.ProseMirror ul,
-.ProseMirror ol {
-  padding-left: 1.35rem;
-  margin: 0.4em 0;
-}
-
-.ProseMirror ul {
-  list-style-type: disc;
-}
-
-.ProseMirror ol {
-  list-style-type: decimal;
-}
-
-.ProseMirror li {
-  margin: 0.15em 0;
-}
+/* Note list markers live in features/notes/editor/notes-editor.css (.notes-rich-editor) */
 
 .ProseMirror blockquote {
   border-left: 3px solid #c084fc;
@@ -832,69 +807,25 @@ body {
   margin: 0;
 }
 
-/* === react-day-picker v9 calendar (DateTimePicker) — reliable grid + dark glass ===
-   Fixes vertical list (correct keys + button sizing) and prevents modal stretch.
-   Overrides the mobile 44px global button rule only for the tight calendar.
-*/
-.rdp-month_grid {
+/* === react-day-picker v9 — compact DateTimePicker === */
+.rdp-compact .rdp-month_grid,
+.date-picker-panel .rdp-month_grid {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
-.rdp-day_button {
-  height: 40px;
-  width: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  font-size: 15px;
-  line-height: 1;
-  transition: all 0.1s ease;
-  user-select: none;
+.rdp-compact .rdp-day_button,
+.date-picker-panel .rdp-day_button {
+  margin: 0 auto;
 }
 
-.rdp-day_button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.rdp-selected .rdp-day_button {
-  background-color: #c084fc !important;
-  color: #000 !important;
-  font-weight: 600;
-}
-
-.rdp-today:not(.rdp-selected) .rdp-day_button {
-  border: 1px solid rgba(192, 132, 252, 0.55);
-  color: #c084fc;
-  font-weight: 500;
-}
-
-.rdp-outside .rdp-day_button {
-  color: rgba(113, 113, 122, 0.35);
-  opacity: 0.65;
-}
-
-@media (max-width: 768px) {
-  .rdp-day_button {
+@media (max-width: 640px) {
+  .date-picker-panel .rdp-day_button {
     min-height: 40px !important;
     height: 40px !important;
     width: 40px !important;
   }
-}
-
-/* DateTimePicker custom year dropdown — premium glass scroller */
-.date-picker-year-dropdown {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.2) transparent;
-}
-.date-picker-year-dropdown::-webkit-scrollbar {
-  width: 6px;
-}
-.date-picker-year-dropdown::-webkit-scrollbar-thumb {
-  background-color: rgba(255,255,255,0.25);
-  border-radius: 3px;
 }
 
 /* ============================================
@@ -1209,4 +1140,26 @@ body {
 /* Tighter stacking so multiple quick toasts don't dominate */
 .sonner-toaster {
   --gap: 6px !important;
+}
+
+/* Chat emoji picker: table grid (Tailwind scan + mobile button min-height safe) */
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.emoji-picker-grid .emoji-picker-cell {
+  aspect-ratio: 1;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  width: 100%;
+  padding: 0;
+}
+
+@media (max-width: 768px) {
+  .emoji-picker-grid .emoji-picker-cell {
+    min-height: 36px !important;
+    min-width: 0 !important;
+  }
 }

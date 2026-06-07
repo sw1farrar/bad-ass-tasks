@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "@/features/notes/editor/notes-editor.css";
 import { Toaster } from "sonner";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ErrorBoundary } from "@/components/ErrorBoundary";

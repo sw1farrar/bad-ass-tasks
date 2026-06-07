@@ -3,6 +3,28 @@
 -- Run this in the Supabase SQL Editor (or via migrations)
 -- ============================================
 
+-- ============================================================
+-- M2 MIGRATION INSTRUCTIONS (for existing projects / 2026-05-30+)
+-- If you see errors like:
+--   "Could not find the 'snapshots' column of 'notes' in the schema cache"
+--   or note hierarchy / note-to-note links not persisting across reloads in live mode,
+-- run the block below in the Supabase SQL Editor (Dashboard → SQL Editor).
+-- It is idempotent and safe to re-run.
+-- After running, hard-refresh your app (the PostgREST schema cache usually picks it up in <10s).
+-- ============================================================
+-- BEGIN M2 MIGRATION (paste this):
+ALTER TABLE notes 
+  ADD COLUMN IF NOT EXISTS linked_note_ids UUID[] DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER,
+  ADD COLUMN IF NOT EXISTS snapshots JSONB DEFAULT '[]'::jsonb;
+
+COMMENT ON COLUMN notes.linked_note_ids IS 'M2: bidirectional note-to-note links (symmetric to tasks.linked_note_ids).';
+COMMENT ON COLUMN notes.sort_order IS 'M2: stable integer sort key for drag-to-reparent / reorder within parent (client uses 0/1000/2000... with renorm on mutations).';
+COMMENT ON COLUMN notes.snapshots IS 'M2: lightweight version history. Array of {ts: string, content: string (TipTap JSON), label: string}. Client-bounded to ~10. Persisted via hybridStore.onPersistSnapshot + editor capture.';
+-- END M2 MIGRATION
+-- (Fresh deploys using the full schema below will include the columns automatically.)
+-- ============================================================
+
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm"; -- For fast text search
@@ -100,6 +122,9 @@ CREATE TABLE notes (
   is_archived BOOLEAN DEFAULT FALSE,
   tags TEXT[] DEFAULT '{}',
   linked_task_ids UUID[] DEFAULT '{}',
+  linked_note_ids UUID[] DEFAULT '{}', -- M2: note-to-note bidirectional links
+  sort_order INTEGER,                    -- M2: stable ordering for drag reparent/reorder (dense client integers)
+  snapshots JSONB DEFAULT '[]'::jsonb,   -- M2: version history snapshots ({ts, content: TipTap JSON string, label})
   created_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -124,6 +149,38 @@ CREATE TABLE comments (
     (task_id IS NULL AND note_id IS NOT NULL)
   )
 );
+
+-- ============================================
+-- WORKSPACE MESSAGES (team chat)
+-- ============================================
+
+CREATE TABLE workspace_messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL CHECK (char_length(trim(body)) > 0 AND char_length(body) <= 4000),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_workspace_messages_ws_created ON workspace_messages(workspace_id, created_at DESC);
+
+-- PostgREST embed: workspace_messages.user_id → profiles.id (same UUID as auth.users)
+ALTER TABLE workspace_messages
+  ADD CONSTRAINT workspace_messages_user_id_profiles_fkey
+  FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
+
+CREATE TABLE workspace_message_reactions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  message_id UUID NOT NULL REFERENCES workspace_messages(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL CHECK (char_length(emoji) >= 1 AND char_length(emoji) <= 32),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (message_id, user_id, emoji)
+);
+
+CREATE INDEX idx_message_reactions_message ON workspace_message_reactions(message_id);
+CREATE INDEX idx_message_reactions_workspace ON workspace_message_reactions(workspace_id);
 
 -- ============================================
 -- ACTIVITY LOG
@@ -168,6 +225,8 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_message_reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
@@ -275,6 +334,41 @@ CREATE POLICY "Workspace members can access comments" ON comments
       JOIN workspace_members wm ON wm.workspace_id = n.workspace_id 
       WHERE n.id = comments.note_id AND wm.user_id = auth.uid()
     ))
+  );
+
+-- Workspace team chat: members can read and post
+CREATE POLICY "Workspace members can view messages" ON workspace_messages
+  FOR SELECT USING (
+    is_workspace_member(workspace_id, auth.uid())
+  );
+
+CREATE POLICY "Workspace members can send messages" ON workspace_messages
+  FOR INSERT WITH CHECK (
+    auth.uid() IS NOT NULL
+    AND user_id = auth.uid()
+    AND is_workspace_member(workspace_id, auth.uid())
+  );
+
+CREATE POLICY "Workspace members can view reactions" ON workspace_message_reactions
+  FOR SELECT USING (
+    is_workspace_member(workspace_id, auth.uid())
+  );
+
+CREATE POLICY "Workspace members can add reactions" ON workspace_message_reactions
+  FOR INSERT WITH CHECK (
+    auth.uid() IS NOT NULL
+    AND user_id = auth.uid()
+    AND is_workspace_member(workspace_id, auth.uid())
+    AND EXISTS (
+      SELECT 1 FROM workspace_messages m
+      WHERE m.id = message_id AND m.workspace_id = workspace_message_reactions.workspace_id
+    )
+  );
+
+CREATE POLICY "Users can remove own reactions" ON workspace_message_reactions
+  FOR DELETE USING (
+    user_id = auth.uid()
+    AND is_workspace_member(workspace_id, auth.uid())
   );
 
 -- Activity logs: workspace members
@@ -631,6 +725,44 @@ $$;
 
 COMMENT ON FUNCTION delete_workspace_for_owner IS 'Owner-only workspace deletion with server-side role enforcement. Use from client via supabase.rpc when available.';
 
+-- Secure RPC for owner to rename workspace (name + slug)
+-- Added for Milestone 1 / Wave 7 stability (prevents fragile direct UPDATE under RLS)
+CREATE OR REPLACE FUNCTION update_workspace_details(
+  p_workspace_id UUID,
+  p_name TEXT DEFAULT NULL,
+  p_slug TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_caller_role user_role;
+BEGIN
+  -- Owner-only enforcement (server-side)
+  SELECT role INTO v_caller_role
+  FROM workspace_members
+  WHERE workspace_id = p_workspace_id AND user_id = auth.uid()
+  LIMIT 1;
+
+  IF v_caller_role IS NULL OR v_caller_role != 'owner' THEN
+    RAISE EXCEPTION 'Only the workspace owner may update details';
+  END IF;
+
+  UPDATE workspaces
+  SET 
+    name = COALESCE(p_name, name),
+    slug = COALESCE(p_slug, slug)
+  WHERE id = p_workspace_id;
+
+  RETURN TRUE;
+END;
+$$;
+
+COMMENT ON FUNCTION update_workspace_details IS 
+  'Owner-only workspace name/slug update via RPC. Called from hybridStore.updateWorkspace.';
+
 -- ============================================
 -- NOTIFICATIONS TABLE (Agent 31: dedicated per-user notifications foundation)
 -- Links optionally to activity_logs for traceability. Supports read status, email/in-app flags via prefs.
@@ -710,12 +842,64 @@ CREATE POLICY "Owners can delete workspace_invite notifications for their worksp
 
 COMMENT ON TABLE notifications IS 'Per-user in-app + email-targeted notifications. Timely, non-intrusive events derived from activity + collab actions. Use activity_logs as source of truth for history; this for actionable per-user alerts.';
 
--- After applying schema, run in Supabase SQL editor for reliable realtime (especially DELETEs):
--- ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
--- ALTER TABLE notifications REPLICA IDENTITY FULL;
---
--- REPLICA IDENTITY FULL is critical for DELETE events to include the full row
--- in the postgres_changes payload so filtered subscriptions (user_id=eq.xxx) work reliably.
--- Without it, DELETE events are often incomplete or don't match filters (while INSERT usually works).
---
--- (Add the above alongside the existing activity_logs etc. lines if re-running full setup.)
+-- ============================================================
+-- MILESTONE 1 REALTIME PUBLICATION (safe, idempotent)
+-- Run this block after the main schema to enable full live collaboration.
+-- ============================================================
+
+DO $$
+BEGIN
+  -- Core data tables (most important for realtime)
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'tasks') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE tasks;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'notes') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE notes;
+  END IF;
+
+  -- Workspace membership & collaboration
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'workspace_members') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE workspace_members;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'workspace_invites') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE workspace_invites;
+  END IF;
+
+  -- Activity + notifications (for live bell + activity feed)
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'activity_logs') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE activity_logs;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'notifications') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+  END IF;
+
+  -- Comments (for realtime comment threads on tasks/notes)
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'comments') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE comments;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'workspace_messages') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE workspace_messages;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'workspace_message_reactions') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE workspace_message_reactions;
+  END IF;
+
+  RAISE NOTICE 'Realtime publication updated for Milestone 1 tables.';
+END $$;
+
+-- Important: Full replica identity for reliable DELETE events in realtime
+ALTER TABLE notifications REPLICA IDENTITY FULL;
+ALTER TABLE workspace_invites REPLICA IDENTITY FULL;
+ALTER TABLE workspace_message_reactions REPLICA IDENTITY FULL;
+
+-- Force PostgREST to pick up the new tables/functions
+NOTIFY pgrst, 'reload schema';
+
+-- ============================================================
+-- End of Milestone 1 activation additions
+-- ============================================================

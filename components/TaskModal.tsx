@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Calendar, Clock, Tag, User, Link2, MessageSquare, Trash2, Loader2, Repeat, Zap } from "lucide-react";
+import { X, User, Link2, MessageSquare, Trash2, Loader2, Repeat } from "lucide-react";
 import { DateTimePicker } from "./DateTimePicker";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { motion, AnimatePresence, PanInfo } from "framer-motion";
 import { useTaskStore } from "@/store/useTaskStore";
-import type { Task, Priority } from "@/types";
-import { getContextualAISuggestion, triggerHaptic, generateSubtaskDecomposition, generateSubtaskDecompositionAI, isXAIConfigured } from "@/lib/utils";
+import type { Task } from "@/types";
+import { triggerHaptic } from "@/lib/utils";
 import {
   cn,
   getRecurringLabel,
@@ -30,8 +30,6 @@ interface TaskModalProps {
   onClose: () => void;
 }
 
-const priorities: Priority[] = ["P0", "P1", "P2", "P3"];
-
 /** Self-contained, beautifully styled recurrence editor (extracted to satisfy strict TS + keep modal clean)
  *  Production (Agent 25): full end conditions (Never / After N / Until date + COUNT/UNTIL), YEARLY preset,
  *  raw RRULE editor, smooth local state for end conds, Linear/Notion quality.
@@ -42,8 +40,9 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
   const upcoming = getUpcomingRecurrencesPreview(localTask.dueDate, localTask.recurringRule, 4, localTask.exceptionDates);
   const endDesc = getRecurrenceEndDescription(localTask.recurringRule);
 
-  const freq = currentPattern?.freq || "WEEKLY";
-  const interval = currentPattern?.interval || 1;
+  const hasRule = !!localTask.recurringRule;
+  const freq = currentPattern?.freq ?? "WEEKLY";
+  const interval = currentPattern?.interval ?? 1;
   const byDays = currentPattern?.byDay || [];
   const currentUntil = currentPattern?.until || "";
   const currentCount = currentPattern?.count || 0;
@@ -151,8 +150,16 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
 
   const applyRawRule = () => {
     const trimmed = rawRule.trim().toUpperCase();
-    save({ recurringRule: trimmed || null });
+    if (!trimmed) {
+      clearRecurrence();
+    } else {
+      save({ recurringRule: trimmed });
+    }
     setShowRaw(false);
+  };
+
+  const clearRecurrence = () => {
+    save({ recurringRule: undefined, exceptionDates: undefined });
   };
 
   return (
@@ -168,7 +175,7 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
         )}
         {localTask.recurringRule && (
           <button
-            onClick={() => save({ recurringRule: null })}
+            onClick={clearRecurrence}
             className="text-[10px] px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[#a1a1aa] transition"
           >
             Clear
@@ -184,7 +191,7 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
             onClick={() => setFreq(f)}
             className={cn(
               "text-xs px-3 py-1 rounded-full border transition",
-              freq === f
+              hasRule && freq === f
                 ? "bg-[#c084fc] text-black border-[#c084fc]"
                 : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
             )}
@@ -193,14 +200,21 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
           </button>
         ))}
         <button
-          onClick={() => save({ recurringRule: null })}
-          className="text-xs px-3 py-1 rounded-full border border-white/10 hover:bg-white/5 text-[#71717a]"
+          onClick={clearRecurrence}
+          className={cn(
+            "text-xs px-3 py-1 rounded-full border transition",
+            !hasRule
+              ? "bg-[#c084fc] text-black border-[#c084fc]"
+              : "border-white/10 hover:bg-white/5 text-[#71717a]"
+          )}
         >
           None
         </button>
       </div>
 
-      {/* Interval */}
+      {localTask.recurringRule && (
+        <>
+      {/* Interval — only when a rule is active (prevents accidental re-apply after clear) */}
       <div className="flex items-center gap-2 text-xs">
         <span className="text-[#71717a]">Every</span>
         <input
@@ -235,7 +249,6 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
       )}
 
       {/* Production End Conditions UI: Never / After N / On date (drives COUNT or UNTIL) */}
-      {localTask.recurringRule && (
         <div className="pt-1 space-y-2 border-t border-white/10">
           <div className="text-[10px] text-[#71717a] flex items-center gap-1.5">
             <span>Ends</span>
@@ -288,10 +301,12 @@ function RecurrenceEditor({ localTask, save }: { localTask: Task; save: (updates
             <div className="text-[10px] text-[#a1a1aa] pl-1">Open-ended series (continues forever)</div>
           )}
         </div>
-      )}
 
       {/* Preview + raw RRULE (transparency & advanced control) */}
-      {upcoming.length > 0 && (
+        </>
+      )}
+
+      {localTask.recurringRule && upcoming.length > 0 && (
         <div className="text-[10px] text-[#71717a] pt-1">
           Next: {upcoming.join(" • ")}
         </div>
@@ -437,13 +452,41 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
     }
   }, [isOpen, task?.id, fetchComments]);
 
+  // Fresh task snapshot when opening or switching tasks
+  useEffect(() => {
+    if (isOpen) setLocalTask(task);
+  }, [isOpen, task.id]);
+
   if (!isOpen) return null;
+
+  const taskComments = [...comments]
+    .filter((c: { taskId?: string }) => c.taskId === task.id)
+    .sort(
+      (a: { createdAt: string }, b: { createdAt: string }) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
 
   const save = async (updates: Partial<Task>) => {
     triggerHaptic('light');
-    const newTask = { ...localTask, ...updates };
+    const normalized = { ...updates };
+    if (
+      Object.prototype.hasOwnProperty.call(normalized, "recurringRule") &&
+      (normalized.recurringRule === null || normalized.recurringRule === undefined)
+    ) {
+      normalized.recurringRule = null;
+      if (!Object.prototype.hasOwnProperty.call(normalized, "exceptionDates")) {
+        normalized.exceptionDates = undefined;
+      }
+    }
+    const newTask = { ...localTask, ...normalized };
+    if (normalized.recurringRule === null) {
+      delete (newTask as Task).recurringRule;
+      if (normalized.exceptionDates === undefined) {
+        delete (newTask as Task).exceptionDates;
+      }
+    }
     setLocalTask(newTask);
-    await updateTask(task.id, updates);
+    await updateTask(task.id, normalized);
 
     // Live collab: broadcast the change so others see it in near real-time (debounced)
     scheduleLiveBroadcast(updates);
@@ -495,10 +538,10 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
       >
         <motion.div 
           className={cn(
-            "glass w-full overflow-hidden",
+            "glass w-full overflow-hidden flex flex-col",
             isMobile 
               ? "mobile-bottom-sheet rounded-t-3xl max-w-none" 
-              : "max-w-3xl rounded-3xl"
+              : "max-w-4xl max-h-[min(90vh,880px)] rounded-3xl"
           )}
           onClick={e => e.stopPropagation()}
           // Mobile bottom sheet drag-to-dismiss (delightful native gesture)
@@ -520,7 +563,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
           )}
 
           {/* Header (content preserved, extra safe-area padding on mobile) */}
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4" style={isMobile ? { paddingTop: 'max(16px, env(safe-area-inset-top, 8px))' } : {}}>
+          <div className="shrink-0 flex items-center justify-between border-b border-white/10 px-6 py-4" style={isMobile ? { paddingTop: 'max(16px, env(safe-area-inset-top, 8px))' } : {}}>
           <div className="flex items-center gap-3">
             <button 
               onClick={handleComplete} 
@@ -530,7 +573,6 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
               {taskLoadingStates?.[task.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               Mark done
             </button>
-            <div className={`priority-badge priority-${localTask.priority.toLowerCase()}`}>{localTask.priority}</div>
             {taskLoadingStates?.[task.id] && (
               <span className="text-[10px] text-[#c084fc] ml-1 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> saving…</span>
             )}
@@ -553,6 +595,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
           </div>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main content */}
           <div className="lg:col-span-2 space-y-6">
@@ -584,86 +627,20 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
               value={localTask.description}
               onChange={(e) => save({ description: e.target.value })}
               placeholder="Add description... (TipTap editor coming soon)"
-              className="w-full min-h-[160px] bg-[#111114] rounded-2xl p-4 text-sm resize-y outline-none border border-white/10"
+              className="w-full min-h-[72px] max-h-[140px] bg-[#111114] rounded-2xl p-3 text-sm resize-y outline-none border border-white/10"
+              rows={3}
             />
-
-            {/* Contextual AI suggestion (Agent 9) — non-intrusive, one-click helpfulness */}
-            <div className="glass rounded-2xl p-3 border border-[#ff00aa]/10">
-              <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-[#ff00aa]/80 mb-1">
-                <span>AI CO-PILOT</span>
-                <button
-                  onClick={() => {
-                    const suggestion = getContextualAISuggestion("task-modal", { task: localTask });
-                    toast(suggestion, { description: "Apply it to the description above or use as inspiration." });
-                  }}
-                  className="text-[10px] px-2 py-0.5 rounded bg-white/5 hover:bg-white/10"
-                >
-                  ✨ Suggest
-                </button>
-              </div>
-              <div className="text-xs text-[#a1a1aa]">
-                {getContextualAISuggestion("task-modal", { task: localTask })}
-              </div>
-            </div>
-
-            {/* Agent 26: Smart Task Decomposition — "Break this down into subtasks" that actually creates linked child tasks (parentTaskId) */}
-            <div className="glass rounded-2xl p-3 border border-[#c084fc]/10">
-              <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-[#c084fc]/80 mb-1">
-                <span>SMART DECOMPOSE</span>
-                <button
-                  onClick={async () => {
-                    if (!localTask) return;
-                    const realMode = isXAIConfigured();
-                    const subs = realMode 
-                      ? await generateSubtaskDecompositionAI(localTask)
-                      : generateSubtaskDecomposition(localTask);
-                    if (subs.length === 0) {
-                      toast.info("This task is already atomic — no high-signal splits detected.");
-                      return;
-                    }
-                    let created = 0;
-                    for (const sub of subs) {
-                      try {
-                        const child = await addTask(sub.title);
-                        if (child) {
-                          await updateTask(child.id, {
-                            parentTaskId: localTask.id,
-                            priority: sub.priority || localTask.priority,
-                            dueDate: sub.dueDate,
-                            description: `Subtask (${realMode ? "Grok" : "AI"} decomposed from "${localTask.title.slice(0,40)}...")`,
-                          });
-                          created++;
-                        }
-                      } catch (e) {
-                        // continue gracefully
-                      }
-                    }
-                    triggerHaptic("success");
-                    toast.success(realMode ? `xAI Grok created ${created} linked subtasks` : `Created ${created} linked subtasks`, {
-                      description: "Children inherit priority/due where smart. Find them via parent or filters.",
-                    });
-                  }}
-                  className="text-[10px] px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 flex items-center gap-1 disabled:opacity-50"
-                  disabled={localTask.status === "done"}
-                >
-                  <Zap className="h-3 w-3" /> Break into subtasks
-                </button>
-              </div>
-              <div className="text-xs text-[#a1a1aa]">
-                AI splits complex work into 2-4 real child tasks with parent links. Magical for P0s.
-              </div>
-            </div>
 
             {/* Comments section - full realtime + @mentions (Agent 14) */}
             <div>
               <div className="flex items-center gap-2 text-sm font-medium mb-3 text-[#a1a1aa]">
-                <MessageSquare className="h-4 w-4" /> Comments {isLoadingComments ? <Loader2 className="h-3 w-3 animate-spin" /> : `(${comments.filter((c: any) => c.taskId === task.id).length})`}
+                <MessageSquare className="h-4 w-4" /> Comments {isLoadingComments ? <Loader2 className="h-3 w-3 animate-spin" /> : `(${taskComments.length})`}
               </div>
               <div className="space-y-3 max-h-48 overflow-auto pr-1">
-                {comments.filter((c: any) => c.taskId === task.id).length === 0 ? (
+                {taskComments.length === 0 ? (
                   <div className="text-xs text-[#71717a] italic">No comments yet. Be the first — @mention teammates!</div>
                 ) : (
-                  comments.filter((c: any) => c.taskId === task.id).map((c: any) => (
+                  taskComments.map((c: any) => (
                     <div key={c.id} className="glass rounded-xl p-3 text-sm border border-white/10">
                       <div className="flex items-center gap-2 text-[10px] text-[#a1a1aa] mb-1">
                         <span className="font-mono text-[#c084fc]">{c.userEmail || c.userName || c.userId?.slice(0,8)}</span>
@@ -673,7 +650,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
                       <div className="text-[#e4e4e7] whitespace-pre-wrap">
                         {c.content.split(/(@\w+)/g).map((part: string, i: number) => 
                           part.startsWith('@') ? (
-                            <span key={i} className="mention-pill" style={{background:'rgba(192,132,252,0.15)', color:'#c084fc', padding:'0 3px', borderRadius:'3px'}}>{part}</span>
+                            <span key={i} className="mention-pill">{part}</span>
                           ) : part
                         )}
                       </div>
@@ -732,9 +709,9 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
                             const beforeAt = newComment.substring(0, newComment.lastIndexOf('@'));
                             setNewComment(beforeAt + '@' + name + ' ');
                           }}
-                          className="text-[9px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/20 hover:bg-[#c084fc]/20"
+                          className="mention-pill text-xs px-2.5 py-1 rounded-lg bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 hover:bg-[#c084fc]/25 hover:border-[#c084fc]/50 active:scale-[0.97] transition-all min-h-[28px] md:min-h-[24px]"
                         >
-                          @{name.length > 12 ? name.slice(0,12) + '...' : name}
+                          @{name.length > 14 ? name.slice(0,13) + '…' : name}
                         </button>
                       );
                     })}
@@ -755,7 +732,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
                             key={i}
                             type="button"
                             onClick={() => setNewComment((c) => (c.trim() ? c.trim() + ' ' : '') + '@' + short + ' ')}
-                            className="text-[9px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/20 hover:bg-[#c084fc]/20"
+                            className="mention-pill text-xs px-2.5 py-1 rounded-lg bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 hover:bg-[#c084fc]/25 hover:border-[#c084fc]/50 active:scale-[0.97] transition-all min-h-[28px] md:min-h-[24px]"
                           >
                             @{short}
                           </button>
@@ -770,25 +747,6 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
 
           {/* Sidebar properties */}
           <div className="space-y-6 text-sm">
-            {/* Priority — a11y: pressed state + labels for screen readers (WCAG) */}
-            <div role="group" aria-label="Task priority">
-              <div className="text-[#71717a] mb-2" id="priority-label">Priority</div>
-              <div className="flex gap-2">
-                {priorities.map(p => (
-                  <button
-                    key={p}
-                    onClick={() => save({ priority: p })}
-                    aria-pressed={localTask.priority === p}
-                    aria-labelledby="priority-label"
-                    aria-label={`Priority ${p}${localTask.priority === p ? ' (selected)' : ''}`}
-                    className={`priority-badge priority-${p.toLowerCase()} ${localTask.priority === p ? "ring-2 ring-white/50" : "opacity-60"}`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Due Date — clean modern calendar, timezone-safe (yyyy-MM-dd) */}
             <div>
               <DateTimePicker
@@ -814,31 +772,6 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
               <RecurrenceEditor localTask={localTask} save={save} />
             </div>
 
-            {/* Time Estimate */}
-            <div>
-              <div className="text-[#71717a] mb-2 flex items-center gap-2"><Clock className="h-4 w-4" /> Time estimate</div>
-              <div className="flex gap-2 items-center">
-                <input 
-                  type="number" 
-                  value={localTask.timeEstimate || ""}
-                  onChange={e => save({ timeEstimate: parseInt(e.target.value) || undefined })}
-                  className="input w-24 px-3 py-2 rounded-xl"
-                />
-                <span className="text-[#71717a]">minutes</span>
-              </div>
-            </div>
-
-            {/* Tags */}
-            <div>
-              <div className="text-[#71717a] mb-2 flex items-center gap-2"><Tag className="h-4 w-4" /> Tags</div>
-              <div className="flex flex-wrap gap-2">
-                {localTask.tags.map((tag, i) => (
-                  <span key={i} className="bg-white/5 text-xs px-3 py-1 rounded-full">{tag}</span>
-                ))}
-                <button className="text-xs text-[#c084fc]">+ Add tag</button>
-              </div>
-            </div>
-
             {/* Linked notes (stub) */}
             <div>
               <div className="text-[#71717a] mb-2 flex items-center gap-2"><Link2 className="h-4 w-4" /> Linked notes</div>
@@ -851,6 +784,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
             </div>
           </div>
         </div>
+        </div>
         {/* Close motion sheet + backdrop + AnimatePresence (mobile sheet structure) */}
       </motion.div>
     </div>
@@ -861,7 +795,8 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
       open={pendingDeleteTask}
       onOpenChange={setPendingDeleteTask}
       title="Delete this task?"
-      description="This cannot be undone. The task, its comments, and any links will be permanently removed."
+      highlight={localTask.title}
+      description="The task, its comments, and any links will be permanently removed. This cannot be undone."
       confirmText="Delete task"
       cancelText="Cancel"
       variant="destructive"

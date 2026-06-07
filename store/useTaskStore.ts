@@ -2,6 +2,15 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType } from "@/types";
 import { generateId, parseNaturalLanguage } from "@/lib/utils";
+import {
+  canDeleteWorkspace,
+  getWorkspaceSwitchTargetAfterDelete,
+} from "@/lib/workspaceGuards";
+import {
+  getLastWorkspaceId,
+  resolveCurrentWorkspace,
+  saveLastWorkspaceId,
+} from "@/lib/workspacePersistence";
 import { toast } from "sonner";
 import {
   getTasks,
@@ -52,8 +61,6 @@ import {
   templateToTaskPayload,
   templateToNotePayload,
   hasTemplateTag,
-  // C4 Phase A Home hub
-  getGlobalRecentActivity,
   // Agent 31: Notifications foundation (in-app + email for mentions/comments/invites/assignments/deadlines)
   getUserNotifications,
   createNotification,
@@ -96,14 +103,12 @@ interface TaskState {
   recentActivity: ActivityLog[];
 
   // C4 Phase A: Home Global Workspace Hub - separate slices (never pollute per-ws state)
-  globalRecentActivity: ActivityLog[];
   globalTodayFocus: Array<{ task: Task; workspaceId: string; workspaceName: string }>;
 
   // UI State
-  currentView: "home" | "today" | "tasks" | "notes" | "calendar" | "teams";
+  currentView: "home" | "today" | "tasks" | "notes" | "teams";
   taskFilter: {
     status?: TaskStatus[];
-    priority?: Priority[];
     search: string;
     // Agent 13: recurring-aware filtering
     recurring?: "all" | "only" | "none";
@@ -170,7 +175,6 @@ interface TaskState {
   completeTask: (id: string) => Promise<boolean | null>;
   moveTask: (id: string, newStatus: TaskStatus) => Promise<boolean | null>;
   reorderTasks: (activeId: string, overId: string) => void;
-  kanbanReorder: (activeId: string, overId: string) => void;
 
   /** Early Phase 4 recurring scaffolding (non-breaking stub).
    *  Delegates to updateTask for now. Full RRULE engine, scheduling, auto-generation in Phase 4.
@@ -452,7 +456,6 @@ export const useTaskStore = create<TaskState>()(
       recentActivity: [],
 
       // C4 Phase A Home global (separate slices)
-      globalRecentActivity: [],
       globalTodayFocus: [],
 
       // Phase 2 collab defaults
@@ -591,70 +594,6 @@ export const useTaskStore = create<TaskState>()(
         set({ tasks: newTasks });
       },
 
-      /**
-       * Kanban-specific reorder supporting both intra-column reordering and cross-column moves.
-       * Production-grade: fully optimistic (instant UI), robust guards, precise insert semantics.
-       * - Reorders the in-memory tasks array so that within each status the relative order is as dragged.
-       * - If status changes (cross-column), performs the Supabase persistence via hybrid layer (optimistic already applied).
-       * - Within-column reorders are client-only (no position column in DB yet; order resets to created_at on live reload).
-       * - Works identically in DEMO and LIVE modes for UX; only status changes hit network when live.
-       * - Solidified for reliability: duplicate guards, safe inserts, no side effects on filters.
-       */
-      kanbanReorder: (activeId, overId) => {
-        const { tasks } = get();
-        if (!activeId || !overId || activeId === overId) return;
-
-        const activeTask = tasks.find((t) => t.id === activeId);
-        if (!activeTask) return;
-
-        const overTask = tasks.find((t) => t.id === overId);
-        const allStatuses: TaskStatus[] = ["backlog", "todo", "doing", "done"];
-
-        // Determine target status: overId may be a task or a column (droppable) id
-        const isOverColumn = allStatuses.includes(overId as TaskStatus);
-        const targetStatus: TaskStatus = isOverColumn
-          ? (overId as TaskStatus)
-          : (overTask?.status ?? activeTask.status);
-
-        // Build per-status groups preserving current within-group order (defensive copy)
-        const groups: Record<TaskStatus, Task[]> = {} as any;
-        allStatuses.forEach((s) => {
-          groups[s] = tasks.filter((t) => t.status === s).filter((t) => t.id !== activeId); // remove early
-        });
-
-        // Create moved task with (possibly new) status
-        const movedTask: Task = { ...activeTask, status: targetStatus };
-
-        // Compute insertion index in target group (sortable convention: before over, or append for columns)
-        let insertIndex = groups[targetStatus].length;
-        if (!isOverColumn && overTask) {
-          const idx = groups[targetStatus].findIndex((t) => t.id === overId);
-          if (idx !== -1) insertIndex = idx;
-        } else if (isOverColumn) {
-          insertIndex = groups[targetStatus].length;
-        }
-
-        groups[targetStatus].splice(insertIndex, 0, movedTask);
-
-        // Rebuild flat list (group order doesn't affect per-column filtered rendering)
-        const newTasks: Task[] = [];
-        allStatuses.forEach((s) => newTasks.push(...groups[s]));
-
-        // Ultra-optimistic set (no await, buttery 60fps)
-        set({ tasks: newTasks });
-
-        // Persist *only* status change via hybrid (existing path). Within-column is local-only.
-        if (activeTask.status !== targetStatus) {
-          if (isSupabaseLive()) {
-            // Fire-and-forget; optimistic UI already reflects the move + position
-            moveTaskSupabase(activeId, targetStatus, activeTask.workspaceId).catch(() => {
-              // graceful: next load or manual action will reconcile
-            });
-          }
-          // Note: we do NOT call the store's moveTask() here to avoid redundant set/status overwrite after our precise reorder
-        }
-      },
-
       /** Recurring + exceptions (Agent 8 foundation + Agent 13 production extensions).
        *  Delegates to updateTask (now supports exceptionDates too). Engine handles skip/break client-side.
        */
@@ -663,9 +602,10 @@ export const useTaskStore = create<TaskState>()(
       },
 
       setView: (view) => {
-        set({ currentView: view });
+        const resolved = (view as string) === "calendar" ? "tasks" : view;
+        set({ currentView: resolved });
         // Realtime presence: update meta so collaborators see where you are (across views)
-        get().updatePresenceMeta({ view });
+        get().updatePresenceMeta({ view: resolved });
       },
       setTaskFilter: (filter) =>
         set((state) => ({ taskFilter: { ...state.taskFilter, ...filter } })),
@@ -690,6 +630,7 @@ export const useTaskStore = create<TaskState>()(
           get().teardownWorkspaceRealtime();
 
           set({ currentWorkspace: ws, members: [], invites: [], onlineUsers: [] });
+          saveLastWorkspaceId(get().user?.id, id);
           // Re-initialize data when switching workspaces (important when using Supabase)
           get().initializeFromSupabase();
           // Per Phase 1 mission: fetch real workspaces list on switch (keeps switcher fresh for multi-ws scenarios)
@@ -725,13 +666,8 @@ export const useTaskStore = create<TaskState>()(
           result = result.filter(
             (t) =>
               t.title.toLowerCase().includes(q) ||
-              t.description?.toLowerCase().includes(q) ||
-              t.tags.some((tag) => tag.toLowerCase().includes(q))
+              t.description?.toLowerCase().includes(q)
           );
-        }
-
-        if (taskFilter.priority?.length) {
-          result = result.filter((t) => taskFilter.priority!.includes(t.priority));
         }
 
         if (taskFilter.status?.length) {
@@ -747,7 +683,7 @@ export const useTaskStore = create<TaskState>()(
           }
         }
 
-        // Sort: incomplete first, then by due date, then priority
+        // Sort: incomplete first, then by due date, then newest created
         return result.sort((a, b) => {
           if (a.status === "done" && b.status !== "done") return 1;
           if (b.status === "done" && a.status !== "done") return -1;
@@ -758,8 +694,7 @@ export const useTaskStore = create<TaskState>()(
           if (a.dueDate) return -1;
           if (b.dueDate) return 1;
 
-          const priorityOrder = { P0: 0, P1: 1, P2: 2, P3: 3 };
-          return priorityOrder[a.priority] - priorityOrder[b.priority];
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
       },
 
@@ -905,6 +840,10 @@ export const useTaskStore = create<TaskState>()(
           // possible SAMPLE_* / demo-ws pollution from persisted state or initial seeds.
           // This guarantees zero demo data leakage reaches UI/store for signed-in live users.
           if (session?.user && isSupabaseLive()) {
+            const prevWsId = get().currentWorkspace?.id;
+            if (prevWsId && !["", "w1", "w2"].includes(prevWsId)) {
+              saveLastWorkspaceId(session.user.id, prevWsId);
+            }
             set({
               tasks: [],
               notes: [],
@@ -1079,7 +1018,7 @@ export const useTaskStore = create<TaskState>()(
             .from("workspace_members")
             .select(`
               role,
-              workspaces (id, name, slug)
+              workspaces (id, name, slug, owner_id, created_at)
             `)
             .eq("user_id", currentUser.id);
 
@@ -1097,6 +1036,8 @@ export const useTaskStore = create<TaskState>()(
                 name: ws.name,
                 slug: ws.slug,
                 role: m.role || "user",
+                owner_id: ws.owner_id ?? null,
+                createdAt: ws.created_at ?? undefined,
               } as Workspace;
             })
             .filter((w): w is Workspace => w !== null);
@@ -1104,17 +1045,15 @@ export const useTaskStore = create<TaskState>()(
           if (realWorkspaces.length > 0) {
             set({ workspaces: realWorkspaces });
 
-            // Determine what currentWorkspace should be after refresh
             const { currentWorkspace: curr } = get();
-            const stillThere = realWorkspaces.find((w) => w.id === curr.id);
+            const target = resolveCurrentWorkspace(realWorkspaces, {
+              currentId: curr.id,
+              lastSavedId: getLastWorkspaceId(currentUser.id),
+            });
 
-            if (stillThere) {
-              // Keep the same workspace but use the fresh data from the database
-              // (important after rename, slug change, role change, etc.)
-              set({ currentWorkspace: stillThere });
-            } else {
-              // First load, deleted workspace, or was a demo workspace → pick the first real one
-              set({ currentWorkspace: realWorkspaces[0] });
+            if (target) {
+              set({ currentWorkspace: target });
+              saveLastWorkspaceId(currentUser.id, target.id);
             }
           } else {
             set({ workspaces: [] });
@@ -1247,6 +1186,7 @@ export const useTaskStore = create<TaskState>()(
           const freshList = get().workspaces;
           const target = freshList.find((w) => w.id === newRealWorkspace.id) || newRealWorkspace;
           set({ currentWorkspace: target });
+          saveLastWorkspaceId(currentUser.id, target.id);
           await get().initializeFromSupabase();
 
           toast.success(`Workspace "${workspaceName}" created`, {
@@ -1288,7 +1228,6 @@ export const useTaskStore = create<TaskState>()(
       fetchGlobalHomeAggregates: async () => {
         const isLive = isSupabaseLive();
         const wss = get().workspaces || [];
-        const userId = get().user?.id || "";
 
         if (!isLive) {
           // Demo synthesis (charter §5: synthesize multi-ws experience from samples/sim)
@@ -1301,23 +1240,12 @@ export const useTaskStore = create<TaskState>()(
               workspaceName: ws.name,
             };
           });
-          // Light demo recent (cross-ws flavor)
-          const demoRecent: ActivityLog[] = wss.length > 0 ? [
-            { id: "g1", workspaceId: wss[0].id, actionType: "task.created", targetType: "task", metadata: { title: "Demo cross-ws item" }, createdAt: new Date(Date.now() - 1000*60*12).toISOString() },
-            { id: "g2", workspaceId: wss[Math.min(1, wss.length-1)].id, actionType: "note.updated", targetType: "note", metadata: { title: "Global note" }, createdAt: new Date(Date.now() - 1000*60*45).toISOString() },
-          ] as any : [];
-          set({ globalTodayFocus: demoFocus, globalRecentActivity: demoRecent });
+          set({ globalTodayFocus: demoFocus });
           return;
         }
 
         // LIVE path — strict guards (no demo ws ever)
         try {
-          // Recent Movement via new dedicated member-scoped helper (VERY TOP guard inside)
-          let globalRecent: ActivityLog[] = [];
-          if (userId) {
-            globalRecent = await getGlobalRecentActivity(userId, 12);
-          }
-
           // Today's Focus (grouped) — bounded parallel per-ws using existing guarded getTasks + filter
           const focusItems: Array<{ task: Task; workspaceId: string; workspaceName: string }> = [];
           const today = new Date();
@@ -1327,18 +1255,20 @@ export const useTaskStore = create<TaskState>()(
             try {
               const wsTasks = await getTasks(ws.id); // already has VERY TOP + demo purge guard
               const due = wsTasks
-                .filter((t: Task) => t.dueDate && new Date(t.dueDate) <= today && t.status !== "done")
-                .slice(0, 3)
+                .filter((t: Task) => {
+                  if (t.status === "done" || !t.dueDate) return false;
+                  const dueDay = new Date(t.dueDate);
+                  dueDay.setHours(0, 0, 0, 0);
+                  return dueDay.getTime() <= today.getTime();
+                })
+                .slice(0, 4)
                 .map((t: Task) => ({ task: t, workspaceId: ws.id, workspaceName: ws.name }));
               focusItems.push(...due);
             } catch { /* per-ws fail non-fatal */ }
-            if (focusItems.length >= 8) break;
+            if (focusItems.length >= 12) break;
           }
 
-          set({
-            globalRecentActivity: globalRecent,
-            globalTodayFocus: focusItems.slice(0, 8),
-          });
+          set({ globalTodayFocus: focusItems.slice(0, 12) });
         } catch (err) {
           console.error("[useTaskStore] fetchGlobalHomeAggregates live error:", err);
           // graceful: leave prior (or empty)
@@ -1350,7 +1280,8 @@ export const useTaskStore = create<TaskState>()(
       // ------------------------------------------------------------------
 
       addTask: async (input: string) => {
-        const parsed = parseNaturalLanguage(input);
+        const title = input.trim();
+        if (!title) return null;
         let workspaceId = get().currentWorkspace.id;
 
         // Safety guard for live mode: never create against demo workspace IDs.
@@ -1370,12 +1301,13 @@ export const useTaskStore = create<TaskState>()(
         // Use proper UUID for live mode (enables clean offline create queuing + Supabase PK compatibility).
         // Demo continues using short generateId for sample compatibility.
         const tempId = isSupabaseLive() ? generateClientId() : generateId();
+        const parsed = parseNaturalLanguage(title);
 
         const optimisticTask: Task = {
           id: tempId,
-          title: parsed.title || input,
-          description: "",
-          status: "todo",
+          title: parsed.title || title,
+          description: parsed.description || "",
+          status: (parsed.status as TaskStatus) || "todo",
           priority: parsed.priority || "P2",
           dueDate: parsed.dueDate,
           assignee: "You",
@@ -1383,8 +1315,8 @@ export const useTaskStore = create<TaskState>()(
           createdAt: new Date().toISOString(),
           linkedNoteIds: [],
           workspaceId,
-          recurringRule: (parsed as any).recurringRule ?? undefined,
-          exceptionDates: (parsed as any).exceptionDates ?? undefined,
+          recurringRule: parsed.recurringRule,
+          exceptionDates: parsed.exceptionDates,
         };
 
         // OPTIMISTIC: Always update UI immediately for instant feel (demo + live)
@@ -1471,9 +1403,23 @@ export const useTaskStore = create<TaskState>()(
 
         // OPTIMISTIC first for snappy UX + loading indicator
         set((state) => ({
-          tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, ...updates } : t
-          ),
+          tasks: state.tasks.map((t) => {
+            if (t.id !== id) return t;
+            const merged = { ...t, ...updates };
+            if (
+              Object.prototype.hasOwnProperty.call(updates, "recurringRule") &&
+              (updates.recurringRule === null || updates.recurringRule === undefined)
+            ) {
+              delete merged.recurringRule;
+              if (
+                Object.prototype.hasOwnProperty.call(updates, "exceptionDates") &&
+                updates.exceptionDates === undefined
+              ) {
+                delete merged.exceptionDates;
+              }
+            }
+            return merged;
+          }),
           taskLoadingStates: { ...state.taskLoadingStates, [id]: true },
         }));
 
@@ -1922,7 +1868,6 @@ export const useTaskStore = create<TaskState>()(
         }
 
         const inviteId = await createInvite(wsId, email, role);
-        console.log("[DEBUG] sendInvite returned:", inviteId);
 
         if (inviteId) {
           // Enrich the invite row with invited_user_id + invited_by (when coming from search)
@@ -1936,8 +1881,6 @@ export const useTaskStore = create<TaskState>()(
                 .eq('id', inviteId);
               if (enrichErr) {
                 console.warn("[store] Failed to enrich workspace_invites with invited_user_id/invited_by", enrichErr);
-              } else {
-                console.log("[DEBUG] sendInvite enriched invite row with invited_user_id", invitedUserId);
               }
             } catch (e) {
               console.warn("[store] Failed to enrich workspace_invites with invited_user_id/invited_by (exception)", e);
@@ -1998,7 +1941,6 @@ export const useTaskStore = create<TaskState>()(
               if (notifErr) {
                 console.warn("[store] Failed to create invite notification (RLS or schema?)", notifErr, "payload:", notifPayload);
               } else {
-                console.log("[DEBUG] sendInvite created recipient notification for", invitedUserId, "notif:", notifData);
                 // Optimistically surface in sender's notifs list too (in case they view it)
                 try { get().fetchNotifications?.().catch(() => {}); } catch {}
               }
@@ -2014,7 +1956,6 @@ export const useTaskStore = create<TaskState>()(
           }
         } else {
           toast.error("Failed to create invite");
-          console.warn("[DEBUG] sendInvite did NOT return an id. Invite creation likely failed.");
         }
         return inviteId;
       },
@@ -2527,28 +2468,59 @@ export const useTaskStore = create<TaskState>()(
 
       deleteCurrentWorkspace: async () => {
         const wsId = get().currentWorkspace.id;
-        const myRole = get().currentWorkspace.role;
-        if (myRole !== "owner") {
-          toast.error("Only the workspace owner can delete it");
+        const userId = get().user?.id;
+        const workspaces = get().workspaces;
+
+        const guard = canDeleteWorkspace(wsId, workspaces, userId);
+        if (!guard.allowed) {
+          toast.error(guard.reason ?? "This workspace cannot be deleted");
           return false;
         }
-        // Extra safety: confirm name match done in UI; here just call
+
         const ok = await deleteWorkspace(wsId);
-        if (ok) {
-          toast.success("Workspace deleted");
-          // Refresh list and switch to another if available
-          await get().fetchUserWorkspaces();
-          const remaining = get().workspaces;
-          if (remaining.length > 0) {
-            get().switchWorkspace(remaining[0].id);
-          } else {
-            // Fallback to demo-ish (will be handled by ensure flow)
-            set({ currentWorkspace: { id: "", name: "No workspace", slug: "", role: "owner" } as Workspace });
+        if (!ok) {
+          toast.error("Failed to delete workspace", {
+            description:
+              "Nothing was removed on the server. Run supabase/add-delete-workspace-rpc.sql in your Supabase SQL editor, then try again.",
+          });
+          return false;
+        }
+
+        get().teardownWorkspaceRealtime();
+
+        const remaining = workspaces.filter((w) => w.id !== wsId);
+        const next = getWorkspaceSwitchTargetAfterDelete(remaining, userId);
+        set({ workspaces: remaining });
+
+        if (next) {
+          set({ currentWorkspace: next, members: [], invites: [], onlineUsers: [] });
+          saveLastWorkspaceId(userId, next.id);
+          await get().initializeFromSupabase();
+          if (isSupabaseLive() && !["w1", "w2"].includes(next.id)) {
+            get().fetchMembers();
+            get().fetchInvites();
+            get().fetchNotifications?.().catch(() => {});
+            get().setupWorkspaceRealtime();
           }
         } else {
-          toast.error("Failed to delete workspace");
+          set({ currentWorkspace: { id: "", name: "No workspace", slug: "", role: "owner" } as Workspace });
         }
-        return ok;
+
+        await get().fetchUserWorkspaces();
+
+        const refreshed = get().workspaces;
+        const curr = get().currentWorkspace;
+        if (refreshed.length > 0 && !refreshed.some((w) => w.id === curr.id)) {
+          const fallback = getWorkspaceSwitchTargetAfterDelete(refreshed, userId) ?? refreshed[0];
+          set({ currentWorkspace: fallback });
+          saveLastWorkspaceId(userId, fallback.id);
+          await get().initializeFromSupabase();
+        }
+
+        toast.success("Workspace deleted", {
+          description: next ? `Switched to ${next.name}` : undefined,
+        });
+        return true;
       },
 
       setupWorkspaceRealtime: () => {
@@ -2606,20 +2578,26 @@ export const useTaskStore = create<TaskState>()(
                 }));
               }
               set({
-                tasks: currentTasks.map((t) =>
-                  t.id === newRow.id
-                    ? {
-                        ...t,
-                        title: newRow.title ?? t.title,
-                        description: newRow.description ?? t.description,
-                        status: newRow.status ?? t.status,
-                        priority: newRow.priority ?? t.priority,
-                        dueDate: newRow.due_date ?? t.dueDate,
-                        tags: newRow.tags ?? t.tags,
-                        completedAt: newRow.completed_at ?? t.completedAt,
-                      }
-                    : t
-                ),
+                tasks: currentTasks.map((t) => {
+                  if (t.id !== newRow.id) return t;
+                  const next = {
+                    ...t,
+                    title: newRow.title ?? t.title,
+                    description: newRow.description ?? t.description,
+                    status: newRow.status ?? t.status,
+                    priority: newRow.priority ?? t.priority,
+                    dueDate: newRow.due_date ?? t.dueDate,
+                    tags: newRow.tags ?? t.tags,
+                    completedAt: newRow.completed_at ?? t.completedAt,
+                  } as Task;
+                  if (Object.prototype.hasOwnProperty.call(newRow, "recurring_rule")) {
+                    next.recurringRule = newRow.recurring_rule ?? undefined;
+                  }
+                  if (Object.prototype.hasOwnProperty.call(newRow, "exception_dates")) {
+                    next.exceptionDates = newRow.exception_dates ?? undefined;
+                  }
+                  return next;
+                }),
               });
             } else if (eventType === "DELETE" && oldRow) {
               set({ tasks: currentTasks.filter((t) => t.id !== oldRow.id) });
@@ -3082,7 +3060,7 @@ export const useTaskStore = create<TaskState>()(
           { userId: 'demo-alice', email: 'alice@demo.dev', name: 'Alice Chen' },
           { userId: 'demo-bob', email: 'bob@demo.dev', name: 'Bob Rivera' },
         ];
-        const views = ['today', 'tasks', 'notes', 'calendar', 'teams'] as const;
+        const views = ['today', 'tasks', 'notes', 'teams'] as const;
         const itemPool = [...get().tasks.map(t => ({id: t.id, type:'task' as const})), ...get().notes.map(n => ({id: n.id, type:'note' as const})) ];
         let tick = 0;
         const timer = setInterval(() => {
@@ -3153,6 +3131,9 @@ export const useTaskStore = create<TaskState>()(
 if (typeof window !== "undefined") {
   // @ts-ignore - persist API is available on the store instance
   useTaskStore.persist.onFinishHydration((state) => {
+    if (state && (state as { currentView?: string }).currentView === "calendar") {
+      useTaskStore.setState({ currentView: "tasks" });
+    }
     if (isSupabaseLive() && state) {
       const currId = (state as any).currentWorkspace?.id || "";
       const wsList = (state as any).workspaces || [];
