@@ -24,10 +24,10 @@ export function useNoteSearch(notes: Note[]) {
     const q = searchQuery.toLowerCase();
     return notes
       .filter((note) => {
-        return (
-          note.title.toLowerCase().includes(q) ||
-          JSON.stringify(note.content || {}).toLowerCase().includes(q)
-        );
+        const searchBlob =
+          note.searchPlain?.toLowerCase() ||
+          JSON.stringify(note.content || {}).toLowerCase();
+        return note.title.toLowerCase().includes(q) || searchBlob.includes(q);
       })
       .sort((a, b) => {
         const timeA = new Date(a.updatedAt || a.createdAt).getTime();

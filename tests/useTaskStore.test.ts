@@ -93,6 +93,20 @@ vi.mock('@/lib/data/hybridStore', () => {
     markNotificationsRead: vi.fn().mockResolvedValue(false),
     getUnreadNotificationCount: vi.fn().mockResolvedValue(0),
     sendNotificationEmail: vi.fn().mockResolvedValue(undefined),
+    getUserNotificationPrefs: vi.fn().mockResolvedValue({
+      email: true,
+      inApp: true,
+      types: {
+        mention: true,
+        comment: true,
+        invite: true,
+        task_assigned: true,
+        deadline: true,
+        activity: true,
+      },
+      perWorkspace: {},
+    }),
+    updateUserNotificationPrefs: vi.fn().mockResolvedValue(true),
     extractMentions: vi.fn(() => []),
     // Re-exports from utils (provide for completeness; not all used in skeleton)
     noteContentToJson: vi.fn((s: string) => ({} as any)),

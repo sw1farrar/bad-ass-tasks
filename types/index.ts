@@ -48,6 +48,10 @@ export interface Note {
   parentNoteId?: string | null; // Milestone 2: note hierarchy support
   sortOrder?: number; // M2 explicit drag ordering within parent (groundwork)
   snapshots?: Array<{ ts: string; content: string; label: string }>; // M2 version history server persistence
+  searchPlain?: string | null; // Denormalized search text (email body included)
+  rawHtml?: string | null; // Archived inbound HTML for re-render
+  emailSource?: string | null; // EML storage path or brevo:messageId
+  emailPipelineVersion?: number | null;
 }
 
 /** Google Keep–style checklist list (workspace-scoped). */

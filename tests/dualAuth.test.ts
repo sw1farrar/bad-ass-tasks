@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   DUAL_AUTH_COOKIE_NAME,
   DUAL_AUTH_REMEMBER_DAYS,
+  DUAL_AUTH_SEND_COOLDOWN_MS,
+  computeDualAuthRetryAfterSeconds,
   generateDualAuthCode,
   hashDualAuthCode,
   isDualAuthEnforced,
@@ -97,6 +99,16 @@ describe("dual auth helpers", () => {
     });
 
     expect(shouldPreserveDualAuthCookieOnSignOut(request)).toBe(true);
+  });
+
+  it("computes resend cooldown from the last challenge timestamp", () => {
+    const now = Date.parse("2026-06-07T12:01:00.000Z");
+    expect(
+      computeDualAuthRetryAfterSeconds("2026-06-07T12:00:30.000Z", DUAL_AUTH_SEND_COOLDOWN_MS, now),
+    ).toBe(30);
+    expect(
+      computeDualAuthRetryAfterSeconds("2026-06-07T11:59:00.000Z", DUAL_AUTH_SEND_COOLDOWN_MS, now),
+    ).toBe(0);
   });
 
   it("clears session-only dual auth cookies on sign-out", () => {

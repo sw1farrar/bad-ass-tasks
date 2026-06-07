@@ -1,0 +1,38 @@
+/* PDF page — free-form area highlighting */
+.pdf-page-surface {
+  touch-action: none;
+}
+
+/* Word (.docx) preview — docx-preview paginated layout */
+.docx-preview-root {
+  width: 100%;
+}
+
+.docx-preview-styles {
+  display: none;
+}
+
+.docx-preview-body .docx-preview-wrapper {
+  background: transparent !important;
+  padding: 24px 16px 8px !important;
+  align-items: center;
+}
+
+.docx-preview-body .docx-preview-wrapper > section.docx-preview {
+  background: #fff !important;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.14) !important;
+  margin-bottom: 24px !important;
+  overflow: visible !important;
+}
+
+.docx-preview-body .docx-preview {
+  color: #18181b;
+}
+
+.pdf-preview-root:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(124, 58, 237, 0.2);
+}
+
+.pdf-preview-scroll {
+  overscroll-behavior: contain;
+}

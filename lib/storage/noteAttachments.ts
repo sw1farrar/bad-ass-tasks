@@ -37,6 +37,7 @@ export async function uploadNoteAttachment(params: {
   buffer: ArrayBuffer | Buffer;
   source: "email" | "upload";
   createdBy?: string | null;
+  contentId?: string | null;
 }): Promise<StoredNoteAttachment> {
   const supabase = createAdminSupabaseClient();
   const attachmentId = randomUUID();
@@ -63,20 +64,33 @@ export async function uploadNoteAttachment(params: {
     throw new Error(`storage_upload_failed:${uploadError.message}`);
   }
 
-  const { data: row, error: insertError } = await (supabase.from("note_attachments") as any)
-    .insert({
-      id: attachmentId,
-      note_id: params.noteId,
-      workspace_id: params.workspaceId,
-      file_name: params.fileName,
-      mime_type: params.mimeType || "application/octet-stream",
-      size_bytes: body.byteLength,
-      storage_path: storagePath,
-      source: params.source,
-      created_by: params.createdBy ?? null,
-    })
+  const insertRow: Record<string, unknown> = {
+    id: attachmentId,
+    note_id: params.noteId,
+    workspace_id: params.workspaceId,
+    file_name: params.fileName,
+    mime_type: params.mimeType || "application/octet-stream",
+    size_bytes: body.byteLength,
+    storage_path: storagePath,
+    source: params.source,
+    created_by: params.createdBy ?? null,
+  };
+  if (params.contentId) {
+    insertRow.content_id = params.contentId;
+  }
+
+  let { data: row, error: insertError } = await (supabase.from("note_attachments") as any)
+    .insert(insertRow)
     .select("id, note_id, workspace_id, file_name, mime_type, size_bytes, storage_path, source, created_by")
     .single();
+
+  if (insertError?.code === "42703" && params.contentId) {
+    delete insertRow.content_id;
+    ({ data: row, error: insertError } = await (supabase.from("note_attachments") as any)
+      .insert(insertRow)
+      .select("id, note_id, workspace_id, file_name, mime_type, size_bytes, storage_path, source, created_by")
+      .single());
+  }
 
   if (insertError || !row) {
     await supabase.storage.from(NOTE_ATTACHMENTS_BUCKET).remove([storagePath]).catch(() => {});

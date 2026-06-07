@@ -7,7 +7,7 @@
 // Fixed 2026-05-29.
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Star, ChevronRight, ChevronDown, Paperclip } from "lucide-react";
+import { Star, ChevronRight, ChevronDown, Paperclip, Loader2 } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
 import {
@@ -132,8 +132,12 @@ export function NotesView({
   const { searchQuery, setSearchQuery, filteredNotes, isSearching } = useNoteSearch(notes);
 
   const workspaceId = workspaceIdProp || notes[0]?.workspaceId;
-  const { counts: attachmentCounts, setNoteCount, refresh: refreshAttachmentCounts } =
-    useNoteAttachmentCounts(workspaceId);
+  const {
+    counts: attachmentCounts,
+    loading: attachmentCountsLoading,
+    setNoteCount,
+    refresh: refreshAttachmentCounts,
+  } = useNoteAttachmentCounts(workspaceId);
 
   useEffect(() => {
     if (isLive) refreshAttachmentCounts();
@@ -691,6 +695,17 @@ export function NotesView({
           />
         </div>
 
+        {isLive && attachmentCountsLoading && displayNotes.length > 0 && (
+          <div
+            className="flex items-center gap-1.5 border-b border-white/5 px-3 py-1.5 text-[10px] text-[#71717a]"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#c084fc]/70" aria-hidden />
+            <span>Loading attachment indicators for {displayNotes.length} note{displayNotes.length === 1 ? "" : "s"}…</span>
+          </div>
+        )}
+
         {/* Notes List with Drag & Drop for reparenting + reordering */}
         {/* ARIA tree for keyboard + screen reader support (high-impact a11y polish) */}
         <div
@@ -752,7 +767,7 @@ export function NotesView({
         </div>
       </div>
 
-      <div className="notes-editor-panel flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="notes-editor-panel relative flex-1 flex flex-col min-w-0 overflow-hidden">
         {selectedNote ? (
             <div className="flex-1 flex flex-col min-h-0">
             {mobileLayoutClass === "notes-mobile-detail" && (
@@ -766,38 +781,37 @@ export function NotesView({
             )}
             {/* Depth check for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
                 We only offer the "Sub-note" button when the selected note is not already a grandchild. */}
-            {(() => {
-              const selectedDepth = getNoteDepth(selectedNote.id);
-              const canCreateSub = !!onCreateSubNote && selectedDepth < 2;
-              return (
-                <NoteHeader
-                  selectedNote={selectedNote}
-                  onTitleChange={(value) => {
-                    onUpdateNote(selectedNote.id, { title: value });
-                  }}
-                  onDelete={() => handleDeleteNote(selectedNote.id)}
-                  linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
-                  backlinkCount={getBacklinkCount(notes, selectedNote.id)}
-                  onCreateSubNote={canCreateSub ? () => {
-                    onCreateSubNote(selectedNote.id).then((newId) => {
-                      if (newId) {
-                        onSelectNote(newId);
-                        setPendingAutoFocusTitleId(newId);
-                      }
-                    });
-                  } : undefined}
-                  autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
-                  onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
-                />
-              );
-            })()}
-
             {/* FIX: Single scrollable container for the entire note detail (editor + panels).
                 This ensures long content and the Linked Tasks / Links panels are never cut off. */}
             {/* FIX: One scroll container for editor content + bottom panels.
                 Long notes and the Linked Tasks / Links sections will now scroll together. */}
             <div ref={detailScrollRef} className="notes-editor-scroll flex-1 overflow-y-auto min-h-0">
-              <div className="note-content-card glass w-full rounded-xl border border-white/10 overflow-hidden flex flex-col mb-4">
+              <div className="note-content-card w-full rounded-xl border overflow-hidden flex flex-col mb-4">
+              {(() => {
+                const selectedDepth = getNoteDepth(selectedNote.id);
+                const canCreateSub = !!onCreateSubNote && selectedDepth < 2;
+                return (
+                  <NoteHeader
+                    selectedNote={selectedNote}
+                    onTitleChange={(value) => {
+                      onUpdateNote(selectedNote.id, { title: value });
+                    }}
+                    onDelete={() => handleDeleteNote(selectedNote.id)}
+                    linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
+                    backlinkCount={getBacklinkCount(notes, selectedNote.id)}
+                    onCreateSubNote={canCreateSub ? () => {
+                      onCreateSubNote(selectedNote.id).then((newId) => {
+                        if (newId) {
+                          onSelectNote(newId);
+                          setPendingAutoFocusTitleId(newId);
+                        }
+                      });
+                    } : undefined}
+                    autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
+                    onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
+                  />
+                );
+              })()}
               <TipTapEditor
                 key={selectedNote.id}
                 noteId={selectedNote.id}
@@ -847,15 +861,17 @@ export function NotesView({
                 onMentionsChanged={onMentionsChangedProp || onMentionsChanged}
                 onRemoveLinked={onRemoveLinked}
                 onRemoveBacklink={onRemoveBacklink}
+                belowToolbar={
+                  isLive ? (
+                    <NoteAttachmentsPanel
+                      embedded
+                      selectedNote={selectedNote}
+                      countHint={attachmentCounts[selectedNote.id]}
+                      onCountChange={setNoteCount}
+                    />
+                  ) : undefined
+                }
               />
-
-              {isLive && (
-                <NoteAttachmentsPanel
-                  embedded
-                  selectedNote={selectedNote}
-                  onCountChange={setNoteCount}
-                />
-              )}
               </div>
 
               {/* Real Bidirectional Task Linking (Milestone 2) — inside the scroll container so the entire detail view (long editor + linking UI) scrolls together. */}

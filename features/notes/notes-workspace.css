@@ -21,8 +21,21 @@
   width: 100%;
 }
 
+/* Unified light canvas for every note — readable for typed content and inbound email HTML */
 .notes-root .note-content-card {
-  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset;
+  --note-canvas-bg: #f8f8f6;
+  --note-canvas-surface: #f0f0ed;
+  --note-canvas-text: #18181b;
+  --note-canvas-text-secondary: #52525b;
+  --note-canvas-text-muted: #71717a;
+  --note-canvas-border: rgba(24, 24, 27, 0.1);
+  background: var(--note-canvas-bg) !important;
+  backdrop-filter: none;
+  border-color: var(--note-canvas-border) !important;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  color: var(--note-canvas-text);
 }
 
 .notes-root .notes-editor-scroll {

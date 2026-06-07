@@ -13,12 +13,14 @@ export interface NotificationDetailModalProps {
   onClose: () => void;
   onMarkRead?: (id: string) => void;
   onViewChange?: (view: AppView) => void;
+  onOpenNote?: (noteId: string) => void;
 }
 
 type InviteMetadata = {
   workspace_name?: string;
   invited_by_name?: string;
   role?: string;
+  note_id?: string;
 };
 
 function NotificationTypeIcon({ type }: { type: Notification["type"] }) {
@@ -46,6 +48,7 @@ export function NotificationDetailModal({
   onClose,
   onMarkRead,
   onViewChange,
+  onOpenNote,
 }: NotificationDetailModalProps) {
   if (!notification) return null;
 
@@ -53,9 +56,29 @@ export function NotificationDetailModal({
   const hasMetadata = metadata && Object.keys(metadata).length > 0;
 
   const handleLinkAction = () => {
-    if (!notification.link) return;
     if (notification.type === "invite") {
       onViewChange?.("teams");
+      onClose();
+      return;
+    }
+
+    if (notification.type === "activity" && metadata?.note_id) {
+      onViewChange?.("notes");
+      onOpenNote?.(metadata.note_id);
+      onClose();
+      return;
+    }
+
+    if (!notification.link) return;
+    if (notification.link.startsWith("?")) {
+      const url = new URL(window.location.href);
+      const params = new URLSearchParams(notification.link.replace(/^\?/, ""));
+      params.forEach((value, key) => url.searchParams.set(key, value));
+      window.history.replaceState({}, "", url.toString());
+      const view = url.searchParams.get("view");
+      if (view === "home" || view === "tasks" || view === "notes" || view === "teams") {
+        onViewChange?.(view);
+      }
     } else {
       window.location.hash = notification.link;
     }

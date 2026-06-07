@@ -5,7 +5,7 @@ function collapseWhitespace(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function stripHtmlToText(html: string): string {
+export function stripHtmlToPlainText(html: string): string {
   return collapseWhitespace(
     html
       .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -36,7 +36,7 @@ export function extractInboundPlainBody(item: BrevoInboundEmailItem): string {
   if (text) return collapseWhitespace(text);
 
   const html = item.RawHtmlBody?.trim();
-  if (html) return stripHtmlToText(html);
+  if (html) return stripHtmlToPlainText(html);
 
   return "";
 }

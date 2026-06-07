@@ -2,8 +2,154 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { NOTE_ATTACHMENTS_BUCKET } from "@/lib/storage/noteAttachments";
-
+import { parsePdfAnnotations } from "@/lib/pdf/annotations";
 type RouteContext = { params: Promise<{ noteId: string; attachmentId: string }> };
+
+async function assertNoteAccess(noteId: string, userId: string) {
+  const supabase = await createServerSupabaseClient();
+  const { data: note, error } = await supabase
+    .from("notes")
+    .select("id, workspace_id")
+    .eq("id", noteId)
+    .maybeSingle();
+
+  if (error || !note) throw new Error("note_not_found");
+
+  const workspaceId = (note as { workspace_id: string }).workspace_id;
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership) throw new Error("not_a_member");
+
+  return { workspaceId, noteId };
+}
+
+export async function GET(_request: Request, context: RouteContext) {
+  const { noteId, attachmentId } = await context.params;
+
+  if (!isSupabaseAdminConfigured()) {
+    return NextResponse.json({ error: "file_not_configured" }, { status: 503 });
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    await assertNoteAccess(noteId, user.id);
+
+    const admin = createAdminSupabaseClient();
+    const { data: attachment, error: fetchError } = await (admin.from("note_attachments") as any)
+      .select("id, storage_path, mime_type, file_name")
+      .eq("id", attachmentId)
+      .eq("note_id", noteId)
+      .maybeSingle();
+
+    if (fetchError || !attachment) {
+      return NextResponse.json({ error: "attachment_not_found" }, { status: 404 });
+    }
+
+    const storagePath = (attachment as { storage_path: string }).storage_path;
+    const mimeType =
+      (attachment as { mime_type?: string }).mime_type || "application/octet-stream";
+    const fileName = (attachment as { file_name?: string }).file_name || "attachment";
+
+    const { data: blob, error: downloadError } = await admin.storage
+      .from(NOTE_ATTACHMENTS_BUCKET)
+      .download(storagePath);
+
+    if (downloadError || !blob) {
+      return NextResponse.json({ error: "file_download_failed" }, { status: 500 });
+    }
+
+    const buffer = Buffer.from(await blob.arrayBuffer());
+
+    return new NextResponse(buffer, {
+      status: 200,
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Length": String(buffer.length),
+        "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": `inline; filename="${encodeURIComponent(fileName)}"`,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "file_download_failed";
+    const status =
+      message === "not_a_member" ? 403 : message === "note_not_found" ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function PATCH(request: Request, context: RouteContext) {
+  const { noteId, attachmentId } = await context.params;
+
+  if (!isSupabaseAdminConfigured()) {
+    return NextResponse.json({ error: "update_not_configured" }, { status: 503 });
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: { pdfAnnotations?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  const pdfAnnotations = parsePdfAnnotations(body.pdfAnnotations);
+
+  try {
+    await assertNoteAccess(noteId, user.id);
+
+    const admin = createAdminSupabaseClient();
+    const { data: updated, error } = await (admin.from("note_attachments") as any)
+      .update({ pdf_annotations: pdfAnnotations })
+      .eq("id", attachmentId)
+      .eq("note_id", noteId)
+      .select("id, pdf_annotations")
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === "42703") {
+        return NextResponse.json({ error: "pdf_annotations_column_missing" }, { status: 503 });
+      }
+      return NextResponse.json({ error: "annotation_save_failed" }, { status: 500 });
+    }
+
+    if (!updated) {
+      return NextResponse.json({ error: "attachment_not_found" }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      pdfAnnotations: parsePdfAnnotations((updated as { pdf_annotations: unknown }).pdf_annotations),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "annotation_save_failed";
+    const status =
+      message === "not_a_member" ? 403 : message === "note_not_found" ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
 
 export async function DELETE(_request: Request, context: RouteContext) {
   const { noteId, attachmentId } = await context.params;

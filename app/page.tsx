@@ -587,9 +587,9 @@ export default function BadAssTasks() {
     }
   }, [user]);
 
-  const handleDualAuthVerified = () => {
+  const handleDualAuthVerified = React.useCallback(() => {
     setDualAuthVerified(true);
-  };
+  }, []);
 
   // Ensure notifications (including cross-workspace invites) are loaded early for the recipient banner + bell badge.
   // The store now auto-fetches on init/switch, but we also kick it here once we have a live user so the global
@@ -2972,6 +2972,7 @@ export default function BadAssTasks() {
         onClose={() => setSelectedNotification(null)}
         onMarkRead={markNotifRead}
         onViewChange={setView}
+        onOpenNote={setSelectedNoteId}
       />
 
       <ConfirmationModal

@@ -4,6 +4,10 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
 import { Mark } from "@tiptap/core";
 import { TaskEmbed } from "./extensions/task-embed";  // Milestone 2: Live Task embeds inside notes
 import { DatabaseBlock } from "./extensions/database-block";  // Milestone 2: Real database blocks (parallel work)
@@ -33,19 +37,26 @@ import {
   Zap,
   Clock,
   Image as ImageIcon,
+  ChevronDown,
+  ChevronUp,
+  Table2,
 } from "lucide-react";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getBacklinkNotes } from "../hooks/useBacklinks";
 import { ImagePreviewModal } from "./components/ImagePreviewModal";
 import { NoteImage } from "./extensions/note-image";
+import { EmailHtmlBlock } from "./extensions/email-html-block";
 import {
   fileToDataUrl,
   getClipboardImageFiles,
   getDroppedImageFiles,
 } from "./lib/clipboard-images";
 
+/** Default collapsed height before "Read more" (~12–14 lines at 15px/1.65). */
+const NOTE_COLLAPSED_MAX_PX = 320;
 
 // Simple custom Mention mark for proper @mention / [[ ]] pills (Agent 12 polish).
 // Upgraded (Agent 24): supports refType ('task' | 'note' | 'external') for bidirectional visual distinction + future resolution.
@@ -107,6 +118,8 @@ interface TipTapEditorProps {
   className?: string;
   /** Minimum height for the editable area */
   minHeight?: string;
+  /** Optional slot rendered directly below the formatting toolbar */
+  belowToolbar?: React.ReactNode;
   // Future-proof callbacks for advanced slash/linking features (non-breaking; parent wires store actions)
   onCreateTaskFromSlash?: (suggestedTitle?: string) => void;
   onCreateNoteFromSlash?: (suggestedTitle?: string) => void;
@@ -174,6 +187,7 @@ export function TipTapEditor({
   placeholder = "Start writing your note...",
   className,
   minHeight = "240px",
+  belowToolbar,
   onCreateTaskFromSlash,
   onCreateNoteFromSlash,
   onInsertEmbed,
@@ -243,6 +257,10 @@ export function TipTapEditor({
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const lastEmittedContentRef = useRef<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const editorBodyRef = useRef<HTMLDivElement>(null);
+  const [contentExpanded, setContentExpanded] = useState(false);
+  const [needsCollapse, setNeedsCollapse] = useState(false);
+  const [collapsePortalTarget, setCollapsePortalTarget] = useState<HTMLElement | null>(null);
   const handleImageFilesRef = useRef<(files: FileList | File[]) => Promise<boolean>>(
     async () => false
   );
@@ -271,6 +289,8 @@ export function TipTapEditor({
   }, []);
 
   const editor = useEditor({
+    // Client-only editor; avoid Next.js hydration warning and first-paint delay.
+    immediatelyRender: true,
     extensions: [
       StarterKit.configure({
         link: false,
@@ -296,6 +316,16 @@ export function TipTapEditor({
       MentionMark,
 
       NoteImage,
+
+      EmailHtmlBlock.configure({ noteId: noteId ?? "" }),
+
+      Table.configure({
+        resizable: true,
+        HTMLAttributes: { class: "notes-editor-table" },
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
 
       // Proper hyperlinks for rich paste (Google Docs, Word, Notion, web, etc.)
       Link.configure({
@@ -1390,6 +1420,59 @@ export function TipTapEditor({
     };
   }, [editor]);
 
+  useEffect(() => {
+    setContentExpanded(false);
+    setNeedsCollapse(false);
+  }, [noteId]);
+
+  useEffect(() => {
+    const resolvePortalTarget = () => {
+      const panel = editorBodyRef.current?.closest(".notes-editor-panel");
+      setCollapsePortalTarget(panel instanceof HTMLElement ? panel : null);
+    };
+    resolvePortalTarget();
+    requestAnimationFrame(resolvePortalTarget);
+  }, [editor, noteId, contentExpanded]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const measureCollapse = () => {
+      const prose = editorBodyRef.current?.querySelector(".ProseMirror");
+      if (!prose) return;
+      setNeedsCollapse(prose.scrollHeight > NOTE_COLLAPSED_MAX_PX + 8);
+    };
+
+    const handleEditorFocus = () => setContentExpanded(true);
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(measureCollapse)
+        : null;
+
+    const scheduleMeasure = () => {
+      requestAnimationFrame(() => {
+        measureCollapse();
+        const container = editorBodyRef.current;
+        if (container && resizeObserver) {
+          resizeObserver.observe(container);
+        }
+      });
+    };
+
+    scheduleMeasure();
+    editor.on("update", measureCollapse);
+    editor.on("focus", handleEditorFocus);
+
+    return () => {
+      editor.off("update", measureCollapse);
+      editor.off("focus", handleEditorFocus);
+      resizeObserver?.disconnect();
+    };
+  }, [editor]);
+
+  const isContentCollapsed = needsCollapse && !contentExpanded;
+
   if (!editor) {
     return (
       <div
@@ -1421,10 +1504,10 @@ export function TipTapEditor({
       title={title}
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-lg transition-all active:scale-95",
-        "hover:bg-white/10 border border-transparent",
+        "hover:bg-black/5 border border-transparent",
         isActive
-          ? "bg-[#c084fc]/20 text-[#c084fc] border-[#c084fc]/40"
-          : "text-[#a1a1aa] hover:text-[#f4f4f5]"
+          ? "bg-[#7c3aed]/15 text-[#7c3aed] border-[#7c3aed]/30"
+          : "text-[var(--note-canvas-text-muted,#71717a)] hover:text-[var(--note-canvas-text,#18181b)] hover:bg-black/5"
       )}
     >
       {children}
@@ -1434,7 +1517,7 @@ export function TipTapEditor({
   return (
     <div
       className={cn(
-        "notes-rich-editor glass w-full rounded-xl border border-white/10 flex flex-col",
+        "notes-rich-editor w-full flex flex-col bg-transparent",
         className
       )}
     >
@@ -1453,7 +1536,7 @@ export function TipTapEditor({
         }}
       />
       {/* Basic Toolbar - clean, keyboard-friendly, no custom extensions */}
-      <div className="flex items-center gap-1 border-b border-white/10 bg-[#111114]/60 px-3 py-2 flex-wrap">
+      <div className="flex items-center gap-1 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] px-3 py-2 flex-wrap">
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
           isActive={editor.isActive("bold")}
@@ -1478,7 +1561,7 @@ export function TipTapEditor({
           <span className="text-xs font-bold line-through">S</span>
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
@@ -1504,7 +1587,7 @@ export function TipTapEditor({
           <Heading3 className="h-4 w-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -1530,7 +1613,7 @@ export function TipTapEditor({
           <Quote className="h-4 w-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleCodeBlock().run()}
@@ -1540,24 +1623,17 @@ export function TipTapEditor({
           <Code className="h-4 w-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div className="w-px h-5 bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] mx-1" />
 
-        {/* Basic note → task conversion affordance inside editor (Agent 24) */}
-        <button
-          type="button"
-          onClick={() => {
-            const selText = editor.state.selection.empty
-              ? editor.state.doc.textContent.slice(0, 60).trim()
-              : editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, " ").trim();
-            const suggested = selText || "Task from note content";
-            onCreateTaskFromSlash?.(suggested);
-            toast.success("Conversion flow started", { description: "Task created + bidirectional link via parent" });
-          }}
-          title="Promote selection or note to linked Task (note↔task bidirectional conversion)"
-          className="text-[9px] font-mono tracking-widest px-2 py-0.5 rounded-md border border-[#c084fc]/30 text-[#c084fc] hover:bg-[#c084fc]/10 active:scale-95 transition"
+        <ToolbarButton
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+          }
+          isActive={editor.isActive("table")}
+          title="Insert table"
         >
-          → TASK
-        </button>
+          <Table2 className="h-4 w-4" />
+        </ToolbarButton>
 
         <div className="flex-1" />
 
@@ -1588,13 +1664,50 @@ export function TipTapEditor({
 
       </div>
 
+      {belowToolbar}
+
       {/* Editable Area (Placeholder extension provides native hint inside editor) */}
       <div
-        className="p-5 bg-[#0f0f13] relative"
-        style={{ minHeight }}
+        className={cn(
+          "p-5 bg-[var(--note-canvas-bg,#f8f8f6)] relative",
+          needsCollapse && contentExpanded && "pb-20",
+        )}
+        style={{ minHeight: isContentCollapsed ? undefined : minHeight }}
         onClick={() => editor.chain().focus().run()}
       >
-        <EditorContent editor={editor} />
+        <div
+          ref={editorBodyRef}
+          className={cn("relative", isContentCollapsed && "note-content-collapsed")}
+          style={
+            isContentCollapsed
+              ? { maxHeight: NOTE_COLLAPSED_MAX_PX }
+              : undefined
+          }
+        >
+          <EditorContent editor={editor} />
+
+          {isContentCollapsed && (
+            <>
+              <div
+                className="note-content-collapsed-fade pointer-events-none absolute inset-x-0 bottom-0 h-20"
+                aria-hidden
+              />
+              <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1 pt-6">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setContentExpanded(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-white px-3 py-1.5 text-xs font-medium text-[var(--note-canvas-text-secondary,#52525b)] shadow-sm transition-colors hover:border-[#7c3aed]/35 hover:text-[#7c3aed] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/50"
+                >
+                  Read more
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Agent 30: Live collaborator cursors / floating selection shares - delightful premium feel (coords-based, falls back gracefully) */}
         {remoteCursors && remoteCursors.length > 0 && editor && (
@@ -1858,6 +1971,30 @@ export function TipTapEditor({
         alt={previewImage?.alt}
         onClose={closeImagePreview}
       />
+
+      {needsCollapse &&
+        contentExpanded &&
+        collapsePortalTarget &&
+        createPortal(
+          <div
+            className="note-read-less-dock pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4 pt-10"
+            aria-hidden={false}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setContentExpanded(false);
+                editorBodyRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+              }}
+              className="note-read-less-btn pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-white/95 px-3 py-1.5 text-xs font-medium text-[var(--note-canvas-text-secondary,#52525b)] shadow-[0_4px_20px_rgba(0,0,0,0.12)] backdrop-blur-sm transition-colors hover:border-[#7c3aed]/35 hover:text-[#7c3aed] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/50"
+            >
+              Read less
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>,
+          collapsePortalTarget,
+        )}
     </div>
   );
 }

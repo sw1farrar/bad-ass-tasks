@@ -1,11 +1,20 @@
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { getBrevoInboundDomain } from "./inboundConfig";
 import { buildInboundNoteTitle } from "./inboundNoteContent";
-import { buildInboundNoteContentJson } from "@/lib/notes/emailHtmlToTipTap";
+import {
+  buildInboundNoteContentJson,
+  buildInboundNotePlaceholderContent,
+} from "@/lib/notes/emailHtmlToTipTap";
+import { extractNoteSearchText } from "@/lib/notes/extractNoteSearchText";
+import { EMAIL_PIPELINE_VERSION } from "@/lib/notes/emailPipeline";
+import { downloadBrevoInboundEml } from "./downloadInboundEml";
+import { storeInboundEml } from "@/lib/storage/inboundEml";
 import { parseInboundRecipientLocalPart } from "./parseInboundRecipient";
 import { downloadBrevoInboundAttachment } from "./downloadInboundAttachment";
-import { uploadNoteAttachment, createSignedAttachmentUrl } from "@/lib/storage/noteAttachments";
+import { uploadNoteAttachment } from "@/lib/storage/noteAttachments";
+import { buildNoteAttachmentFileUrl } from "@/lib/notes/attachmentUrls";
 import { processInboundTaskEmail } from "./processInboundTaskEmail";
+import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
 import type { BrevoInboundEmailItem, BrevoInboundWebhookPayload } from "./inboundTypes";
 
 export type ProcessInboundEmailResult =
@@ -81,16 +90,16 @@ async function processAttachments(params: {
         buffer,
         source: "email",
         createdBy: params.createdBy,
+        contentId: att.ContentID ?? null,
       });
 
-      const signedUrl = await createSignedAttachmentUrl(stored.storagePath, 60 * 60 * 24 * 7);
-      if (!signedUrl) continue;
+      const fileUrl = buildNoteAttachmentFileUrl(params.noteId, stored.id);
 
       const cid = normalizeCid(att.ContentID);
       if (cid) {
-        cidToUrl[cid] = signedUrl;
+        cidToUrl[cid] = fileUrl;
         const bare = att.ContentID?.replace(/^<|>$/g, "").trim();
-        if (bare) cidToUrl[bare] = signedUrl;
+        if (bare) cidToUrl[bare] = fileUrl;
       }
     } catch (err) {
       console.error("[brevo-inbound] attachment failed", att.Name, err);
@@ -199,12 +208,13 @@ export async function processInboundEmail(
   }
 
   const title = buildInboundNoteTitle(item);
+  const rawHtml = item.RawHtmlBody?.trim() ?? "";
 
-  // Placeholder note so attachment uploads have a note_id; content finalized after attachments.
+  // Placeholder note so attachment uploads have a note_id; email block finalized after CID resolution.
   const insertPayload: Record<string, unknown> = {
     workspace_id: inboxRow.workspace_id,
     title,
-    content: buildInboundNoteContentJson(item),
+    content: buildInboundNotePlaceholderContent(item),
     tags: ["from-email"],
     is_archived: false,
     linked_task_ids: [],
@@ -251,9 +261,42 @@ export async function processInboundEmail(
   }
 
   const finalContent = buildInboundNoteContentJson(item, cidToUrl);
-  const { error: contentError } = await (supabase.from("notes") as any)
-    .update({ content: finalContent, updated_at: new Date().toISOString() })
+  const searchPlain = [title, extractNoteSearchText(finalContent)].filter(Boolean).join(" ").trim();
+
+  let emailSource: string | null = messageId ? `brevo:${messageId}` : null;
+
+  if (item.EMLDownloadToken && messageId) {
+    try {
+      const { buffer } = await downloadBrevoInboundEml(item.EMLDownloadToken);
+      emailSource = await storeInboundEml({
+        workspaceId: inboxRow.workspace_id,
+        noteId,
+        messageId,
+        buffer,
+      });
+    } catch (err) {
+      console.error("[brevo-inbound] EML archive failed", err);
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    content: finalContent,
+    updated_at: new Date().toISOString(),
+    raw_html: rawHtml || null,
+    email_source: emailSource,
+    search_plain: searchPlain || null,
+    email_pipeline_version: EMAIL_PIPELINE_VERSION,
+  };
+
+  let { error: contentError } = await (supabase.from("notes") as any)
+    .update(updatePayload)
     .eq("id", noteId);
+
+  if (contentError?.code === "42703") {
+    ({ error: contentError } = await (supabase.from("notes") as any)
+      .update({ content: finalContent, updated_at: updatePayload.updated_at })
+      .eq("id", noteId));
+  }
 
   if (contentError) {
     console.error("[brevo-inbound] note content update failed", contentError);
@@ -271,6 +314,17 @@ export async function processInboundEmail(
       console.error("[brevo-inbound] idempotency record failed", err);
     }
   }
+
+  fanoutNoteAddedNotifications({
+    workspaceId: inboxRow.workspace_id,
+    noteId,
+    noteTitle: title,
+    actorUserId: inboxRow.created_by,
+    source: "email",
+    supabase: supabase as any,
+  }).catch((err) => {
+    console.error("[brevo-inbound] note-added notification fanout failed", err);
+  });
 
   return {
     ok: true,

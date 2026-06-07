@@ -103,6 +103,8 @@ import {
   extractMentions,
   deleteNotification,
   clearAllNotifications,
+  getUserNotificationPrefs,
+  updateUserNotificationPrefs,
   fetchWorkspaceMessages,
   fetchWorkspaceMessageReactions,
 } from "@/lib/data/hybridStore";
@@ -354,6 +356,7 @@ interface TaskState extends ListSliceActions {
   deleteNotification: (id: string) => Promise<boolean>;
   clearAllNotifications: () => Promise<boolean>;
   updateNotificationPrefs: (updates: Partial<NotificationPrefs>) => Promise<void>;
+  loadNotificationPrefs: () => Promise<void>;
 
   // Agent 18: Team/Admin dashboard, export/import, templates, stats + audit
   getWorkspaceStats: () => Promise<any>;
@@ -1043,6 +1046,8 @@ export const useTaskStore = create<TaskState>()(
           // Live workspace/data bootstrap runs from app/page.tsx after dual-auth passes.
           if (!session?.user) {
             set({ isSiteAdmin: false, myProfile: null });
+          } else if (isSupabaseLive()) {
+            get().loadNotificationPrefs?.().catch(() => {});
           }
         } catch (e) {
           console.warn("[auth] getSession failed (network?)", e);
@@ -1071,6 +1076,7 @@ export const useTaskStore = create<TaskState>()(
                 currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
                 taskLoadingStates: {},
               });
+              get().loadNotificationPrefs?.().catch(() => {});
             }
           }
 
@@ -2984,6 +2990,12 @@ export const useTaskStore = create<TaskState>()(
         const count = await getUnreadNotificationCount(user.id, wsId);
         set({ unreadNotifCount: count });
       },
+      loadNotificationPrefs: async () => {
+        const userId = get().user?.id;
+        if (!userId || !isSupabaseLive()) return;
+        const prefs = await getUserNotificationPrefs(userId);
+        set({ notificationPrefs: prefs });
+      },
       updateNotificationPrefs: async (updates) => {
         const current = get().notificationPrefs || {
           email: true,
@@ -2991,11 +3003,30 @@ export const useTaskStore = create<TaskState>()(
           types: { mention: true, comment: true, invite: true, task_assigned: true, deadline: true, activity: true },
           perWorkspace: {},
         } as NotificationPrefs;
-        const next = { ...current, ...updates, types: { ...current.types, ...(updates.types || {}) }, perWorkspace: { ...current.perWorkspace, ...(updates.perWorkspace || {}) } };
+        const next = {
+          ...current,
+          ...updates,
+          types: { ...current.types, ...(updates.types || {}) },
+          perWorkspace: { ...current.perWorkspace, ...(updates.perWorkspace || {}) },
+        };
         set({ notificationPrefs: next });
-        // Persist note: in full would update profile via hybrid. For foundation, local + toast.
-        toast.success("Notification preferences updated", { description: "Applied for this session (DB sync in future pass)." });
-        // Future: await updateProfileNotificationPrefs(next)
+
+        const userId = get().user?.id;
+        if (userId && isSupabaseLive()) {
+          const ok = await updateUserNotificationPrefs(userId, next);
+          if (ok) {
+            toast.success("Notification preferences updated");
+            return;
+          }
+          toast.error("Could not save notification preferences", {
+            description: "Your changes are active for this session only.",
+          });
+          return;
+        }
+
+        toast.success("Notification preferences updated", {
+          description: "Sign in with a live workspace to persist settings.",
+        });
       },
 
       // Agent 18: real powerful exports (full data + all formats via utils), imports with conflict, apply now wired

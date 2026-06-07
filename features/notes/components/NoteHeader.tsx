@@ -85,7 +85,7 @@ export function NoteHeader({
   };
 
   return (
-    <div className="px-4 sm:px-6 pt-4 pb-2 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+    <div className="note-header px-4 sm:px-6 pt-4 pb-2 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] flex flex-wrap items-center justify-between gap-2 sm:gap-4">
       <input
         ref={titleInputRef}
         type="text"
@@ -93,14 +93,14 @@ export function NoteHeader({
         onChange={(e) => setLocalTitle(e.target.value)}
         onBlur={commitTitle}
         onKeyDown={handleKeyDown}
-        className="bg-transparent text-2xl font-semibold tracking-tighter focus:outline-none flex-1 min-w-0"
+        className="bg-transparent text-2xl font-semibold tracking-tighter text-[var(--note-canvas-text,#18181b)] placeholder:text-[var(--note-canvas-text-muted,#a1a1aa)] focus:outline-none flex-1 min-w-0"
         placeholder="Untitled Note"
       />
       <div className="flex items-center gap-2 shrink-0">
         {onCreateSubNote && (
           <button
             onClick={onCreateSubNote}
-            className="text-xs text-[#c084fc] hover:text-white flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-[#c084fc]/10 border border-[#c084fc]/30 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#c084fc]/60 focus-visible:outline-none font-medium"
+            className="text-xs text-[#7c3aed] hover:text-[#5b21b6] flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-[#7c3aed]/10 border border-[#7c3aed]/25 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40 focus-visible:outline-none font-medium"
             title="Create a new sub-note under this note"
             aria-label="Create sub-note"
           >
@@ -118,7 +118,7 @@ export function NoteHeader({
 
         <button
           onClick={onDelete}
-          className="text-xs text-[#71717a] hover:text-[#ff3366] flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-white/5 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#ff3366]/50 focus-visible:outline-none"
+          className="text-xs text-[var(--note-canvas-text-muted,#71717a)] hover:text-[#dc2626] flex items-center gap-1.5 px-3 py-1.5 sm:py-1 rounded-lg hover:bg-black/5 touch-manipulation min-h-[40px] sm:min-h-0 focus-visible:ring-1 focus-visible:ring-[#dc2626]/40 focus-visible:outline-none"
           aria-label="Delete current note"
         >
           <Trash2 className="h-3.5 w-3.5" /> Delete

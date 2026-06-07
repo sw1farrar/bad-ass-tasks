@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/admin";
-import {
-  createSignedAttachmentUrl,
-  uploadNoteAttachment,
-} from "@/lib/storage/noteAttachments";
+import { uploadNoteAttachment } from "@/lib/storage/noteAttachments";
+import { buildNoteAttachmentFileUrl } from "@/lib/notes/attachmentUrls";
+import { parsePdfAnnotations } from "@/lib/pdf/annotations";
 
 type RouteContext = { params: Promise<{ noteId: string }> };
 
@@ -46,10 +45,29 @@ export async function GET(_request: Request, context: RouteContext) {
   try {
     await assertNoteAccess(noteId, user.id);
 
-    const { data: rows, error } = await (supabase.from("note_attachments") as any)
-      .select("id, note_id, workspace_id, file_name, mime_type, size_bytes, storage_path, source, created_at")
+    let rows: unknown[] | null = null;
+    let error: { code?: string; message?: string } | null = null;
+
+    const fullSelect = await (supabase.from("note_attachments") as any)
+      .select(
+        "id, note_id, workspace_id, file_name, mime_type, size_bytes, storage_path, source, created_at, pdf_annotations",
+      )
       .eq("note_id", noteId)
       .order("created_at", { ascending: false });
+
+    if (fullSelect.error?.code === "42703") {
+      const legacySelect = await (supabase.from("note_attachments") as any)
+        .select(
+          "id, note_id, workspace_id, file_name, mime_type, size_bytes, storage_path, source, created_at",
+        )
+        .eq("note_id", noteId)
+        .order("created_at", { ascending: false });
+      rows = legacySelect.data;
+      error = legacySelect.error;
+    } else {
+      rows = fullSelect.data;
+      error = fullSelect.error;
+    }
 
     if (error) {
       if (error.code === "42P01") {
@@ -67,25 +85,20 @@ export async function GET(_request: Request, context: RouteContext) {
       storage_path: string;
       source: string;
       created_at: string;
+      pdf_annotations?: unknown;
     };
 
-    const attachments = await Promise.all(
-      ((rows ?? []) as AttachmentRow[]).map(async (row) => {
-        const signedUrl = isSupabaseAdminConfigured()
-          ? await createSignedAttachmentUrl(row.storage_path)
-          : null;
-        return {
-          id: row.id,
-          noteId: row.note_id,
-          fileName: row.file_name,
-          mimeType: row.mime_type,
-          sizeBytes: row.size_bytes,
-          source: row.source,
-          createdAt: row.created_at,
-          previewUrl: signedUrl,
-        };
-      }),
-    );
+    const attachments = ((rows ?? []) as AttachmentRow[]).map((row) => ({
+      id: row.id,
+      noteId: row.note_id,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+      source: row.source,
+      createdAt: row.created_at,
+      previewUrl: buildNoteAttachmentFileUrl(noteId, row.id),
+      pdfAnnotations: parsePdfAnnotations(row.pdf_annotations),
+    }));
 
     return NextResponse.json({ ok: true, attachments });
   } catch (err) {
@@ -137,8 +150,6 @@ export async function POST(request: Request, context: RouteContext) {
       createdBy: user.id,
     });
 
-    const previewUrl = await createSignedAttachmentUrl(stored.storagePath);
-
     return NextResponse.json({
       ok: true,
       attachment: {
@@ -148,7 +159,7 @@ export async function POST(request: Request, context: RouteContext) {
         mimeType: stored.mimeType,
         sizeBytes: stored.sizeBytes,
         source: stored.source,
-        previewUrl,
+        previewUrl: buildNoteAttachmentFileUrl(noteId, stored.id),
       },
     });
   } catch (err) {

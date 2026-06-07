@@ -19,6 +19,15 @@ import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
 import { isDueDatePast } from "@/lib/datetime";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  normalizeNotificationPrefs,
+} from "@/lib/notifications/notificationPrefs";
+import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
+import {
+  isMissingNotificationPrefsColumn,
+  warnMissingNotificationPrefsColumnOnce,
+} from "@/lib/notifications/schemaFallback";
 
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
 type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
@@ -370,6 +379,10 @@ function mapNoteRow(row: NoteRow): Note {
     snapshots: Array.isArray((row as any).snapshots)
       ? (row as any).snapshots
       : ((row as any).snapshots ? [(row as any).snapshots] : []),
+    searchPlain: (row as any).search_plain ?? null,
+    rawHtml: (row as any).raw_html ?? null,
+    emailSource: (row as any).email_source ?? null,
+    emailPipelineVersion: (row as any).email_pipeline_version ?? null,
   };
 }
 
@@ -736,6 +749,21 @@ export async function processPendingOperations(): Promise<{
           });
           if (error) throw error;
           synced++;
+
+          const noteTitle =
+            typeof (op.payload as { title?: unknown })?.title === "string"
+              ? (op.payload as { title: string }).title
+              : "New note";
+          const {
+            data: { user: actor },
+          } = await supabase.auth.getUser();
+          fanoutNoteAddedNotifications({
+            workspaceId: op.workspaceId,
+            noteId: op.targetId,
+            noteTitle,
+            actorUserId: actor?.id ?? null,
+            supabase: supabase as any,
+          }).catch(() => {});
         } else if (op.type === "update") {
           const { data: current } = await supabase
             .from("notes")
@@ -1395,7 +1423,21 @@ export async function createNote(input: {
       };
     }
 
-    return mapNoteRow(data);
+    const created = mapNoteRow(data);
+
+    const {
+      data: { user: actor },
+    } = await supabase.auth.getUser();
+    fanoutNoteAddedNotifications({
+      workspaceId: input.workspaceId,
+      noteId: created.id,
+      noteTitle: created.title,
+      actorUserId: actor?.id ?? null,
+      source: (input.tags ?? []).includes("from-email") ? "email" : "manual",
+      supabase: supabase as any,
+    }).catch(() => {});
+
+    return created;
   } catch (err) {
     const clientId = input.id || generateClientId();
     enqueuePendingOperation({
@@ -2009,26 +2051,76 @@ export async function getUnreadNotificationCount(userId: string, workspaceId?: s
   }
 }
 
-/** Email notification scaffold (extends the invite email placeholder). 
- * For production: integrate Resend / Supabase Edge Function / API route.
- * Called for key events if user prefs allow email.
- */
-export async function sendNotificationEmail(
-  toEmail: string | null | undefined,
-  type: NotificationType,
-  data: { title: string; message: string; workspaceName?: string; link?: string; actor?: string }
+export { sendNotificationEmail } from "@/lib/notifications/sendNotificationEmail";
+
+/** Load notification preferences for a user from profiles.notification_prefs. */
+export async function getUserNotificationPrefs(userId: string): Promise<NotificationPrefs> {
+  if (!isSupabaseLive() || !userId) return DEFAULT_NOTIFICATION_PREFS;
+
+  const supabase = getClient();
+  if (!supabase) return DEFAULT_NOTIFICATION_PREFS;
+
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("notification_prefs")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingNotificationPrefsColumn(error)) {
+        warnMissingNotificationPrefsColumnOnce();
+        return DEFAULT_NOTIFICATION_PREFS;
+      }
+      logHybridError("getUserNotificationPrefs", error);
+      return DEFAULT_NOTIFICATION_PREFS;
+    }
+
+    if (!data) return DEFAULT_NOTIFICATION_PREFS;
+
+    return normalizeNotificationPrefs((data as { notification_prefs?: unknown }).notification_prefs);
+  } catch (err) {
+    if (isMissingNotificationPrefsColumn(err)) {
+      warnMissingNotificationPrefsColumnOnce();
+      return DEFAULT_NOTIFICATION_PREFS;
+    }
+    logHybridError("getUserNotificationPrefs", err);
+    return DEFAULT_NOTIFICATION_PREFS;
+  }
+}
+
+/** Persist notification preferences on the signed-in user's profile. */
+export async function updateUserNotificationPrefs(
+  userId: string,
+  prefs: NotificationPrefs,
 ): Promise<boolean> {
-  if (!isSupabaseLive() || !toEmail) return false;
+  if (!isSupabaseLive() || !userId) return false;
 
-  // Reuse/extend the existing invite scaffold pattern for consistency and zero new deps.
-  console.info(
-    `[NOTIF EMAIL SCAFFOLD] Would send ${type} email to ${toEmail}: "${data.title}" — ${data.message}. ` +
-    `Workspace: ${data.workspaceName || 'n/a'}. Link: ${data.link || 'app'}. Actor: ${data.actor || 'system'}. ` +
-    `Future: wire Resend SDK or edge fn (see sendInviteEmail for example).`
-  );
+  const supabase = getClient();
+  if (!supabase) return false;
 
-  // Placeholder success (graceful). Real impl would await resend.emails.send(...)
-  return true;
+  try {
+    const { error } = await (supabase.from("profiles") as any)
+      .update({ notification_prefs: prefs as unknown as Json })
+      .eq("id", userId);
+
+    if (error) {
+      if (isMissingNotificationPrefsColumn(error)) {
+        warnMissingNotificationPrefsColumnOnce();
+        return false;
+      }
+      logHybridError("updateUserNotificationPrefs", error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingNotificationPrefsColumn(err)) {
+      warnMissingNotificationPrefsColumnOnce();
+      return false;
+    }
+    logHybridError("updateUserNotificationPrefs", err);
+    return false;
+  }
 }
 
 /** Helper: extract @mentions from text (reuses natural lang tag logic + comment rendering pattern). Returns unique handles. */

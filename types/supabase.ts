@@ -172,6 +172,10 @@ export interface Database {
           created_at: string
           updated_at: string
           last_edited_by: string | null
+          raw_html: string | null
+          email_source?: string | null
+          search_plain?: string | null
+          email_pipeline_version?: number | null
         }
         Insert: {
           id?: string
@@ -189,6 +193,10 @@ export interface Database {
           created_at?: string
           updated_at?: string
           last_edited_by?: string | null
+          raw_html?: string | null
+          email_source?: string | null
+          search_plain?: string | null
+          email_pipeline_version?: number | null
         }
         Update: {
           id?: string
@@ -206,6 +214,10 @@ export interface Database {
           created_at?: string
           updated_at?: string
           last_edited_by?: string | null
+          raw_html?: string | null
+          email_source?: string | null
+          search_plain?: string | null
+          email_pipeline_version?: number | null
         }
       },
       // Added for Phase 2 collaboration (workspace_members was missing from prior types)
@@ -530,8 +542,10 @@ export interface Database {
           size_bytes: number
           storage_path: string
           source: string
+          content_id?: string | null
           created_by: string | null
           created_at: string
+          pdf_annotations: unknown
         }
         Insert: {
           id?: string
@@ -542,8 +556,10 @@ export interface Database {
           size_bytes?: number
           storage_path: string
           source?: string
+          content_id?: string | null
           created_by?: string | null
           created_at?: string
+          pdf_annotations?: unknown
         }
         Update: {
           id?: string
@@ -554,7 +570,9 @@ export interface Database {
           size_bytes?: number
           storage_path?: string
           source?: string
+          content_id?: string | null
           created_by?: string | null
+          pdf_annotations?: unknown
           created_at?: string
         }
       },
