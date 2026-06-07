@@ -1,14 +1,10 @@
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { getBrevoInboundDomain } from "./inboundConfig";
 import { buildInboundNoteTitle } from "./inboundNoteContent";
-import {
-  buildInboundNoteContentJson,
-  buildInboundNotePlaceholderContent,
-} from "@/lib/notes/emailHtmlToTipTap";
-import { extractNoteSearchText } from "@/lib/notes/extractNoteSearchText";
-import { EMAIL_PIPELINE_VERSION } from "@/lib/notes/emailPipeline";
+import { safeBuildInboundNoteContentJson } from "@/lib/notes/emailHtmlToTipTap";
 import { downloadBrevoInboundEml } from "./downloadInboundEml";
 import { storeInboundEml } from "@/lib/storage/inboundEml";
+import { finalizeInboundNoteContent } from "./finalizeInboundNote";
 import { parseInboundRecipientLocalPart } from "./parseInboundRecipient";
 import { downloadBrevoInboundAttachment } from "./downloadInboundAttachment";
 import { uploadNoteAttachment } from "@/lib/storage/noteAttachments";
@@ -210,11 +206,11 @@ export async function processInboundEmail(
   const title = buildInboundNoteTitle(item);
   const rawHtml = item.RawHtmlBody?.trim() ?? "";
 
-  // Placeholder note so attachment uploads have a note_id; email block finalized after CID resolution.
+  // Insert with full email content immediately (unresolved CIDs are OK); re-finalize after attachments.
   const insertPayload: Record<string, unknown> = {
     workspace_id: inboxRow.workspace_id,
     title,
-    content: buildInboundNotePlaceholderContent(item),
+    content: safeBuildInboundNoteContentJson(item),
     tags: ["from-email"],
     is_archived: false,
     linked_task_ids: [],
@@ -236,10 +232,25 @@ export async function processInboundEmail(
     insertPayload.last_edited_by = inboxRow.created_by;
   }
 
-  const { data: createdNote, error: createError } = await (supabase.from("notes") as any)
+  if (rawHtml) {
+    insertPayload.raw_html = rawHtml;
+  }
+
+  let createdNote: { id: string } | null = null;
+  let createError: { code?: string; message?: string } | null = null;
+
+  ({ data: createdNote, error: createError } = await (supabase.from("notes") as any)
     .insert(insertPayload)
     .select("id")
-    .single();
+    .single());
+
+  if (createError?.code === "42703" && rawHtml) {
+    const { raw_html: _raw, ...withoutArchive } = insertPayload;
+    ({ data: createdNote, error: createError } = await (supabase.from("notes") as any)
+      .insert(withoutArchive)
+      .select("id")
+      .single());
+  }
 
   if (createError || !createdNote) {
     console.error("[brevo-inbound] note create failed", createError);
@@ -260,46 +271,36 @@ export async function processInboundEmail(
     console.error("[brevo-inbound] attachment batch failed", err);
   }
 
-  const finalContent = buildInboundNoteContentJson(item, cidToUrl);
-  const searchPlain = [title, extractNoteSearchText(finalContent)].filter(Boolean).join(" ").trim();
-
   let emailSource: string | null = messageId ? `brevo:${messageId}` : null;
 
+  await finalizeInboundNoteContent({
+    supabase,
+    noteId,
+    item,
+    title,
+    rawHtml,
+    cidToUrl,
+    emailSource,
+  });
+
+  // EML archive is best-effort and must not block note content finalization.
   if (item.EMLDownloadToken && messageId) {
-    try {
-      const { buffer } = await downloadBrevoInboundEml(item.EMLDownloadToken);
-      emailSource = await storeInboundEml({
-        workspaceId: inboxRow.workspace_id,
-        noteId,
-        messageId,
-        buffer,
-      });
-    } catch (err) {
-      console.error("[brevo-inbound] EML archive failed", err);
-    }
-  }
-
-  const updatePayload: Record<string, unknown> = {
-    content: finalContent,
-    updated_at: new Date().toISOString(),
-    raw_html: rawHtml || null,
-    email_source: emailSource,
-    search_plain: searchPlain || null,
-    email_pipeline_version: EMAIL_PIPELINE_VERSION,
-  };
-
-  let { error: contentError } = await (supabase.from("notes") as any)
-    .update(updatePayload)
-    .eq("id", noteId);
-
-  if (contentError?.code === "42703") {
-    ({ error: contentError } = await (supabase.from("notes") as any)
-      .update({ content: finalContent, updated_at: updatePayload.updated_at })
-      .eq("id", noteId));
-  }
-
-  if (contentError) {
-    console.error("[brevo-inbound] note content update failed", contentError);
+    void (async () => {
+      try {
+        const { buffer } = await downloadBrevoInboundEml(item.EMLDownloadToken!);
+        const path = await storeInboundEml({
+          workspaceId: inboxRow.workspace_id,
+          noteId,
+          messageId,
+          buffer,
+        });
+        await (supabase.from("notes") as any)
+          .update({ email_source: path, updated_at: new Date().toISOString() })
+          .eq("id", noteId);
+      } catch (err) {
+        console.error("[brevo-inbound] EML archive failed", err);
+      }
+    })();
   }
 
   if (messageId) {

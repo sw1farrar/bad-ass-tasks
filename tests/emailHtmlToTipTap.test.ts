@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   buildInboundNoteContentJson,
-  buildInboundNotePlaceholderContent,
   htmlToTipTapDoc,
   replaceCidImagesInTipTapDoc,
+  safeBuildInboundNoteContentJson,
 } from "@/lib/notes/emailHtmlToTipTap";
 import {
   displayStoredEmailHtml,
@@ -225,16 +225,24 @@ describe("emailHtmlToTipTap", () => {
     expect(expanded).not.toContain("[if !mso]");
   });
 
-  it("placeholder content omits emailHtmlBlock until CID resolution", () => {
-    const doc = buildInboundNotePlaceholderContent({
+  it("initial insert includes emailHtmlBlock even before CID resolution", () => {
+    const doc = buildInboundNoteContentJson({
       From: { Address: "store@example.com" },
       Subject: "Receipt",
       RawHtmlBody: '<img src="cid:logo" alt="Logo">',
     });
     const serialized = JSON.stringify(doc);
-    expect(serialized).toContain("Processing email");
-    expect(serialized).not.toContain("emailHtmlBlock");
-    expect(serialized).not.toContain("cid:logo");
+    expect(serialized).toContain("emailHtmlBlock");
+    expect(serialized).toContain("cid:logo");
+    expect(serialized).not.toContain("Processing email");
+  });
+
+  it("safeBuildInboundNoteContentJson returns a doc even when html pipeline throws", () => {
+    const doc = safeBuildInboundNoteContentJson({
+      From: { Address: "broken@example.com" },
+      RawHtmlBody: "<p>Hello</p>",
+    });
+    expect(doc).toMatchObject({ type: "doc" });
   });
 
   it("displayStoredEmailHtml does not re-juice current pipeline notes", () => {

@@ -4,6 +4,7 @@ import { processInboundEmail } from "@/lib/brevo/processInboundEmail";
 import type { BrevoInboundWebhookPayload } from "@/lib/brevo/inboundTypes";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   if (!isBrevoInboundWebhookAuthorized(request)) {

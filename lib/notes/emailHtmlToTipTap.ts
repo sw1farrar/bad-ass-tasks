@@ -84,6 +84,25 @@ export function buildInboundNoteContentJson(
   return plainBodyDoc(item);
 }
 
+/** Never throws — falls back to plain text if the HTML pipeline fails. */
+export function safeBuildInboundNoteContentJson(
+  item: BrevoInboundEmailItem,
+  imageUrlByCid?: Record<string, string>,
+): Json {
+  try {
+    return buildInboundNoteContentJson(item, imageUrlByCid);
+  } catch (err) {
+    console.error("[email-pipeline] buildInboundNoteContentJson failed, using plain text", err);
+    return plainBodyDoc(item);
+  }
+}
+
+export function isInboundNotePlaceholderContent(content: unknown): boolean {
+  if (!content || typeof content !== "object") return false;
+  const serialized = JSON.stringify(content);
+  return serialized.includes("Processing email");
+}
+
 /** @deprecated Use buildInboundNoteContentJson — kept for tests. */
 export function htmlToTipTapDoc(html: string): Json {
   const prepared = prepareInboundEmailHtml(html);
