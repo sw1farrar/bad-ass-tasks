@@ -782,6 +782,14 @@ export default function BadAssTasks() {
 
     const handleTouchStart = (e: TouchEvent) => {
       if (mainEl.scrollTop > 8 || isPullRefreshing) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest(
+          ".list-item-drag, .list-card-drag-handle, .sortable-list-card, .list-item-drag-overlay, .list-card-drag-overlay",
+        )
+      ) {
+        return;
+      }
       isPulling = true;
       startY = e.touches[0].clientY;
     };

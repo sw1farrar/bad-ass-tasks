@@ -3,24 +3,21 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
+  type DragCancelEvent,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, MoreHorizontal, Pin, PinOff, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ListItem, WorkspaceList } from "@/types";
+import { triggerHaptic } from "@/lib/utils";
 import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
+import { useListDndSensors } from "../dndConfig";
 import { ListItemRow } from "./ListItemRow";
 
 interface ListCardProps {
@@ -57,6 +54,7 @@ export function ListCard({
   const [newItemText, setNewItemText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,9 +73,10 @@ export function ListCard({
   const completedCount = items.length - openCount;
   const itemIds = useMemo(() => items.map((i) => i.id), [items]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  const sensors = useListDndSensors();
+  const activeItem = useMemo(
+    () => (activeItemId ? items.find((i) => i.id === activeItemId) : undefined),
+    [activeItemId, items],
   );
 
   const handleAddItem = () => {
@@ -87,10 +86,22 @@ export function ListCard({
     setNewItemText("");
   };
 
+  const handleItemDragStart = (event: DragStartEvent) => {
+    setActiveItemId(String(event.active.id));
+  };
+
   const handleItemDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    setActiveItemId(null);
     if (!over || active.id === over.id) return;
     onReorderItems(list.id, String(active.id), String(over.id));
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      triggerHaptic("light");
+    }
+  };
+
+  const handleItemDragCancel = (_event: DragCancelEvent) => {
+    setActiveItemId(null);
   };
 
   return (
@@ -107,7 +118,7 @@ export function ListCard({
       <header className="flex items-start gap-2 px-3.5 pt-3.5 pb-2">
         <button
           type="button"
-          className="mt-1 shrink-0 text-[#71717a] hover:text-[#c084fc] cursor-grab active:cursor-grabbing touch-none"
+          className="list-card-drag-handle mt-1 shrink-0 text-[#71717a] hover:text-[#c084fc] cursor-grab active:cursor-grabbing touch-none"
           aria-label="Drag list"
           {...dragHandleProps}
         >
@@ -213,9 +224,15 @@ export function ListCard({
       </header>
 
       <div className="px-3 pb-2 flex-1 min-h-0">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleItemDragStart}
+          onDragEnd={handleItemDragEnd}
+          onDragCancel={handleItemDragCancel}
+        >
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-0.5">
+            <div className="list-items-stack space-y-0.5">
               {items.map((item) => (
                 <ListItemRow
                   key={item.id}
@@ -227,6 +244,19 @@ export function ListCard({
               ))}
             </div>
           </SortableContext>
+          <DragOverlay adjustScale={false} dropAnimation={null}>
+            {activeItem ? (
+              <div className="list-item-drag-overlay">
+                <ListItemRow
+                  item={activeItem}
+                  onToggle={onToggleItem}
+                  onDelete={onDeleteItem}
+                  onTextChange={onUpdateItem}
+                  sortable={false}
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
         </DndContext>
 
         <div className="mt-2 flex items-start gap-2">

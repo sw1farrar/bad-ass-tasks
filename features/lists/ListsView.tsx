@@ -6,25 +6,25 @@ import { areWorkspaceListTablesReady, ensureWorkspaceListPersistenceReady } from
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
+  closestCenter,
   closestCorners,
   pointerWithin,
-  useSensor,
-  useSensors,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  sortableKeyboardCoordinates,
   rectSortingStrategy,
+  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { ListChecks, Plus } from "lucide-react";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { triggerHaptic } from "@/lib/utils";
 import type { ListItem, WorkspaceList } from "@/types";
 import { ListCard, SortableListCard } from "./components/ListCard";
+import { useListDndSensors } from "./dndConfig";
 import "./lists-workspace.css";
 
 interface ListsViewProps {
@@ -68,7 +68,10 @@ export function ListsView({
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [dragOverlayWidth, setDragOverlayWidth] = useState<number | null>(null);
   const [dragSlotHeight, setDragSlotHeight] = useState<number | null>(null);
+  const isMobileViewport = useIsMobileViewport();
+  const sensors = useListDndSensors();
   const listIds = useMemo(() => lists.map((l) => l.id), [lists]);
+  const listSortStrategy = isMobileViewport ? verticalListSortingStrategy : rectSortingStrategy;
   const activeList = useMemo(
     () => (activeListId ? lists.find((l) => l.id === activeListId) : undefined),
     [activeListId, lists],
@@ -93,13 +96,9 @@ export function ListsView({
     });
   }, []);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  /** 2D grid: pointer hit first, then corner distance for precise cell targeting. */
+  /** Desktop grid: pointer hit first, then corners. Mobile stack: center-based. */
   const listCollisionDetection: CollisionDetection = (args) => {
+    if (isMobileViewport) return closestCenter(args);
     const within = pointerWithin(args);
     if (within.length > 0) return within;
     return closestCorners(args);
@@ -132,6 +131,7 @@ export function ListsView({
     setDragSlotHeight(null);
     if (!over || active.id === over.id) return;
     onReorderLists(String(active.id), String(over.id));
+    if (isMobileViewport) triggerHaptic("light");
   };
 
   const handleListDragCancel = () => {
@@ -230,8 +230,8 @@ export function ListsView({
           onDragEnd={handleListDragEnd}
           onDragCancel={handleListDragCancel}
         >
-          <SortableContext items={listIds} strategy={rectSortingStrategy}>
-            <div className="lists-masonry">
+          <SortableContext items={listIds} strategy={listSortStrategy}>
+            <div className={isMobileViewport ? "lists-masonry lists-masonry--mobile" : "lists-masonry"}>
               {lists.map((list) => (
                 <SortableListCard
                   key={list.id}

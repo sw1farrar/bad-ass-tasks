@@ -29,16 +29,19 @@ export function ListItemRow({
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
+    transition: isDragging ? undefined : transition,
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="list-item-row group">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("list-item-row group", isDragging && sortable && "is-dragging-source")}
+    >
       {sortable && (
         <button
           type="button"
-          className="list-item-drag shrink-0 text-[#52525b] opacity-40 md:opacity-0 md:group-hover:opacity-100 cursor-grab active:cursor-grabbing"
+          className="list-item-drag shrink-0 text-[#52525b] opacity-40 md:opacity-0 md:group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none"
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
