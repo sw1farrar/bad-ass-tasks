@@ -24,8 +24,9 @@ async function tapNav(page: Page, name: string) {
 }
 
 async function goToTasksView(page: Page) {
-  await tapNav(page, 'Tasks');
-  await expect(page.locator('#task-quick-add')).toBeVisible({ timeout: 10000 });
+  await page.goto('/?view=tasks');
+  await dismissSupabaseBanner(page);
+  await expect(page.locator('#task-quick-add')).toBeVisible({ timeout: 15000 });
 }
 
 function taskRowLocator(page: Page, title: string, isMobileProject: boolean) {

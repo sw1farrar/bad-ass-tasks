@@ -185,6 +185,12 @@
     margin-bottom: 1.25rem;
   }
 
+  .teams-root .team-empty-private-notice {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+
   .teams-root .team-empty-card {
     padding: 1rem;
     margin-bottom: 0.625rem;
@@ -226,11 +232,25 @@
     font-size: 0.875rem;
     padding-top: 0.625rem;
     padding-bottom: 0.625rem;
+    padding-right: 2.75rem;
     border-radius: 0.75rem;
   }
 
+  .teams-root .team-search-not-found {
+    border-radius: 0.875rem;
+  }
+
+  .teams-root .team-search-not-found .btn-primary {
+    border-radius: 0.875rem;
+  }
+
+  .teams-root .team-invite-modal {
+    max-width: min(22rem, calc(100vw - 2rem));
+    border-radius: 1rem;
+  }
+
   .teams-root .team-invite-sheet {
-    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 12px));
+    padding-bottom: 1rem;
   }
 
   .teams-root .team-invite-sheet input[type="email"] {
@@ -293,4 +313,20 @@
     width: auto;
     flex-wrap: nowrap;
   }
+}
+
+.teams-root .team-empty-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  padding: 0;
+  border-radius: 0.5rem;
+}
+
+.teams-root .team-empty-search-clear:active {
+  background: rgba(255, 255, 255, 0.06);
 }

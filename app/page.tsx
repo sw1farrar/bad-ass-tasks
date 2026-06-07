@@ -470,7 +470,7 @@ export default function BadAssTasks() {
   const [teamSearchQuery, setTeamSearchQuery] = useState("");
   const [teamSearchResults, setTeamSearchResults] = useState<any[]>([]);
   const [isSearchingTeam, setIsSearchingTeam] = useState(false);
-  const [showDirectInvite, setShowDirectInvite] = useState(false);
+
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null); // debounce for real RPC search (name/username/city)
   const hasFetchedInvitesForEmptyState = useRef(false);
 
@@ -1485,9 +1485,8 @@ export default function BadAssTasks() {
     // Per user request: hide the full busy interface and show a clean, modern invite-focused experience.
     // The predicate is inlined (no TDZ identifier remains).
 
-    const openMobileEmailInvite = () => {
+    const openEmailInviteSheet = () => {
       setInviteEmail("");
-      setShowDirectInvite(false);
       setShowInviteDialog(true);
     };
 
@@ -1513,7 +1512,6 @@ export default function BadAssTasks() {
               description: "They will receive an email notification.",
             });
             setShowInviteDialog(false);
-            setShowDirectInvite(false);
           } else {
             const link = `${window.location.origin}/invite/${inviteId}`;
             try {
@@ -1538,16 +1536,22 @@ export default function BadAssTasks() {
       }
     };
 
+    const closeInviteDialog = () => {
+      setShowInviteDialog(false);
+      setInviteEmail("");
+    };
+
     const renderTeamInviteSheet = () => (
       <BottomSheet
         open={showInviteDialog}
-        onClose={() => {
-          setShowInviteDialog(false);
-          setInviteEmail("");
-        }}
+        onClose={closeInviteDialog}
         title={isMobileViewport ? "Invite by email" : `Invite to ${currentWorkspace.name}`}
         zIndex={220}
-        panelClassName="glass"
+        panelClassName="glass team-invite-modal"
+        mobileLayout={isMobileViewport ? "centered" : "sheet"}
+        showClose={!isMobileViewport}
+        showDragHandle={false}
+        enableDragDismiss={!isMobileViewport}
       >
         {isMobileViewport ? (
           <div className="team-invite-sheet p-5 space-y-4">
@@ -1572,14 +1576,24 @@ export default function BadAssTasks() {
                 }}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => void handleSendInvite()}
-              disabled={isSendingInvite || !inviteEmail.trim()}
-              className="w-full btn btn-primary py-3.5 min-h-[48px] text-sm font-semibold disabled:opacity-60"
-            >
-              {isSendingInvite ? "Sending..." : "Send invite"}
-            </button>
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => void handleSendInvite()}
+                disabled={isSendingInvite || !inviteEmail.trim()}
+                className="w-full btn btn-primary py-3.5 min-h-[48px] text-sm font-semibold disabled:opacity-60"
+              >
+                {isSendingInvite ? "Sending..." : "Send invite"}
+              </button>
+              <button
+                type="button"
+                onClick={closeInviteDialog}
+                disabled={isSendingInvite}
+                className="w-full btn btn-secondary py-3 min-h-[44px] text-sm"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <div className="p-5 space-y-4">
@@ -1673,6 +1687,10 @@ export default function BadAssTasks() {
             <div className="hidden md:inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-3 py-1 text-sm font-semibold tracking-tight text-[#e9d5ff] mb-3 truncate">
               {currentWorkspace.name}
             </div>
+            <p className="team-empty-private-notice text-sm text-[#a1a1aa] max-w-md mx-auto leading-relaxed px-3 md:px-0">
+              You&apos;re in a private workspace and don&apos;t have teammates yet. Search below to find
+              people and invite them.
+            </p>
 
             {/* Recipient context — only show for non-owners of this workspace */}
             {currentWorkspace.role && currentWorkspace.role !== 'owner' && (
@@ -1758,11 +1776,10 @@ export default function BadAssTasks() {
                   const q = e.target.value;
                   setTeamSearchQuery(q);
                   setIsSearchingTeam(true);
+                  setTeamSearchResults([]);
                   if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
                   if (!q.trim()) {
-                    setTeamSearchResults([]);
                     setIsSearchingTeam(false);
-                    setShowDirectInvite(false);
                     return;
                   }
                   searchDebounceRef.current = setTimeout(async () => {
@@ -1777,71 +1794,24 @@ export default function BadAssTasks() {
                   }, 350);
                 }}
                 placeholder="Name, @username, or city"
-                className="team-empty-search-input input w-full px-4 md:px-5 py-3 md:py-4 text-sm md:text-lg rounded-xl md:rounded-2xl mb-3 md:mb-4 pr-10"
+                className="team-empty-search-input input w-full px-4 md:px-5 py-3 md:py-4 text-sm md:text-lg rounded-xl md:rounded-2xl mb-3 md:mb-4 pr-11"
               />
               {teamSearchQuery && (
                 <button
+                  type="button"
                   onClick={() => {
                     setTeamSearchQuery("");
                     setTeamSearchResults([]);
                     setIsSearchingTeam(false);
                     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
                   }}
-                  className="absolute right-4 top-4 text-[#71717a] hover:text-white"
+                  className="team-empty-search-clear absolute right-2 top-1/2 -translate-y-1/2 text-[#71717a] hover:text-white"
                   aria-label="Clear search"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
               )}
             </div>
-
-            {/* Invite by email — mobile opens bottom sheet; desktop expands inline form */}
-            {teamSearchQuery.trim() && (
-              <button
-                type="button"
-                onClick={() =>
-                  isMobileViewport ? openMobileEmailInvite() : setShowDirectInvite(!showDirectInvite)
-                }
-                className="text-sm text-[#c084fc] hover:underline cursor-pointer mb-4 flex items-center gap-1.5 select-none text-left w-full min-h-[44px]"
-              >
-                Not seeing who you&apos;re looking for?{" "}
-                <span className="font-medium">
-                  {isMobileViewport ? "Invite by email" : "Invite by email or create a link"}
-                </span>
-              </button>
-            )}
-
-            {!isMobileViewport && showDirectInvite && (
-              <div className="mb-6 space-y-3 border border-white/10 bg-white/5 rounded-2xl p-5">
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="teammate@company.com (optional for link-only)"
-                  className="input w-full px-4 py-3 rounded-2xl"
-                />
-
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => void handleSendInvite()}
-                    disabled={isSendingInvite || !inviteEmail.trim()}
-                    className="flex-1 btn btn-primary py-3 text-sm disabled:opacity-60"
-                  >
-                    {isSendingInvite ? "Sending..." : "Send invite"}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setInviteEmail("");
-                      await handleSendInvite();
-                    }}
-                    disabled={isSendingInvite}
-                    className="flex-1 btn btn-secondary py-3 text-sm"
-                  >
-                    Create shareable link
-                  </button>
-                </div>
-              </div>
-            )}
 
             {isSearchingTeam && (
               <div className="flex items-center gap-2 text-sm text-[#a1a1aa] mb-3 px-1">
@@ -1849,7 +1819,7 @@ export default function BadAssTasks() {
               </div>
             )}
 
-            {teamSearchResults.length > 0 && (
+            {!isSearchingTeam && teamSearchResults.length > 0 && (
               <div className="space-y-2 mb-4">
                 {teamSearchResults.map((result, idx) => {
                   const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
@@ -1880,11 +1850,7 @@ export default function BadAssTasks() {
                           setIsSearchingTeam(false);
 
                           if (!result.email) {
-                            if (isMobileViewport) {
-                              openMobileEmailInvite();
-                            } else {
-                              setShowDirectInvite(true);
-                            }
+                            openEmailInviteSheet();
                             return;
                           }
 
@@ -1929,19 +1895,27 @@ export default function BadAssTasks() {
             )}
 
             {!isSearchingTeam && teamSearchQuery.trim() && teamSearchResults.length === 0 && (
-              <div className="text-sm text-[#71717a] mb-4 px-1">
-                No matches in the directory.
-              </div>
-            )}
-
-            {isMobileViewport && (
-              <button
-                type="button"
-                onClick={openMobileEmailInvite}
-                className="w-full btn btn-secondary min-h-[44px] text-sm mt-2"
-              >
-                Invite by email
-              </button>
+              isMobileViewport ? (
+                <div className="team-search-not-found rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center mb-2">
+                  <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-[#c084fc]/10 border border-[#c084fc]/30 flex items-center justify-center">
+                    <User className="h-5 w-5 text-[#c084fc]" />
+                  </div>
+                  <p className="text-base font-semibold tracking-tight text-[#f4f4f5] mb-5">
+                    User not found
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openEmailInviteSheet}
+                    className="w-full btn btn-primary min-h-[48px] text-sm font-semibold shadow-[0_0_20px_rgba(192,132,252,0.2)]"
+                  >
+                    Invite
+                  </button>
+                </div>
+              ) : (
+                <div className="text-sm text-[#71717a] mb-4 px-1">
+                  No matches in the directory.
+                </div>
+              )
             )}
           </div>
 
@@ -2733,6 +2707,26 @@ export default function BadAssTasks() {
                         </div>
                         {!isLiveWorkspace && (
                           <p className="text-[10px] text-[#c084fc] text-center">Live connection required to save</p>
+                        )}
+                        {isSiteAdmin && (
+                          <div className="border-t border-white/10 pt-3 md:hidden">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowProfilePopover(false);
+                                setView("admin");
+                              }}
+                              className={cn(
+                                "w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium",
+                                currentView === "admin"
+                                  ? "text-[#c084fc] bg-[#c084fc]/10"
+                                  : "text-[#e4e4e7] hover:bg-white/5",
+                              )}
+                            >
+                              <Shield className="h-4 w-4 text-[#c084fc]" />
+                              Admin
+                            </button>
+                          </div>
                         )}
                         <div className="border-t border-white/10 pt-3 md:hidden">
                           <button
