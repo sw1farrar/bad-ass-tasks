@@ -1,18 +1,55 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-async function goToTasksView(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: 'Tasks', exact: true }).first().click();
-  await expect(page.locator('#task-quick-add')).toBeVisible({ timeout: 8000 });
+async function dismissSupabaseBanner(page: Page) {
+  const dismiss = page.getByRole('button', { name: /Dismiss Supabase setup banner/i });
+  if (await dismiss.count()) {
+    await dismiss.first().click({ force: true });
+    await page.waitForTimeout(300);
+  }
+}
+
+/** Works on desktop sidebar and mobile bottom nav (role=button divs). */
+async function tapNav(page: Page, name: string) {
+  const bottomNav = page.getByRole('navigation', { name: 'Primary navigation' });
+  if (await bottomNav.isVisible()) {
+    await bottomNav.getByRole('button', { name: new RegExp(name, 'i') }).click({ force: true });
+  } else {
+    await page
+      .getByRole('complementary', { name: /Workspace navigation/i })
+      .getByRole('button', { name: new RegExp(name, 'i') })
+      .first()
+      .click();
+  }
+  await page.waitForTimeout(400);
+}
+
+async function goToTasksView(page: Page) {
+  await tapNav(page, 'Tasks');
+  await expect(page.locator('#task-quick-add')).toBeVisible({ timeout: 10000 });
+}
+
+function taskRowLocator(page: Page, title: string, isMobileProject: boolean) {
+  if (isMobileProject) {
+    return page.locator('[id^="task-row-"]').filter({ hasText: title });
+  }
+  return page.getByRole('table').getByRole('row', { name: new RegExp(title) });
 }
 
 test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
-  test('loads home, shows title and core UI without crash', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await dismissSupabaseBanner(page);
+  });
 
+  test('loads home, shows title and core UI without crash', async ({ page }) => {
     await expect(page).toHaveTitle(/Badazz Tasks/);
 
     await expect(page.getByRole('button', { name: 'Home', exact: true }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /add task/i }).first()).toBeVisible({ timeout: 8000 });
+    await expect(page.getByRole('main')).toBeVisible();
+    // Quick-add lives on Tasks view; home shows the hub greeting / workspaces.
+    await expect(
+      page.getByText(/Good (morning|afternoon|evening)|Workspaces/i).first(),
+    ).toBeVisible({ timeout: 8000 });
 
     const errors: string[] = [];
     page.on('console', (msg) => {
@@ -26,13 +63,14 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
   });
 
   test('keyboard command palette opens (⌘K or Ctrl+K)', async ({ page }) => {
-    await page.goto('/');
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
     await expect(page.getByLabel('Command Palette')).toBeVisible({ timeout: 3000 });
   });
 
-  test('critical flow: add task via quick input + mark complete (no crash, UI updates)', async ({ page }) => {
-    await page.goto('/');
+  test('critical flow: add task via quick input + mark complete (no crash, UI updates)', async ({
+    page,
+  }, testInfo) => {
+    const isMobileProject = testInfo.project.name === 'Mobile Chrome';
     await goToTasksView(page);
 
     const addInput = page.locator('#task-quick-add');
@@ -40,18 +78,22 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
     await addInput.fill(uniqueTitle);
     await addInput.press('Enter');
 
-    await expect(page.getByText(uniqueTitle).first()).toBeVisible({ timeout: 5000 });
+    const row = taskRowLocator(page, uniqueTitle, isMobileProject);
+    await expect(row.first()).toBeVisible({ timeout: 8000 });
 
-    const taskRow = page.locator('tr', { hasText: uniqueTitle }).first();
-    const completeBtn = taskRow.getByRole('button', { name: /complete|mark/i }).first();
-    if (await completeBtn.count() > 0) {
-      await completeBtn.click();
-    } else {
-      await taskRow.locator('button').first().click();
-    }
+    const completeBtn = isMobileProject
+      ? row.first().locator('.task-complete-btn')
+      : row.first().getByRole('button', { name: /mark complete/i });
+    await completeBtn.first().click();
 
     await page.waitForTimeout(800);
-    await expect(page.getByRole('table').getByText(uniqueTitle)).toBeVisible({ timeout: 3000 });
+
+    // Default filter is Incomplete — completed tasks move out; show All to confirm persistence.
+    const allFilter = page.getByRole('button', { name: 'All', exact: true });
+    if (await allFilter.count()) {
+      await allFilter.first().click();
+    }
+    await expect(row.first()).toBeVisible({ timeout: 5000 });
   });
 
   // ====================================================================
