@@ -34,4 +34,8 @@
  * Next action trigger: Detect new TipTapEditor.tsx in editor/ dir (or shim overwrite).
  */
 
-export {};
+// Main editor component
+export { TipTapEditor } from "./TipTapEditor";
+
+// Extensions (Milestone 2+)
+export * from "./extensions";

@@ -3,7 +3,6 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import { Mark } from "@tiptap/core";
 import { TaskEmbed } from "./extensions/task-embed";  // Milestone 2: Live Task embeds inside notes
@@ -37,10 +36,16 @@ import {
 } from "lucide-react";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { aiTransformText, aiTransformTextAI, isXAIConfigured, extractActionItemsFromText, extractActionItemsFromTextAI } from "@/lib/utils";
 import { toast } from "sonner";
 import { getBacklinkNotes } from "../hooks/useBacklinks";
 import { ImagePreviewModal } from "./components/ImagePreviewModal";
+import { NoteImage } from "./extensions/note-image";
+import {
+  fileToDataUrl,
+  getClipboardImageFiles,
+  getDroppedImageFiles,
+} from "./lib/clipboard-images";
+
 
 // Simple custom Mention mark for proper @mention / [[ ]] pills (Agent 12 polish).
 // Upgraded (Agent 24): supports refType ('task' | 'note' | 'external') for bidirectional visual distinction + future resolution.
@@ -237,6 +242,10 @@ export function TipTapEditor({
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const lastEmittedContentRef = useRef<string | null>(null);
+  const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const handleImageFilesRef = useRef<(files: FileList | File[]) => Promise<boolean>>(
+    async () => false
+  );
 
   // Image preview (world-class lightbox for any image in the editor)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt?: string } | null>(null);
@@ -244,6 +253,11 @@ export function TipTapEditor({
   const openImagePreview = useCallback((src: string, alt?: string) => {
     setPreviewImage({ src, alt });
   }, []);
+
+  const openImagePreviewRef = useRef(openImagePreview);
+  useEffect(() => {
+    openImagePreviewRef.current = openImagePreview;
+  }, [openImagePreview]);
 
   const closeImagePreview = useCallback(() => {
     setPreviewImage(null);
@@ -262,7 +276,15 @@ export function TipTapEditor({
         heading: {
           levels: [1, 2, 3],
         },
-        // Horizontal rule included for /divider
+        bulletList: {
+          HTMLAttributes: { class: "notes-bullet-list" },
+        },
+        orderedList: {
+          HTMLAttributes: { class: "notes-ordered-list" },
+        },
+        listItem: {
+          HTMLAttributes: { class: "notes-list-item" },
+        },
       }),
       // Clean placeholder (replaces previous overlay hack; theme-aware)
       Placeholder.configure({
@@ -272,14 +294,7 @@ export function TipTapEditor({
       // Custom mention pills for @ / [[ style linking (visual + future backlink foundation)
       MentionMark,
 
-      // Modern image support (paste, drop, upload, click-to-preview, auto-scale)
-      Image.configure({
-        inline: false,
-        allowBase64: true,
-        HTMLAttributes: {
-          class: "rounded-xl border border-white/10 max-w-full h-auto cursor-zoom-in shadow-sm hover:shadow-md transition-shadow",
-        },
-      }),
+      NoteImage,
 
       // Proper hyperlinks for rich paste (Google Docs, Word, Notion, web, etc.)
       Link.configure({
@@ -404,13 +419,20 @@ export function TipTapEditor({
     },
     editorProps: {
       attributes: {
-        class: cn(
-          "prose prose-invert max-w-none focus:outline-none text-[15px] leading-relaxed",
-          "text-[#f4f4f5] placeholder:text-[#71717a]"
-        ),
+        class: "focus:outline-none min-h-[inherit]",
       },
-      handleKeyDown: (view, event) => {
-        // Close slash on certain keys if open (supplements global handler)
+      handleClickOn: (_view, _pos, node, _nodePos, event) => {
+        if (node.type.name === "image" && node.attrs.src) {
+          event.preventDefault();
+          openImagePreviewRef.current(
+            node.attrs.src as string,
+            (node.attrs.alt as string) || undefined
+          );
+          return true;
+        }
+        return false;
+      },
+      handleKeyDown: (_view, event) => {
         if (showSlashMenu && (event.key === "Escape" || event.key === "ArrowLeft" || event.key === "ArrowRight")) {
           closeSlashMenu();
           return false;
@@ -418,39 +440,35 @@ export function TipTapEditor({
         return false;
       },
 
-      // === WORLD-CLASS PASTE & DROP ===
-      // One unified handler for maximum fidelity:
-      // - Image files from clipboard → our beautiful auto-scaled image pipeline
-      // - Rich HTML (Google Docs, Word, Notion, web, etc.) → TipTap + Link/Image extensions convert to proper nodes/marks
-      // - Plain text → default paragraph creation
-      handlePaste: (view, event) => {
-        // 1. Image files first (screenshots, copied images) — highest priority for our custom flow
-        const files = event.clipboardData?.files;
-        if (files && files.length > 0) {
-          (window as any).__badAssHandleImageFiles?.(files);
+      handlePaste: (_view, event) => {
+        const imageFiles = getClipboardImageFiles(event.clipboardData);
+        if (imageFiles.length > 0) {
+          event.preventDefault();
+          void handleImageFilesRef.current(imageFiles);
           return true;
         }
-
-        // 2. Rich HTML paste → let TipTap do its excellent work (headings, lists, bold, links, tables, etc.)
-        // Returning false tells the editor "proceed with your normal rich paste conversion".
-        const html = event.clipboardData?.getData("text/html");
-        if (html && html.length > 20) {
-          return false;
-        }
-
-        // 3. Pure plain text → default behavior (creates clean paragraphs)
         return false;
       },
 
-      // Drag & drop images directly into the editor (files from desktop or another app).
-      handleDrop: (view, event) => {
-        const files = event.dataTransfer?.files;
-        if (files && files.length > 0) {
+      handleDrop: (_view, event, _slice, moved) => {
+        if (moved) return false;
+        const imageFiles = getDroppedImageFiles(event.dataTransfer);
+        if (imageFiles.length > 0) {
           event.preventDefault();
-          (window as any).__badAssHandleImageFiles?.(files);
+          void handleImageFilesRef.current(imageFiles);
           return true;
         }
         return false;
+      },
+
+      handleDOMEvents: {
+        dragover: (_view, event) => {
+          const types = event.dataTransfer?.types;
+          if (types && Array.from(types).includes("Files")) {
+            event.preventDefault();
+          }
+          return false;
+        },
       },
     },
   });
@@ -534,7 +552,7 @@ export function TipTapEditor({
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && showBacklinksPanel) {
-        setShowBacklinksPanel(false);
+          setShowBacklinksPanel(false);
       }
     };
     if (showBacklinksPanel) {
@@ -558,9 +576,16 @@ export function TipTapEditor({
     setLinkPickerSearch("");
   }, []);
 
+  // Normalize parent linkableItems ({ title }) to picker shape ({ label })
+  const normalizeLinkable = (item: { id: string; title?: string; label?: string; type: "task" | "note" | "external" }) => ({
+    id: item.id,
+    label: item.label ?? item.title ?? "Untitled",
+    type: item.type,
+  });
+
   // Real linkables when provided by parent (M2 bidirectional deepening), otherwise demo samples
   const linkables = (linkableItems && linkableItems.length > 0)
-    ? [...linkableItems, { id: "custom", label: "Custom label...", type: "external" as const }]
+    ? [...linkableItems.map((item) => normalizeLinkable({ ...item, type: item.type })), { id: "custom", label: "Custom label...", type: "external" as const }]
     : [
         { id: "demo-task-1", label: "🔥 Launch v2", type: "task" as const },
         { id: "demo-task-2", label: "📋 Q3 Planning", type: "task" as const },
@@ -1112,208 +1137,6 @@ export function TipTapEditor({
         }).run();
       },
     },
-    // ========== M2→M3 BRIDGE AI INTEGRATION SCAFFOLDING (ai-editor-points) ==========
-    // Per Agent 47 master plan: First AI integration points inside the TipTap editor (slash category only).
-    // SCAFFOLD ONLY — non-functional stubs for future xAI/Grok backend work. Do not remove.
-    // - New dedicated "AI" category added to slash commands (grouped visibly in floating / menu via categoryOrder).
-    // - 3 useful stubs (titles aligned to spec examples): Summarize this section / Extract action items / Improve writing.
-    // - Wired via existing imports but clearly comment-marked for replacement with direct callRealXAI / features/ai/ calls.
-    // - Async actions handle selection/paragraph text safely; insert results + markers; toasts for UX.
-    // - Non-breaking: sim fallback via isXAIConfigured(); generic "AI Assist" preserved under Utilities & AI for UX continuity.
-    // - Integrates cleanly with existing slash system + separate Mention/Link picker (same menu container, independent state).
-    // Future (M3+): streaming responses, full note+graph context injection, accept/reject UI, task auto-creation from extract, etc.
-    // See also: features/notes/editor/ai/index.ts , features/ai/* , lib/utils.ts (callRealXAI + *_AI variants) , AGENT-47-AI-KG-DEEP-INTEGRATION-PROPOSAL.md
-    // HANDOFF FOR FUTURE AGENT 47/53 (M3): Replace explicit stubs/markers per docs/M2-SIGNOFF-CHECKLIST-2026-05-31.md §5
-    // "Deeper AI integration in editor (real xAI/Grok calls for "Summarize...", "Extract action items", "Improve writing" —
-    // replace the explicit stubs/markers with production orchestration, context-aware prompts, and streaming)."
-    {
-      id: "ai-summarize",
-      title: "Summarize this section",
-      description: "Condense selected text or paragraph — AI scaffold stub (Agent 47)",
-      icon: Zap,
-      keywords: ["sum", "short", "tl;dr", "brief", "condense", "section"],
-      category: "AI",
-      action: async () => {
-        if (!editor) return;
-        const { from, to, empty } = editor.state.selection;
-        const deleteStart = Math.max(0, from - (slashQuery.length + 1));
-        const deleteTo = to;
-        let sourceText = "";
-        if (!empty) {
-          sourceText = editor.state.doc.textBetween(from, to, " ");
-        } else {
-          const $from = editor.state.doc.resolve(from);
-          sourceText = ($from.parent.textContent || "").trim();
-        }
-        sourceText = sourceText.trim() || "Paste content here to summarize.";
-        // === SCAFFOLD (Agent 47 / M2→M3 bridge) ===
-        // WHERE THE xAI/Grok CALL WILL GO:
-        //   Replace aiTransformTextAI(...) with direct structured call via features/ai/ or lib/utils callRealXAI({
-        //     mode: 'summarize', context: buildEditorContext(editor, noteId, linkedItems), expectJson: false, stream: true
-        //   })
-        // Current: delegates to aiTransformText[AI] which internally uses callRealXAI when key present (sim otherwise).
-        // Keep non-functional until backend wiring + review. Full note + KG context injection planned.
-        // HANDOFF FOR FUTURE AGENT 47/53 (M3 AI per §5): See M2-SIGNOFF-CHECKLIST-2026-05-31.md §5 for production orchestration + streaming replacement target.
-        const realMode = isXAIConfigured();
-        const result = realMode
-          ? await aiTransformTextAI(sourceText, "summarize")
-          : aiTransformText(sourceText, "summarize");
-        const marker = " 📝";
-        editor.chain().focus()
-          .deleteRange({ from: deleteStart, to: deleteTo })
-          .insertContent(result.transformed + marker)
-          .run();
-        toast.success(realMode ? "Summarized via xAI" : "Summarized (sim)", {
-          description: result.explanation + " — SCAFFOLD: Agent 47 M2/M3; replace body for full RAG + streaming",
-          duration: 3200,
-        });
-      },
-    },
-    {
-      id: "ai-extract",
-      title: "Extract action items",
-      description: "Pull tasks/action items from text — AI scaffold stub (Agent 47)",
-      icon: CheckSquare,
-      keywords: ["extract", "tasks", "actions", "todo", "ai", "decomp", "action items"],
-      category: "AI",
-      action: async () => {
-        if (!editor) return;
-        const { from, to, empty } = editor.state.selection;
-        const deleteStart = Math.max(0, from - (slashQuery.length + 1));
-        const deleteTo = to || from;
-        let sourceText = "";
-        if (!empty) {
-          sourceText = editor.state.doc.textBetween(from, to, " ");
-        } else {
-          const $from = editor.state.doc.resolve(from);
-          sourceText = ($from.parent.textContent || "").trim();
-        }
-        sourceText = sourceText.trim();
-        if (!sourceText) {
-          toast.info("Select or write text with action verbs to extract.");
-          closeSlashMenu();
-          return;
-        }
-        // === SCAFFOLD (Agent 47 / M2→M3 bridge) ===
-        // WHERE THE xAI/Grok CALL WILL GO (extract mode):
-        //   Replace extractActionItemsFromTextAI(...) with call to dedicated features/ai/ extractor
-        //   or direct: await callRealXAI(sourceText, context, { mode: "extract", expectJson: true })
-        //   Then: for each item, optionally invoke onCreateTaskAndEmbed + insert TaskEmbed nodes + onMentionLinked for bidir.
-        // Current delegation preserves existing behavior + isXAIConfigured branch. Non-breaking.
-        // Planned: review UI before committing extracted tasks to store/graph.
-        // HANDOFF FOR FUTURE AGENT 47/53 (M3 AI per §5): Target for deeper integration replacement (M2-SIGNOFF-CHECKLIST-2026-05-31.md §5).
-        const realMode = isXAIConfigured();
-        const items: any[] = realMode
-          ? await extractActionItemsFromTextAI(sourceText, "Note")
-          : extractActionItemsFromText(sourceText, "Note");
-        const extractedList = items.length
-          ? items.map((it: any) => `☐ ${it.title || it} (P${(it.priority || "P2").toString().slice(1)})`).join("\n")
-          : "• No clear actions detected — try /ai rewrite or add verbs.";
-        const block = `\n\n**AI Extract (M3 scaffold${realMode ? " — xAI" : ""})**\n${extractedList}\n`;
-        editor.chain().focus()
-          .deleteRange({ from: deleteStart, to: deleteTo })
-          .insertContent(block)
-          .run();
-        toast.success(`Extracted ${items.length} items`, {
-          description: realMode ? "Real xAI structured extraction (SCAFFOLD Agent 47) — ready for task embed + graph wiring" : "Local sim. Future: direct xAI + embed creation",
-          duration: 3400,
-        });
-      },
-    },
-    {
-      id: "ai-rewrite",
-      title: "Improve writing",
-      description: "Polished rephrase / tone improvement of text — AI scaffold stub (Agent 47)",
-      icon: Zap,
-      keywords: ["rewrite", "polish", "rephrase", "improve", "edit", "writing"],
-      category: "AI",
-      action: async () => {
-        if (!editor) return;
-        const { from, to, empty } = editor.state.selection;
-        const deleteStart = Math.max(0, from - (slashQuery.length + 1));
-        const deleteTo = to;
-        let sourceText = "";
-        if (!empty) {
-          sourceText = editor.state.doc.textBetween(from, to, " ");
-        } else {
-          const $from = editor.state.doc.resolve(from);
-          sourceText = ($from.parent.textContent || "").trim();
-        }
-        sourceText = sourceText || "Your text for rewrite...";
-        // === SCAFFOLD (Agent 47 / M2→M3 bridge) ===
-        // WHERE THE xAI/Grok CALL WILL GO:
-        //   aiTransformTextAI(source, "rewrite") → replace with callRealXAI(sourceText, editorContext, {
-        //     mode: "transform", tone: "...", expectJson: true, ... }) or dedicated prompt from features/ai/prompts/
-        // Future extensions: multi-tone dropdown in stub, visual diff, accept/reject buttons, multi-turn chat in editor.
-        // Preserves current call path for zero breakage during scaffolding phase.
-        // HANDOFF FOR FUTURE AGENT 47/53 (M3 AI per §5): See docs/M2-SIGNOFF-CHECKLIST-2026-05-31.md §5 — explicit stub marker for production xAI/Grok orchestration.
-        const realMode = isXAIConfigured();
-        const result = realMode
-          ? await aiTransformTextAI(sourceText, "rewrite")
-          : aiTransformText(sourceText, "rewrite");
-        editor.chain().focus()
-          .deleteRange({ from: deleteStart, to: deleteTo })
-          .insertContent(result.transformed + " ✨")
-          .run();
-        toast.success(realMode ? "Rewritten with xAI" : "Rewritten (sim)", {
-          description: `${result.explanation} (SCAFFOLD Agent 47 M2/M3: future tone selector + accept/reject UI)`,
-          duration: 2800,
-        });
-      },
-    },
-    // Utilities & Future (generic /ai preserved for backward slash UX)
-    {
-      id: "ai",
-      title: "AI Assist",
-      description: "Legacy generic AI entry (rewrite/expand/etc) — preserved for UX; prefer new AI category stubs (Agent 47 scaffold)",
-      icon: Zap,
-      keywords: ["magic", "rewrite", "summarize", "generate", "polish", "expand"],
-      category: "Utilities & AI",
-      action: () => {
-        if (!editor) return;
-        const { from, to, empty } = editor.state.selection;
-        const deleteStart = Math.max(0, from - (slashQuery.length + 1));
-        const deleteTo = to; // include any selected range
-
-        // Grab selected text or current paragraph text (TipTap rich -> plain extract)
-        let sourceText = "";
-        if (!empty) {
-          sourceText = editor.state.doc.textBetween(from, to, " ");
-        } else {
-          // Fallback: current parent para content
-          const $from = editor.state.doc.resolve(from);
-          const parent = $from.parent;
-          sourceText = parent.textContent || "";
-        }
-        sourceText = sourceText.trim();
-
-        // Smart mode from slash query (e.g. /ai summarize, /ai expand, /ai professional)
-        let mode: Parameters<typeof aiTransformText>[1] = "rewrite";
-        const q = (slashQuery || "").toLowerCase();
-        if (q.includes("expand") || q.includes("detail")) mode = "expand";
-        else if (q.includes("summar") || q.includes("short") || q.includes("tl")) mode = "summarize";
-        else if (q.includes("profess")) mode = "tone:professional";
-        else if (q.includes("casual")) mode = "tone:casual";
-        else if (q.includes("bold")) mode = "tone:bold";
-
-        const result = aiTransformText(sourceText || "Add your raw thinking here for AI magic.", mode);
-
-        // Replace the /ai... + selected/original with polished version + subtle marker
-        const marker = " ✨";
-        const newContent = result.transformed + marker;
-
-        editor.chain().focus()
-          .deleteRange({ from: deleteStart, to: deleteTo })
-          .insertContent(newContent)
-          .run();
-
-        // Non-blocking delightful feedback (sonner global)
-        toast.success("AI writing assist applied", {
-          description: result.explanation,
-          duration: 2800,
-        });
-      },
-    },
   ];
 
   const filteredSlashCommands = useMemo(() => {
@@ -1438,16 +1261,6 @@ export function TipTapEditor({
   // AMAZING IMAGE SUPPORT — paste, drop, toolbar, /image, auto-scale, preview
   // ========================================================================
 
-  // Convert a File to a data URL (base64). Demo-friendly + works offline.
-  // In live Supabase mode we will later swap this for Storage upload + URL.
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
   // Insert an image into the editor at current selection.
   // Also triggers an immediate structural persist (so new images don't get lost on Enter/blur).
   const insertImage = useCallback(async (src: string, alt?: string) => {
@@ -1486,9 +1299,9 @@ export function TipTapEditor({
     return true;
   }, [insertImage]);
 
-  // Make the handler available even if the editor config closure ran slightly earlier in the render
-  // (harmless global for one frame, cleaned on unmount)
-  (window as any).__badAssHandleImageFiles = handleImageFiles;
+  useEffect(() => {
+    handleImageFilesRef.current = handleImageFiles;
+  }, [handleImageFiles]);
 
   // Force-save on blur (when the user finishes typing a paragraph or thought and clicks away).
   // This is a key part of "reliable paragraph persistence" without hammering the DB on every keystroke.
@@ -1520,18 +1333,18 @@ export function TipTapEditor({
     if (!editor) return;
 
     const handleImageClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "IMG" && target.getAttribute("src")) {
-        const src = target.getAttribute("src")!;
-        const alt = target.getAttribute("alt") || undefined;
-        // Prevent the editor's general click-to-focus from interfering with preview
-        e.stopPropagation();
-        openImagePreview(src, alt);
-      }
+      const target = (e.target as HTMLElement).closest?.("img") as HTMLImageElement | null;
+      if (!target?.getAttribute("src")) return;
+      const src = target.getAttribute("src")!;
+      const alt = target.getAttribute("alt") || undefined;
+      e.preventDefault();
+      e.stopPropagation();
+      openImagePreview(src, alt);
     };
 
-    // Attach to the actual ProseMirror DOM once available
-    const proseMirror = editor.view.dom as HTMLElement;
+    // Attach to the actual ProseMirror DOM once available (guard: tests/mocks may omit view)
+    const proseMirror = editor.view?.dom as HTMLElement | undefined;
+    if (!proseMirror) return;
     proseMirror.addEventListener("click", handleImageClick, true);
 
     return () => {
@@ -1641,12 +1454,24 @@ export function TipTapEditor({
   return (
     <div
       className={cn(
-        "glass rounded-2xl border border-white/10 flex flex-col",
-        // Removed "overflow-hidden" here so the editor content can participate in outer scrolling
-        // when the whole note area needs to scroll (prevents hard cut-off at bottom).
+        "notes-rich-editor glass w-full rounded-xl border border-white/10 flex flex-col",
         className
       )}
     >
+      <input
+        ref={imageUploadInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        aria-hidden
+        onChange={async (e) => {
+          if (e.target.files?.length) {
+            await handleImageFiles(e.target.files);
+          }
+          e.target.value = "";
+        }}
+      />
       {/* Basic Toolbar - clean, keyboard-friendly, no custom extensions */}
       <div className="flex items-center gap-1 border-b border-white/10 bg-[#111114]/60 px-3 py-2 flex-wrap">
         <ToolbarButton
@@ -1774,72 +1599,18 @@ export function TipTapEditor({
 
         {/* Image insert — world-class paste/drop + click preview experience */}
         <ToolbarButton
-          onClick={() => {
-            // Opens native file picker as a convenience; paste & drag are the primary amazing flows
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = "image/*";
-            input.multiple = true;
-            input.onchange = async () => {
-              if (input.files) await handleImageFiles(input.files);
-            };
-            input.click();
-          }}
+          onClick={() => imageUploadInputRef.current?.click()}
           isActive={false}
-          title="Insert image (or just paste / drag & drop photos)"
+          title="Upload image (paste or drag & drop also work)"
         >
           <ImageIcon className="h-4 w-4" />
         </ToolbarButton>
 
-        {/* Dedicated AI button (Agent 26) — complements the /ai slash command for instant one-click polish on selection or current paragraph. Fast, magical, on-brand. */}
-        <div className="w-px h-5 bg-white/10 mx-1" />
-        <ToolbarButton
-          onClick={async () => {
-            if (!editor) return;
-            const realMode = isXAIConfigured();
-            const { from, to, empty } = editor.state.selection;
-            let sourceText = "";
-            if (!empty) {
-              sourceText = editor.state.doc.textBetween(from, to, " ");
-            } else {
-              const $from = editor.state.doc.resolve(from);
-              sourceText = ($from.parent.textContent || "").trim();
-            }
-            sourceText = sourceText || "Key idea or paragraph for AI polish.";
-            const result = realMode 
-              ? await aiTransformTextAI(sourceText, "rewrite")
-              : aiTransformText(sourceText, "rewrite");
-            const polished = result.transformed + " ✨";
-            if (!empty) {
-              editor.chain().focus().deleteRange({ from, to }).insertContent(polished).run();
-            } else {
-              editor.chain().focus().insertContent(" " + polished).run();
-            }
-            toast.success(realMode ? "xAI Grok polish applied" : "AI magic applied", {
-              description: result.explanation,
-              duration: 2200,
-            });
-          }}
-          isActive={false}
-          title="AI Polish (rewrite) on selection or paragraph — use /ai for expand/summarize/tones too"
-        >
-          <Zap className="h-4 w-4 text-[#c084fc]" />
-        </ToolbarButton>
-        {/* AI Assist UI hint / placeholder (M2/M3 bridge scaffolding per Agent 47).
-           Non-breaking subtle badge next to the dedicated AI polish (Zap) button in toolbar.
-           Signals the new "AI" slash category (Summarize this section / Extract action items / Improve writing)
-           + future dedicated AI surface (e.g. dropdown/panel wired to Grok). Reviewable marker only. */}
-        <span
-          className="ml-1 text-[9px] font-mono tracking-[1px] px-1.5 py-px rounded border border-[#c084fc]/20 bg-[#c084fc]/5 text-[#c084fc]/70 select-none cursor-default"
-          title="SCAFFOLD (Agent 47): AI slash category with stubs + xAI extension points ready. Non-breaking. Full AI features post-review."
-        >
-          AI
-        </span>
       </div>
 
       {/* Editable Area (Placeholder extension provides native hint inside editor) */}
       <div
-        className="p-5 bg-[#0f0f13] prose-headings:font-semibold prose-headings:tracking-tight relative"
+        className="p-5 bg-[#0f0f13] relative"
         style={{ minHeight }}
         onClick={() => editor.chain().focus().run()}
       >
@@ -1898,7 +1669,7 @@ export function TipTapEditor({
                 if (!groups[cat]) groups[cat] = [];
                 groups[cat].push(cmd);
               });
-              const categoryOrder = ["Formatting", "Lists & Structure", "Smart Embeds & Actions", "AI", "Utilities & AI", "Other"];
+              const categoryOrder = ["Formatting", "Lists & Structure", "Smart Embeds & Actions", "Other"];
               let flatIdx = 0; // for global selection index across groups
               return categoryOrder.filter(c => groups[c]).flatMap(cat => {
                 const cmdsInCat = groups[cat];

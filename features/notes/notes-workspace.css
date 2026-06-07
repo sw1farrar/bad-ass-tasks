@@ -1,0 +1,58 @@
+/* Notes workspace — sidebar + editor layout polish */
+
+/* Notes view uses the full main column (no page padding cap) */
+.main-content:has(> .notes-root) {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.notes-root {
+  background: #0a0a0f;
+  width: 100%;
+}
+
+.notes-root .notes-editor-panel {
+  flex: 1 1 0%;
+  min-width: 0;
+  background: linear-gradient(180deg, rgba(10, 10, 15, 0.98) 0%, #0a0a0f 120px);
+}
+
+.notes-root .notes-rich-editor {
+  width: 100%;
+}
+
+.notes-root .notes-editor-scroll {
+  width: 100%;
+  max-width: none;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .notes-root .notes-editor-scroll {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .notes-root .notes-sidebar {
+    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+}
+
+@media (max-width: 767px) {
+  .notes-root.notes-mobile-list .notes-editor-panel {
+    display: none;
+  }
+
+  .notes-root.notes-mobile-detail .notes-sidebar {
+    display: none;
+  }
+
+  .notes-root .notes-sidebar {
+    width: 100%;
+    max-width: 100%;
+    border-right: none;
+  }
+}

@@ -13,6 +13,7 @@ import { TipTapEditor } from "./editor";
 import { LinkedTasksPanel, NoteHeader } from "./components";
 import { useNoteSearch, useMentions, useBacklinks, getBacklinkCount, getBacklinkNotes } from "./hooks";
 import { cn } from "@/lib/utils";
+import "./notes-workspace.css";
 
 interface NotesViewProps {
   notes: Note[];
@@ -26,6 +27,7 @@ interface NotesViewProps {
   onUnlinkTaskFromNote: (noteId: string, taskId: string) => Promise<void>;
   onOpenTask?: (taskId: string) => void; // For TaskEmbed clicks
   onCreateTaskAndEmbed?: (suggestedTitle?: string) => Promise<string | null>; // For /task in editor
+  onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>; // Linked Tasks panel
   onToggleTaskStatus?: (taskId: string) => Promise<void>; // Inline status change from embeds
   onUpdateTask?: (taskId: string, updates: Partial<any>) => Promise<void>; // Inline edits from TaskEmbeds
 
@@ -48,6 +50,11 @@ interface NotesViewProps {
   // M2 note-to-note bidirectional (now fully wired, no casts)
   onLinkNoteToNote?: (noteId: string, targetNoteId: string) => void | Promise<void>;
   onUnlinkNoteFromNote?: (noteId: string, targetNoteId: string) => void | Promise<void>;
+
+  /** Version history (live mode); wired from noteOps in page shell */
+  onPersistSnapshot?: (noteId: string, snapshot: unknown) => Promise<void>;
+  requestSnapshot?: (label?: string) => void;
+  requestTitleSnapshot?: () => void;
 }
 
 export function NotesView({
@@ -62,6 +69,7 @@ export function NotesView({
   onUnlinkTaskFromNote,
   onOpenTask,
   onCreateTaskAndEmbed,
+  onCreateTaskAndLink,
   onToggleTaskStatus,
   onUpdateTask,
   onCreateSubNote,
@@ -73,6 +81,9 @@ export function NotesView({
   onMentionsChanged: onMentionsChangedProp,
   onLinkNoteToNote,
   onUnlinkNoteFromNote,
+  onPersistSnapshot: _onPersistSnapshot,
+  requestSnapshot: _requestSnapshot,
+  requestTitleSnapshot: _requestTitleSnapshot,
 }: NotesViewProps) {
   const [isCreating, setIsCreating] = useState(false);
 
@@ -172,6 +183,13 @@ export function NotesView({
   // Plain row renderer for the notes list (roots + revealed children of open families).
   // No chevrons/arrows. Hierarchy is revealed on selection and stays open within a family.
   // Small count indicator appears to the *right* of the title when a note has children.
+
+  // Shared line colors — 1:1 with the approved family border tokens (border-white/10 normal, /15 active).
+  // Using bg- + w-0.5 (2px) instead of hairline 1px so the connectors are actually visible on dark
+  // while remaining subtle/calm (Linear/Notion-grade) and satisfying "same color as the family border" + "subtle".
+  const TREE_LINE_NORMAL = "bg-white/10";
+  const TREE_LINE_ACTIVE = "bg-white/15";
+
   function NoteListItem({
     note,
     isSelected,
@@ -213,7 +231,9 @@ export function NotesView({
 
     const metaOpacity = depth === 0 ? "opacity-100" : depth === 1 ? "opacity-90" : "opacity-75";
 
-    const familyRowClass = isInActiveFamily && !isSelected ? "bg-transparent" : "";
+    // Only the selected note should be light. All other notes in the family (even in the active family)
+    // stay dark (transparent) so the selected one pops clearly inside the group.
+    const familyRowClass = "";
 
     // Visual treatment: top-level rows (parents) get the nice rounded treatment.
     // Nested rows (children/grandchildren inside an open family) get a much lighter,
@@ -228,21 +248,23 @@ export function NotesView({
     return (
       <div
         className={cn(
-          "group flex w-full flex-col gap-1 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/70 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a0a0f]",
+          "group flex w-full flex-col gap-1 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/70 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a0a0f] min-w-0",
           // When this row is the header of an open family, it should not have its own border/rounding.
           // The family wrapper provides one single subtle border around the entire branch.
           // depth > 0 rows (child / grandchild) must have literally zero border.
           // Only the single outer family wrapper border (the one the user likes) is allowed.
+          // Selection rule (per user): the selected note is the light one (bg-white/6 to match other selected state).
+          // All non-selected notes inside any family stay dark (transparent).
           depth > 0
-            ? "px-2 py-2 border-none bg-transparent"
+            ? `px-3 py-2 border-none relative ${isSelected ? "bg-white/6" : "bg-transparent"}`
             : suppressOwnBorder
-              ? "px-3 py-2.5 sm:py-2 rounded-none border-none bg-transparent"
+              ? `px-3 py-2.5 sm:py-2 rounded-none border-none ${isSelected ? "bg-white/6" : "bg-transparent"}`
               : "px-3 py-2.5 sm:py-2 rounded-xl border " + (isSelected 
                 ? "bg-white/6 border-white/10 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]" 
                 : "hover:bg-white/4 border-transparent active:bg-white/5"),
           familyRowClass
         )}
-        style={{ marginLeft: depth * 4 }}
+        style={{ marginLeft: depth * 20, width: `calc(100% - ${depth * 20}px)` }}
         role="treeitem"
         aria-selected={isSelected}
         aria-level={depth + 1}
@@ -258,8 +280,20 @@ export function NotesView({
         }}
         tabIndex={0}
       >
+        {depth > 0 && (
+          <div
+            className={`absolute h-px pointer-events-none ${isInActiveFamily ? 'bg-white/25' : 'bg-white/20'}`}
+            style={{
+              left: depth === 1 ? '-16px' : '-12px',
+              width: depth === 1 ? '18px' : '14px',
+              top: '13px'
+            }}
+            aria-hidden="true"
+          />
+        )}
+
         {/* TITLE — full width, wraps naturally, always shows complete text. Hero of the row. */}
-        <div className="w-full min-w-0">
+        <div className="w-full min-w-0 pl-3">
           <div className={`font-medium text-[14px] leading-[1.35] tracking-[-0.1px] ${titleColor} whitespace-normal break-words`}>
             {preview}
           </div>
@@ -270,7 +304,7 @@ export function NotesView({
             This is the key UX improvement requested. */}
         <div 
           className={cn(
-            "flex w-full items-center justify-between gap-2 text-[10px] cursor-pointer active:bg-white/5 rounded-md -mx-1 px-1 py-0.5 -my-0.5 transition-colors",
+            "flex w-full min-w-0 items-center justify-between gap-2 text-[10px] cursor-pointer active:bg-white/5 rounded-md -ml-3 -mr-3 pl-3 pr-3 py-0.5 -my-0.5 transition-colors",
             // Subtle hover feedback on the entire clickable toggle area (timestamp + collapse controls)
             // Only shown when this note is expandable, so users discover the interaction.
             // Make the entire clickable toggle region (timestamp + collapse controls) visibly highlight on hover
@@ -357,9 +391,6 @@ export function NotesView({
 
   const handleDeleteNote = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (selectedNoteId === id) {
-      onSelectNote(null);
-    }
     await onDeleteNote(id);
   };
 
@@ -436,7 +467,12 @@ export function NotesView({
     // When a note has visible children (the family is open), we wrap the parent row
     // + all its revealed descendants in a single cohesive container. This gives the
     // "smoothly encompasses the entire family" effect the user requested.
-    const renderItemAndChildren = (note: Note, depth: number, forceSuppressBorder = false): React.ReactNode => {
+    const renderItemAndChildren = (
+      note: Note,
+      depth: number,
+      forceSuppressBorder = false,
+      isActiveFamily = false
+    ): React.ReactNode => {
       if (depth > 2) return null; // hard safety — we only support parent / child / grandchild
 
       const isSelected = note.id === selectedId;
@@ -471,7 +507,7 @@ export function NotesView({
       if (depth === 0) {
         const isActiveFamily = activeRootId === note.id;
         const familyWrapperClass = cn(
-          "rounded-2xl border",
+          "rounded-2xl border overflow-hidden",
           isActiveFamily 
             ? "border-white/15"   // slightly bolder border for the active family (the one containing the selected note)
             : "border-white/10",
@@ -488,15 +524,17 @@ export function NotesView({
         } else {
           // Expanded family — the single wrapper encloses the parent row + all descendants
           const subtreeContent = (
-            <div className="relative pl-4 pb-3 pt-0.5" style={{ marginLeft: 6 }}>
+            <div className="pt-0.5 pb-2 relative overflow-x-hidden" style={{ marginLeft: 0 }}>
+              {/* Continuous vertical connector for children — border-l gives clean, gap-free line */}
               <div
-                className="absolute left-[4px] top-0 bottom-0.5 w-px bg-white/10 pointer-events-none"
-                aria-hidden
+                className="absolute w-px pointer-events-none border-l border-white/25"
+                style={{ left: '8px', top: '-2px', bottom: '2px' }}
+                aria-hidden="true"
               />
               <div className="space-y-px">
                 {kids.map(child => (
                   <React.Fragment key={child.id}>
-                    {renderItemAndChildren(child, depth + 1, true)}
+                    {renderItemAndChildren(child, depth + 1, true, isActiveFamily)}
                   </React.Fragment>
                 ))}
               </div>
@@ -519,15 +557,17 @@ export function NotesView({
       }
 
       const subtreeContent = (
-        <div className="relative pl-4 pb-3 pt-0.5" style={{ marginLeft: 6 }}>
+        <div className="pt-0.5 pb-2 relative overflow-x-hidden" style={{ marginLeft: 0 }}>
+          {/* Continuous vertical connector for grandchildren */}
           <div
-            className="absolute left-[4px] top-0 bottom-0.5 w-px bg-white/10 pointer-events-none"
-            aria-hidden
+            className="absolute w-px pointer-events-none border-l border-white/25"
+            style={{ left: '28px', top: '-2px', bottom: '2px' }}
+            aria-hidden="true"
           />
           <div className="space-y-px">
             {kids.map(child => (
               <React.Fragment key={child.id}>
-                {renderItemAndChildren(child, depth + 1, true)}
+                {renderItemAndChildren(child, depth + 1, true, isActiveFamily)}
               </React.Fragment>
             ))}
           </div>
@@ -551,10 +591,26 @@ export function NotesView({
     ));
   };
 
+  const [mobileLayoutClass, setMobileLayoutClass] = useState("");
+
+  useEffect(() => {
+    const update = () => {
+      if (typeof window === "undefined" || window.innerWidth >= 768) {
+        setMobileLayoutClass("");
+        return;
+      }
+      setMobileLayoutClass(
+        selectedNoteId ? "notes-mobile-detail" : "notes-mobile-list"
+      );
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [selectedNoteId]);
+
   return (
-    <div className="flex h-full min-h-0 overflow-hidden notes-root">
-      {/* Notes List Sidebar — responsive width for mobile + tablet (low-risk polish) */}
-      <div className="w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden min-h-0">
+    <div className={cn("flex h-full min-h-0 overflow-hidden notes-root", mobileLayoutClass)}>
+      <div className="notes-sidebar w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden overflow-x-hidden min-h-0">
         <div className="px-3 py-3 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="font-semibold tracking-tight">Notes</div>
@@ -590,7 +646,7 @@ export function NotesView({
         {/* Notes List with Drag & Drop for reparenting + reordering */}
         {/* ARIA tree for keyboard + screen reader support (high-impact a11y polish) */}
         <div
-          className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5 touch-pan-y"
+          className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 space-y-1.5 touch-pan-y"
           role="tree"
           aria-label="Notes tree"
           aria-multiselectable="false"
@@ -640,10 +696,18 @@ export function NotesView({
         </div>
       </div>
 
-      {/* Editor Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="notes-editor-panel flex-1 flex flex-col min-w-0 overflow-hidden">
         {selectedNote ? (
             <div className="flex-1 flex flex-col min-h-0">
+            {mobileLayoutClass === "notes-mobile-detail" && (
+              <button
+                type="button"
+                onClick={() => onSelectNote(null)}
+                className="md:hidden mx-4 mt-3 mb-0 text-xs text-[#c084fc] hover:underline text-left"
+              >
+                ← Back to notes
+              </button>
+            )}
             {/* Depth check for the 3-level hierarchy limit (parent=0, child=1, grandchild=2).
                 We only offer the "Sub-note" button when the selected note is not already a grandchild. */}
             {(() => {
@@ -676,7 +740,7 @@ export function NotesView({
                 This ensures long content and the Linked Tasks / Links panels are never cut off. */}
             {/* FIX: One scroll container for editor content + bottom panels.
                 Long notes and the Linked Tasks / Links sections will now scroll together. */}
-            <div ref={detailScrollRef} className="flex-1 overflow-y-auto min-h-0">
+            <div ref={detailScrollRef} className="notes-editor-scroll flex-1 overflow-y-auto min-h-0">
               <TipTapEditor
                 key={selectedNote.id}
                 noteId={selectedNote.id}
@@ -733,7 +797,8 @@ export function NotesView({
                 tasks={tasks}
                 onLinkTaskToNote={onLinkTaskToNote}
                 onUnlinkTaskFromNote={onUnlinkTaskFromNote}
-                onCreateTaskAndLink={onCreateTaskAndEmbed}
+                onOpenTask={onOpenTask}
+                onCreateTaskAndLink={onCreateTaskAndLink}
               />
             </div>
           </div>

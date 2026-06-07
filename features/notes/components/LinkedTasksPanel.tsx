@@ -1,14 +1,17 @@
 "use client";
 
 import React, { useState } from "react";
-import { Link as LinkIcon, X, Plus } from "lucide-react";
+import { Link as LinkIcon, X, Plus, Calendar, Repeat } from "lucide-react";
 import { Note, Task } from "@/types";
+import { cn, formatDueDate, getRecurringLabel } from "@/lib/utils";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 
 interface LinkedTasksPanelProps {
   selectedNote: Note;
   tasks: Task[];
   onLinkTaskToNote: (noteId: string, taskId: string) => Promise<void>;
   onUnlinkTaskFromNote: (noteId: string, taskId: string) => Promise<void>;
+  onOpenTask?: (taskId: string) => void;
   /** Optional: create a brand new task and automatically link it to this note */
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>;
 }
@@ -23,10 +26,12 @@ export function LinkedTasksPanel({
   tasks,
   onLinkTaskToNote,
   onUnlinkTaskFromNote,
+  onOpenTask,
   onCreateTaskAndLink,
 }: LinkedTasksPanelProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [pendingUnlink, setPendingUnlink] = useState<Task | null>(null);
 
   const linkedTaskIds = selectedNote.linkedTaskIds || [];
   const linkedTasks = linkedTaskIds
@@ -76,25 +81,69 @@ export function LinkedTasksPanel({
         {linkedTasks.length === 0 ? (
           <div className="text-[11px] text-[#71717a] italic py-1">No tasks linked yet</div>
         ) : (
-          linkedTasks.map((task) => (
+          linkedTasks.map((task) => {
+            const due = formatDueDate(task.dueDate);
+            const recurringLabel = task.recurringRule
+              ? getRecurringLabel(task.recurringRule)
+              : "";
+
+            return (
             <div
               key={task.id}
-              className="flex items-center justify-between text-sm group bg-white/5 rounded-lg px-3 py-2"
+              className="flex items-center justify-between text-sm group bg-white/5 rounded-lg px-3 py-2 hover:bg-white/[0.07] transition-colors"
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[#c084fc] font-mono text-xs shrink-0">#{task.id.slice(0, 6)}</span>
-                <span className="truncate">{task.title}</span>
-              </div>
               <button
-                onClick={() => onUnlinkTaskFromNote(selectedNote.id, task.id)}
-                className="opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 p-2 hover:text-[#ff3366] focus-visible:text-[#ff3366] rounded hover:bg-white/10 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center"
+                type="button"
+                onClick={() => onOpenTask?.(task.id)}
+                disabled={!onOpenTask}
+                className="flex-1 min-w-0 flex items-center gap-2 text-left hover:text-[#c084fc] transition-colors disabled:cursor-default disabled:hover:text-[#f4f4f5]"
+                title={onOpenTask ? `Open task: ${task.title}` : task.title}
+              >
+                <span className="font-medium text-[#f4f4f5] truncate min-w-0 group-hover:text-[#c084fc]">
+                  {task.title}
+                </span>
+                <span className="flex items-center gap-1 shrink-0">
+                  {due && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border whitespace-nowrap",
+                        due.variant === "overdue" &&
+                          "text-[#ff3366] border-[#ff3366]/30 bg-[#ff3366]/10",
+                        due.variant === "today" &&
+                          "text-[#c084fc] border-[#c084fc]/30 bg-[#c084fc]/10",
+                        due.variant === "soon" &&
+                          "text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10",
+                        due.variant === "default" &&
+                          "text-[#a1a1aa] border-white/10 bg-white/5"
+                      )}
+                    >
+                      <Calendar className="h-2.5 w-2.5" />
+                      {due.label}
+                    </span>
+                  )}
+                  {recurringLabel && (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-[#c084fc]/30 bg-[#c084fc]/10 text-[#c084fc] whitespace-nowrap max-w-[100px]"
+                      title={recurringLabel}
+                    >
+                      <Repeat className="h-2.5 w-2.5 shrink-0" />
+                      <span className="truncate">{recurringLabel}</span>
+                    </span>
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingUnlink(task)}
+                className="opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 p-2 hover:text-[#ff3366] focus-visible:text-[#ff3366] rounded hover:bg-white/10 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
                 title="Unlink task"
                 aria-label={`Unlink task ${task.title}`}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -148,6 +197,21 @@ export function LinkedTasksPanel({
           Press Enter to create instantly
         </div>
       </div>
+
+      <ConfirmationModal
+        open={!!pendingUnlink}
+        onOpenChange={(open) => !open && setPendingUnlink(null)}
+        title="Unlink task from note?"
+        highlight={pendingUnlink?.title}
+        description="The task will remain in your workspace — only the link to this note is removed."
+        confirmText="Unlink"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!pendingUnlink) return;
+          await onUnlinkTaskFromNote(selectedNote.id, pendingUnlink.id);
+          setPendingUnlink(null);
+        }}
+      />
     </div>
   );
 }

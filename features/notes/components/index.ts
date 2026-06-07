@@ -7,4 +7,6 @@
  * No changes to this until later batches.
  */
 
-export {};
+export { LinkedTasksPanel } from "./LinkedTasksPanel";
+export { NoteHeader } from "./NoteHeader";
+

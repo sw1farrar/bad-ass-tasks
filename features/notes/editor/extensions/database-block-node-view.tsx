@@ -623,7 +623,7 @@ export function DatabaseBlockNodeView({
 
       <div className="p-4 space-y-6 text-sm">
         {/* Tasks Table Section */}
-        {(viewType === "tasks+notes" || viewType === "tasks") && (
+        {showTasks && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-[#ff3366] text-xs font-medium tracking-widest">
@@ -686,7 +686,7 @@ export function DatabaseBlockNodeView({
         )}
 
         {/* Notes Table Section */}
-        {(viewType === "tasks+notes" || viewType === "notes") && (
+        {showNotes && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-[#00ff9f] text-xs font-medium tracking-widest">

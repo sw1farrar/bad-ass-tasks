@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Download, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
@@ -10,33 +11,42 @@ interface ImagePreviewModalProps {
   onClose: () => void;
 }
 
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 6;
+
 /**
- * World-class image preview / lightbox for the Notes rich editor.
- * - Smooth enter/exit (framer-motion)
- * - Desktop: wheel zoom + drag to pan
- * - Mobile: pinch (via touch events) + swipe down to close
- * - Keyboard: ESC close, +/- zoom, 0 reset, arrows pan when zoomed
- * - Beautiful glassmorphism dark theme matching the app
- * - Download button (preserves original)
- * - Click backdrop or X to close
- * - Accessible (focus trap, aria labels, role=dialog)
+ * Full-screen image lightbox portaled above the entire app.
+ * Desktop: wheel zoom, drag to pan, keyboard shortcuts.
+ * Mobile: swipe down to close.
  */
 export function ImagePreviewModal({ src, alt = "Image preview", onClose }: ImagePreviewModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
 
-  const minScale = 0.5;
-  const maxScale = 6;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const close = useCallback(() => {
     setScale(1);
     setPosition({ x: 0, y: 0 });
+    setIsDragging(false);
+    setTouchStartY(null);
     onClose();
   }, [onClose]);
 
-  // Keyboard controls
+  useEffect(() => {
+    if (!src) return;
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    setIsDragging(false);
+    setTouchStartY(null);
+  }, [src]);
+
   useEffect(() => {
     if (!src) return;
 
@@ -44,9 +54,9 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
       if (e.key === "Escape") {
         close();
       } else if (e.key === "+" || e.key === "=") {
-        setScale((s) => Math.min(maxScale, s + 0.25));
+        setScale((s) => Math.min(MAX_SCALE, s + 0.25));
       } else if (e.key === "-") {
-        setScale((s) => Math.max(minScale, s - 0.25));
+        setScale((s) => Math.max(MIN_SCALE, s - 0.25));
       } else if (e.key.toLowerCase() === "0") {
         setScale(1);
         setPosition({ x: 0, y: 0 });
@@ -65,7 +75,6 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
     return () => window.removeEventListener("keydown", handleKey);
   }, [src, close]);
 
-  // Prevent body scroll while open
   useEffect(() => {
     if (!src) return;
     const original = document.body.style.overflow;
@@ -75,15 +84,14 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
     };
   }, [src]);
 
-  if (!src) return null;
+  if (!mounted) return null;
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.2 : 0.2;
-    setScale((s) => Math.max(minScale, Math.min(maxScale, s + delta)));
+    setScale((s) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, s + delta)));
   };
 
-  // Mouse drag pan (when zoomed > 1)
   const handleMouseDown = (e: React.MouseEvent) => {
     if (scale <= 1) return;
     setIsDragging(true);
@@ -102,9 +110,6 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
     setIsDragging(false);
   };
 
-  // Touch / mobile swipe down to close + basic pinch simulation
-  const [touchStartY, setTouchStartY] = useState<number | null>(null);
-
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1) {
       setTouchStartY(e.touches[0].clientY);
@@ -115,7 +120,6 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
     if (touchStartY !== null && e.touches.length === 1) {
       const delta = e.touches[0].clientY - touchStartY;
       if (delta > 120 && scale === 1) {
-        // Swipe down to close when not zoomed
         close();
       }
     }
@@ -126,6 +130,7 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
   };
 
   const handleDownload = () => {
+    if (!src) return;
     const link = document.createElement("a");
     link.href = src;
     link.download = alt || "image";
@@ -139,115 +144,151 @@ export function ImagePreviewModal({ src, alt = "Image preview", onClose }: Image
     setPosition({ x: 0, y: 0 });
   };
 
-  return (
+  return createPortal(
     <AnimatePresence>
-      <div
-        className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 backdrop-blur-xl"
-        onClick={close}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Image preview"
-      >
+      {src && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.98, y: 10 }}
-          transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-          className="relative flex h-full w-full flex-col items-center justify-center p-4 md:p-8"
-          onClick={(e) => e.stopPropagation()}
+          key="image-lightbox"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-[9999]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
         >
-          {/* Top controls */}
-          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 py-3 md:px-6">
-            <div className="flex items-center gap-2 text-sm text-white/70">
-              <span className="font-mono text-[10px] tracking-[1px] text-white/40">PREVIEW</span>
-              {alt && <span className="max-w-[40vw] truncate text-white/80">{alt}</span>}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={resetView}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white active:bg-white/15"
-                title="Reset view (0)"
-                aria-label="Reset zoom and position"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setScale((s) => Math.max(minScale, s - 0.35))}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white active:bg-white/15"
-                title="Zoom out (−)"
-                aria-label="Zoom out"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setScale((s) => Math.min(maxScale, s + 0.35))}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white active:bg-white/15"
-                title="Zoom in (+)"
-                aria-label="Zoom in"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </button>
-              <button
-                onClick={handleDownload}
-                className="ml-1 flex h-9 items-center gap-2 rounded-full bg-white/5 px-4 text-sm text-white/80 hover:bg-white/10 hover:text-white active:bg-white/15"
-                title="Download original image"
-              >
-                <Download className="h-4 w-4" />
-                <span className="hidden text-xs tracking-widest md:inline">DOWNLOAD</span>
-              </button>
-              <button
-                onClick={close}
-                className="ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white active:bg-white/15"
-                title="Close (Esc)"
-                aria-label="Close preview"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Image container with gestures */}
           <div
-            className="relative flex h-full w-full items-center justify-center overflow-hidden touch-none select-none"
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            style={{ cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "zoom-in" }}
-          >
-            <motion.img
-              src={src}
-              alt={alt}
-              draggable={false}
-              className="max-h-[88vh] max-w-[92vw] rounded-2xl object-contain shadow-2xl ring-1 ring-white/10"
-              style={{
-                transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-                transition: isDragging ? "none" : "transform 0.08s ease-out",
-              }}
-              onClick={(e) => {
-                // Double click / tap to reset or zoom in
-                if (e.detail === 2) {
-                  if (scale > 1.1) {
-                    resetView();
-                  } else {
-                    setScale(2.2);
-                  }
-                }
-              }}
-            />
-          </div>
+            className="absolute inset-0 bg-[#050508]/95 backdrop-blur-2xl"
+            onClick={close}
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(ellipse 80% 70% at 50% 45%, rgba(192,132,252,0.08) 0%, transparent 65%)",
+            }}
+          />
 
-          {/* Subtle footer hint */}
-          <div className="absolute bottom-4 left-0 right-0 flex justify-center text-[10px] tracking-[1.5px] text-white/30">
-            ESC to close • scroll or +/− to zoom • drag to pan
-          </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 8 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="relative z-10 flex h-full w-full flex-col pointer-events-none p-4 md:p-8"
+          >
+            <div
+              className="pointer-events-auto absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 py-3 md:px-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2 text-sm text-white/70">
+                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-[10px] tracking-[1.5px] text-white/50">
+                  PREVIEW
+                </span>
+                {alt && (
+                  <span className="max-w-[40vw] truncate text-white/80">{alt}</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-md">
+                <button
+                  type="button"
+                  onClick={resetView}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                  title="Reset view (0)"
+                  aria-label="Reset zoom and position"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScale((s) => Math.max(MIN_SCALE, s - 0.35))}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                  title="Zoom out"
+                  aria-label="Zoom out"
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </button>
+                <span className="min-w-[3rem] text-center font-mono text-[11px] text-white/50">
+                  {Math.round(scale * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setScale((s) => Math.min(MAX_SCALE, s + 0.35))}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                  title="Zoom in"
+                  aria-label="Zoom in"
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="ml-1 flex h-9 items-center gap-2 rounded-full px-3 text-sm text-white/80 hover:bg-white/10 hover:text-white"
+                  title="Download original image"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden text-xs tracking-widest md:inline">SAVE</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={close}
+                  className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                  title="Close (Esc)"
+                  aria-label="Close preview"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="pointer-events-auto relative flex flex-1 w-full items-center justify-center overflow-hidden touch-none select-none"
+              onClick={close}
+            >
+              <div
+                className="pointer-events-auto"
+                onClick={(e) => e.stopPropagation()}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                style={{ cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "zoom-in" }}
+              >
+                <motion.img
+                  src={src}
+                  alt={alt}
+                  draggable={false}
+                  className="max-h-[86vh] max-w-[min(94vw,1400px)] rounded-2xl object-contain shadow-[0_24px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/15"
+                  style={{
+                    transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                    transition: isDragging ? "none" : "transform 0.08s ease-out",
+                  }}
+                  onClick={(e) => {
+                    if (e.detail === 2) {
+                      if (scale > 1.1) {
+                        resetView();
+                      } else {
+                        setScale(2.2);
+                      }
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="absolute bottom-5 left-0 right-0 flex justify-center text-[10px] tracking-[1.5px] text-white/35">
+              ESC to close · scroll or +/- to zoom · drag to pan when zoomed
+            </div>
+          </motion.div>
         </motion.div>
-      </div>
-    </AnimatePresence>
+      )}
+    </AnimatePresence>,
+    document.body
   );
 }

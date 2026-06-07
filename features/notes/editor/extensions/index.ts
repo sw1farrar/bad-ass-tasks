@@ -12,4 +12,8 @@
  * Guard: No hybridStore access in this domain. Pure UI extensions.
  */
 
-export {};
+// TaskEmbed - live editable task cards inside notes (Milestone 2 core feature)
+export { TaskEmbed, default as TaskEmbedNode } from "./task-embed";
+
+// DatabaseBlock - real interactive database views inside notes (M2 parallel work)
+export { DatabaseBlock } from "./database-block";

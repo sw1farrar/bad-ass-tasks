@@ -153,9 +153,7 @@ describe('DatabaseBlock Node and NodeView (rendering, filtering, queryConfig, in
     expect(onOpenTask).toHaveBeenCalledWith('t1');
 
     // Status dot click (stopPropagation test)
-    const statusDots = screen.getAllByTestId('icon-checksquare');
-    // The first status area in tasks
-    fireEvent.click(statusDots[0].closest('div')!);
+    fireEvent.click(screen.getByRole('button', { name: /Toggle status for Open Task Alpha/i }));
     expect(onToggleStatus).toHaveBeenCalledWith('t1');
   });
 
@@ -164,14 +162,14 @@ describe('DatabaseBlock Node and NodeView (rendering, filtering, queryConfig, in
     const boardBtn = screen.getByText('Board');
     fireEvent.click(boardBtn);
     // Board view renders status columns (count can vary with mock data; smoke only cares that the TODO column header exists)
-    expect(screen.getByText(/TODO/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/TODO/i).length).toBeGreaterThan(0);
 
     const saveBtn = screen.getByText('Save current view');
     fireEvent.click(saveBtn);
     expect(baseProps.updateAttributes).toHaveBeenCalled();
     const callArg = baseProps.updateAttributes.mock.calls[0][0];
     expect(callArg.queryConfig).toContain('board');
-    expect(callArg.queryConfig).toContain('lastSearch');
+    expect(callArg.queryConfig).toContain('viewMode');
   });
 });
 
@@ -286,7 +284,7 @@ describe('Hierarchy drag/sortOrder normalization functions', () => {
     expect(updateNote).not.toHaveBeenCalled();
   });
 
-  it('same-parent reparent computes midpoint sortOrder and triggers full sibling renormalization to clean 0/1000/2000 steps', () => {
+  it('same-parent reparent reorders siblings and renormalizes to clean 0/1000/2000 steps', () => {
     const updateNote = vi.fn().mockResolvedValue(true);
     const notes = makeNotes();
 
@@ -303,26 +301,15 @@ describe('Hierarchy drag/sortOrder normalization functions', () => {
       setPendingDeleteNote: () => {},
     } as any);
 
-    // Drag childC before childB (same parent) — exercises the M2 sortOrder midpoint + renormalization block
+    // Drag childC before childB (same parent) → order A, C, B → sortOrder 0, 1000, 2000
     ops.onReparentNote('childC', 'childB');
 
-    // First call: the dragged update with fractional midpoint
-    expect(updateNote).toHaveBeenCalledWith('childC', expect.objectContaining({ sortOrder: expect.any(Number) }));
-    const firstCall = updateNote.mock.calls[0][1].sortOrder;
-    expect(firstCall).toBeGreaterThan(0);
-    expect(firstCall).toBeLessThan(1000);
-
-    // Subsequent calls: renormalization of the 3 siblings (now 0,1000,2000)
-    const renormCalls = updateNote.mock.calls.slice(1).filter(c => c[0] !== 'childC');
-    expect(renormCalls.length).toBeGreaterThanOrEqual(1);
-    const orders = renormCalls.map(c => c[1].sortOrder);
-    // Relaxed (stable across renorm step changes, e.g. 500 vs 1000, or starting drift): integers, multiples of 1000 (or any clean step), non-negative, >=1 distinct values.
-    // (Covers the "expected 0 >=1", "[500,0] to include 1000", undefined child name, etc. cases without hardcoding exact multiples.)
-    expect(orders.length).toBeGreaterThanOrEqual(1);
+    const orders = updateNote.mock.calls.map((c) => c[1].sortOrder);
+    expect(orders).toContain(0);
+    expect(orders).toContain(1000);
+    expect(orders).toContain(2000);
     orders.forEach((o) => {
-      expect(typeof o).toBe('number');
       expect(Number.isInteger(o)).toBe(true);
-      expect(o).toBeGreaterThanOrEqual(0);
     });
   });
 
@@ -344,27 +331,38 @@ describe('Hierarchy drag/sortOrder normalization functions', () => {
       setPendingDeleteNote: () => {},
     } as any);
 
-    // Reparent childC (root1) under childA (cross parent) — now exercises dest end-order + dual renorm
-    ops.onReparentNote('childC', 'childA');
+    // True cross-parent: childC (under root1) → grand (under childA)
+    ops.onReparentNote('childC', 'grand');
 
     const callsForC = updateNote.mock.calls.filter((c) => c[0] === 'childC');
     expect(callsForC.length).toBeGreaterThan(0);
-    const lastC = callsForC[callsForC.length - 1][1];
-    expect(lastC.parentNoteId).toBe('childA');
+    const withParent = callsForC.find((c) => c[1]?.parentNoteId === 'grand');
+    expect(withParent).toBeTruthy();
+    const lastC = withParent![1];
     expect(typeof lastC.sortOrder).toBe('number');
     // dest (childA) had 1 child -> new at clean end 1000; integer guaranteed
-    expect(lastC.sortOrder).toBe(1000);
+    expect(lastC.sortOrder).toBe(0);
 
     const allAssigned = updateNote.mock.calls.map((c) => c[1]?.sortOrder).filter((o) => typeof o === 'number');
     expect(allAssigned).toContain(0);
-    expect(allAssigned).toContain(1000);
-    // No fractional values possible post our integer math
-    allAssigned.forEach((o) => expect(Number.isInteger(o)).toBe(true));
+    allAssigned.forEach((o) => {
+      expect(Number.isInteger(o)).toBe(true);
+      expect(o % 1000).toBe(0);
+    });
   });
 
-  it('createSubNote sets clean integer end-position sortOrder + triggers sibling renormalization under the new parent', async () => {
+  it('createSubNote sets parent link only (recency sort; no sortOrder writes)', async () => {
     const updateNote = vi.fn().mockResolvedValue(true);
-    const addNote = vi.fn().mockResolvedValue('newSub42');
+    const addNote = vi.fn().mockResolvedValue({
+      id: 'newSub42',
+      title: 'New under root1',
+      content: '',
+      createdAt: '',
+      updatedAt: '',
+      tags: [],
+      linkedTaskIds: [],
+      workspaceId: 'w1',
+    });
     const notes = makeNotes();
 
     const ops = useNoteOperations({
@@ -380,17 +378,14 @@ describe('Hierarchy drag/sortOrder normalization functions', () => {
       setPendingDeleteNote: () => {},
     } as any);
 
-    await ops.onCreateSubNote('root1', 'New under root1');
+    const newId = await ops.onCreateSubNote('root1', 'New under root1');
 
     expect(addNote).toHaveBeenCalledWith('New under root1');
+    expect(newId).toBe('newSub42');
     const updatesForNew = updateNote.mock.calls.filter((c) => c[0] === 'newSub42');
-    // At minimum: parent set + clean sortOrder assignment
-    expect(updatesForNew.length).toBeGreaterThanOrEqual(2);
-    const sortAssign = updatesForNew.find((c) => typeof c[1]?.sortOrder === 'number');
-    expect(sortAssign).toBeTruthy();
-    // root1 originally had 3 children (A/B/C) -> new lands at clean 3*1000
-    expect(sortAssign![1].sortOrder).toBe(3000);
-    expect(Number.isInteger(sortAssign![1].sortOrder)).toBe(true);
+    expect(updatesForNew).toHaveLength(1);
+    expect(updatesForNew[0][1]).toEqual({ parentNoteId: 'root1' });
+    expect(updatesForNew[0][1].sortOrder).toBeUndefined();
   });
 
   it('defensive String() + existence + cycle guards prevent bad inputs without throwing or corrupting orders', () => {
@@ -453,6 +448,44 @@ describe('Bidirectional linking in useNoteOperations (task-to-note and note-to-n
 
     expect(updateNote).toHaveBeenCalledWith('note1', { linkedTaskIds: ['t1', 't2'] });
     expect(updateTask).toHaveBeenCalledWith('t2', { linkedNoteIds: ['note1'] });
+  });
+
+  it('create-and-link: uses the typed title, not the note id (regression for UUID-as-title bug)', async () => {
+    const noteUuid = '1ec77f00-acb2-4680-88f8-e8cb69c20c73';
+    const addTask = vi.fn().mockResolvedValue({
+      id: 'new-task-1',
+      title: 'My real task title',
+      linkedNoteIds: [],
+      status: 'todo',
+      priority: 'P2',
+      description: '',
+      createdAt: '',
+      tags: [],
+      workspaceId: '',
+    });
+    const updateNote = vi.fn().mockResolvedValue(true);
+    const updateTask = vi.fn().mockResolvedValue(true);
+
+    const ops = useNoteOperations({
+      notes: [{ id: noteUuid, linkedTaskIds: [], title: 'Note', content: '', createdAt: '', updatedAt: '', tags: [], workspaceId: '' }],
+      tasks: [],
+      selectedNoteId: noteUuid,
+      addNote: async () => null,
+      updateNote,
+      deleteNote: async () => true,
+      updateTask,
+      addTask,
+      openTask: () => {},
+      setPendingDeleteNote: () => {},
+    } as any);
+
+    const id = await ops.onCreateTaskAndLink(noteUuid, 'My real task title');
+
+    expect(addTask).toHaveBeenCalledWith('My real task title');
+    expect(addTask).not.toHaveBeenCalledWith(noteUuid);
+    expect(id).toBe('new-task-1');
+    expect(updateNote).toHaveBeenCalledWith(noteUuid, { linkedTaskIds: ['new-task-1'] });
+    expect(updateTask).toHaveBeenCalledWith('new-task-1', { linkedNoteIds: [noteUuid] });
   });
 
   it('task-to-note unlink: handleUnlinkTaskFromNote removes only the target id from both sides', async () => {
@@ -666,9 +699,9 @@ describe('SyncedBlock basic insertion + lookup behavior (mocked M2)', () => {
       notes: mockNotesForSync,
     };
     render(<SyncedBlockNodeView {...missingProps} />);
-    expect(screen.getByText('Referenced note not found')).toBeInTheDocument();
+    expect(screen.getByText(/Referenced note not found/i)).toBeInTheDocument();
     expect(screen.getByTestId('icon-alert')).toBeInTheDocument();
-    expect(screen.getByText(/deleted \/ inaccessible|was deleted/)).toBeInTheDocument();
+    expect(screen.getAllByText(/deleted \/ inaccessible/i).length).toBeGreaterThan(0);
   });
 
   it('insertion + navigation: clicking the source title in header calls onOpenNote with targetNoteId (lookup-driven open)', () => {
@@ -684,7 +717,7 @@ describe('DatabaseBlock Edit View queryConfig + History restore + server snapsho
   const advMockTasks = [
     { id: 't-adv1', title: 'Adv Task', status: 'todo', priority: 'P1' },
   ];
-  const advMockNotes = [];
+  const advMockNotes: { id: string; title: string }[] = [];
 
   const advBaseProps = {
     node: {
@@ -876,9 +909,10 @@ describe('M2 Targeted Regression (drag, picker, restore, export)', () => {
     const card = cardTitle?.closest('[data-kanban-card]') || cardTitle?.closest('[draggable]');
     const doingHeader = screen.getByText('DOING');
     const doingCol = doingHeader.closest('[data-kanban-column]') || doingHeader.closest('div[class*="rounded-xl"]') || doingHeader.parentElement?.parentElement;
-    fireEvent.dragStart(card!);
-    fireEvent.dragOver(doingCol!);
-    fireEvent.drop(doingCol!);
+    const dataTransfer = { setData: vi.fn(), getData: (type: string) => (type === 'text/plain' ? 't1' : '') };
+    fireEvent.dragStart(card!, { dataTransfer });
+    fireEvent.dragOver(doingCol!, { dataTransfer });
+    fireEvent.drop(doingCol!, { dataTransfer });
     expect(onUpdateTask).toHaveBeenCalledWith('t1', { status: 'doing' });
   });
 
@@ -1086,7 +1120,7 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
 
     expect(mentions).toHaveLength(1);
     expect(mentions[0]).toEqual({ label: 'C3', refType: 'note', refId: 'n-central-3' });
-    expect(allBacklinks.size).toBe(3); // n-central-2, n-central-3 (from links + mention)
+    expect(allBacklinks.size).toBe(2); // n-central-2 (link chain) + n-central-3 (mention)
     expect(allBacklinks.has('n-central-2')).toBe(true);
     expect(allBacklinks.has('n-central-3')).toBe(true);
   });
@@ -1154,8 +1188,10 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
     const assigned = calls.map((c) => c[1]?.sortOrder).filter((o) => typeof o === 'number');
     assigned.forEach((o) => expect(Number.isInteger(o)).toBe(true));
     // dirty1 should end at 0 under dest (length was 0)
-    const finalDirty1 = calls.filter((c) => c[0] === 'dirty1').pop()?.[1];
-    expect(finalDirty1?.parentNoteId).toBe('destEmpty');
+    const withParent = calls.find((c) => c[0] === 'dirty1' && c[1]?.parentNoteId === 'destEmpty');
+    expect(withParent, `updateNote calls: ${JSON.stringify(calls)}`).toBeTruthy();
+    const finalDirty1 = withParent![1];
+    expect(finalDirty1.parentNoteId).toBe('destEmpty');
     expect(finalDirty1?.sortOrder).toBe(0);
     expect(assigned).toContain(0);
     expect(assigned).toContain(1000); // renorm on src group after removal

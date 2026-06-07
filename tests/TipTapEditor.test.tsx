@@ -23,8 +23,11 @@ import React from 'react';
 // Hoisted heavy mocks for complex deps (prevents jsdom/ProseMirror runtime issues in skeleton)
 vi.mock('@tiptap/react', () => ({
   useEditor: vi.fn(() => ({
+    view: { dom: document.createElement('div') },
     getJSON: vi.fn(() => ({ type: 'doc', content: [] })),
     isActive: vi.fn(() => false),
+    isFocused: false,
+    state: { selection: { from: 0, to: 0 } },
     chain: vi.fn(() => ({
       focus: vi.fn(() => ({
         toggleBold: vi.fn(() => ({ run: vi.fn() })),
@@ -73,17 +76,6 @@ vi.mock('sonner', () => ({
     error: vi.fn(),
   },
 }));
-
-// The ai utils are imported but only called on explicit user actions (slash/AI); safe for render smoke
-vi.mock('@/lib/utils', async (importOriginal) => {
-  const actual = await importOriginal<any>();
-  return {
-    ...actual,
-    aiTransformText: vi.fn().mockResolvedValue('transformed'),
-    aiTransformTextAI: vi.fn().mockResolvedValue('ai-transformed'),
-    isXAIConfigured: vi.fn(() => false),
-  };
-});
 
 // Now safe
 import { TipTapEditor } from '@/components/TipTapEditor';

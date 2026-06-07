@@ -41,10 +41,10 @@ interface UseNoteOperationsProps {
   updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   deleteNote: (id: string) => Promise<boolean | null>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<boolean | null>;
-  addTask: (title: string) => Promise<string | null>;
+  addTask: (title: string) => Promise<Task | null>;
 
   // UI actions from parent
-  openTask: (task: any) => void;
+  openTask: (task: Task) => void;
   setPendingDeleteNote: (id: string | null) => void;
 
   // M2 tiny extraction: required for the onPersistSnapshot handler (was inline in page.tsx renderNotesView)
@@ -146,28 +146,47 @@ export function useNoteOperations({
     await updateTask(taskId, { status: nextStatus });
   };
 
+  const linkNewTaskToNote = async (
+    noteId: string,
+    taskId: string,
+    taskSnapshot?: Task
+  ) => {
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+
+    const newNoteLinks = Array.from(new Set([...(note.linkedTaskIds || []), taskId]));
+    await updateNote(noteId, { linkedTaskIds: newNoteLinks });
+
+    const task = taskSnapshot ?? tasks.find((t) => t.id === taskId);
+    const newTaskLinks = Array.from(new Set([...(task?.linkedNoteIds || []), noteId]));
+    await updateTask(taskId, { linkedNoteIds: newTaskLinks });
+  };
+
+  /** Linked Tasks panel: create with explicit title + link to a specific note. */
+  const handleCreateTaskAndLink = async (noteId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed || !noteId) return null;
+
+    const created = await addTask(trimmed);
+    if (!created?.id) return null;
+
+    await linkNewTaskToNote(noteId, created.id, created);
+    return created.id;
+  };
+
+  /** /task slash in editor: create + auto-link to open note + open modal. */
   const handleCreateTaskAndEmbed = async (suggestedTitle?: string) => {
-    const title = suggestedTitle || "New Task";
-    const newTaskId = await addTask(title);
-    if (!newTaskId) return null;
+    const title = (suggestedTitle || "New Task").trim() || "New Task";
+    const created = await addTask(title);
+    if (!created?.id) return null;
 
-    // Auto-link bidirectionally to the current note (if one is open)
+    const newTaskId = created.id;
+
     if (selectedNoteId) {
-      const note = notes.find((n) => n.id === selectedNoteId);
-      if (note) {
-        const newNoteLinks = Array.from(new Set([...(note.linkedTaskIds || []), newTaskId]));
-        await updateNote(selectedNoteId, { linkedTaskIds: newNoteLinks });
-
-        const newTask = tasks.find((t) => t.id === newTaskId);
-        if (newTask) {
-          const newTaskLinks = Array.from(new Set([...(newTask.linkedNoteIds || []), selectedNoteId]));
-          await updateTask(newTaskId, { linkedNoteIds: newTaskLinks });
-        }
-      }
+      await linkNewTaskToNote(selectedNoteId, newTaskId, created);
     }
 
-    // Immediately open the TaskModal so user can refine
-    openTask({ id: newTaskId });
+    openTask(tasks.find((t) => t.id === newTaskId) ?? created);
 
     return newTaskId;
   };
@@ -251,11 +270,11 @@ export function useNoteOperations({
       let current: string | null | undefined = String(newParentId || "").trim() || null;
       const visited = new Set<string>();
       while (current) {
-        const c = String(current).trim();
-        if (!c || visited.has(c)) break;
-        visited.add(c);
-        if (c === dId) return true;
-        const parentNote = allNotes.find((n) => String(n.id) === c);
+        const cId: string = String(current).trim();
+        if (!cId || visited.has(cId)) break;
+        visited.add(cId);
+        if (cId === dId) return true;
+        const parentNote: Note | undefined = allNotes.find((n) => String(n.id) === cId);
         current = parentNote?.parentNoteId ?? null;
       }
       return false;
@@ -274,37 +293,24 @@ export function useNoteOperations({
     }
 
     if ((draggedNote.parentNoteId || null) === (targetNote.parentNoteId || null)) {
-      // Same parent: real position-aware reordering using sortOrder (M2).
-      // Insert the dragged note immediately before the drop target in the current visual order.
+      // Same parent: insert dragged immediately before target, then renormalize to 0/1000/2000...
       const parent = draggedNote.parentNoteId || null;
       const siblings = notes
         .filter(n => (n.parentNoteId || null) === parent)
         .sort((a, b) => (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER));
 
-      const targetIdx = siblings.findIndex(n => String(n.id) === target);
-      const prev = targetIdx > 0 ? siblings[targetIdx - 1] : null;
-      const prevOrder = prev?.sortOrder ?? 0;
-      const targetOrder = siblings[targetIdx]?.sortOrder ?? 1000;
+      const withoutDragged = siblings.filter(n => String(n.id) !== dragged);
+      const targetIdx = withoutDragged.findIndex(n => String(n.id) === target);
+      const insertIdx = targetIdx >= 0 ? targetIdx : withoutDragged.length;
+      const reordered = [
+        ...withoutDragged.slice(0, insertIdx),
+        draggedNote,
+        ...withoutDragged.slice(insertIdx),
+      ];
 
-      // Bulletproof integer midpoint math (keeps integers, stable order):
-      // Math.floor ensures no floats/drift from repeated /2. Temp value may be approximate;
-      // immediate full renormalization below guarantees final clean 0/1000/2000... for ALL siblings.
-      const delta = targetOrder - prevOrder;
-      const newOrder = prev ? prevOrder + Math.floor(delta / 2) : Math.max(0, targetOrder - 1000);
-
-      updateNote(dragged, { sortOrder: newOrder });
-
-      // Re-normalize siblings to clean sequential integers (0, 1000, 2000...) after reorder
-      // This is the core of stable no-drift: full re-space of affected group post-mutation.
-      const freshSiblings = notes
-        .filter(n => (n.parentNoteId || null) === parent)
-        .sort((a, b) => (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER));
-
-      freshSiblings.forEach((sib, idx) => {
+      reordered.forEach((sib, idx) => {
         const clean = idx * 1000;
-        if ((sib.sortOrder ?? -1) !== clean) {
-          updateNote(sib.id, { sortOrder: clean });
-        }
+        updateNote(String(sib.id), { sortOrder: clean });
       });
 
       return;
@@ -412,6 +418,7 @@ export function useNoteOperations({
     onToggleTaskStatus: handleToggleTaskStatus,
     onUpdateTask: handleUpdateTask,
     onCreateTaskAndEmbed: handleCreateTaskAndEmbed,
+    onCreateTaskAndLink: handleCreateTaskAndLink,
     onCreateSubNote: handleCreateSubNote,
     onReparentNote: handleReparentNote,
     // New slimmed adapters (task 4)

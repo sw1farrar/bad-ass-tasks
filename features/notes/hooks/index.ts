@@ -8,6 +8,7 @@
  */
 
 export { useNoteOperations } from "./useNoteOperations";
+export { useNoteHistory } from "./useNoteHistory";
 export { useBacklinks } from "./useBacklinks";
 export { useNoteKeyboard } from "./useNoteKeyboard";
 export { useNoteSearch } from "./useNoteSearch";
