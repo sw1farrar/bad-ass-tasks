@@ -60,3 +60,5 @@ agent-tools/
 # Local command output captures (re-generable hygiene artifacts)
 *-output.txt
 task-persistence-diff.txt
+
+.vercel
