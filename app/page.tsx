@@ -32,6 +32,7 @@ import type { HomeFocusItem } from "@/features/home/lib/buildAttentionItems";
 import { TodayView } from "@/features/today";
 import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
 import { WorkspaceSettingsView } from "@/features/settings";
+import { TransferOwnershipControl } from "@/features/workspace/TransferOwnershipControl";
 import { NotificationDetailModal } from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
 import { TaskRow } from "@/features/tasks/components/TaskRow";
@@ -1386,12 +1387,12 @@ export default function BadAssTasks() {
                       </div>
                     ) : isSelf ? (
                       myRole === "owner" ? (
-                        <span
-                          className="text-[10px] text-[#71717a] max-w-[11rem] text-right leading-snug"
-                          title="Transfer ownership in Workspace Settings before you can leave"
-                        >
-                          Transfer ownership to leave
-                        </span>
+                        <TransferOwnershipControl
+                          members={members}
+                          currentUserId={user?.id}
+                          disabled={!isLive}
+                          variant="compact"
+                        />
                       ) : (
                         <button
                           onClick={async () => {

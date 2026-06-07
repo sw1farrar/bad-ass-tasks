@@ -12,8 +12,8 @@ import {
   Trash2,
   Bell,
   LogOut,
-  Crown,
 } from "lucide-react";
+import { TransferOwnershipControl } from "@/features/workspace/TransferOwnershipControl";
 import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { canDeleteWorkspace } from "@/lib/workspaceGuards";
@@ -60,7 +60,6 @@ export function WorkspaceSettingsView() {
     notificationPrefs,
     updateNotificationPrefs,
     exitWorkspace,
-    transferWorkspaceOwnership,
   } = useTaskStore();
 
   const myRole = currentWorkspace.role;
@@ -81,10 +80,6 @@ export function WorkspaceSettingsView() {
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
   const [pendingLeave, setPendingLeave] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
-  const [transferTargetId, setTransferTargetId] = useState("");
-  const [pendingTransfer, setPendingTransfer] = useState(false);
-  const [isTransferring, setIsTransferring] = useState(false);
-
   const [adminTab, setAdminTab] = useState<AdminTab>("overview");
   const [importStrategy, setImportStrategy] = useState<"append" | "skip-dupe-titles">("skip-dupe-titles");
   const [importPreview, setImportPreview] = useState<{ tasks: number; notes: number; source: string } | null>(null);
@@ -101,16 +96,10 @@ export function WorkspaceSettingsView() {
 
   const prefs = notificationPrefs || DEFAULT_NOTIFICATION_PREFS;
 
-  const transferCandidates = useMemo(
-    () => members.filter((m) => m.userId !== user?.id),
-    [members, user?.id],
-  );
-
   useEffect(() => {
     setSettingsName(currentWorkspace.name);
     setSettingsSlug(currentWorkspace.slug);
     setDeleteConfirmName("");
-    setTransferTargetId("");
   }, [currentWorkspace.id, currentWorkspace.name, currentWorkspace.slug]);
 
   const handleSaveWorkspaceSettings = async () => {
@@ -170,20 +159,6 @@ export function WorkspaceSettingsView() {
       setPendingLeave(false);
     } finally {
       setIsLeaving(false);
-    }
-  };
-
-  const handleTransferOwnership = async () => {
-    if (!transferTargetId) return;
-    setIsTransferring(true);
-    try {
-      const ok = await transferWorkspaceOwnership(transferTargetId);
-      if (ok) {
-        setTransferTargetId("");
-        setPendingTransfer(false);
-      }
-    } finally {
-      setIsTransferring(false);
     }
   };
 
@@ -333,47 +308,13 @@ export function WorkspaceSettingsView() {
         </div>
       </div>
 
-      {/* Transfer ownership — owner only */}
       {isOwner && isLiveWorkspace && (
-        <div className="glass rounded-2xl border border-[#c084fc]/25 p-5 space-y-4">
-          <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#c084fc]">
-            <Crown className="h-4 w-4" />
-            Transfer ownership
-          </div>
-          <p className="text-xs text-[#a1a1aa] leading-relaxed">
-            Hand off this workspace to another member. They become owner immediately — no acceptance required.
-            You will become an admin and can then leave the workspace if you want.
-          </p>
-          <p className="text-xs text-[#71717a] leading-relaxed">
-            As owner, you cannot leave until ownership has been transferred.
-          </p>
-          {transferCandidates.length === 0 ? (
-            <p className="text-xs text-[#71717a]">Invite at least one other member before you can transfer ownership.</p>
-          ) : (
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select
-                value={transferTargetId}
-                onChange={(e) => setTransferTargetId(e.target.value)}
-                className="flex-1 bg-[#111114] border border-white/20 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#c084fc]"
-              >
-                <option value="">Select a member…</option>
-                {transferCandidates.map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.fullName || (m.username ? `@${m.username}` : "Member")} ({formatRoleLabel(m.role)})
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => transferTargetId && setPendingTransfer(true)}
-                disabled={!transferTargetId || isTransferring}
-                className="btn btn-secondary text-sm px-5 py-2.5 disabled:opacity-50 whitespace-nowrap"
-              >
-                Transfer ownership
-              </button>
-            </div>
-          )}
-        </div>
+        <TransferOwnershipControl
+          members={members}
+          currentUserId={user?.id}
+          disabled={!isLiveWorkspace}
+          variant="panel"
+        />
       )}
 
       {/* Leave workspace — non-owners */}
@@ -782,20 +723,6 @@ export function WorkspaceSettingsView() {
         onConfirm={handleLeaveWorkspace}
       />
 
-      <ConfirmationModal
-        open={pendingTransfer}
-        onOpenChange={setPendingTransfer}
-        title="Transfer workspace ownership?"
-        highlight={
-          transferCandidates.find((m) => m.userId === transferTargetId)?.fullName ||
-          transferCandidates.find((m) => m.userId === transferTargetId)?.username ||
-          "Selected member"
-        }
-        description="This member will immediately become the workspace owner — they do not need to accept. You will become an admin and can leave afterward if you choose."
-        confirmText={isTransferring ? "Transferring…" : "Transfer ownership"}
-        variant="destructive"
-        onConfirm={handleTransferOwnership}
-      />
     </div>
   );
 }

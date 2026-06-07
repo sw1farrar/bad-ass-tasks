@@ -72,6 +72,8 @@ export interface TeamsViewProps {
   onRemoveMember: (userId: string, label: string) => void;
   onLeaveWorkspace: () => void;
   canSelfLeave?: boolean;
+  /** Owner row: transfer UI (select + button) when they cannot leave yet */
+  ownerTransferControl?: React.ReactNode;
   onSearchPotentialTeammates: (query: string, workspaceId: string) => Promise<any[]>;
   onSearchResultInvite: (result: any) => void;
   onClearSearch: () => void;
@@ -121,6 +123,7 @@ export function TeamsView(props: TeamsViewProps) {
     onRemoveMember,
     onLeaveWorkspace,
     canSelfLeave = true,
+    ownerTransferControl,
     onSearchPotentialTeammates,
     onSearchResultInvite,
     onClearSearch,
@@ -434,10 +437,10 @@ export function TeamsView(props: TeamsViewProps) {
                       >
                         Leave team
                       </button>
-                    ) : (
+                    ) : ownerTransferControl ?? (
                       <span
                         className="text-[10px] text-[#71717a] max-w-[11rem] text-right leading-snug"
-                        title="Transfer ownership in Workspace Settings before you can leave"
+                        title="Transfer ownership before you can leave"
                       >
                         Transfer ownership to leave
                       </span>

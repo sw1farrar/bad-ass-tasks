@@ -2798,11 +2798,33 @@ export const useTaskStore = create<TaskState>()(
             // When a member is added (accept), removed, or updated,
             // refresh the members list so everyone sees the change instantly.
             // Also refetch notifications for banner zero-orphan on membership events.
-            const { eventType, old: oldRow } = payload;
+            const { eventType, old: oldRow, new: newRow } = payload;
+            const currentUserId = get().user?.id;
+            const currentWsId = get().currentWorkspace?.id;
+
+            if (eventType === "UPDATE" && newRow?.workspace_id === currentWsId && newRow?.user_id && newRow?.role) {
+              const updatedRole = fromDbRole(newRow.role as string);
+              set((state) => ({
+                members: (state.members || []).map((m) =>
+                  m.userId === newRow.user_id ? { ...m, role: updatedRole } : m,
+                ),
+                ...(newRow.user_id === currentUserId
+                  ? {
+                      currentWorkspace: { ...state.currentWorkspace, role: updatedRole },
+                      workspaces: (state.workspaces || []).map((w) =>
+                        w.id === currentWsId ? { ...w, role: updatedRole } : w,
+                      ),
+                    }
+                  : {}),
+              }));
+            }
 
             if (eventType === "INSERT" || eventType === "DELETE" || eventType === "UPDATE") {
               get().fetchMembers?.().catch(() => {});
               get().fetchNotifications?.().catch(() => {});
+              if (eventType === "UPDATE") {
+                get().fetchUserWorkspaces?.().catch(() => {});
+              }
             }
 
             // Special handling for the removed user themselves
