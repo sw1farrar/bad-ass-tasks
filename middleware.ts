@@ -45,7 +45,8 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = 
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/signup") ||
-    request.nextUrl.pathname.startsWith("/auth");
+    request.nextUrl.pathname.startsWith("/auth") ||
+    request.nextUrl.pathname.startsWith("/invite");
 
   // If user is not logged in and trying to access protected routes, redirect to login
   if (!user && !isAuthPage && request.nextUrl.pathname !== "/") {

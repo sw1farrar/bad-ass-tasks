@@ -106,7 +106,7 @@ interface TaskState {
   globalTodayFocus: Array<{ task: Task; workspaceId: string; workspaceName: string }>;
 
   // UI State
-  currentView: "home" | "today" | "tasks" | "notes" | "teams";
+  currentView: "home" | "today" | "tasks" | "notes" | "teams" | "settings";
   taskFilter: {
     status?: TaskStatus[];
     search: string;

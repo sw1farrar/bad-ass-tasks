@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Command } from "cmdk";
 import { 
-  Search, Plus, CheckSquare, FileText, Users,
+  Search, Plus, CheckSquare, FileText, Users, Settings,
   Zap, ArrowRight, Clock, Briefcase, FilePlus, Hash, Filter, Sparkles, Download, GitBranch
 } from "lucide-react";
 import { useTaskStore } from "@/store/useTaskStore";
@@ -290,6 +290,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "2" },
                 { label: "Notes", view: "notes" as const, icon: FileText, shortcut: "3" },
                 { label: "Team", view: "teams" as const, icon: Users, shortcut: "4" },
+                { label: "Settings", view: "settings" as const, icon: Settings, shortcut: "5" },
               ].map((item) => (
                 <Command.Item
                   key={item.view}

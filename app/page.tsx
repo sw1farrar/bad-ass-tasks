@@ -5,7 +5,7 @@ import {
   Check, Plus, Command, Users, Settings,
   ChevronRight, Clock, Star, ArrowUpRight,
   Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat,
-  Trash2, Search, RefreshCw, BarChart3, FileDown, Upload, FileText, Download,
+  Trash2, Search, RefreshCw, FileText, Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
@@ -14,13 +14,14 @@ import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
 import { cn, formatDueDate, getNextRecurringDue, triggerHaptic, getUserFirstName } from "@/lib/utils";
-import { canDeleteWorkspace } from "@/lib/workspaceGuards";
+
 import { CommandPalette } from "@/components/CommandPalette";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { Confetti } from "@/components/Confetti";
 import { SupabaseSetupBanner } from "@/components/SupabaseSetupBanner";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { AuthModal } from "@/components/AuthModal";
+import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
 import { NotesView } from "@/features/notes/NotesView";
 import { useNoteOperations } from "@/features/notes/hooks";
@@ -29,6 +30,7 @@ import { HomeView } from "@/features/home";
 import type { HomeFocusItem } from "@/features/home/lib/buildAttentionItems";
 import { TodayView } from "@/features/today";
 import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
+import { WorkspaceSettingsView } from "@/features/settings";
 import { NotificationDetailModal } from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
 import { TaskRow } from "@/features/tasks/components/TaskRow";
@@ -39,6 +41,7 @@ const VIEWS = [
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Notes", icon: Star },
   { id: "teams", label: "Team", icon: Users },
+  { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
 export default function BadAssTasks() {
@@ -100,8 +103,6 @@ export default function BadAssTasks() {
     revokeInvite,
     resendInvite,
     declineReceivedInvite,
-    updateWorkspaceDetails,
-    deleteCurrentWorkspace,
     updateMyProfile, // self name + location profile editing
     searchPotentialTeammates, // new backend search for name/username/city in empty owner invite state
     setupWorkspaceRealtime,
@@ -315,18 +316,6 @@ export default function BadAssTasks() {
   // Recipient pending invites are now derived directly from the centralized store.notifications
   // (auto-fetched on init/switch for live users, cross-ws so invites always visible in bell + banner).
 
-  // Workspace settings (owner-only modal for name/slug/delete) - small addition for E03
-  const [showWorkspaceSettings, setShowWorkspaceSettings] = useState(false);
-  const [settingsName, setSettingsName] = useState("");
-  const [settingsSlug, setSettingsSlug] = useState("");
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [deleteConfirmName, setDeleteConfirmName] = useState("");
-  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
-  const workspaceDeleteGuard = useMemo(
-    () => canDeleteWorkspace(currentWorkspace.id, workspaces, user?.id),
-    [currentWorkspace.id, workspaces, user?.id]
-  );
-
   // User profile self-edit (full name, username/handle, location). Triggered from top-right pill + Teams view.
   const [profileFullName, setProfileFullName] = useState("");
   const [profileUsername, setProfileUsername] = useState("");
@@ -334,15 +323,7 @@ export default function BadAssTasks() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
 
-  // Agent 28: Polished owner/admin-only Admin Dashboard (tabbed, powerful, delightful)
-  // Lives inside Teams view (gated by canManage) + reuses Workspace Settings for core owner actions.
-  // All paths respect live/demo + role guards from hybrid + store.
-  const [adminTab, setAdminTab] = useState<'overview' | 'exports' | 'imports' | 'templates' | 'insights'>('overview');
-  const [importStrategy, setImportStrategy] = useState<'append' | 'skip-dupe-titles'>('skip-dupe-titles');
-  const [importPreview, setImportPreview] = useState<{ tasks: number; notes: number; source: string } | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [insights, setInsights] = useState<any>(null);
-  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+
 
   // PWA foundation: install prompt + service worker registration (mobile-first, demo safe)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -382,24 +363,31 @@ export default function BadAssTasks() {
     }
   }, [user]);
 
-  // Phase 2: Handle invite link accept via URL param (?invite=UUID) - works post-login or triggers auth
+  // Legacy invite links (?invite=UUID) → dedicated invite landing page
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const inviteToken = params.get("invite");
-    if (inviteToken && user && isSupabaseConfigured()) {
-      // Auto-accept and clean URL
-      (async () => {
-        const wsId = await acceptInviteLink(inviteToken);
-        if (wsId) {
-          // Clean the param from URL without reload
-          const url = new URL(window.location.href);
-          url.searchParams.delete("invite");
-          window.history.replaceState({}, "", url.toString());
-        }
-      })();
+    if (inviteToken) {
+      window.location.replace(`/invite/${inviteToken}`);
     }
-  }, [user, acceptInviteLink]);
+  }, []);
+
+  // After invite acceptance, switch into the joined workspace
+  useEffect(() => {
+    if (typeof window === "undefined" || !user) return;
+    const params = new URLSearchParams(window.location.search);
+    const workspaceId = params.get("workspace");
+    if (!workspaceId) return;
+
+    (async () => {
+      await switchWorkspace(workspaceId);
+      await useTaskStore.getState().fetchUserWorkspaces?.().catch(() => {});
+      const url = new URL(window.location.href);
+      url.searchParams.delete("workspace");
+      window.history.replaceState({}, "", url.toString());
+    })();
+  }, [user, switchWorkspace]);
 
   // Deep links for PWA shortcuts + shareable views (Agent 27): ?view=today|tasks|notes|teams
   // Initializes from manifest shortcuts (?view=...&source=pwa). Syncs on change for back/forward + share.
@@ -481,7 +469,7 @@ export default function BadAssTasks() {
 
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user;
-  const showLandingGate = isConfigured && !user && !isAuthLoading;
+  const showLandingGate = isConfigured && !user;
 
   const handleInstallApp = async () => {
     if (deferredPrompt) {
@@ -686,58 +674,6 @@ export default function BadAssTasks() {
     }
   };
 
-  const openWorkspaceSettings = () => {
-    if (myRole !== "owner") {
-      toast.error("Only owners can access workspace settings");
-      return;
-    }
-    setSettingsName(currentWorkspace.name);
-    setSettingsSlug(currentWorkspace.slug);
-    setDeleteConfirmName("");
-    setShowWorkspaceSettings(true);
-    setShowWorkspaceMenu(false);
-  };
-
-  const handleSaveWorkspaceSettings = async () => {
-    if (myRole !== "owner") return;
-    setIsSavingSettings(true);
-    try {
-      const updates: { name?: string; slug?: string } = {};
-      if (settingsName.trim() && settingsName.trim() !== currentWorkspace.name) updates.name = settingsName.trim();
-      if (settingsSlug.trim() && settingsSlug.trim() !== currentWorkspace.slug) updates.slug = settingsSlug.trim();
-      if (Object.keys(updates).length === 0) {
-        setShowWorkspaceSettings(false);
-        return;
-      }
-      const ok = await updateWorkspaceDetails(updates);
-      if (ok) setShowWorkspaceSettings(false);
-    } finally {
-      setIsSavingSettings(false);
-    }
-  };
-
-  const handleDeleteWorkspace = async () => {
-    if (myRole !== "owner") return;
-    if (!workspaceDeleteGuard.allowed) {
-      toast.error(workspaceDeleteGuard.reason ?? "This workspace cannot be deleted");
-      return;
-    }
-    if (deleteConfirmName.trim() !== currentWorkspace.name) {
-      toast.error("Type the exact workspace name to confirm deletion");
-      return;
-    }
-    setIsDeletingWorkspace(true);
-    try {
-      const ok = await deleteCurrentWorkspace();
-      if (ok) {
-        setShowWorkspaceSettings(false);
-        setDeleteConfirmName("");
-      }
-    } finally {
-      setIsDeletingWorkspace(false);
-    }
-  };
-
   // Keyboard shortcuts - reliable, input-aware, keyboard-first experience
   useEffect(() => {
     const isInputActive = () => {
@@ -784,6 +720,7 @@ export default function BadAssTasks() {
         if (e.key === "2") { setView("tasks"); return; }
         if (e.key === "3") { setView("notes"); return; }
         if (e.key === "4") { setView("teams"); return; }
+        if (e.key === "5") { setView("settings"); return; }
       }
 
       if (e.key === "Escape") {
@@ -991,7 +928,7 @@ export default function BadAssTasks() {
 
         if (inviteId) {
           // Build nice link
-          const link = `${window.location.origin}/?invite=${inviteId}`;
+          const link = `${window.location.origin}/invite/${inviteId}`;
           // Copy immediately for delight
           try {
             await navigator.clipboard.writeText(link);
@@ -1023,7 +960,7 @@ export default function BadAssTasks() {
     };
 
     const copyInviteLink = async (inviteId: string) => {
-      const link = `${window.location.origin}/?invite=${inviteId}`;
+      const link = `${window.location.origin}/invite/${inviteId}`;
       try {
         await navigator.clipboard.writeText(link);
         setCopiedInviteId(inviteId);
@@ -1515,286 +1452,6 @@ export default function BadAssTasks() {
           </div>
         )}
 
-        {/* Agent 28: DEDICATED POLISHED ADMIN DASHBOARD (owner/admin only, inside Teams) */}
-        {/* Powerful, trustworthy tools: tabbed overview/exports/imports/templates/insights. */}
-        {/* Full data exports (JSON+all CSVs+enhanced MD incl members/activity), smart import conflict handling, rich template lib, real insights. */}
-        {/* Security: entire block gated by canManage; hybrid+store enforce live/demo + role at action level. */}
-        {canManage && (
-          <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-            {/* Header + Tabs */}
-            <div className="px-5 py-3 border-b border-white/10 bg-white/5">
-              <div className="font-semibold flex items-center gap-2 text-lg tracking-tight mb-3">
-                <Settings className="h-5 w-5 text-[#c084fc]" /> Admin
-              </div>
-
-              {/* Tab Navigation - feels like dedicated powerful tool (mobile: scrollable row for touch) */}
-              <div className="flex gap-1 text-xs overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory touch-pan-x">
-                {[
-                  { id: 'overview', label: 'Overview', icon: BarChart3 },
-                  { id: 'exports', label: 'Export', icon: FileDown },
-                  { id: 'imports', label: 'Import', icon: Upload },
-                  { id: 'templates', label: 'Templates', icon: FileText },
-                  { id: 'insights', label: 'Insights', icon: Users },
-                ].map((tab) => {
-                  const Icon = tab.icon;
-                  const active = adminTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setAdminTab(tab.id as any)}
-                      className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] snap-start rounded-xl border transition-all shrink-0 ${active ? 'bg-[#c084fc] text-black border-[#c084fc] font-medium' : 'bg-white/5 border-white/10 hover:bg-white/10 text-[#a1a1aa] hover:text-white'}`}
-                    >
-                      <Icon className="h-3.5 w-3.5" /> {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* OVERVIEW TAB */}
-            {adminTab === 'overview' && (
-              <div className="p-5">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
-                  <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <div className="text-[#71717a] text-xs flex items-center gap-1">Tasks <span className="text-emerald-400">•</span> Done</div>
-                    <div className="text-2xl font-semibold tabular-nums mt-1">{tasks.length} <span className="text-xs text-[#a1a1aa]">/ {tasks.filter(t => t.status === "done").length}</span></div>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <div className="text-[#71717a] text-xs">Notes • Team Size</div>
-                    <div className="text-2xl font-semibold tabular-nums mt-1">{notes.length} <span className="text-xs text-[#a1a1aa]">/ {members.length}</span></div>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <div className="text-[#71717a] text-xs">Overdue • Completion</div>
-                    <div className="text-2xl font-semibold tabular-nums mt-1 text-[#ff3366]">{tasks.filter(t => t.dueDate && new Date(t.dueDate).getTime() < Date.now() && t.status !== "done").length} <span className="text-xs text-[#a1a1aa]">/ ~{Math.round((tasks.filter(t => t.status === "done").length / Math.max(1, tasks.length)) * 100)}%</span></div>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <div className="text-[#71717a] text-xs">Activity</div>
-                    <div className="text-2xl font-semibold tabular-nums mt-1">{recentActivity.length}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* EXPORTS TAB — complete, useful, multiple formats */}
-            {adminTab === 'exports' && (
-              <div className="p-5 border-t border-white/10">
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('json')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> JSON</button>
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('csv')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> CSV</button>
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('md')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-secondary text-xs px-4 py-2 flex items-center gap-2"><FileDown className="h-4 w-4" /> Markdown</button>
-                  <button onClick={() => useTaskStore.getState().exportWorkspace('all')} disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)} className="btn btn-primary text-xs px-4 py-2 flex items-center gap-2 bg-[#c084fc] text-black hover:bg-[#a855f7]"><Download className="h-4 w-4" /> All</button>
-                </div>
-              </div>
-            )}
-
-            {/* IMPORTS TAB — with conflict handling + preview */}
-            {adminTab === 'imports' && (
-              <div className="p-5 border-t border-white/10 space-y-4">
-                <div className="flex flex-wrap gap-3 items-center">
-                  <div>
-                    <div className="flex gap-2 text-xs">
-                      <label className={`px-3 py-1 rounded-xl border cursor-pointer ${importStrategy === 'skip-dupe-titles' ? 'border-[#c084fc] bg-white/10' : 'border-white/20'}`}>
-                        <input type="radio" className="hidden" checked={importStrategy === 'skip-dupe-titles'} onChange={() => setImportStrategy('skip-dupe-titles')} /> Skip duplicates
-                      </label>
-                      <label className={`px-3 py-1 rounded-xl border cursor-pointer ${importStrategy === 'append' ? 'border-[#c084fc] bg-white/10' : 'border-white/20'}`}>
-                        <input type="radio" className="hidden" checked={importStrategy === 'append'} onChange={() => setImportStrategy('append')} /> Append all
-                      </label>
-                    </div>
-                  </div>
-
-                  <label className="btn btn-secondary text-xs px-4 py-2 cursor-pointer inline-flex items-center gap-2 mt-4">
-                    <Upload className="h-4 w-4" /> Choose file
-                    <input
-                      type="file"
-                      accept=".json,.csv,.md,.txt"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)) return;
-                        setImportPreview(null);
-                        const text = await file.text();
-                        const ext = file.name.split(".").pop()?.toLowerCase() || '';
-                        let parsed: any = { tasks: [], notes: [] };
-                        try {
-                          const utilsMod = await import("@/lib/utils");
-                          if (ext === "json") {
-                            parsed = utilsMod.parseJSONImport(text);
-                          } else if (ext === "csv") {
-                            parsed = { tasks: utilsMod.parseCSVToTasks(text) };
-                          } else {
-                            // crude MD task extraction + basic note from headings
-                            const taskLines = text.split("\n").filter(l => l.match(/^\s*-\s*\[[\sx]\]/i));
-                            parsed.tasks = taskLines.map(l => ({ title: l.replace(/^\s*-\s*\[[\sx]\]\s*/, "").trim().slice(0, 140) }));
-                            // simple notes from ### headings
-                            const noteMatches = text.match(/^###\s+(.+)$/gm) || [];
-                            parsed.notes = noteMatches.slice(0, 20).map((h: string) => ({ title: h.replace(/^###\s+/, "").trim() }));
-                          }
-                          setImportPreview({ tasks: parsed.tasks?.length || 0, notes: parsed.notes?.length || 0, source: file.name });
-                          // store parsed for actual import
-                          (window as any).__pendingImport = parsed;
-                        } catch (err) {
-                          toast.error("Failed to parse file");
-                        }
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                </div>
-
-                {importPreview && (
-                  <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-xs">
-                    <div>Preview from <span className="font-mono">{importPreview.source}</span>:</div>
-                    <div className="font-medium mt-1">{importPreview.tasks} tasks • {importPreview.notes} notes ready to import.</div>
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        disabled={isImporting || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                        onClick={async () => {
-                          const parsed = (window as any).__pendingImport;
-                          if (!parsed) return;
-                          setIsImporting(true);
-                          try {
-                            const res = await useTaskStore.getState().importWorkspaceData(parsed, { conflictStrategy: importStrategy });
-                            toast.success(`Import complete: ${res.importedTasks} tasks, ${res.importedNotes} notes${res.skippedTasks || res.skippedNotes ? ` (skipped ${res.skippedTasks || 0} tasks, ${res.skippedNotes || 0} notes)` : ''}`);
-                            // Refresh UI state
-                            await useTaskStore.getState().initializeFromSupabase?.();
-                            setImportPreview(null);
-                            (window as any).__pendingImport = null;
-                          } catch (e) {
-                            toast.error("Import failed");
-                          } finally {
-                            setIsImporting(false);
-                          }
-                        }}
-                        className="btn btn-primary text-xs px-3 py-1"
-                      >
-                        {isImporting ? "Importing..." : `Import with ${importStrategy === 'skip-dupe-titles' ? 'Smart Skip' : 'Append'}`}
-                      </button>
-                      <button onClick={() => { setImportPreview(null); (window as any).__pendingImport = null; }} className="btn btn-ghost text-xs px-3 py-1">Cancel</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TEMPLATES TAB */}
-            {adminTab === 'templates' && (
-              <div className="p-5 border-t border-white/10">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
-                  {(useTaskStore.getState().getAdminTemplateLibrary ? useTaskStore.getState().getAdminTemplateLibrary() : []).map((tpl: any, idx: number) => (
-                    <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 hover:border-[#c084fc]/40 transition group">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="font-medium flex items-center gap-1.5">
-                            {tpl.title}
-                            <span className={`text-[9px] px-1 rounded ${tpl.type === 'note' ? 'bg-blue-500/20 text-blue-300' : 'bg-emerald-500/20 text-emerald-300'}`}>{tpl.type}</span>
-                          </div>
-                          {tpl.description && <div className="text-[10px] text-[#a1a1aa] line-clamp-2 mt-0.5 pr-2">{tpl.description.slice(0, 110)}{tpl.description.length > 110 ? "ΓÇª" : ""}</div>}
-                          {tpl.tags && <div className="mt-1 flex flex-wrap gap-1">{tpl.tags.filter((t: string) => t !== 'template').slice(0,3).map((t: string) => <span key={t} className="text-[9px] px-1 bg-white/10 rounded text-[#71717a]">{t}</span>)}</div>}
-                        </div>
-                        <button
-                          onClick={async () => {
-                            const res = await useTaskStore.getState().applyTemplate(tpl);
-                            if (res) {
-                              toast.success(`Applied: ${tpl.title}`);
-                            } else {
-                              toast.info("Template applied (demo or error — check tasks/notes)");
-                            }
-                          }}
-                          className="opacity-70 group-hover:opacity-100 text-[#c084fc] hover:text-white text-[10px] px-2 py-0.5 border border-white/20 rounded hover:bg-[#c084fc]/10 self-start"
-                          disabled={!isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id)}
-                        >
-                          Apply
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* INSIGHTS TAB */}
-            {adminTab === 'insights' && (
-              <div className="p-5 border-t border-white/10 space-y-4 text-sm">
-                <div className="flex items-center justify-end">
-                  <button
-                    onClick={async () => {
-                      setIsLoadingInsights(true);
-                      try {
-                        const hybrid = await import("@/lib/data/hybridStore");
-                        const fullActivity = await hybrid.getRecentActivity(currentWorkspace.id, 500);
-                        // Simple but powerful computations
-                        const contribMap: Record<string, number> = {};
-                        fullActivity.forEach((a: any) => {
-                          const key = a.userId || a.userName || "unknown";
-                          contribMap[key] = (contribMap[key] || 0) + 1;
-                        });
-                        const topContribs = Object.entries(contribMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
-                        const adminActions = fullActivity.filter((a: any) => (a.actionType || "").startsWith("admin.")).length;
-                        const overdueNow = tasks.filter(t => t.dueDate && new Date(t.dueDate).getTime() < Date.now() && t.status !== "done");
-                        const overdueByPrio: Record<string, number> = {};
-                        overdueNow.forEach(t => { overdueByPrio[t.priority] = (overdueByPrio[t.priority] || 0) + 1; });
-                        setInsights({
-                          totalActivity: fullActivity.length,
-                          adminActions,
-                          topContributors: topContribs,
-                          overdueCount: overdueNow.length,
-                          overdueByPriority: overdueByPrio,
-                          lastAnalyzed: new Date().toLocaleTimeString(),
-                        });
-                        toast.success("Deep insights loaded");
-                      } catch (e) {
-                        // Fallback to local recent
-                        const contribMap: Record<string, number> = {};
-                        recentActivity.forEach((a: any) => { const k = a.userId || "anon"; contribMap[k] = (contribMap[k] || 0) + 1; });
-                        setInsights({ totalActivity: recentActivity.length, topContributors: Object.entries(contribMap).sort((a,b)=>b[1]-a[1]).slice(0,5), overdueCount: tasks.filter(t=>t.dueDate && new Date(t.dueDate)<new Date() && t.status!=="done").length, lastAnalyzed: "local (limited)" });
-                      } finally {
-                        setIsLoadingInsights(false);
-                      }
-                    }}
-                    disabled={isLoadingInsights}
-                    className="btn btn-ghost text-xs px-3 py-1 flex gap-1"
-                  >
-                    <BarChart3 className="h-3.5 w-3.5" /> {isLoadingInsights ? "Loading..." : "Refresh"}
-                  </button>
-                </div>
-
-                {insights ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                      <div className="text-xs text-[#71717a] mb-1">Activity &amp; Admin Volume</div>
-                      <div className="text-xl font-semibold">{insights.totalActivity} total events • {insights.adminActions || 0} admin actions</div>
-                      <div className="text-[10px] mt-1 text-[#a1a1aa]">Last analyzed: {insights.lastAnalyzed}</div>
-                    </div>
-                    <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                      <div className="text-xs text-[#71717a] mb-1">Overdue Trends</div>
-                      <div className="text-xl font-semibold text-[#ff3366]">{insights.overdueCount} overdue now</div>
-                      <div className="text-xs mt-1">By priority: {Object.entries(insights.overdueByPriority || {}).map(([p,c]) => `${p}:${c}`).join("  ") || "—"}</div>
-                    </div>
-                    <div className="bg-white/5 rounded-xl p-3 border border-white/10 md:col-span-2">
-                      <div className="text-xs text-[#71717a] mb-1.5">Top contributors</div>
-                      {insights.topContributors?.length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {insights.topContributors.map(([user, count]: [string, number], i: number) => (
-                            <div key={i} className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">{user.slice(0, 12)}: <span className="text-[#c084fc]">{count}</span></div>
-                          ))}
-                        </div>
-                      ) : <div className="text-xs text-[#71717a]">No data</div>}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {myRole === "owner" && (
-              <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex justify-end">
-                <button onClick={openWorkspaceSettings} className="text-xs text-[#c084fc] hover:underline flex items-center gap-1">
-                  Workspace settings <Settings className="h-3 w-3" />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Invite Dialog */}
         {showInviteDialog && (
           <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowInviteDialog(false)}>
@@ -1861,9 +1518,40 @@ export default function BadAssTasks() {
       case "tasks": return renderTasksView();
       case "notes": return renderNotesView();
       case "teams": return renderTeamsView();
+      case "settings": return <WorkspaceSettingsView />;
       default: return renderHomeView();
     }
   };
+
+  // Hold UI until Supabase session is resolved — prevents a flash of the dashboard on refresh.
+  if (isConfigured && isAuthLoading) {
+    return (
+      <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0a0a0f] text-[#f4f4f5]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-[#c084fc]" aria-hidden="true" />
+          <p className="text-sm text-[#71717a]">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (showLandingGate) {
+    return (
+      <>
+        <LandingPage onSignIn={() => setShowAuthModal(true)} isCheckingSession={false} />
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={() => {
+            toast.success("Welcome to Badazz Tasks", {
+              description: "Your workspaces and data are ready.",
+              duration: 4000,
+            });
+          }}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0f] text-[#f4f4f5]">
@@ -1977,15 +1665,7 @@ export default function BadAssTasks() {
                       </div>
                     </div>
                   )}
-                  {/* Workspace settings entry (owner only, live) - opens modal for name/slug/delete */}
-                  {myRole === "owner" && isLiveWorkspace && (
-                    <button
-                      onClick={openWorkspaceSettings}
-                      className="w-full text-left px-4 py-2 text-xs text-[#a1a1aa] hover:bg-white/5 flex items-center gap-2 border-t border-white/10 mt-1"
-                    >
-                      <Settings className="h-3.5 w-3.5" /> Workspace settings
-                    </button>
-                  )}
+
                 </div>
               )}
             </AnimatePresence>
@@ -2611,7 +2291,7 @@ export default function BadAssTasks() {
           Reuses existing VIEWS + setView from store. No desktop impact. Touch-optimized via globals.css
       */}
       <nav className="bottom-nav md:hidden border-t border-white/10" aria-label="Primary navigation">
-        {VIEWS.map((v) => {
+        {VIEWS.filter((v) => v.id !== "settings").map((v) => {
           const Icon = v.icon;
           const isActive = currentView === v.id;
           const label = v.label;
@@ -2690,85 +2370,6 @@ export default function BadAssTasks() {
       )}
 
       {/* Note: rich detail is now inline inside renderNotesView() using TipTapEditor (legacy modal removed) */}
-
-      {/* Workspace Settings Modal (owner-gated, accessible from switcher dropdown in any view) */}
-      {showWorkspaceSettings && (
-        <div className="fixed inset-0 z-[230] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowWorkspaceSettings(false)}>
-          <div className="glass w-full max-w-md rounded-3xl p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="font-semibold text-xl tracking-tight flex items-center gap-2">
-                <Settings className="h-5 w-5 text-[#c084fc]" /> Workspace Settings
-              </div>
-              <button onClick={() => setShowWorkspaceSettings(false)} aria-label="Close workspace settings" className="text-[#71717a] hover:text-white p-1 rounded focus:outline-none focus:ring-1 focus:ring-white/30"><X className="h-5 w-5" /></button>
-            </div>
-
-            <div className="space-y-5 text-sm">
-              <div>
-                <label className="text-xs text-[#a1a1aa] block mb-1.5">Name</label>
-                <input
-                  value={settingsName}
-                  onChange={(e) => setSettingsName(e.target.value)}
-                  className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-2.5 text-sm"
-                  disabled={isSavingSettings || myRole !== "owner"}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-[#a1a1aa] block mb-1.5">Slug (unique URL-friendly ID)</label>
-                <input
-                  value={settingsSlug}
-                  onChange={(e) => setSettingsSlug(e.target.value)}
-                  className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-2.5 text-sm font-mono"
-                  disabled={isSavingSettings || myRole !== "owner"}
-                />
-                <div className="text-[10px] text-[#71717a] mt-1">Changing slug may affect bookmarks/invites. Use caution.</div>
-              </div>
-
-              <div className="flex gap-3 pt-1">
-                <button onClick={() => setShowWorkspaceSettings(false)} className="flex-1 btn btn-secondary py-2.5" disabled={isSavingSettings}>Cancel</button>
-                <button onClick={handleSaveWorkspaceSettings} disabled={isSavingSettings || myRole !== "owner"} className="flex-1 btn btn-primary py-2.5 disabled:opacity-60">
-                  {isSavingSettings ? "Saving..." : "Save changes"}
-                </button>
-              </div>
-
-              {/* Danger zone for owners */}
-              {myRole === "owner" && (
-                <div className="pt-4 border-t border-red-500/20">
-                  <div className="text-xs uppercase tracking-widest text-red-400 mb-2">Danger Zone</div>
-                  {workspaceDeleteGuard.allowed ? (
-                    <>
-                      <div className="text-[11px] text-[#a1a1aa] mb-2">
-                        Deleting removes the workspace, all tasks, notes, members and invites permanently. You will be switched to another workspace.
-                      </div>
-                      <input
-                        value={deleteConfirmName}
-                        onChange={(e) => setDeleteConfirmName(e.target.value)}
-                        placeholder={`Type "${currentWorkspace.name}" to confirm`}
-                        className="w-full bg-[#111114] border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
-                      />
-                      <button
-                        onClick={handleDeleteWorkspace}
-                        disabled={
-                          isSavingSettings ||
-                          isDeletingWorkspace ||
-                          deleteConfirmName.trim() !== currentWorkspace.name
-                        }
-                        className="w-full py-2 rounded-xl bg-red-600/90 hover:bg-red-600 text-white text-xs font-medium disabled:opacity-50"
-                      >
-                        {isDeletingWorkspace ? "Deleting..." : "Delete Workspace Forever"}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-[11px] text-[#a1a1aa] leading-relaxed">
-                      {workspaceDeleteGuard.reason}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="text-[10px] text-[#71717a] text-center mt-4">Only owners see this. Changes sync live via Supabase.</div>
-          </div>
-        </div>
-      )}
 
       {/* Keyboard Cheatsheet - beautiful discoverable modal, keyboard-first (triggered by ? or palette) */}
       {isKeyboardCheatsheetOpen && (
@@ -2850,42 +2451,6 @@ export default function BadAssTasks() {
         onMarkRead={markNotifRead}
         onViewChange={setView}
       />
-
-      {/* STRICT AUTH LANDING GATE OVERLAY
-          Covers the entire shell (top bar, sidebar, views, everything) when Supabase is configured
-          but no user is signed in. This enforces the requirement that unauthenticated visitors
-          see a proper landing page and cannot interact with the app as if logged in.
-          The AuthModal can still open on top (higher z) for sign-in. Once user appears, this unmounts
-          and the real (now authenticated) productivity UI is revealed. */}
-      {showLandingGate && (
-        <div className="fixed inset-0 z-[150] bg-[#0a0a0f] flex items-center justify-center p-6" aria-modal="true" role="dialog">
-          <div className="w-full max-w-[680px] text-center">
-            <div className="mx-auto mb-6 h-16 w-16 rounded-2xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center shadow-[0_0_40px_-10px_#c084fc]">
-              <Check className="h-8 w-8 text-black" />
-            </div>
-
-            <h1 className="text-6xl font-semibold tracking-[-2.5px] mb-3">Badazz Tasks</h1>
-            <p className="text-[#71717a] max-w-md mx-auto mb-9 text-[15px]">
-              Sign in to access your workspaces, tasks, notes, and team chat.
-            </p>
-
-            <div className="flex flex-col items-center gap-3">
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="btn btn-primary text-base px-9 py-3.5 flex items-center gap-2.5 text-lg font-medium active:scale-[0.985] transition"
-              >
-                <User className="h-5 w-5" /> Sign in or create account
-              </button>
-              <div className="text-xs text-[#71717a]">Simple email &amp; password. No OAuth or magic links required.</div>
-            </div>
-
-            <div className="mt-10 pt-6 border-t border-white/10 text-[11px] text-[#71717a] max-w-[42ch] mx-auto leading-snug">
-              Supabase is configured for this instance. You must sign in with a real account to access persistent workspaces, tasks, notes, and realtime collaboration.
-              <span className="block mt-1.5 opacity-75">For a pure local-only demo experience, remove the Supabase environment variables and restart the dev server.</span>
-            </div>
-          </div>
-        </div>
-      )}
 
       <ConfirmationModal
         open={!!pendingDeleteNote}
