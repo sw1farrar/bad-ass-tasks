@@ -2247,7 +2247,7 @@ export async function acceptInvite(inviteId: string): Promise<string | null> {
   }
 }
 
-/** Update member role (owner/admin only; RPC or direct with RLS). Server-side enforcement preferred but direct update works under RLS. */
+/** Update member role (owner/admin only) via privileged API route — RLS has no UPDATE on workspace_members. */
 export async function updateMemberRole(
   workspaceId: string,
   userId: string,
@@ -2255,20 +2255,22 @@ export async function updateMemberRole(
 ): Promise<boolean> {
   if (!isSupabaseLive()) return false;
   if (["w1", "w2"].includes(workspaceId)) return false;
-
-  const supabase = getClient();
-  if (!supabase) return false;
+  if (typeof window === "undefined") return false;
 
   try {
-    const { error } = await (supabase.from("workspace_members") as any)
-      .update({ role: toDbRole(newRole) })
-      .eq("workspace_id", workspaceId)
-      .eq("user_id", userId);
+    const response = await fetch("/api/workspace/member-role", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ workspaceId, userId, newRole }),
+    });
 
-    if (error) {
-      logHybridError("updateMemberRole", error);
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      logHybridError("updateMemberRole", (detail as { error?: string }).error || response.status);
       return false;
     }
+
     return true;
   } catch (err) {
     logHybridError("updateMemberRole", err);
@@ -2276,39 +2278,40 @@ export async function updateMemberRole(
   }
 }
 
-/** Transfer workspace ownership to another member (current owner becomes admin). */
+export type TransferOwnershipResult = { ok: true } | { ok: false; error?: string };
+
+/** Transfer workspace ownership to another member (current owner becomes admin) via privileged API route. */
 export async function transferWorkspaceOwnership(
   workspaceId: string,
   currentOwnerId: string,
   newOwnerId: string
-): Promise<boolean> {
-  if (!isSupabaseLive()) return false;
-  if (["w1", "w2"].includes(workspaceId)) return false;
-  if (currentOwnerId === newOwnerId) return false;
-
-  const supabase = getClient();
-  if (!supabase) return false;
+): Promise<TransferOwnershipResult> {
+  if (!isSupabaseLive()) return { ok: false, error: "Supabase is not configured" };
+  if (["w1", "w2"].includes(workspaceId)) return { ok: false, error: "Demo workspaces cannot transfer ownership" };
+  if (currentOwnerId === newOwnerId) {
+    return { ok: false, error: "Choose a different member to receive ownership" };
+  }
+  if (typeof window === "undefined") return { ok: false, error: "Ownership transfer must run in the browser" };
 
   try {
-    const promoted = await updateMemberRole(workspaceId, newOwnerId, "owner");
-    if (!promoted) return false;
+    const response = await fetch("/api/workspace/transfer-ownership", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ workspaceId, newOwnerId }),
+    });
 
-    const demoted = await updateMemberRole(workspaceId, currentOwnerId, "admin");
-    if (!demoted) return false;
-
-    const { error: wsError } = await (supabase.from("workspaces") as any)
-      .update({ owner_id: newOwnerId })
-      .eq("id", workspaceId);
-
-    if (wsError) {
-      logHybridError("transferWorkspaceOwnership (workspaces)", wsError);
-      return false;
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      const message = (detail as { error?: string }).error || `Request failed (${response.status})`;
+      logHybridError("transferWorkspaceOwnership", message);
+      return { ok: false, error: message };
     }
 
-    return true;
+    return { ok: true };
   } catch (err) {
     logHybridError("transferWorkspaceOwnership", err);
-    return false;
+    return { ok: false, error: "Network error while transferring ownership" };
   }
 }
 

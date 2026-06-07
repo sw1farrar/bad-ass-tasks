@@ -2073,12 +2073,12 @@ export const useTaskStore = create<TaskState>()(
           return false;
         }
 
-        const ok = await (await import("@/lib/data/hybridStore")).transferWorkspaceOwnership(
+        const result = await (await import("@/lib/data/hybridStore")).transferWorkspaceOwnership(
           wsId,
           currentUserId,
           newOwnerId,
         );
-        if (ok) {
+        if (result.ok) {
           set((state) => ({
             currentWorkspace: { ...state.currentWorkspace, role: "admin" },
             members: (state.members || []).map((m) => {
@@ -2099,9 +2099,9 @@ export const useTaskStore = create<TaskState>()(
             description: `${label} is now the owner (effective immediately). You are an admin and may leave if you wish.`,
           });
         } else {
-          toast.error("Failed to transfer ownership");
+          toast.error(result.error || "Failed to transfer ownership");
         }
-        return ok;
+        return result.ok;
       },
 
       removeWorkspaceMember: async (userId) => {
