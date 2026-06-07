@@ -2590,6 +2590,17 @@ export default function BadAssTasks() {
                         <div className="space-y-3">
                           <div>
                             <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                              Signed in as
+                            </label>
+                            <p
+                              className="px-3 py-2.5 text-sm rounded-xl min-h-[44px] bg-white/5 border border-white/10 text-[#e4e4e7] truncate"
+                              title={user.email ?? undefined}
+                            >
+                              {user.email || "No email on this account"}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
                               Full name
                             </label>
                             <input
