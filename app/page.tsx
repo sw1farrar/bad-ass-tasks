@@ -232,6 +232,13 @@ export default function BadAssTasks() {
   const handleConfirmLeaveWorkspace = async () => {
     const wsId = currentWorkspace?.id;
     if (!wsId) return;
+    if (myRole === "owner") {
+      toast.error("Owners cannot leave", {
+        description: "Transfer ownership in Workspace Settings before leaving this workspace.",
+      });
+      setPendingLeaveWorkspace(false);
+      return;
+    }
     if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
       toast.info("Leave workspace is a live Supabase feature");
       setPendingLeaveWorkspace(false);
@@ -1375,22 +1382,31 @@ export default function BadAssTasks() {
                         </button>
                       </div>
                     ) : isSelf ? (
-                      <button
-                        onClick={async () => {
-                          const wsId = currentWorkspace?.id;
-                          if (!wsId) return;
-                          if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
-                            toast.info("Leave workspace is a live Supabase feature");
-                            return;
-                          }
-                          setPendingLeaveWorkspace(true);
-                        }}
-                        className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
-                        disabled={!isLive}
-                        title="Leave this workspace (self-service exit)"
-                      >
-                        Leave team
-                      </button>
+                      myRole === "owner" ? (
+                        <span
+                          className="text-[10px] text-[#71717a] max-w-[11rem] text-right leading-snug"
+                          title="Transfer ownership in Workspace Settings before you can leave"
+                        >
+                          Transfer ownership to leave
+                        </span>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            const wsId = currentWorkspace?.id;
+                            if (!wsId) return;
+                            if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
+                              toast.info("Leave workspace is a live Supabase feature");
+                              return;
+                            }
+                            setPendingLeaveWorkspace(true);
+                          }}
+                          className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
+                          disabled={!isLive}
+                          title="Leave this workspace (self-service exit)"
+                        >
+                          Leave team
+                        </button>
+                      )
                     ) : (
                       <div className="text-[10px] text-[#71717a] px-2"></div>
                     )}

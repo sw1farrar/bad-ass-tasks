@@ -2079,12 +2079,25 @@ export const useTaskStore = create<TaskState>()(
           newOwnerId,
         );
         if (ok) {
+          set((state) => ({
+            currentWorkspace: { ...state.currentWorkspace, role: "admin" },
+            members: (state.members || []).map((m) => {
+              if (m.userId === newOwnerId) return { ...m, role: "owner" as const };
+              if (m.userId === currentUserId) return { ...m, role: "admin" as const };
+              return m;
+            }),
+            workspaces: (state.workspaces || []).map((w) =>
+              w.id === wsId ? { ...w, role: "admin" as const } : w,
+            ),
+          }));
           await Promise.all([
             get().fetchMembers?.().catch(() => {}),
             get().fetchUserWorkspaces?.().catch(() => {}),
           ]);
           const label = target.fullName || (target.username ? `@${target.username}` : "the selected member");
-          toast.success("Ownership transferred", { description: `${label} is now the owner. You are an admin.` });
+          toast.success("Ownership transferred", {
+            description: `${label} is now the owner (effective immediately). You are an admin and may leave if you wish.`,
+          });
         } else {
           toast.error("Failed to transfer ownership");
         }
@@ -2130,8 +2143,7 @@ export const useTaskStore = create<TaskState>()(
 
       /**
        * Self-service exit from the current (or specified) workspace.
-       * World-class symmetric path: any member can leave (last-owner protected server-side).
-       * Instantly cleans membership + related notifications.
+       * Owners must transfer ownership first — they cannot leave while still owner.
        */
       exitWorkspace: async (targetWorkspaceId) => {
         const wsId = targetWorkspaceId || get().currentWorkspace?.id;
@@ -2141,6 +2153,13 @@ export const useTaskStore = create<TaskState>()(
         }
         const currentUserId = get().user?.id;
         if (!currentUserId) return false;
+
+        if (get().currentWorkspace.role === "owner") {
+          toast.error("Owners cannot leave", {
+            description: "Transfer ownership to another member in Workspace Settings first.",
+          });
+          return false;
+        }
 
         // Optimistic: immediately remove self from local members list
         const prevMembers = get().members || [];

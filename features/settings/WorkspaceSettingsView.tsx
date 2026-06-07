@@ -152,6 +152,13 @@ export function WorkspaceSettingsView() {
   const handleLeaveWorkspace = async () => {
     const wsId = currentWorkspace?.id;
     if (!wsId) return;
+    if (isOwner) {
+      toast.error("Owners cannot leave", {
+        description: "Transfer ownership to another member first.",
+      });
+      setPendingLeave(false);
+      return;
+    }
     if (!isLiveWorkspace) {
       toast.info("Leave workspace is a live Supabase feature");
       setPendingLeave(false);
@@ -334,7 +341,11 @@ export function WorkspaceSettingsView() {
             Transfer ownership
           </div>
           <p className="text-xs text-[#a1a1aa] leading-relaxed">
-            Hand off this workspace to another member. You will become an admin after the transfer.
+            Hand off this workspace to another member. They become owner immediately — no acceptance required.
+            You will become an admin and can then leave the workspace if you want.
+          </p>
+          <p className="text-xs text-[#71717a] leading-relaxed">
+            As owner, you cannot leave until ownership has been transferred.
           </p>
           {transferCandidates.length === 0 ? (
             <p className="text-xs text-[#71717a]">Invite at least one other member before you can transfer ownership.</p>
@@ -780,7 +791,7 @@ export function WorkspaceSettingsView() {
           transferCandidates.find((m) => m.userId === transferTargetId)?.username ||
           "Selected member"
         }
-        description="This member will become the workspace owner. You will be downgraded to admin. This cannot be undone from here without their cooperation."
+        description="This member will immediately become the workspace owner — they do not need to accept. You will become an admin and can leave afterward if you choose."
         confirmText={isTransferring ? "Transferring…" : "Transfer ownership"}
         variant="destructive"
         onConfirm={handleTransferOwnership}

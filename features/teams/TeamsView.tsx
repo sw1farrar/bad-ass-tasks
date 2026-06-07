@@ -71,6 +71,7 @@ export interface TeamsViewProps {
   onRoleChange: (userId: string, newRole: "owner" | "admin" | "member") => void;
   onRemoveMember: (userId: string, label: string) => void;
   onLeaveWorkspace: () => void;
+  canSelfLeave?: boolean;
   onSearchPotentialTeammates: (query: string, workspaceId: string) => Promise<any[]>;
   onSearchResultInvite: (result: any) => void;
   onClearSearch: () => void;
@@ -119,6 +120,7 @@ export function TeamsView(props: TeamsViewProps) {
     onRoleChange,
     onRemoveMember,
     onLeaveWorkspace,
+    canSelfLeave = true,
     onSearchPotentialTeammates,
     onSearchResultInvite,
     onClearSearch,
@@ -423,14 +425,23 @@ export function TeamsView(props: TeamsViewProps) {
                       </button>
                     </div>
                   ) : isSelf ? (
-                    <button
-                      onClick={onLeaveWorkspace}
-                      className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
-                      disabled={!isLive}
-                      title="Leave this workspace (self-service exit)"
-                    >
-                      Leave team
-                    </button>
+                    canSelfLeave ? (
+                      <button
+                        onClick={onLeaveWorkspace}
+                        className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
+                        disabled={!isLive}
+                        title="Leave this workspace (self-service exit)"
+                      >
+                        Leave team
+                      </button>
+                    ) : (
+                      <span
+                        className="text-[10px] text-[#71717a] max-w-[11rem] text-right leading-snug"
+                        title="Transfer ownership in Workspace Settings before you can leave"
+                      >
+                        Transfer ownership to leave
+                      </span>
+                    )
                   ) : (
                     <div className="text-[10px] text-[#71717a] px-2"></div>
                   )}
