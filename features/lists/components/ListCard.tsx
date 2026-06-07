@@ -229,10 +229,10 @@ export function ListCard({
           </SortableContext>
         </DndContext>
 
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex items-start gap-2">
           <button
             type="button"
-            className="list-item-check shrink-0 opacity-40"
+            className="list-item-check shrink-0 opacity-40 mt-0.5"
             tabIndex={-1}
             aria-hidden
           />

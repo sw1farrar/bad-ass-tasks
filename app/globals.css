@@ -491,6 +491,16 @@ body {
     flex-shrink: 0;
   }
 
+  /* Lists checkboxes — same circle fix as tasks */
+  .lists-root .list-item-check {
+    aspect-ratio: 1;
+    border-radius: 9999px;
+    padding: 0 !important;
+    min-height: 0 !important;
+    min-width: 0 !important;
+    flex-shrink: 0;
+  }
+
   .task-row .task-complete-btn {
     width: 40px;
     height: 40px;

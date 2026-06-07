@@ -38,7 +38,7 @@ export function ListItemRow({
       {sortable && (
         <button
           type="button"
-          className="mt-0.5 shrink-0 text-[#52525b] opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none"
+          className="list-item-drag shrink-0 text-[#52525b] opacity-40 md:opacity-0 md:group-hover:opacity-100 cursor-grab active:cursor-grabbing"
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
@@ -77,7 +77,7 @@ export function ListItemRow({
       <button
         type="button"
         onClick={() => onDelete(item.id)}
-        className="shrink-0 opacity-0 group-hover:opacity-100 text-[#52525b] hover:text-[#ff3366] transition p-0.5"
+        className="list-item-delete shrink-0 opacity-50 md:opacity-0 md:group-hover:opacity-100 text-[#52525b] hover:text-[#ff3366] transition"
         aria-label="Remove item"
       >
         <X className="h-3.5 w-3.5" />

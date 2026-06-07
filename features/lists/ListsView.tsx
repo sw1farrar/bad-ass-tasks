@@ -170,7 +170,7 @@ export function ListsView({
               document.getElementById("list-composer-input")?.focus();
             }, 0);
           }}
-          className="inline-flex items-center gap-2 self-start rounded-xl border border-[#c084fc]/40 bg-[#c084fc]/10 px-4 py-2 text-sm font-medium text-[#e4e4e7] hover:bg-[#c084fc]/20 transition"
+          className="lists-new-list-btn inline-flex items-center gap-2 self-start rounded-xl border border-[#c084fc]/40 bg-[#c084fc]/10 px-4 py-2 text-sm font-medium text-[#e4e4e7] hover:bg-[#c084fc]/20 transition"
         >
           <Plus className="h-4 w-4 text-[#c084fc]" />
           New list
