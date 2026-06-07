@@ -1,6 +1,8 @@
 // Central type definitions for Badazz Tasks
 // These will map 1:1 to Supabase tables in Phase 2
 
+import type { WorkspaceRole } from "@/lib/roles";
+
 export type Priority = "P0" | "P1" | "P2" | "P3";
 
 export type TaskStatus = "backlog" | "todo" | "doing" | "done";
@@ -49,7 +51,7 @@ export interface Workspace {
   id: string;
   name: string;
   slug: string;
-  role: "owner" | "admin" | "user";
+  role: WorkspaceRole;
   owner_id?: string | null; // widened for hybridStore/page access to match schema (no behavior change)
   createdAt?: string; // from workspaces.created_at — used to identify the original workspace
 }
@@ -57,7 +59,7 @@ export interface Workspace {
 export interface WorkspaceMember {
   workspaceId: string;
   userId: string;
-  role: "owner" | "admin" | "user";
+  role: WorkspaceRole;
   joinedAt: string;
   invitedBy?: string;
   // Enriched from profiles join (best effort)
@@ -73,7 +75,7 @@ export interface WorkspaceInvite {
   id: string;
   workspaceId: string;
   email?: string | null;
-  role: "owner" | "admin" | "user";
+  role: WorkspaceRole;
   invitedBy?: string;
   invitedUserId?: string;
   // Populated via profiles join when the invite came from the search flow (invited_user_id present)
@@ -92,7 +94,7 @@ export interface User {
   name: string;
   email: string;
   avatarUrl?: string;
-  role: "owner" | "admin" | "user";
+  role: WorkspaceRole;
 }
 
 export interface ActivityLog {

@@ -40,7 +40,8 @@ export async function POST(request: Request) {
   const inviteId = body.inviteId?.trim();
   const email = body.email?.trim().toLowerCase();
   const workspaceName = body.workspaceName?.trim() || "your workspace";
-  const role = body.role?.trim() || "user";
+  const rawRole = body.role?.trim().toLowerCase() || "member";
+  const role = rawRole === "member" ? "member" : rawRole;
   const inviterName = body.inviterName?.trim() || user.email || "A teammate";
 
   if (!workspaceId || !inviteId || !email || !email.includes("@")) {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2, Users, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { formatRoleLabel } from "@/lib/roles";
 
 type InvitePreview = {
   id: string;
@@ -180,7 +181,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
               </h1>
               <p className="text-sm text-[#a1a1aa] leading-relaxed">
                 <span className="text-[#f4f4f5] font-medium">{invite.inviterName}</span> invited you as{" "}
-                <span className="text-[#f4f4f5]">{invite.role}</span>.
+                <span className="text-[#f4f4f5]">{formatRoleLabel(invite.role)}</span>.
               </p>
             </div>
 

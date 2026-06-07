@@ -9,7 +9,7 @@ import type { Workspace } from "@/types";
 
 const userId = "user-abc";
 const wsA: Workspace = { id: "ws-a", name: "Alpha", slug: "alpha", role: "owner" };
-const wsB: Workspace = { id: "ws-b", name: "Beta", slug: "beta", role: "user" };
+const wsB: Workspace = { id: "ws-b", name: "Beta", slug: "beta", role: "member" };
 
 describe("workspacePersistence", () => {
   beforeEach(() => {

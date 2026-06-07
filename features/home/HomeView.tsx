@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { isPast, isToday } from "date-fns";
 import type { Notification } from "@/types";
+import { formatRoleLabel } from "@/lib/roles";
 import { buildAttentionItems, type HomeFocusItem } from "./lib/buildAttentionItems";
 import { HomeDueTaskRow } from "./components/HomeDueTaskRow";
 
@@ -245,7 +246,7 @@ export function HomeView({
                   <div className="font-semibold flex items-center justify-between gap-2">
                     <span className="truncate">{ws.name}</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-[#a1a1aa] font-mono shrink-0">
-                      {ws.role}
+                      {formatRoleLabel(ws.role)}
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#71717a] mt-2">

@@ -290,7 +290,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "2" },
                 { label: "Notes", view: "notes" as const, icon: FileText, shortcut: "3" },
                 { label: "Team", view: "teams" as const, icon: Users, shortcut: "4" },
-                { label: "Settings", view: "settings" as const, icon: Settings, shortcut: "5" },
+                { label: "Workspace Settings", view: "settings" as const, icon: Settings, shortcut: "5" },
               ].map((item) => (
                 <Command.Item
                   key={item.view}

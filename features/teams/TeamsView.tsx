@@ -5,6 +5,7 @@ import {
   Users, Plus, Search, X, Loader2, Trash2, Repeat 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatRoleLabel } from "@/lib/roles";
 
 /**
  * TeamsView
@@ -67,7 +68,7 @@ export interface TeamsViewProps {
   onCopyInviteLink: (inviteId: string) => void;
   onResendInvite: (inviteId: string, label: string) => void;
   onRevokeInvite: (inviteId: string, label: string) => void;
-  onRoleChange: (userId: string, newRole: "owner" | "admin" | "user") => void;
+  onRoleChange: (userId: string, newRole: "owner" | "admin" | "member") => void;
   onRemoveMember: (userId: string, label: string) => void;
   onLeaveWorkspace: () => void;
   onSearchPotentialTeammates: (query: string, workspaceId: string) => Promise<any[]>;
@@ -170,7 +171,7 @@ export function TeamsView(props: TeamsViewProps) {
                       {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Pending teammate")}
                     </div>
                     <div className="text-xs text-[#71717a] font-mono mt-0.5">
-                      {inv.role} • {new Date(inv.createdAt).toLocaleDateString()}
+                      {formatRoleLabel(inv.role)} • {new Date(inv.createdAt).toLocaleDateString()}
                     </div>
                   </div>
 
@@ -393,7 +394,7 @@ export function TeamsView(props: TeamsViewProps) {
                   </div>
 
                   <div className="text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
-                    {m.role}
+                    {formatRoleLabel(m.role)}
                   </div>
 
                   {canActOnThis ? (
@@ -404,9 +405,9 @@ export function TeamsView(props: TeamsViewProps) {
                         className="bg-[#111114] border border-white/20 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#c084fc]"
                         disabled={!isLive}
                       >
-                        <option value="user">user</option>
-                        <option value="admin">admin</option>
-                        <option value="owner">owner</option>
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                        <option value="owner">Owner</option>
                       </select>
                       <button
                         onClick={() => {
@@ -456,7 +457,7 @@ export function TeamsView(props: TeamsViewProps) {
                     <div>
                       {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
                     </div>
-                    <div className="text-[11px] text-[#71717a] font-mono">{inv.role}</div>
+                    <div className="text-[11px] text-[#71717a] font-mono">{formatRoleLabel(inv.role)}</div>
                   </div>
                   <button
                     onClick={() => onCopyInviteLink(inv.id)}

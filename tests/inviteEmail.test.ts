@@ -9,7 +9,7 @@ describe("workspace invite email", () => {
         inviterName: "Alex",
         workspaceName: "Product Team",
         inviteId: "11111111-1111-4111-8111-111111111111",
-        role: "user",
+        role: "member",
       },
       "https://badazztasks.com/invite/11111111-1111-4111-8111-111111111111",
     );

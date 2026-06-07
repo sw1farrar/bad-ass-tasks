@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
 import { cn, formatDueDate, getNextRecurringDue, triggerHaptic, getUserFirstName } from "@/lib/utils";
+import { formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
 
 import { CommandPalette } from "@/components/CommandPalette";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
@@ -41,7 +42,7 @@ const VIEWS = [
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Notes", icon: Star },
   { id: "teams", label: "Team", icon: Users },
-  { id: "settings", label: "Settings", icon: Settings },
+  { id: "settings", label: "Workspace Settings", icon: Settings },
 ] as const;
 
 export default function BadAssTasks() {
@@ -280,7 +281,7 @@ export default function BadAssTasks() {
   // Phase 2 collaboration UI state (inline, no new files)
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "user">("user");
+  const [inviteRole, setInviteRole] = useState<WorkspaceRole>("member");
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
@@ -345,12 +346,16 @@ export default function BadAssTasks() {
   }, [tasks]);
   // selectedNote removed (was only for legacy renderNoteDetail modal; rich detail now inline in Notes view)
 
-  // Initialize auth + real data from Supabase when available.
-  // Post-login: initializeAuth sets listener which calls ensureUserHasWorkspace() + initFrom for bootstrap (real ws + no demo pollution).
+  // Initialize auth first; live users get workspace + data bootstrap inside initializeAuth
+  // (awaited) so the loading screen stays up until the app is ready. Demo-only init runs after.
   useEffect(() => {
-    const store = useTaskStore.getState();
-    store.initializeAuth();
-    store.initializeFromSupabase();
+    void (async () => {
+      const store = useTaskStore.getState();
+      await store.initializeAuth();
+      if (!isSupabaseConfigured()) {
+        await store.initializeFromSupabase();
+      }
+    })();
   }, []);
 
   // Ensure notifications (including cross-workspace invites) are loaded early for the recipient banner + bell badge.
@@ -971,7 +976,7 @@ export default function BadAssTasks() {
       }
     };
 
-    const handleRoleChange = async (userId: string, newRole: "owner" | "admin" | "user") => {
+    const handleRoleChange = async (userId: string, newRole: WorkspaceRole) => {
       await changeMemberRole(userId, newRole);
     };
 
@@ -1215,7 +1220,7 @@ export default function BadAssTasks() {
 
                           // Automatically send the invite using the email from the search result
                           // (email is never shown to the sender for privacy)
-                          const inviteId = await sendInvite(result.email, "user", result.id);
+                          const inviteId = await sendInvite(result.email, "member", result.id);
 
                           if (inviteId) {
                             toast.success("Invite sent!", {
@@ -1341,7 +1346,7 @@ export default function BadAssTasks() {
                     </div>
 
                     <div className="text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
-                      {m.role}
+                      {formatRoleLabel(m.role)}
                     </div>
 
                     {canActOnThis ? (
@@ -1352,9 +1357,9 @@ export default function BadAssTasks() {
                           className="bg-[#111114] border border-white/20 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#c084fc]"
                           disabled={!isLive}
                         >
-                          <option value="user">user</option>
-                          <option value="admin">admin</option>
-                          <option value="owner">owner</option>
+                          <option value="member">Member</option>
+                          <option value="admin">Admin</option>
+                          <option value="owner">Owner</option>
                         </select>
                         <button
                           onClick={() => {
@@ -1414,7 +1419,7 @@ export default function BadAssTasks() {
                       <div>
                         {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
                       </div>
-                      <div className="text-[11px] text-[#71717a] font-mono">{inv.role}</div>
+                      <div className="text-[11px] text-[#71717a] font-mono">{formatRoleLabel(inv.role)}</div>
                     </div>
                     <button
                       onClick={() => copyInviteLink(inv.id)}
@@ -1481,7 +1486,7 @@ export default function BadAssTasks() {
                     className="w-full bg-[#111114] border border-white/20 rounded-xl px-4 py-3 text-sm"
                     disabled={isSendingInvite}
                   >
-                    <option value="user">User (default)</option>
+                    <option value="member">Member (default)</option>
                     <option value="admin">Admin</option>
                     <option value="owner">Owner</option>
                   </select>
@@ -1523,7 +1528,7 @@ export default function BadAssTasks() {
     }
   };
 
-  // Hold UI until Supabase session is resolved — prevents a flash of the dashboard on refresh.
+  // Hold UI until auth + live bootstrap finish — prevents flash of warnings, banners, and stale data on refresh.
   if (isConfigured && isAuthLoading) {
     return (
       <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0a0a0f] text-[#f4f4f5]">
@@ -1584,7 +1589,7 @@ export default function BadAssTasks() {
               <span className="flex items-center gap-1.5 workspace-name truncate">
                 <span className="truncate">{currentWorkspace.name}</span>
                 {!isSingleOwnerWorkspace && (
-                  <span className="text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest shrink-0">{currentWorkspace.role}</span>
+                  <span className="text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest shrink-0">{formatRoleLabel(currentWorkspace.role)}</span>
                 )}
               </span>
               <ChevronRight className="h-3 w-3 rotate-90" />
@@ -1602,7 +1607,7 @@ export default function BadAssTasks() {
                       <span className="flex items-center gap-1.5 min-w-0">
                         <span className="truncate">{ws.name}</span>
                         {!(ws.id === currentWorkspace.id && isSingleOwnerWorkspace) && (
-                          <span className="text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest shrink-0">{ws.role}</span>
+                          <span className="text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest shrink-0">{formatRoleLabel(ws.role)}</span>
                         )}
                       </span>
                       {ws.id === currentWorkspace.id && <Check className="h-3.5 w-3.5" />}

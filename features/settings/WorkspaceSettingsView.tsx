@@ -10,13 +10,41 @@ import {
   Users,
   Download,
   Trash2,
+  Bell,
+  LogOut,
+  Crown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { canDeleteWorkspace } from "@/lib/workspaceGuards";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { formatRoleLabel } from "@/lib/roles";
+import type { NotificationType } from "@/types";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 
 type AdminTab = "overview" | "exports" | "imports" | "templates" | "insights";
+
+const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
+  mention: "Mentions",
+  comment: "Comments",
+  invite: "Workspace invites",
+  task_assigned: "Task assignments",
+  deadline: "Due date reminders",
+  activity: "Workspace activity",
+};
+
+const DEFAULT_NOTIFICATION_PREFS = {
+  email: true,
+  inApp: true,
+  types: {
+    mention: true,
+    comment: true,
+    invite: true,
+    task_assigned: true,
+    deadline: true,
+    activity: true,
+  },
+};
 
 export function WorkspaceSettingsView() {
   const {
@@ -29,12 +57,17 @@ export function WorkspaceSettingsView() {
     user,
     updateWorkspaceDetails,
     deleteCurrentWorkspace,
+    notificationPrefs,
+    updateNotificationPrefs,
+    exitWorkspace,
+    transferWorkspaceOwnership,
   } = useTaskStore();
 
   const myRole = currentWorkspace.role;
   const canManage = ["owner", "admin"].includes(myRole);
   const isLiveWorkspace = isSupabaseConfigured() && !["w1", "w2"].includes(currentWorkspace.id);
   const isOwner = myRole === "owner";
+  const isTeamMember = !isOwner;
 
   const workspaceDeleteGuard = useMemo(
     () => canDeleteWorkspace(currentWorkspace.id, workspaces, user?.id),
@@ -46,6 +79,11 @@ export function WorkspaceSettingsView() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
+  const [pendingLeave, setPendingLeave] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
+  const [transferTargetId, setTransferTargetId] = useState("");
+  const [pendingTransfer, setPendingTransfer] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
 
   const [adminTab, setAdminTab] = useState<AdminTab>("overview");
   const [importStrategy, setImportStrategy] = useState<"append" | "skip-dupe-titles">("skip-dupe-titles");
@@ -61,10 +99,18 @@ export function WorkspaceSettingsView() {
   } | null>(null);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
 
+  const prefs = notificationPrefs || DEFAULT_NOTIFICATION_PREFS;
+
+  const transferCandidates = useMemo(
+    () => members.filter((m) => m.userId !== user?.id),
+    [members, user?.id],
+  );
+
   useEffect(() => {
     setSettingsName(currentWorkspace.name);
     setSettingsSlug(currentWorkspace.slug);
     setDeleteConfirmName("");
+    setTransferTargetId("");
   }, [currentWorkspace.id, currentWorkspace.name, currentWorkspace.slug]);
 
   const handleSaveWorkspaceSettings = async () => {
@@ -100,6 +146,37 @@ export function WorkspaceSettingsView() {
       if (ok) setDeleteConfirmName("");
     } finally {
       setIsDeletingWorkspace(false);
+    }
+  };
+
+  const handleLeaveWorkspace = async () => {
+    const wsId = currentWorkspace?.id;
+    if (!wsId) return;
+    if (!isLiveWorkspace) {
+      toast.info("Leave workspace is a live Supabase feature");
+      setPendingLeave(false);
+      return;
+    }
+    setIsLeaving(true);
+    try {
+      await exitWorkspace(wsId);
+      setPendingLeave(false);
+    } finally {
+      setIsLeaving(false);
+    }
+  };
+
+  const handleTransferOwnership = async () => {
+    if (!transferTargetId) return;
+    setIsTransferring(true);
+    try {
+      const ok = await transferWorkspaceOwnership(transferTargetId);
+      if (ok) {
+        setTransferTargetId("");
+        setPendingTransfer(false);
+      }
+    } finally {
+      setIsTransferring(false);
     }
   };
 
@@ -146,6 +223,14 @@ export function WorkspaceSettingsView() {
     }
   };
 
+  const togglePref = (key: "email" | "inApp", value: boolean) => {
+    updateNotificationPrefs({ [key]: value });
+  };
+
+  const toggleTypePref = (type: NotificationType, value: boolean) => {
+    updateNotificationPrefs({ types: { ...prefs.types, [type]: value } });
+  };
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-12">
       <div>
@@ -154,7 +239,7 @@ export function WorkspaceSettingsView() {
           Workspace Settings
         </h1>
         <p className="text-sm text-[#71717a] mt-1">
-          Manage {currentWorkspace.name} — general settings, data tools, and danger zone.
+          Manage {currentWorkspace.name} — general settings, notifications, membership, and danger zone.
         </p>
       </div>
 
@@ -192,6 +277,115 @@ export function WorkspaceSettingsView() {
           <p className="text-xs text-[#71717a]">Only workspace owners can edit name and slug.</p>
         )}
       </div>
+
+      {/* Notifications — all members */}
+      <div className="glass rounded-2xl border border-white/10 p-5 space-y-4">
+        <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#71717a]">
+          <Bell className="h-4 w-4 text-[#c084fc]" />
+          Notifications
+        </div>
+        <p className="text-xs text-[#71717a]">Choose how you want to be notified for this workspace.</p>
+
+        <div className="space-y-3">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
+            <span>In-app notifications</span>
+            <input
+              type="checkbox"
+              checked={prefs.inApp}
+              onChange={(e) => togglePref("inApp", e.target.checked)}
+              className="h-4 w-4 accent-[#c084fc]"
+            />
+          </label>
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
+            <span>Email notifications</span>
+            <input
+              type="checkbox"
+              checked={prefs.email}
+              onChange={(e) => togglePref("email", e.target.checked)}
+              className="h-4 w-4 accent-[#c084fc]"
+            />
+          </label>
+        </div>
+
+        <div className="pt-1 space-y-2">
+          <div className="text-xs text-[#a1a1aa] uppercase tracking-widest">Notification types</div>
+          {(Object.keys(NOTIFICATION_TYPE_LABELS) as NotificationType[]).map((type) => (
+            <label
+              key={type}
+              className="flex items-center justify-between gap-4 rounded-xl border border-white/10 px-4 py-2.5 text-sm"
+            >
+              <span className="text-[#e5e5e7]">{NOTIFICATION_TYPE_LABELS[type]}</span>
+              <input
+                type="checkbox"
+                checked={prefs.types?.[type] ?? true}
+                onChange={(e) => toggleTypePref(type, e.target.checked)}
+                className="h-4 w-4 accent-[#c084fc]"
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Transfer ownership — owner only */}
+      {isOwner && isLiveWorkspace && (
+        <div className="glass rounded-2xl border border-[#c084fc]/25 p-5 space-y-4">
+          <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#c084fc]">
+            <Crown className="h-4 w-4" />
+            Transfer ownership
+          </div>
+          <p className="text-xs text-[#a1a1aa] leading-relaxed">
+            Hand off this workspace to another member. You will become an admin after the transfer.
+          </p>
+          {transferCandidates.length === 0 ? (
+            <p className="text-xs text-[#71717a]">Invite at least one other member before you can transfer ownership.</p>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select
+                value={transferTargetId}
+                onChange={(e) => setTransferTargetId(e.target.value)}
+                className="flex-1 bg-[#111114] border border-white/20 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#c084fc]"
+              >
+                <option value="">Select a member…</option>
+                {transferCandidates.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.fullName || (m.username ? `@${m.username}` : "Member")} ({formatRoleLabel(m.role)})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => transferTargetId && setPendingTransfer(true)}
+                disabled={!transferTargetId || isTransferring}
+                className="btn btn-secondary text-sm px-5 py-2.5 disabled:opacity-50 whitespace-nowrap"
+              >
+                Transfer ownership
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Leave workspace — non-owners */}
+      {isTeamMember && (
+        <div className="glass rounded-2xl border border-white/10 p-5 space-y-3">
+          <div className="flex items-center gap-2 font-medium text-sm uppercase tracking-widest text-[#71717a]">
+            <LogOut className="h-4 w-4" />
+            Membership
+          </div>
+          <p className="text-xs text-[#a1a1aa] leading-relaxed">
+            Leave this workspace if you no longer need access. Your role:{" "}
+            <span className="font-mono text-[#c084fc]">{formatRoleLabel(myRole)}</span>.
+          </p>
+          <button
+            type="button"
+            onClick={() => setPendingLeave(true)}
+            disabled={!isLiveWorkspace || isLeaving}
+            className="btn btn-secondary text-sm px-5 py-2 border border-white/20"
+          >
+            {isLeaving ? "Leaving…" : "Leave workspace"}
+          </button>
+        </div>
+      )}
 
       {/* Admin tools */}
       {canManage && (
@@ -565,6 +759,32 @@ export function WorkspaceSettingsView() {
           )}
         </div>
       )}
+
+      <ConfirmationModal
+        open={pendingLeave}
+        onOpenChange={setPendingLeave}
+        title="Leave this workspace?"
+        highlight={currentWorkspace.name}
+        description="You will lose access to all tasks, notes, and team chat in this workspace."
+        confirmText="Leave workspace"
+        variant="destructive"
+        onConfirm={handleLeaveWorkspace}
+      />
+
+      <ConfirmationModal
+        open={pendingTransfer}
+        onOpenChange={setPendingTransfer}
+        title="Transfer workspace ownership?"
+        highlight={
+          transferCandidates.find((m) => m.userId === transferTargetId)?.fullName ||
+          transferCandidates.find((m) => m.userId === transferTargetId)?.username ||
+          "Selected member"
+        }
+        description="This member will become the workspace owner. You will be downgraded to admin. This cannot be undone from here without their cooperation."
+        confirmText={isTransferring ? "Transferring…" : "Transfer ownership"}
+        variant="destructive"
+        onConfirm={handleTransferOwnership}
+      />
     </div>
   );
 }

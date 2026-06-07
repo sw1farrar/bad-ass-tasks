@@ -13,6 +13,7 @@
  */
 
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
 import type { Task, TaskStatus, Priority, Note, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction } from "@/types";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
@@ -1923,7 +1924,7 @@ function mapMemberRow(row: any): import("@/types").WorkspaceMember {
   return {
     workspaceId: row.workspace_id,
     userId: row.user_id,
-    role: row.role,
+    role: fromDbRole(row.role),
     joinedAt: row.joined_at,
     invitedBy: row.invited_by ?? undefined,
     fullName: profile?.full_name ?? undefined,
@@ -1942,7 +1943,7 @@ function mapInviteRow(row: WorkspaceInviteRow): import("@/types").WorkspaceInvit
     id: row.id,
     workspaceId: row.workspace_id,
     email: row.email ?? undefined,
-    role: row.role,
+    role: fromDbRole(row.role),
     invitedBy: row.invited_by ?? undefined,
     invitedUserId: (row as any).invited_user_id ?? undefined,
     invitedFullName: profile?.full_name ?? undefined,
@@ -2197,7 +2198,7 @@ export async function searchPotentialTeammates(
 export async function createInvite(
   workspaceId: string,
   email?: string | null,
-  role: "owner" | "admin" | "user" = "user"
+  role: WorkspaceRole = "member"
 ): Promise<string | null> {
   if (!isSupabaseLive()) return null;
   if (["w1", "w2"].includes(workspaceId)) return null;
@@ -2209,7 +2210,7 @@ export async function createInvite(
     const { data, error } = await (supabase.rpc as any)("create_workspace_invite", {
       p_workspace_id: workspaceId,
       p_email: email ?? null,
-      p_role: role,
+      p_role: toDbRole(role),
     });
 
     if (error) {
@@ -2250,7 +2251,7 @@ export async function acceptInvite(inviteId: string): Promise<string | null> {
 export async function updateMemberRole(
   workspaceId: string,
   userId: string,
-  newRole: "owner" | "admin" | "user"
+  newRole: WorkspaceRole
 ): Promise<boolean> {
   if (!isSupabaseLive()) return false;
   if (["w1", "w2"].includes(workspaceId)) return false;
@@ -2260,7 +2261,7 @@ export async function updateMemberRole(
 
   try {
     const { error } = await (supabase.from("workspace_members") as any)
-      .update({ role: newRole })
+      .update({ role: toDbRole(newRole) })
       .eq("workspace_id", workspaceId)
       .eq("user_id", userId);
 
@@ -2271,6 +2272,42 @@ export async function updateMemberRole(
     return true;
   } catch (err) {
     logHybridError("updateMemberRole", err);
+    return false;
+  }
+}
+
+/** Transfer workspace ownership to another member (current owner becomes admin). */
+export async function transferWorkspaceOwnership(
+  workspaceId: string,
+  currentOwnerId: string,
+  newOwnerId: string
+): Promise<boolean> {
+  if (!isSupabaseLive()) return false;
+  if (["w1", "w2"].includes(workspaceId)) return false;
+  if (currentOwnerId === newOwnerId) return false;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const promoted = await updateMemberRole(workspaceId, newOwnerId, "owner");
+    if (!promoted) return false;
+
+    const demoted = await updateMemberRole(workspaceId, currentOwnerId, "admin");
+    if (!demoted) return false;
+
+    const { error: wsError } = await (supabase.from("workspaces") as any)
+      .update({ owner_id: newOwnerId })
+      .eq("id", workspaceId);
+
+    if (wsError) {
+      logHybridError("transferWorkspaceOwnership (workspaces)", wsError);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    logHybridError("transferWorkspaceOwnership", err);
     return false;
   }
 }
@@ -2412,7 +2449,7 @@ export async function sendInviteEmail(
         inviteId,
         email: email.trim(),
         workspaceName: workspaceName || "your workspace",
-        role: options?.role || "user",
+        role: options?.role ? toDbRole(options.role as WorkspaceRole) : "user",
         inviterName: options?.inviterName,
       }),
     });

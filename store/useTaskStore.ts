@@ -12,6 +12,7 @@ import {
   saveLastWorkspaceId,
 } from "@/lib/workspacePersistence";
 import { toast } from "sonner";
+import { fromDbRole, formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
 import {
   getTasks,
   createTask as createTaskSupabase,
@@ -225,9 +226,10 @@ interface TaskState {
   // Phase 2: Collaboration actions (members, invites, realtime wiring)
   fetchMembers: () => Promise<void>;
   fetchInvites: () => Promise<void>;
-  sendInvite: (email?: string, role?: "owner" | "admin" | "user", invitedUserId?: string) => Promise<string | null>; // returns inviteId or null
+  sendInvite: (email?: string, role?: WorkspaceRole, invitedUserId?: string) => Promise<string | null>; // returns inviteId or null
   acceptInviteLink: (inviteId: string) => Promise<string | null>; // returns wsId
-  changeMemberRole: (userId: string, newRole: "owner" | "admin" | "user") => Promise<boolean>;
+  changeMemberRole: (userId: string, newRole: WorkspaceRole) => Promise<boolean>;
+  transferWorkspaceOwnership: (newOwnerId: string) => Promise<boolean>;
   removeWorkspaceMember: (userId: string) => Promise<boolean>;
   // Profile self-edit (name, username/handle, location). Personal, RLS-protected.
   updateMyProfile: (updates: { fullName?: string; username?: string; location?: string }) => Promise<boolean>;
@@ -854,16 +856,15 @@ export const useTaskStore = create<TaskState>()(
             });
           }
 
-          // Restored session (e.g. page refresh while logged in): immediately load real
-          // workspaces via fetch + ensure (creates default if zero) so switcher and data
-          // are usable right away with the user's real Supabase data.
+          // Restored session (e.g. page refresh while logged in): load real workspaces + data
+          // before releasing the UI. Prevents flash of empty-state warnings, sync banners,
+          // and stale persisted content while bootstrap is still in flight.
           if (session?.user) {
-            get().ensureUserHasWorkspace();
-          }
+            await get().ensureUserHasWorkspace();
 
-          // Also set up notifications realtime on restored session (page load while logged in)
-          if (session?.user?.id && isSupabaseLive()) {
-            (get() as any)._setupUserNotificationsRealtime(session.user.id);
+            if (isSupabaseLive()) {
+              (get() as any)._setupUserNotificationsRealtime(session.user.id);
+            }
           }
         } catch (e) {
           console.warn("[auth] getSession failed (network?)", e);
@@ -1035,7 +1036,7 @@ export const useTaskStore = create<TaskState>()(
                 id: ws.id,
                 name: ws.name,
                 slug: ws.slug,
-                role: m.role || "user",
+                role: fromDbRole(m.role),
                 owner_id: ws.owner_id ?? null,
                 createdAt: ws.created_at ?? undefined,
               } as Workspace;
@@ -1056,7 +1057,15 @@ export const useTaskStore = create<TaskState>()(
               saveLastWorkspaceId(currentUser.id, target.id);
             }
           } else {
-            set({ workspaces: [] });
+            set({
+              workspaces: [],
+              currentWorkspace: {
+                id: "",
+                name: "No workspace",
+                slug: "",
+                role: "owner",
+              } as Workspace,
+            });
           }
         } catch (err) {
           console.error("[useTaskStore] fetchUserWorkspaces exception:", err);
@@ -1852,7 +1861,7 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
-      sendInvite: async (email, role = "user", invitedUserId) => {
+      sendInvite: async (email, role = "member", invitedUserId) => {
         const wsId = get().currentWorkspace.id;
         const currentRole = get().currentWorkspace.role;
         const currentUserId = get().user?.id;
@@ -2035,9 +2044,49 @@ export const useTaskStore = create<TaskState>()(
         const ok = await updateMemberRole(wsId, userId, newRole);
         if (ok) {
           await get().fetchMembers();
-          toast.success(`Role updated to ${newRole}`);
+          toast.success(`Role updated to ${formatRoleLabel(newRole)}`);
         } else {
           toast.error("Failed to update role");
+        }
+        return ok;
+      },
+
+      transferWorkspaceOwnership: async (newOwnerId) => {
+        const wsId = get().currentWorkspace.id;
+        const myRole = get().currentWorkspace.role;
+        const currentUserId = get().user?.id;
+        if (myRole !== "owner" || !currentUserId) {
+          toast.error("Only the workspace owner can transfer ownership");
+          return false;
+        }
+        if (newOwnerId === currentUserId) {
+          toast.error("Choose another member to receive ownership");
+          return false;
+        }
+        const target = (get().members || []).find((m) => m.userId === newOwnerId);
+        if (!target) {
+          toast.error("Member not found in this workspace");
+          return false;
+        }
+        if (!isSupabaseLive() || ["w1", "w2"].includes(wsId)) {
+          toast.info("Ownership transfer requires a live Supabase workspace");
+          return false;
+        }
+
+        const ok = await (await import("@/lib/data/hybridStore")).transferWorkspaceOwnership(
+          wsId,
+          currentUserId,
+          newOwnerId,
+        );
+        if (ok) {
+          await Promise.all([
+            get().fetchMembers?.().catch(() => {}),
+            get().fetchUserWorkspaces?.().catch(() => {}),
+          ]);
+          const label = target.fullName || (target.username ? `@${target.username}` : "the selected member");
+          toast.success("Ownership transferred", { description: `${label} is now the owner. You are an admin.` });
+        } else {
+          toast.error("Failed to transfer ownership");
         }
         return ok;
       },

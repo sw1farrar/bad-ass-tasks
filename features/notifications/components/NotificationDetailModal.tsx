@@ -3,6 +3,7 @@
 import React from "react";
 import { Check, Clock, Star, Users, X, Zap } from "lucide-react";
 import type { Notification } from "@/types";
+import { formatRoleLabel } from "@/lib/roles";
 
 export type AppView = "home" | "today" | "tasks" | "notes" | "teams";
 
@@ -115,7 +116,7 @@ export function NotificationDetailModal({
             )}
             {metadata.role && (
               <div>
-                Role: <span className="text-white">{metadata.role}</span>
+                Role: <span className="text-white">{formatRoleLabel(String(metadata.role))}</span>
               </div>
             )}
           </div>
