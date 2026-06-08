@@ -68,12 +68,14 @@ export function WorkspaceViewHeader({
             {icon ? <span className="shrink-0 text-[#c084fc]">{icon}</span> : null}
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight shrink-0">{title}</h1>
           </div>
-          <span
-            className="inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-2.5 py-0.5 text-xs sm:text-sm font-semibold tracking-tight text-[#e9d5ff] truncate"
-            title={workspaceLabel}
-          >
-            {workspaceLabel}
-          </span>
+          {!hideWorkspaceNameOnMobile && (
+            <span
+              className="inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-2.5 py-0.5 text-xs sm:text-sm font-semibold tracking-tight text-[#e9d5ff] truncate"
+              title={workspaceLabel}
+            >
+              {workspaceLabel}
+            </span>
+          )}
         </div>
         {actions ? (
           <div className="flex flex-wrap items-center justify-center gap-2 mt-4">{actions}</div>
