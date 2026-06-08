@@ -136,7 +136,7 @@ export function AnimatedBottomNavItemContent({
         ease: workspaceNameEase,
       }}
       className={cn(
-        "flex flex-col items-center justify-center gap-1 w-full min-h-0",
+        "flex flex-col items-center justify-center gap-1.5 w-full min-h-0",
         className,
       )}
     >

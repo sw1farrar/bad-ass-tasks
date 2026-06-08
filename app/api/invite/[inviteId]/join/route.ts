@@ -3,6 +3,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { ensureUserProfile } from "@/lib/invite/ensureUserProfile";
 import { getInvitePreview, isValidInviteId } from "@/lib/invite/getInvitePreview";
+import { checkUsernameAvailable } from "@/lib/profile/checkUsernameAvailable";
+import { sanitizeUsername, validateUsername } from "@/lib/profile/username";
 
 type RouteContext = { params: Promise<{ inviteId: string }> };
 
@@ -10,6 +12,8 @@ type JoinBody = {
   email?: string;
   password?: string;
   fullName?: string;
+  username?: string;
+  location?: string;
 };
 
 function normalizeEmail(value: string): string {
@@ -91,6 +95,8 @@ export async function POST(request: Request, context: RouteContext) {
 
   const password = body.password?.trim() ?? "";
   const fullName = body.fullName?.trim() ?? "";
+  const username = sanitizeUsername(body.username ?? "");
+  const location = body.location?.trim() ?? "";
   const requestedEmail = body.email ? normalizeEmail(body.email) : "";
   const inviteEmail = preview.email ? normalizeEmail(preview.email) : "";
   const email = inviteEmail || requestedEmail;
@@ -106,6 +112,23 @@ export async function POST(request: Request, context: RouteContext) {
   }
   if (!fullName) {
     return NextResponse.json({ error: "Your name is required." }, { status: 400 });
+  }
+
+  const usernameValidation = validateUsername(username);
+  if (!usernameValidation.ok) {
+    return NextResponse.json({ error: usernameValidation.error }, { status: 400 });
+  }
+
+  if (!location) {
+    return NextResponse.json({ error: "Where you're from is required." }, { status: 400 });
+  }
+
+  const usernameCheck = await checkUsernameAvailable(username);
+  if (!usernameCheck.available) {
+    return NextResponse.json(
+      { error: usernameCheck.error || "That username is already taken." },
+      { status: 409 },
+    );
   }
 
   const admin = createAdminSupabaseClient();
@@ -130,7 +153,11 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    await ensureUserProfile(signInData.user.id, signInData.user.email, fullName);
+    await ensureUserProfile(signInData.user.id, signInData.user.email, {
+      fullName,
+      username,
+      location,
+    });
     const workspaceId = await acceptInviteForUser(supabase, inviteId);
     return NextResponse.json({ ok: true, workspaceId });
   } catch (err) {

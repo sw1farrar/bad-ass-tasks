@@ -19,7 +19,7 @@
     padding-left: max(6px, env(safe-area-inset-left, 6px));
     padding-right: max(6px, env(safe-area-inset-right, 6px));
     padding-top: 0.5rem;
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
     gap: 0.625rem;
   }
 
@@ -32,7 +32,7 @@
   }
 
   .settings-root .settings-panel-header {
-    font-size: 10px;
+    font-size: 11px;
     margin-bottom: 0.5rem;
   }
 
@@ -42,7 +42,7 @@
   }
 
   .settings-root .settings-notif-matrix__row {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .settings-root .settings-workspace-name {
@@ -98,14 +98,14 @@
   }
 
   .settings-root .settings-delete-input {
-    font-size: 12px;
+    font-size: 13px;
     padding: 0.625rem 0.75rem;
     min-height: 40px;
   }
 
   .settings-root .settings-delete-btn {
     min-height: 44px;
-    font-size: 13px;
+    font-size: 14px;
   }
 }
 

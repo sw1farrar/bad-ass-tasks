@@ -21,7 +21,7 @@
     padding-left: max(6px, env(safe-area-inset-left, 6px));
     padding-right: max(6px, env(safe-area-inset-right, 6px));
     padding-top: 0.5rem;
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
   }
 
   .home-due-tasks .task-row {
@@ -114,7 +114,7 @@
 .home-list-item-text {
   flex: 1;
   min-width: 0;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   line-height: 1.4;
   color: #f4f4f5;
   word-break: break-word;

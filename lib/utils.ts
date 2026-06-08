@@ -137,6 +137,17 @@ export function getUserFirstName(options: {
   return "";
 }
 
+/** First and last initials from a full name; single word → first two letters. */
+export function getNameInitials(name: string | null | undefined): string {
+  const trimmed = name?.trim();
+  if (!trimmed) return "";
+  const parts = trimmed.replace(/^@/, "").split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return (parts[0]?.slice(0, 2) || "").toUpperCase();
+}
+
 /** Greeting-specific resolver — prefers real names and never falls back to @username. */
 export function getUserGreetingName(options: {
   profileFullName?: string | null;

@@ -14,6 +14,7 @@ import {
   getRecurrenceEndDescription,
   applyTaskUpdateSideEffects,
   triggerHaptic,
+  getNameInitials,
 } from '@/lib/utils';
 import type { Priority } from '@/types';
 
@@ -79,6 +80,22 @@ describe('utils — core pure functions (production reliability)', () => {
   describe('cn (tailwind-merge + clsx)', () => {
     it('merges classes correctly', () => {
       expect(cn('foo', 'bar', false && 'baz')).toBe('foo bar');
+    });
+  });
+
+  describe('getNameInitials', () => {
+    it('returns first and last initials for multi-word names', () => {
+      expect(getNameInitials('Alex Rivera')).toBe('AR');
+      expect(getNameInitials('Alex Rivera Smith')).toBe('AS');
+    });
+
+    it('returns first two letters for single-word names', () => {
+      expect(getNameInitials('Alex')).toBe('AL');
+    });
+
+    it('returns empty string for missing names', () => {
+      expect(getNameInitials('')).toBe('');
+      expect(getNameInitials(undefined)).toBe('');
     });
   });
 });

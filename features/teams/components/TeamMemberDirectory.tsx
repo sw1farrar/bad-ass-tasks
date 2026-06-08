@@ -106,14 +106,9 @@ export function TeamMemberDirectory({
                   <div className="team-directory-member__identity flex-1 min-w-0">
                     <div className="team-directory-member__name-row">
                       <span className="font-medium text-[#f4f4f5] truncate">{displayName}</span>
-                      {member.username && !isSelf && (
-                        <span className="team-directory-username text-[10px] text-[#71717a] font-mono truncate">
-                          @{member.username}
-                        </span>
-                      )}
                       <span
                         className={cn(
-                          "text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 border",
+                          "team-directory-role-badge text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 border",
                           member.role === "owner"
                             ? "bg-[#c084fc]/10 text-[#c084fc] border-[#c084fc]/30"
                             : member.role === "admin"
@@ -154,7 +149,11 @@ export function TeamMemberDirectory({
 
                 {renderMemberActions && (
                   <div className="team-directory-member__actions">
-                    {renderMemberActions(member, isSelf)}
+                    {renderMemberActions(member, isSelf) ?? (
+                      <span className="team-directory-role-readonly text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
+                        {formatRoleLabel(member.role)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

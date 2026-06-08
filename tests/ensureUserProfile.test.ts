@@ -32,7 +32,7 @@ describe("ensureUserProfile", () => {
   });
 
   it("upserts profile with provided email and full name", async () => {
-    await ensureUserProfile("user-1", "Alex@Example.com", "Alex Rivera");
+    await ensureUserProfile("user-1", "Alex@Example.com", { fullName: "Alex Rivera" });
 
     expect(mockFrom).toHaveBeenCalledWith("profiles");
     expect(mockUpsert).toHaveBeenCalledWith(
@@ -40,6 +40,25 @@ describe("ensureUserProfile", () => {
       { onConflict: "id" },
     );
     expect(mockGetUserById).not.toHaveBeenCalled();
+  });
+
+  it("upserts username and location when provided", async () => {
+    await ensureUserProfile("user-1a", "alex@example.com", {
+      fullName: "Alex Rivera",
+      username: "alexr",
+      location: "Austin, TX",
+    });
+
+    expect(mockUpsert).toHaveBeenCalledWith(
+      {
+        id: "user-1a",
+        email: "alex@example.com",
+        full_name: "Alex Rivera",
+        username: "alexr",
+        location: "Austin, TX",
+      },
+      { onConflict: "id" },
+    );
   });
 
   it("derives full_name from email when profile has no name yet", async () => {

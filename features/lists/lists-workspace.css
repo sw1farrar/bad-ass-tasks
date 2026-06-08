@@ -18,7 +18,7 @@
     padding-left: max(12px, env(safe-area-inset-left, 12px));
     padding-right: max(12px, env(safe-area-inset-right, 12px));
     padding-top: 0.5rem;
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
     gap: 0.625rem;
   }
 
@@ -79,7 +79,7 @@
   }
 
   .list-item-text {
-    font-size: 0.9375rem;
+    font-size: 1rem;
     line-height: 1.4;
     padding-top: 2px;
   }

@@ -21,10 +21,16 @@ export function deriveNameFromEmail(email: string): string | null {
  * Required on live DBs where workspace_members.user_id FK references profiles.id.
  * Uses service role because profiles RLS has no INSERT policy for end users.
  */
+export type EnsureUserProfileInput = {
+  fullName?: string | null;
+  username?: string | null;
+  location?: string | null;
+};
+
 export async function ensureUserProfile(
   userId: string,
   email?: string | null,
-  fullName?: string | null,
+  profile?: EnsureUserProfileInput | string | null,
 ): Promise<void> {
   const admin = createAdminSupabaseClient();
 
@@ -37,7 +43,12 @@ export async function ensureUserProfile(
     resolvedEmail = data.user?.email ?? null;
   }
 
-  const trimmedName = fullName?.trim() || null;
+  const profileInput: EnsureUserProfileInput =
+    typeof profile === "string" ? { fullName: profile } : profile ?? {};
+
+  const trimmedName = profileInput.fullName?.trim() || null;
+  const trimmedUsername = profileInput.username?.trim() || null;
+  const trimmedLocation = profileInput.location?.trim() || null;
 
   const { data: existing } = await admin
     .from("profiles")
@@ -47,7 +58,9 @@ export async function ensureUserProfile(
 
   const existingFullName = (existing as { full_name?: string | null } | null)?.full_name?.trim();
 
-  const row: { id: string; email?: string; full_name?: string } = { id: userId };
+  const row: { id: string; email?: string; full_name?: string; username?: string; location?: string } = {
+    id: userId,
+  };
   if (resolvedEmail) row.email = resolvedEmail;
 
   if (trimmedName) {
@@ -56,6 +69,8 @@ export async function ensureUserProfile(
     const derived = deriveNameFromEmail(resolvedEmail);
     if (derived) row.full_name = derived;
   }
+  if (trimmedUsername) row.username = trimmedUsername;
+  if (trimmedLocation) row.location = trimmedLocation;
 
   const { error: profileError } = await admin.from("profiles").upsert(row as never, {
     onConflict: "id",

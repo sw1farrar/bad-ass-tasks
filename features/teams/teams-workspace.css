@@ -19,13 +19,13 @@
     padding-left: max(6px, env(safe-area-inset-left, 6px));
     padding-right: max(6px, env(safe-area-inset-right, 6px));
     padding-top: 0.5rem;
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
     gap: 0.625rem;
   }
 
   .teams-root .teams-workspace--empty {
     padding-top: 0.75rem;
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
   }
 
   /* Glass panels — edge-to-edge, tighter radius */
@@ -64,7 +64,7 @@
   }
 
   .teams-root .team-collab-stat .team-collab-stat-label {
-    font-size: 9px;
+    font-size: 10px;
     letter-spacing: 0.08em;
   }
 
@@ -114,13 +114,13 @@
     gap: 0.375rem;
   }
 
-  .teams-root .team-directory-member__name-row .team-directory-username {
-    display: none;
-  }
-
   .teams-root .team-directory-member__meta {
     margin-top: 0.25rem;
     line-height: 1.35;
+  }
+
+  .teams-root .team-directory-role-readonly {
+    display: none;
   }
 
   .teams-root .team-directory-member__actions {
@@ -135,7 +135,7 @@
     flex: 1;
     min-width: 0;
     min-height: 36px !important;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .teams-root .team-directory-member__actions .btn,
@@ -147,7 +147,7 @@
   .teams-root .team-directory-member__actions button[class*="rounded-xl"] {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   /* Pending invites — stack on narrow screens */
@@ -169,7 +169,7 @@
     flex: 1 1 auto;
     min-width: 0;
     min-height: 36px !important;
-    font-size: 11px;
+    font-size: 12px;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
   }
@@ -225,7 +225,7 @@
   .teams-root .team-invite-sent-row__actions .btn {
     flex: 1 1 calc(50% - 0.25rem);
     min-height: 36px !important;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .teams-root .team-empty-search-input {
@@ -265,7 +265,7 @@
     min-height: 36px !important;
     padding-top: 0.375rem;
     padding-bottom: 0.375rem;
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 
@@ -300,6 +300,10 @@
     width: auto;
     padding-left: 0;
     flex-shrink: 0;
+  }
+
+  .teams-root .team-directory-member__name-row .team-directory-role-badge {
+    display: none;
   }
 
   .teams-root .team-pending-row {

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Users, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { formatRoleLabel } from "@/lib/roles";
+import { sanitizeUsername, USERNAME_MIN_LENGTH, validateUsername } from "@/lib/profile/username";
 
 type InvitePreview = {
   id: string;
@@ -18,6 +19,8 @@ type InvitePreview = {
   invalidReason?: string;
 };
 
+type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+
 interface InviteAcceptPageProps {
   inviteId: string;
 }
@@ -29,10 +32,15 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [location, setLocation] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
+  const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
+  const usernameCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +81,66 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
     };
   }, [inviteId]);
 
+  useEffect(() => {
+    if (usernameCheckRef.current) {
+      clearTimeout(usernameCheckRef.current);
+      usernameCheckRef.current = null;
+    }
+
+    const normalized = sanitizeUsername(username);
+    if (!normalized) {
+      setUsernameStatus("idle");
+      setUsernameMessage(null);
+      return;
+    }
+
+    const validation = validateUsername(normalized);
+    if (!validation.ok) {
+      setUsernameStatus("invalid");
+      setUsernameMessage(validation.error);
+      return;
+    }
+
+    setUsernameStatus("checking");
+    setUsernameMessage("Checking availability…");
+
+    usernameCheckRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/profile/check-username?username=${encodeURIComponent(normalized)}`,
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          available?: boolean;
+          error?: string;
+        };
+
+        if (!response.ok || payload.available === undefined) {
+          setUsernameStatus("invalid");
+          setUsernameMessage(payload.error || "Could not check username.");
+          return;
+        }
+
+        if (payload.available) {
+          setUsernameStatus("available");
+          setUsernameMessage(`@${normalized} is available`);
+        } else {
+          setUsernameStatus("taken");
+          setUsernameMessage(payload.error || "That username is already taken.");
+        }
+      } catch {
+        setUsernameStatus("invalid");
+        setUsernameMessage("Could not check username.");
+      }
+    }, 400);
+
+    return () => {
+      if (usernameCheckRef.current) {
+        clearTimeout(usernameCheckRef.current);
+        usernameCheckRef.current = null;
+      }
+    };
+  }, [username]);
+
   const redirectToWorkspace = (workspaceId: string) => {
     router.push(`/?workspace=${workspaceId}`);
   };
@@ -110,12 +178,29 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
     }
   };
 
+  const canSubmitSignup =
+    !!fullName.trim() &&
+    !!location.trim() &&
+    !!email &&
+    password.length >= 6 &&
+    confirmPassword.length >= 6 &&
+    password === confirmPassword &&
+    usernameStatus === "available";
+
   const handleJoinWithPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invite?.isValid) return;
 
     if (!fullName.trim()) {
       setError("Please enter your name.");
+      return;
+    }
+    if (!location.trim()) {
+      setError("Please enter where you're from.");
+      return;
+    }
+    if (usernameStatus !== "available") {
+      setError("Choose an available username before joining.");
       return;
     }
     if (password !== confirmPassword) {
@@ -131,7 +216,13 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email, password, fullName: fullName.trim() }),
+        body: JSON.stringify({
+          email,
+          password,
+          fullName: fullName.trim(),
+          username: sanitizeUsername(username),
+          location: location.trim(),
+        }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         workspaceId?: string;
@@ -154,6 +245,15 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
       setSubmitting(false);
     }
   };
+
+  const usernameStatusClass =
+    usernameStatus === "available"
+      ? "text-[#34d399]"
+      : usernameStatus === "checking"
+        ? "text-[#a1a1aa]"
+        : usernameStatus === "idle"
+          ? "text-[#71717a]"
+          : "text-[#ff9500]";
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-[#f4f4f5] overflow-y-auto">
@@ -225,7 +325,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
               ) : (
                 <form onSubmit={handleJoinWithPassword} className="space-y-4">
                   <p className="text-sm text-[#a1a1aa] text-center mb-2">
-                    Enter your name and set a password to create your account and join the workspace.
+                    Set up your profile and password to create your account and join the workspace.
                   </p>
 
                   {error && (
@@ -234,64 +334,128 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                     </div>
                   )}
 
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => {
-                      setFullName(e.target.value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="Your name"
-                    className="input w-full px-4 py-3 rounded-2xl text-base"
-                    required
-                    autoComplete="name"
-                  />
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                      Full name
+                    </label>
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => {
+                        setFullName(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Alex Rivera"
+                      className="input w-full px-4 py-3 rounded-2xl text-base"
+                      required
+                      autoComplete="name"
+                    />
+                  </div>
 
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="you@email.com"
-                    className="input w-full px-4 py-3 rounded-2xl text-base"
-                    required
-                    readOnly={!!invite.email}
-                    autoComplete="email"
-                  />
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                      Username
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[#a1a1aa] px-2">@</span>
+                      <input
+                        type="text"
+                        value={username}
+                        onChange={(e) => {
+                          setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""));
+                          if (error) setError(null);
+                        }}
+                        placeholder="alexr"
+                        className="input w-full px-4 py-3 rounded-2xl text-base"
+                        required
+                        minLength={USERNAME_MIN_LENGTH}
+                        autoComplete="username"
+                        spellCheck={false}
+                      />
+                    </div>
+                    {usernameMessage && (
+                      <p className={`mt-1.5 text-xs ${usernameStatusClass}`}>{usernameMessage}</p>
+                    )}
+                  </div>
 
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="Create a password"
-                    className="input w-full px-4 py-3 rounded-2xl text-base"
-                    required
-                    minLength={6}
-                    autoComplete="new-password"
-                  />
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                      Where you&apos;re from
+                    </label>
+                    <input
+                      type="text"
+                      value={location}
+                      onChange={(e) => {
+                        setLocation(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Austin, TX"
+                      className="input w-full px-4 py-3 rounded-2xl text-base"
+                      required
+                      autoComplete="address-level2"
+                    />
+                  </div>
 
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="Confirm password"
-                    className="input w-full px-4 py-3 rounded-2xl text-base"
-                    required
-                    minLength={6}
-                    autoComplete="new-password"
-                  />
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="you@email.com"
+                      className="input w-full px-4 py-3 rounded-2xl text-base"
+                      required
+                      readOnly={!!invite.email}
+                      autoComplete="email"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Create a password"
+                      className="input w-full px-4 py-3 rounded-2xl text-base"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                      Confirm password
+                    </label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Re-enter your password"
+                      className="input w-full px-4 py-3 rounded-2xl text-base"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                    />
+                  </div>
 
                   <button
                     type="submit"
-                    disabled={submitting || !fullName.trim() || !email || password.length < 6 || confirmPassword.length < 6}
+                    disabled={submitting || !canSubmitSignup}
                     className="btn btn-primary w-full py-3.5 text-base flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     {submitting ? (

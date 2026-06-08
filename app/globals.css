@@ -431,6 +431,11 @@ body {
    - Preserves all desktop styles (lg+ unaffected)
 */
 @media (max-width: 768px) {
+  /* Slightly larger default type scale on phones (rem-based Tailwind + spacing follow) */
+  html {
+    font-size: 106.25%;
+  }
+
   .sidebar {
     display: none;
   }
@@ -465,20 +470,24 @@ body {
   /* Agent 27: Enlarge remaining sub-44px targets on phones (priority/recurring badges, small controls in lists/notes) */
   .priority-badge,
   .recurring-badge {
-    font-size: 11px;
+    font-size: 12px;
     padding: 3px 10px;
-    min-height: 26px;
-    min-width: 26px;
+    min-height: 28px;
+    min-width: 28px;
   }
 
   /* Make inline note action buttons (e.g. +LINK, remove) larger tap targets */
   .glass button[title*="LINK"],
   .glass button[title*="Remove link"],
   .glass button[title*="link"] {
-    min-height: 32px;
-    min-width: 32px;
+    min-height: 34px;
+    min-width: 34px;
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: 12px;
+  }
+
+  .cmdk-input {
+    font-size: 16px;
   }
 
   /* Task complete control — perfect circle (overrides global 44px min-height on buttons) */
@@ -516,7 +525,7 @@ body {
 
   /* Main scroll area gets breathing room above fixed bottom nav + safe area */
   .main-content {
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)) !important;
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px)) !important;
   }
 
   /* Top bar — row 1: brand + bell/avatar; row 2: edge-to-edge workspace */
@@ -558,11 +567,6 @@ body {
     padding: 6px max(12px, env(safe-area-inset-right, 12px)) 6px 4px;
   }
 
-  /* .btn { display: inline-flex } wins over Tailwind hidden — force-hide logout on phones */
-  .top-bar-logout-desktop {
-    display: none !important;
-  }
-
   /* General view header + content tightening on phones for density */
   .main-content {
     padding-top: 0.75rem !important;
@@ -580,7 +584,7 @@ body {
     padding: 0 !important;
   }
   .notes-root .overflow-y-auto {
-    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)) !important;
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px)) !important;
   }
 
   /* Edge-to-edge workspace row on phones */
@@ -607,7 +611,7 @@ body {
   }
 
   .top-bar .workspace-name-label {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
     letter-spacing: -0.2px;
     text-overflow: clip;
@@ -674,7 +678,7 @@ body {
   .floating-quick-add,
   .fab,
   .ai-fab {
-    bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)); /* ~84px + safe: clears compact nav + visual gap */
+    bottom: calc(6rem + env(safe-area-inset-bottom, 10px)); /* ~84px + safe: clears compact nav + visual gap */
   }
   .fab { right: 16px; }
   .ai-fab { right: 16px; } /* align both; was conflicting 6/16 + different bottoms */
@@ -698,26 +702,26 @@ body {
 @media (max-width: 768px) {
   .bottom-nav {
     display: flex;
-    padding-top: 2px;
+    padding-top: 4px;
     overflow: hidden;
   }
 
   .bottom-nav .bottom-nav-item {
-    min-height: 44px;
-    padding: 3px 4px 4px;
-    gap: 1px;
+    min-height: 56px;
+    padding: 6px 4px 6px;
+    gap: 2px;
   }
 }
 
 /* Ultra-narrow phones (<360px): tighter but still >=44px targets, more breathing */
 @media (max-width: 360px) {
   .bottom-nav-item {
-    padding: 2px 1px 3px;
-    font-size: 9px;
+    padding: 4px 2px 5px;
+    font-size: 11px;
   }
   .bottom-nav-item .icon {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
   }
   .fab,
   .ai-fab {
@@ -738,8 +742,8 @@ body {
   }
   .main-content .text-5xl,
   .main-content .text-3xl {
-    font-size: 1.35rem !important;
-    line-height: 1.05 !important;
+    font-size: 1.5rem !important;
+    line-height: 1.1 !important;
   }
   .main-content .mb-8 {
     margin-bottom: 1rem !important;
@@ -755,10 +759,10 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  padding: 3px 4px 4px;
-  min-height: 44px;
-  font-size: 10px;
+  gap: 2px;
+  padding: 6px 4px 6px;
+  min-height: 56px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   transition: color 0.1s ease, transform 0.1s ease;
@@ -788,9 +792,9 @@ body {
 }
 
 .bottom-nav-item--home .bottom-nav-item__icon-wrap {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   border: 1px solid rgba(192, 132, 252, 0.28);
   background: linear-gradient(
     135deg,
@@ -813,15 +817,15 @@ body {
 }
 
 .bottom-nav-item .icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   margin-bottom: 0;
 }
 
 /* Prominent FAB (mobile only, right side, above bottom nav) */
 .fab {
   position: fixed;
-  bottom: calc(5.25rem + env(safe-area-inset-bottom, 12px));
+  bottom: calc(6rem + env(safe-area-inset-bottom, 12px));
   right: 16px;
   z-index: 70;
   width: 56px;
@@ -1395,11 +1399,31 @@ body {
 }
 
 @media (max-width: 767px) {
+  [data-sonner-toast].bat-toast,
+  [data-sonner-toast][data-styled="true"] {
+    font-size: 14px !important;
+  }
+
+  .bat-toast__description,
+  [data-sonner-toast] [data-description] {
+    font-size: 12.5px !important;
+  }
+
   .bat-sonner-toaster {
-    bottom: calc(5.25rem + env(safe-area-inset-bottom, 10px)) !important;
-    right: max(0.75rem, env(safe-area-inset-right, 0.75rem)) !important;
-    left: max(0.75rem, env(safe-area-inset-left, 0.75rem)) !important;
-    width: auto !important;
+    bottom: calc(6rem + env(safe-area-inset-bottom, 10px)) !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: min(320px, calc(100vw - 1.5rem)) !important;
+    --mobile-offset-left: 0px !important;
+    --mobile-offset-right: 0px !important;
+  }
+
+  .bat-sonner-toaster [data-sonner-toast] {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 }
 

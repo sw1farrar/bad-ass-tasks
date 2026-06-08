@@ -54,7 +54,8 @@ export async function middleware(request: NextRequest) {
   const isPublicApi =
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/webhooks/") ||
-    pathname.startsWith("/api/invite/");
+    pathname.startsWith("/api/invite/") ||
+    pathname === "/api/profile/check-username";
 
   const isDualAuthExemptApi =
     pathname.startsWith("/api/auth/dual-auth") ||

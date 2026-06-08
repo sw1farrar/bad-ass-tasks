@@ -13,7 +13,7 @@ import { toast } from "sonner";
 
 import { useTaskStore } from "@/store/useTaskStore";
 import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
-import { cn, formatDueDate, triggerHaptic, getUserGreetingName, formatLocalDateShort } from "@/lib/utils";
+import { cn, formatDueDate, triggerHaptic, getUserGreetingName, getNameInitials, formatLocalDateShort } from "@/lib/utils";
 import {
   buildTaskCompletionUndoContext,
   showTaskCompletionFeedback,
@@ -1067,6 +1067,15 @@ export default function BadAssTasks() {
       email: user?.email,
     });
   }, [user, profileFullName, myProfile, members]);
+
+  const avatarInitials = useMemo(() => {
+    const selfMember = members.find((m) => m.userId === user?.id);
+    const metaName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name;
+    const fromName = getNameInitials(myProfile?.fullName || selfMember?.fullName || metaName);
+    if (fromName) return fromName;
+    if (user?.email) return user.email.charAt(0).toUpperCase();
+    return "";
+  }, [user, myProfile, members]);
 
   const renderTasksView = () => (
     <div className="tasks-root">
@@ -2565,9 +2574,9 @@ export default function BadAssTasks() {
                   setShowProfilePopover((open) => !open);
                 }}
                 className={cn(
-                  "group flex items-center gap-2 min-h-[44px] min-w-[44px] md:min-w-0 cursor-pointer active:scale-[0.985] transition-all",
-                  "max-md:justify-center max-md:p-0 max-md:rounded-full max-md:bg-transparent max-md:border-0",
-                  "md:pl-1.5 md:pr-3 md:py-1 md:rounded-full md:bg-white/5 md:border",
+                  "group flex items-center justify-center min-h-[44px] min-w-[44px] cursor-pointer active:scale-[0.985] transition-all",
+                  "p-0 rounded-full max-md:bg-transparent max-md:border-0",
+                  "md:bg-white/5 md:border md:p-1",
                   showProfilePopover
                     ? "md:border-[#c084fc]/40 md:bg-[#c084fc]/10 max-md:ring-2 max-md:ring-[#c084fc]/40"
                     : "md:border-white/10 md:hover:border-[#c084fc]/40"
@@ -2586,27 +2595,10 @@ export default function BadAssTasks() {
                   if (e.key === "Escape") setShowProfilePopover(false);
                 }}
               >
-                <div className="h-9 w-9 md:h-6 md:w-6 flex-shrink-0 rounded-full bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center text-xs md:text-[10px] font-bold text-black ring-1 ring-inset ring-white/30 shadow-sm">
-                  {user.email ? user.email.charAt(0).toUpperCase() : <User className="h-4 w-4 md:h-3.5 md:w-3.5" />}
-                </div>
-                <div className="hidden md:block text-xs text-[#a1a1aa] max-w-[110px] truncate font-medium">
-                  {(() => {
-                    const self = members.find((m) => m.userId === user?.id);
-                    const handle = self?.username ? `@${self.username}` : null;
-                    return handle || self?.fullName || user.email?.split("@")[0] || "You";
-                  })()}
+                <div className="h-9 w-9 flex-shrink-0 rounded-full bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center text-xs font-bold text-black ring-1 ring-inset ring-white/30 shadow-sm">
+                  {avatarInitials || <User className="h-4 w-4" />}
                 </div>
               </div>
-
-              {/* Sign out — desktop header only (no .btn class: globals .btn overrides Tailwind hidden on mobile) */}
-              <button
-                onClick={() => setPendingSignOut(true)}
-                className="top-bar-logout-desktop max-md:hidden md:inline-flex h-11 w-11 min-h-[44px] min-w-[44px] p-0 items-center justify-center rounded-full hover:bg-white/5 hover:text-[#ff00aa] text-[#a1a1aa] transition"
-                title="Sign out"
-                aria-label="Sign out"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-              </button>
             </div>
 
             <AnimatePresence>
@@ -2758,7 +2750,7 @@ export default function BadAssTasks() {
                             </button>
                           </div>
                         )}
-                        <div className="border-t border-white/10 pt-3 md:hidden">
+                        <div className="border-t border-white/10 pt-3">
                           <button
                             type="button"
                             onClick={() => {
@@ -2768,7 +2760,7 @@ export default function BadAssTasks() {
                             className="w-full min-h-[44px] flex items-center justify-center gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition font-medium"
                           >
                             <LogOut className="h-4 w-4 text-red-400" />
-                            Sign out
+                            Log out
                           </button>
                         </div>
                       </div>
@@ -2796,21 +2788,6 @@ export default function BadAssTasks() {
             </>
           )}
 
-          </div>
-
-          {/* LIVE / DEMO status badge — now strictly gated to real authenticated user (user requirement) */}
-          <div className="pl-1 hidden md:flex items-center gap-1.5 text-[10px] font-mono tracking-[1px] text-[#71717a] border-l border-white/10 ml-1 pl-3">
-            <div 
-              className={cn(
-                "h-1.5 w-1.5 rounded-full transition-all",
-                isTrulyLive 
-                  ? "bg-[#c084fc] shadow-[0_0_6px_#c084fc]" 
-                  : "bg-[#71717a] animate-pulse"
-              )} 
-            />
-            <span className={isTrulyLive ? "text-[#c084fc]" : ""}>
-              {isTrulyLive ? "LIVE" : "DEMO"}
-            </span>
           </div>
 
           {/* PWA Install Prompt (polished Agent 27) — visible on phones/tablets when eligible (beforeinstallprompt).
