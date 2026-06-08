@@ -32,6 +32,8 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
   /** Open Review drawer once (e.g. from Home). */
   openReviewOnMount?: boolean;
   onOpenReviewConsumed?: () => void;
+  /** Open the capture modal instead of instant blank file. */
+  onOpenCapture?: () => void;
 };
 
 export function FilesView({
@@ -42,6 +44,7 @@ export function FilesView({
   onCreateNote,
   openReviewOnMount,
   onOpenReviewConsumed,
+  onOpenCapture,
   ...notesProps
 }: FilesViewProps) {
   const isMobile = useIsMobileViewport();
@@ -61,7 +64,7 @@ export function FilesView({
   const [bulkApproveTargets, setBulkApproveTargets] = useState<Note[]>([]);
   const [rejectTarget, setRejectTarget] = useState<Note | null>(null);
   const [rejecting, setRejecting] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+
 
   const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
 
@@ -156,15 +159,9 @@ export function FilesView({
     [approveTarget, onApproveFile, filter.kind, pendingFiles.length],
   );
 
-  const handleNewFile = useCallback(async () => {
-    if (!onCreateNote || isCreating) return;
-    setIsCreating(true);
-    try {
-      await onCreateNote("Untitled file");
-    } finally {
-      setIsCreating(false);
-    }
-  }, [onCreateNote, isCreating]);
+  const handleNewFile = useCallback(() => {
+    onOpenCapture?.();
+  }, [onOpenCapture]);
 
   const listTitle =
     filter.kind === "review"
@@ -235,8 +232,7 @@ export function FilesView({
         }}
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
-        onNewFile={() => void handleNewFile()}
-        isCreating={isCreating}
+        onNewFile={handleNewFile}
       />
 
       <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-white/10 bg-[#0a0a0a]">
@@ -249,11 +245,10 @@ export function FilesView({
               <button
                 type="button"
                 onClick={() => void handleNewFile()}
-                disabled={isCreating}
                 className="md:hidden flex items-center gap-1 rounded-lg border border-[#c084fc]/30 bg-[#c084fc]/10 px-2.5 py-1.5 text-[11px] font-semibold text-[#e9d5ff]"
               >
                 <Plus className="h-3.5 w-3.5" />
-                {isCreating ? "…" : "New"}
+                New
               </button>
             )}
           </div>

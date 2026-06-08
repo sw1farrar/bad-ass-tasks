@@ -46,7 +46,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { 
     setView, 
     addTask, 
-    addNote,
     addList,
     toggleCommandPalette,
     toggleKeyboardCheatsheet,
@@ -63,6 +62,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     recentActivity,
     setFilesOpenReview,
     setFilesSelectNoteId,
+    setFilesCaptureOpen,
   } = useTaskStore();
 
   const runCommand = (action: () => void | Promise<void>) => {
@@ -114,24 +114,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     }
   };
 
-  const handleCreateNote = async () => {
-    const title = prompt("Note title? (e.g. 'Launch strategy Q3')");
-    if (title) {
-      const res = await addNote(title);
-      if (!res) {
-        toast.error("Failed to create note", { description: "Please try again." });
-        return;
-      }
-      const note = res;
-      toast.success(`Note created: ${note.title}`, {
-        description: "Open Files view to review and edit records.",
-        action: {
-          label: "Go to Files",
-          onClick: () => setView("notes"),
-        },
-      });
-      setView("notes");
-    }
+  const handleCaptureFile = () => {
+    setFilesCaptureOpen(true);
+    setView("notes");
   };
 
   // PWA Install action (persistent, works even without beforeinstallprompt event)
@@ -271,13 +256,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               </Command.Item>
 
               <Command.Item 
-                onSelect={() => runCommand(handleCreateNote)}
+                onSelect={() => runCommand(handleCaptureFile)}
                 className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
               >
                 <FilePlus className="h-4 w-4 text-[#c084fc]" />
                 <div className="flex-1">
-                  <div>Create new note</div>
-                  <div className="text-xs text-[#71717a]">Instant capture for your second brain</div>
+                  <div>Capture file</div>
+                  <div className="text-xs text-[#71717a]">Tags, notes, images & attachments in one modal</div>
                 </div>
                 <div className="text-xs text-[#c084fc] font-mono">⌘⇧N</div>
               </Command.Item>

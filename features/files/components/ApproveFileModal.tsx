@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FileRecordType, Note } from "@/types";
 import { FILE_RECORD_TYPES, recordTypeLabel } from "@/lib/files/fileTypes";
+import { parseTagsInput } from "@/lib/files/parseTagsInput";
 
 interface ApproveFileModalProps {
   file: Note | null;
@@ -16,13 +17,6 @@ interface ApproveFileModalProps {
     memo: string;
     recordType: FileRecordType;
   }) => Promise<void>;
-}
-
-function parseTagsInput(raw: string): string[] {
-  return raw
-    .split(/[,#]/)
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 export function ApproveFileModal({ file, isOpen, onClose, onApprove }: ApproveFileModalProps) {

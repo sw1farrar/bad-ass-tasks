@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Check, Plus, Command, Users, Settings,
   ChevronRight, ChevronDown, Clock, Star, ArrowUpRight, ListChecks, Shield,
@@ -34,6 +34,13 @@ import { DualAuthGate } from "@/components/DualAuthGate";
 import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
 import { FilesView } from "@/features/files";
+import {
+  CaptureFileModal,
+  type CaptureFileInput,
+  type CaptureFileSubmitMode,
+} from "@/features/files/components/CaptureFileModal";
+import { collectWorkspaceTags, filterFiledNotes } from "@/lib/files/fileFilters";
+import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
 import "@/features/files/files-workspace.css";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
@@ -212,6 +219,8 @@ export default function BadAssTasks() {
     setFilesOpenReview,
     filesSelectNoteId,
     setFilesSelectNoteId,
+    filesCaptureOpen,
+    setFilesCaptureOpen,
   } = useTaskStore();
 
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
@@ -867,6 +876,67 @@ export default function BadAssTasks() {
 
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user && dualAuthVerified;
+
+  const captureWorkspaceTags = useMemo(
+    () => collectWorkspaceTags(filterFiledNotes(notes || [])),
+    [notes],
+  );
+
+  const handleCaptureFile = useCallback(
+    async (input: CaptureFileInput, mode: CaptureFileSubmitMode) => {
+      const reviewStatus = mode === "review" ? ("pending_review" as const) : ("filed" as const);
+      const tags =
+        input.tags.length > 0 ? input.tags : mode === "file" ? ["uncategorized"] : [];
+
+      const created = await addNote(input.title, input.content, {
+        tags,
+        memo: input.memo || null,
+        recordType: input.recordType,
+        reviewStatus,
+      });
+
+      if (!created) {
+        toast.error("Could not capture file");
+        return;
+      }
+
+      if (mode === "file") {
+        await updateNote(created.id, {
+          workspaceId: currentWorkspace.id,
+          reviewedBy: user?.id ?? null,
+          filedAt: new Date().toISOString(),
+        });
+      }
+
+      if (input.attachments.length > 0 && isTrulyLive) {
+        const uploaded = await uploadFilesToNote(created.id, input.attachments);
+        if (uploaded === 0) {
+          toast.warning("Attachments could not be uploaded");
+        } else if (uploaded < input.attachments.length) {
+          toast.warning(`${uploaded} of ${input.attachments.length} attachments uploaded`);
+        }
+      }
+
+      setView("notes");
+      setSelectedNoteId(created.id);
+      if (mode === "review") {
+        setFilesOpenReview(true);
+        toast.success("Added to Review");
+      } else {
+        toast.success("Filed to library");
+      }
+    },
+    [
+      addNote,
+      updateNote,
+      currentWorkspace.id,
+      user?.id,
+      isTrulyLive,
+      setView,
+      setFilesOpenReview,
+    ],
+  );
+
   const showSessionGate =
     isConfigured && (isAuthLoading || isSigningOut || (!!user && !dualAuthChecked));
   const showLandingGate = isConfigured && !user && !isSigningOut;
@@ -1562,6 +1632,7 @@ export default function BadAssTasks() {
         }}
         openReviewOnMount={filesOpenReview}
         onOpenReviewConsumed={() => setFilesOpenReview(false)}
+        onOpenCapture={() => setFilesCaptureOpen(true)}
       />
     );
   };
@@ -3240,6 +3311,14 @@ export default function BadAssTasks() {
       <CommandPalette 
         open={isCommandPaletteOpen} 
         onOpenChange={(o) => toggleCommandPalette(o)} 
+      />
+
+      <CaptureFileModal
+        isOpen={filesCaptureOpen}
+        onClose={() => setFilesCaptureOpen(false)}
+        workspaceTags={captureWorkspaceTags}
+        isLive={isTrulyLive}
+        onSubmit={handleCaptureFile}
       />
 
       {/* Confetti on completions */}

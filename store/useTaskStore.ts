@@ -228,6 +228,8 @@ interface TaskState extends ListSliceActions {
   filesOpenReview: boolean;
   /** One-shot: select this file after navigating to Files (⌘K search). */
   filesSelectNoteId: string | null;
+  /** Open the full-screen file capture modal (Files, ⌘K). */
+  filesCaptureOpen: boolean;
   /** Increment to fire the global completion confetti (tasks, list items, etc.). */
   celebrationTrigger: number;
   isInitializing: boolean;
@@ -307,7 +309,16 @@ interface TaskState extends ListSliceActions {
   setRecurringRule: (id: string, recurringRule: string | null) => Promise<boolean | null>;
 
   // Actions - Notes (now wired through hybrid layer, mirroring tasks)
-  addNote: (title: string, content?: string) => Promise<Note | null>;
+  addNote: (
+    title: string,
+    content?: string,
+    options?: {
+      tags?: string[];
+      memo?: string | null;
+      recordType?: import("@/types").FileRecordType;
+      reviewStatus?: import("@/lib/files/fileTypes").FileReviewStatus;
+    },
+  ) => Promise<Note | null>;
   updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   deleteNote: (id: string) => Promise<boolean | null>;
 
@@ -319,6 +330,7 @@ interface TaskState extends ListSliceActions {
   toggleKeyboardCheatsheet: (open?: boolean) => void;
   setFilesOpenReview: (open: boolean) => void;
   setFilesSelectNoteId: (id: string | null) => void;
+  setFilesCaptureOpen: (open: boolean) => void;
   triggerCelebration: () => void;
 
   // Workspace (demo in !live mode)
@@ -702,6 +714,7 @@ export const useTaskStore = create<TaskState>()(
       isKeyboardCheatsheetOpen: false,
       filesOpenReview: false,
       filesSelectNoteId: null,
+      filesCaptureOpen: false,
       celebrationTrigger: 0,
       isInitializing: false,
       taskLoadingStates: {},
@@ -855,6 +868,7 @@ export const useTaskStore = create<TaskState>()(
         })),
       setFilesOpenReview: (open) => set({ filesOpenReview: open }),
       setFilesSelectNoteId: (id) => set({ filesSelectNoteId: id }),
+      setFilesCaptureOpen: (open) => set({ filesCaptureOpen: open }),
       triggerCelebration: () =>
         set((state) => ({ celebrationTrigger: state.celebrationTrigger + 1 })),
 
@@ -2328,7 +2342,7 @@ export const useTaskStore = create<TaskState>()(
       // saved to DB JSONB; plain text extracted for list/preview compat; Note.content model unchanged).
       // ------------------------------------------------------------------
 
-      addNote: async (title: string, content = "") => {
+      addNote: async (title: string, content = "", options) => {
         let workspaceId = get().currentWorkspace.id;
 
         // Safety guard for live mode (same as addTask)
@@ -2346,18 +2360,26 @@ export const useTaskStore = create<TaskState>()(
 
         const noteId = isSupabaseLive() ? generateClientId() : generateId();
 
+        const reviewStatus =
+          options?.reviewStatus ?? (isSupabaseLive() ? "pending_review" : "filed");
+        const tags = options?.tags ?? [];
+        const recordType = options?.recordType ?? "note";
+        const memo = options?.memo ?? null;
+        const filedAt = reviewStatus === "filed" ? new Date().toISOString() : null;
+
         const newNote: Note = {
           id: noteId,
           title,
           content,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          tags: [],
+          tags,
           linkedTaskIds: [],
           workspaceId,
-          reviewStatus: isSupabaseLive() ? "pending_review" : "filed",
-          recordType: "note",
-          filedAt: isSupabaseLive() ? null : new Date().toISOString(),
+          reviewStatus,
+          recordType,
+          memo,
+          filedAt,
         };
 
         if (isSupabaseLive()) {
@@ -2368,6 +2390,9 @@ export const useTaskStore = create<TaskState>()(
             title: newNote.title,
             content: newNote.content,
             tags: newNote.tags,
+            memo: newNote.memo,
+            recordType: newNote.recordType,
+            reviewStatus: newNote.reviewStatus,
           });
 
           if (created) {
