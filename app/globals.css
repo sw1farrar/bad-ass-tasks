@@ -68,6 +68,13 @@ body {
   border: 1px solid var(--border);
 }
 
+/* Header dropdowns (workspace, profile) — solid panel over scrolling content */
+.top-bar-menu-panel {
+  background: #111114 !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
 /* Neon accents */
 .neon-text {
   color: var(--neon-purple);
@@ -627,13 +634,6 @@ body {
     left: 0;
     right: 0;
     border-radius: 0;
-  }
-
-  /* Opaque mobile header menus — .glass alone reads too transparent over content */
-  .top-bar-menu-panel {
-    background: #111114 !important;
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
   }
 
   .top-bar-menu-panel > div:first-child {
