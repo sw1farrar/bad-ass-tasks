@@ -9,7 +9,7 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { cn } from "@/lib/utils";
 import {
   collectWorkspaceTags,
-  filterByTags,
+  filterByAllTags,
   filterFiledNotes,
   filterPendingReview,
   sortFiledNotes,
@@ -18,6 +18,7 @@ import { TagRail, type FilesBrowseFilter } from "./components/TagRail";
 import { FileStream } from "./components/FileStream";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { ApproveFileModal } from "./components/ApproveFileModal";
+import { BulkApproveFilesModal } from "./components/BulkApproveFilesModal";
 import { useNoteAttachmentCounts } from "@/features/notes/hooks";
 import "./files-workspace.css";
 
@@ -26,6 +27,9 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
     id: string,
     input: { title: string; tags: string[]; memo: string; recordType: FileRecordType },
   ) => Promise<void>;
+  /** Open Review drawer once (e.g. from Home). */
+  openReviewOnMount?: boolean;
+  onOpenReviewConsumed?: () => void;
 };
 
 export function FilesView({
@@ -33,6 +37,8 @@ export function FilesView({
   workspaceId,
   notes,
   onCreateNote,
+  openReviewOnMount,
+  onOpenReviewConsumed,
   ...notesProps
 }: FilesViewProps) {
   const isMobile = useIsMobileViewport();
@@ -48,6 +54,7 @@ export function FilesView({
   const [searching, setSearching] = useState(false);
   const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
+  const [bulkApproveTargets, setBulkApproveTargets] = useState<Note[]>([]);
   const [isCreating, setIsCreating] = useState(false);
 
   const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
@@ -58,10 +65,17 @@ export function FilesView({
   );
 
   useEffect(() => {
-    if (pendingFiles.length > 0 && filter.kind === "all") {
+    if (openReviewOnMount) {
+      setFilter({ kind: "review" });
+      onOpenReviewConsumed?.();
+    }
+  }, [openReviewOnMount, onOpenReviewConsumed]);
+
+  useEffect(() => {
+    if (pendingFiles.length > 0 && filter.kind === "all" && !openReviewOnMount) {
       setFilter({ kind: "review" });
     }
-  }, [pendingFiles.length, filter.kind]);
+  }, [pendingFiles.length, filter.kind, openReviewOnMount]);
 
   const streamedFiles = useMemo(() => {
     if (searchResultIds) {
@@ -76,8 +90,8 @@ export function FilesView({
       list = list.filter(
         (n) => (n.tags ?? []).filter((t) => t !== "from-email").length === 0,
       );
-    } else if (filter.kind === "tag") {
-      list = filterByTags(list, [filter.tag]);
+    } else if (filter.kind === "tags") {
+      list = filterByAllTags(list, filter.tags);
     }
     return list;
   }, [searchResultIds, filter, pendingFiles, filedFiles, notes]);
@@ -151,11 +165,29 @@ export function FilesView({
       ? "Review"
       : searchQuery.trim()
         ? "Search results"
-        : filter.kind === "tag"
-          ? filter.tag
+        : filter.kind === "tags"
+          ? filter.tags.join(" + ")
           : filter.kind === "untagged"
             ? "Untagged"
             : "All filed";
+
+  const handleBulkApprove = useCallback(
+    async (input: { tags: string[]; memo: string }) => {
+      for (const file of bulkApproveTargets) {
+        await onApproveFile(file.id, {
+          title: file.title || "Untitled",
+          tags: input.tags,
+          memo: input.memo,
+          recordType: file.recordType ?? "note",
+        });
+      }
+      setBulkApproveTargets([]);
+      if (filter.kind === "review" && pendingFiles.length <= bulkApproveTargets.length) {
+        setFilter({ kind: "all" });
+      }
+    },
+    [bulkApproveTargets, onApproveFile, filter.kind, pendingFiles.length],
+  );
 
   return (
     <div
@@ -220,6 +252,10 @@ export function FilesView({
               const file = notes.find((n) => n.id === id);
               if (file) setApproveTarget(file);
             }}
+            onBulkApprove={(ids) => {
+              const selected = notes.filter((n) => ids.includes(n.id));
+              if (selected.length) setBulkApproveTargets(selected);
+            }}
             attachmentCounts={attachmentCounts}
           />
         ) : (
@@ -269,6 +305,13 @@ export function FilesView({
         isOpen={!!approveTarget}
         onClose={() => setApproveTarget(null)}
         onApprove={handleApprove}
+      />
+
+      <BulkApproveFilesModal
+        files={bulkApproveTargets}
+        isOpen={bulkApproveTargets.length > 0}
+        onClose={() => setBulkApproveTargets([])}
+        onApprove={handleBulkApprove}
       />
     </div>
   );

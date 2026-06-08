@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import {
   Bell,
   Check,
+  Inbox,
   ListChecks,
   Lock,
   MessageCircle,
@@ -50,6 +51,7 @@ export interface WorkspacePulse {
   listCount?: number;
   openListItemsCount?: number;
   noteCount?: number;
+  pendingReviewCount?: number;
   taskCount?: number;
   memberCount?: number;
 }
@@ -76,6 +78,8 @@ interface HomeViewProps {
   onAcceptInvite: (inviteId: string) => void | Promise<void>;
   onDeclineInvite: (inviteId: string) => void | Promise<void>;
   onOpenNotification: (notification: Notification) => void;
+  pendingReviewTotal?: number;
+  onOpenFilesReview?: () => void;
 }
 
 function getGreeting(): string {
@@ -102,6 +106,8 @@ export function HomeView({
   onAcceptInvite,
   onDeclineInvite,
   onOpenNotification,
+  pendingReviewTotal = 0,
+  onOpenFilesReview,
 }: HomeViewProps) {
   const pulseById = new Map(workspacePulse.map((p) => [p.id, p]));
   const upcomingFocus = useMemo(
@@ -145,6 +151,11 @@ export function HomeView({
       `${checklistItemsTotal} list item${checklistItemsTotal === 1 ? "" : "s"}`,
     );
   }
+  if (pendingReviewTotal > 0) {
+    summaryParts.push(
+      `${pendingReviewTotal} in Review`,
+    );
+  }
   if (unreadCount > 0 && pendingInvites === 0) summaryParts.push(`${unreadCount} unread`);
   if (workspaces.length > 0) summaryParts.push(`${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`);
 
@@ -173,6 +184,38 @@ export function HomeView({
         </div>
         <p className="text-[#a1a1aa] mt-2 text-sm max-w-2xl">{summary}</p>
       </div>
+
+      {pendingReviewTotal > 0 && onOpenFilesReview && (
+        <div className="mb-8">
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic("light");
+              onOpenFilesReview();
+            }}
+            className="w-full glass rounded-2xl px-4 py-4 border border-[#ff3366]/30 bg-[#ff3366]/[0.05] hover:bg-[#ff3366]/[0.08] transition text-left"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-10 w-10 rounded-xl bg-[#ff3366]/15 border border-[#ff3366]/25 flex items-center justify-center shrink-0">
+                  <Inbox className="h-5 w-5 text-[#ff3366]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm text-[#f4f4f5]">
+                    {pendingReviewTotal} file{pendingReviewTotal === 1 ? "" : "s"} in Review
+                  </div>
+                  <div className="text-[11px] text-[#71717a] mt-0.5">
+                    Tag, approve, and file incoming records
+                  </div>
+                </div>
+              </div>
+              <span className="shrink-0 text-xs font-semibold text-[#e9d5ff] px-3 py-1.5 rounded-lg bg-[#c084fc]/15 border border-[#c084fc]/30">
+                Open Review
+              </span>
+            </div>
+          </button>
+        </div>
+      )}
 
       {attentionItems.length > 0 && (
         <div className="mb-8">
@@ -268,12 +311,13 @@ export function HomeView({
             const assignedToYou = pulse?.assignedToYou ?? 0;
             const listCount = pulse?.listCount ?? 0;
             const noteCount = pulse?.noteCount ?? 0;
+            const pendingReview = pulse?.pendingReviewCount ?? 0;
             const taskCount = pulse?.taskCount ?? openTasks;
             const memberCount = pulse?.memberCount;
             const isPrivateWorkspace = typeof memberCount === "number" && memberCount === 1;
             const inventoryLabel = [
               formatInventoryCount(listCount, "list", "lists"),
-              formatInventoryCount(noteCount, "note", "notes"),
+              formatInventoryCount(noteCount, "file", "files"),
               formatInventoryCount(taskCount, "task", "tasks"),
             ].join(" · ");
 
@@ -377,8 +421,13 @@ export function HomeView({
                     <div className="text-[11px] text-[#71717a] max-md:mt-0 md:mt-2 tabular-nums leading-snug">
                       {inventoryLabel}
                     </div>
-                    {(overdue > 0 || due > 0 || assignedToYou > 0) && (
+                    {(overdue > 0 || due > 0 || assignedToYou > 0 || pendingReview > 0) && (
                       <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] mt-1.5">
+                        {pendingReview > 0 && (
+                          <span className="text-[#ff3366]">
+                            {pendingReview} in Review
+                          </span>
+                        )}
                         {assignedToYou > 0 && (
                           <span
                             className={cn(
@@ -425,7 +474,7 @@ export function HomeView({
                   {(
                     [
                       { label: "Tasks", view: "tasks" as const },
-                      { label: "Notes", view: "notes" as const },
+                      { label: "Files", view: "notes" as const },
                       { label: "Lists", view: "lists" as const },
                       { label: "Team", view: "teams" as const },
                     ] as const

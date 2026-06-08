@@ -8,7 +8,7 @@ export type FilesBrowseFilter =
   | { kind: "review" }
   | { kind: "all" }
   | { kind: "untagged" }
-  | { kind: "tag"; tag: string };
+  | { kind: "tags"; tags: string[] };
 
 interface TagRailProps {
   filter: FilesBrowseFilter;
@@ -17,6 +17,10 @@ interface TagRailProps {
   reviewCount: number;
   onNewFile: () => void;
   isCreating?: boolean;
+}
+
+function isTagActive(filter: FilesBrowseFilter, tag: string): boolean {
+  return filter.kind === "tags" && filter.tags.includes(tag);
 }
 
 export function TagRail({
@@ -34,6 +38,17 @@ export function TagRail({
         ? "bg-[#c084fc]/15 text-[#e9d5ff] border border-[#c084fc]/30"
         : "text-[#a1a1aa] hover:bg-white/5 hover:text-white border border-transparent",
     );
+
+  const handleTagClick = (tag: string) => {
+    if (filter.kind === "tags") {
+      const next = filter.tags.includes(tag)
+        ? filter.tags.filter((t) => t !== tag)
+        : [...filter.tags, tag];
+      onFilterChange(next.length > 0 ? { kind: "tags", tags: next } : { kind: "all" });
+    } else {
+      onFilterChange({ kind: "tags", tags: [tag] });
+    }
+  };
 
   return (
     <aside className="files-tag-rail w-52 sm:w-56 shrink-0 border-r border-white/10 bg-[#0a0a0f] flex flex-col min-h-0">
@@ -85,6 +100,11 @@ export function TagRail({
         {tags.length > 0 && (
           <div className="files-tag-rail__tags-label pt-2 pb-1 px-2 text-[10px] uppercase tracking-widest text-[#52525b] font-semibold">
             Tags
+            {filter.kind === "tags" && filter.tags.length > 1 && (
+              <span className="normal-case tracking-normal text-[#71717a] font-normal ml-1">
+                · match all
+              </span>
+            )}
           </div>
         )}
 
@@ -92,8 +112,8 @@ export function TagRail({
           <button
             key={tag}
             type="button"
-            className={itemClass(filter.kind === "tag" && filter.tag === tag)}
-            onClick={() => onFilterChange({ kind: "tag", tag })}
+            className={itemClass(isTagActive(filter, tag))}
+            onClick={() => handleTagClick(tag)}
           >
             <Tag className="h-3.5 w-3.5 shrink-0 opacity-70" />
             <span className="truncate">{tag}</span>

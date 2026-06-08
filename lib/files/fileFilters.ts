@@ -21,9 +21,20 @@ export function filterFiledNotes(notes: Note[]): Note[] {
   return notes.filter(isFiledNote);
 }
 
+/** Match if the note has any of the selected tags. */
 export function filterByTags(notes: Note[], selectedTags: string[]): Note[] {
   if (selectedTags.length === 0) return notes;
-  return notes.filter((n) => selectedTags.some((t) => n.tags.includes(t)));
+  return notes.filter((n) => selectedTags.some((t) => (n.tags ?? []).includes(t)));
+}
+
+/** Match only if the note has every selected tag (multi-drawer AND). */
+export function filterByAllTags(notes: Note[], selectedTags: string[]): Note[] {
+  if (selectedTags.length === 0) return notes;
+  return notes.filter((n) => selectedTags.every((t) => (n.tags ?? []).includes(t)));
+}
+
+export function countPendingReviewForWorkspace(notes: Note[], workspaceId: string): number {
+  return filterPendingReview(notes.filter((n) => n.workspaceId === workspaceId)).length;
 }
 
 export function collectWorkspaceTags(notes: Note[]): string[] {

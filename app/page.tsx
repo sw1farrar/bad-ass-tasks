@@ -445,6 +445,7 @@ export default function BadAssTasks() {
   }, [currentWorkspace.id]);
 
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [filesOpenReview, setFilesOpenReview] = useState(false);
 
   // Extracted note keyboard (M2 extraction - reduces monolith)
   useNoteKeyboard({
@@ -1400,6 +1401,9 @@ export default function BadAssTasks() {
         listCount: stats?.listCount ?? 0,
         openListItemsCount: stats?.openListItemsCount ?? 0,
         noteCount: stats?.noteCount ?? 0,
+        pendingReviewCount: filterPendingReview(
+          (notes || []).filter((n) => n.workspaceId === ws.id),
+        ).length,
         taskCount:
           stats?.totalTaskCount ??
           (tasks || []).filter((t) => t.workspaceId === ws.id).length,
@@ -1435,6 +1439,12 @@ export default function BadAssTasks() {
         onAcceptInvite={handleHomeAcceptInvite}
         onDeclineInvite={handleHomeDeclineInvite}
         onOpenNotification={handleHomeOpenNotification}
+        pendingReviewTotal={filterPendingReview(notes || []).length}
+        onOpenFilesReview={() => {
+          setFilesOpenReview(true);
+          setSelectedNoteId(null);
+          setView("notes");
+        }}
       />
     );
   };
@@ -1534,6 +1544,8 @@ export default function BadAssTasks() {
             reviewedBy: user?.id ?? null,
           });
         }}
+        openReviewOnMount={filesOpenReview}
+        onOpenReviewConsumed={() => setFilesOpenReview(false)}
       />
     );
   };

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   filterPendingReview,
   filterFiledNotes,
+  filterByAllTags,
   collectWorkspaceTags,
 } from "@/lib/files/fileFilters";
 import type { Note } from "@/types";
@@ -32,6 +33,16 @@ describe("fileFilters", () => {
     ];
     expect(filterPendingReview(notes).map((n) => n.id)).toEqual(["1"]);
     expect(filterFiledNotes(notes).map((n) => n.id)).toEqual(["2", "3"]);
+  });
+
+  it("filters by all selected tags (AND)", () => {
+    const notes = [
+      note({ id: "1", tags: ["receipt", "acme"] }),
+      note({ id: "2", tags: ["receipt"] }),
+      note({ id: "3", tags: ["acme"] }),
+    ];
+    expect(filterByAllTags(notes, ["receipt", "acme"]).map((n) => n.id)).toEqual(["1"]);
+    expect(filterByAllTags(notes, ["receipt"]).map((n) => n.id)).toEqual(["1", "2"]);
   });
 
   it("collects user tags excluding from-email", () => {
