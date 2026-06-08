@@ -2324,6 +2324,9 @@ export const useTaskStore = create<TaskState>()(
           tags: [],
           linkedTaskIds: [],
           workspaceId,
+          reviewStatus: isSupabaseLive() ? "pending_review" : "filed",
+          recordType: "note",
+          filedAt: isSupabaseLive() ? null : new Date().toISOString(),
         };
 
         if (isSupabaseLive()) {

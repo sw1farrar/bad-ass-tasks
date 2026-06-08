@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Check, Plus, Command, Users, Settings,
   ChevronRight, ChevronDown, Clock, Star, ArrowUpRight, ListChecks, Shield,
-  Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat,
+  Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat, FolderOpen,
   Trash2, Search, RefreshCw, FileText, Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -33,7 +33,8 @@ import { CreateWorkspaceGate } from "@/components/CreateWorkspaceGate";
 import { DualAuthGate } from "@/components/DualAuthGate";
 import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
-import { NotesView } from "@/features/notes/NotesView";
+import { FilesView } from "@/features/files";
+import "@/features/files/files-workspace.css";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
 import { HomeView, HomeListModal, type HomeListModalTarget } from "@/features/home";
@@ -86,7 +87,7 @@ function workspaceAccessLabel(
 const VIEWS = [
   { id: "home", label: "Home", icon: Home },
   { id: "tasks", label: "Tasks", icon: Check },
-  { id: "notes", label: "Notes", icon: Star },
+  { id: "notes", label: "Files", icon: FolderOpen },
   { id: "lists", label: "Lists", icon: ListChecks },
   { id: "teams", label: "Team", icon: Users },
   { id: "settings", label: "Workspace Settings", icon: Settings },
@@ -765,7 +766,11 @@ export default function BadAssTasks() {
     const params = new URLSearchParams(window.location.search);
     const rawView = params.get("view");
     const urlView =
-      rawView === "calendar" || rawView === "today" ? "home" : rawView;
+      rawView === "calendar" || rawView === "today"
+        ? "home"
+        : rawView === "files"
+          ? "notes"
+          : rawView;
     const validViews = VIEWS.map(v => v.id);
     if (urlView && validViews.includes(urlView as (typeof VIEWS)[number]["id"]) && urlView !== currentView) {
       setView(urlView as (typeof VIEWS)[number]["id"]);
@@ -1478,13 +1483,12 @@ export default function BadAssTasks() {
 
   const renderNotesView = () => {
     return (
-      <NotesView
+      <FilesView
         notes={notes}
         tasks={tasks}
         workspaceId={currentWorkspace.id}
         selectedNoteId={selectedNoteId}
         onSelectNote={setSelectedNoteId}
-        // All complex note orchestration now comes from the extracted hook
         onCreateNote={noteOps.onCreateNote}
         onUpdateNote={noteOps.onUpdateNote}
         onDeleteNote={noteOps.onDeleteNote}
@@ -1502,23 +1506,27 @@ export default function BadAssTasks() {
         onCreateSubNote={noteOps.onCreateSubNote}
         onLinkNoteToNote={noteOps.onLinkNoteToNote}
         onUnlinkNoteFromNote={noteOps.onUnlinkNoteFromNote}
-        onOpenNote={(noteId) => setSelectedNoteId(noteId)}  // Simple navigation for db-blocks and embeds
-
-        // Live snapshot persistence (M2) — now from the extracted hook (tiny monolith slimming)
-        // The full handler + guard + bounded snapshots array logic was the last inline notes
-        // code in renderNotesView(). Reduced this notes area by ~11 lines. Sourced exactly
-        // like the other noteOps.* handlers (onCreateNote, requestSnapshot, etc.).
+        onOpenNote={(noteId) => setSelectedNoteId(noteId)}
         onPersistSnapshot={noteOps.onPersistSnapshot}
         requestSnapshot={noteOps.requestSnapshot}
         requestTitleSnapshot={noteOps.requestTitleSnapshot}
         isLive={isTrulyLive}
-        // M2 bidirectional adapters now come from the extracted hook (monolith slimming)
         onMentionLinked={noteOps.onMentionLinked}
         onRemoveLinked={noteOps.onRemoveLinked}
         onRemoveBacklink={noteOps.onRemoveLinked}
-        // M2: automatic mention → link sync now handled inside NotesView via the centralized useMentions hook
-        // (receives the real link/unlink handlers from noteOps). Override only if needed.
         onMentionsChanged={undefined}
+        onApproveFile={async (id, input) => {
+          await noteOps.onUpdateNote(id, {
+            workspaceId: currentWorkspace.id,
+            title: input.title,
+            tags: input.tags,
+            memo: input.memo,
+            recordType: input.recordType,
+            reviewStatus: "filed",
+            filedAt: new Date().toISOString(),
+            reviewedBy: user?.id ?? null,
+          });
+        }}
       />
     );
   };

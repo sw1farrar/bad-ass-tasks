@@ -120,9 +120,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       }
       const note = res;
       toast.success(`Note created: ${note.title}`, {
-        description: "Open Notes view to edit (full editor coming soon).",
+        description: "Open Files view to review and edit records.",
         action: {
-          label: "Go to Notes",
+          label: "Go to Files",
           onClick: () => setView("notes"),
         },
       });
@@ -342,7 +342,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <Command.Group heading="Navigate Views" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
               {[
                 { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "1" },
-                { label: "Notes", view: "notes" as const, icon: FileText, shortcut: "2" },
+                { label: "Files", view: "notes" as const, icon: FileText, shortcut: "2" },
                 { label: "Lists", view: "lists" as const, icon: ListChecks, shortcut: "3" },
                 { label: "Team", view: "teams" as const, icon: Users, shortcut: "4" },
                 { label: "Workspace Settings", view: "settings" as const, icon: Settings, shortcut: "5" },

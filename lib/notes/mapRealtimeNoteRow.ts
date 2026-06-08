@@ -1,4 +1,5 @@
-import type { Note } from "@/types";
+import type { FileRecordType, FileReviewStatus, Note } from "@/types";
+import { inferRecordTypeFromTags } from "@/lib/files/fileTypes";
 
 /** Normalize notes.content from a Supabase realtime payload row. */
 export function contentFromNoteRow(raw: unknown): string {
@@ -29,6 +30,21 @@ export function mapRealtimeNoteRow(row: Record<string, unknown>): Note {
     linkedNoteIds: Array.isArray(row.linked_note_ids) ? (row.linked_note_ids as string[]) : [],
     parentNoteId: (row.parent_note_id as string | null | undefined) ?? null,
     sortOrder: typeof row.sort_order === "number" ? row.sort_order : undefined,
+    reviewStatus:
+      row.review_status === "pending_review"
+        ? ("pending_review" as FileReviewStatus)
+        : ("filed" as FileReviewStatus),
+    recordType:
+      (typeof row.record_type === "string"
+        ? row.record_type
+        : inferRecordTypeFromTags(
+            Array.isArray(row.tags) ? (row.tags as string[]) : [],
+          )) as FileRecordType,
+    memo: typeof row.memo === "string" ? row.memo : null,
+    filedAt: typeof row.filed_at === "string" ? row.filed_at : null,
+    reviewedBy: typeof row.reviewed_by === "string" ? row.reviewed_by : null,
+    searchDocument: typeof row.search_document === "string" ? row.search_document : null,
+    searchPlain: typeof row.search_plain === "string" ? row.search_plain : null,
   };
 }
 
@@ -58,6 +74,24 @@ export function mergeRealtimeNoteUpdate(existing: Note, row: Record<string, unkn
   }
   if (row.sort_order !== undefined) {
     next.sortOrder = typeof row.sort_order === "number" ? row.sort_order : next.sortOrder;
+  }
+  if (row.review_status !== undefined) {
+    next.reviewStatus = row.review_status === "pending_review" ? "pending_review" : "filed";
+  }
+  if (row.record_type !== undefined && typeof row.record_type === "string") {
+    next.recordType = row.record_type as FileRecordType;
+  }
+  if (row.memo !== undefined) {
+    next.memo = typeof row.memo === "string" ? row.memo : null;
+  }
+  if (row.filed_at !== undefined) {
+    next.filedAt = typeof row.filed_at === "string" ? row.filed_at : null;
+  }
+  if (row.search_document !== undefined) {
+    next.searchDocument = typeof row.search_document === "string" ? row.search_document : null;
+  }
+  if (row.search_plain !== undefined) {
+    next.searchPlain = typeof row.search_plain === "string" ? row.search_plain : null;
   }
 
   return next;

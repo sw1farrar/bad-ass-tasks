@@ -176,6 +176,12 @@ export interface Database {
           email_source?: string | null
           search_plain?: string | null
           email_pipeline_version?: number | null
+          review_status?: string
+          record_type?: string
+          memo?: string | null
+          filed_at?: string | null
+          reviewed_by?: string | null
+          search_document?: string | null
         }
         Insert: {
           id?: string
@@ -197,6 +203,12 @@ export interface Database {
           email_source?: string | null
           search_plain?: string | null
           email_pipeline_version?: number | null
+          review_status?: string
+          record_type?: string
+          memo?: string | null
+          filed_at?: string | null
+          reviewed_by?: string | null
+          search_document?: string | null
         }
         Update: {
           id?: string
@@ -218,6 +230,12 @@ export interface Database {
           email_source?: string | null
           search_plain?: string | null
           email_pipeline_version?: number | null
+          review_status?: string
+          record_type?: string
+          memo?: string | null
+          filed_at?: string | null
+          reviewed_by?: string | null
+          search_document?: string | null
         }
       },
       // Added for Phase 2 collaboration (workspace_members was missing from prior types)

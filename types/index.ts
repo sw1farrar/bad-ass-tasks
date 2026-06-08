@@ -35,6 +35,10 @@ export interface Task {
   parentTaskId?: string | null;
 }
 
+export type FileReviewStatus = "pending_review" | "filed";
+
+export type FileRecordType = "note" | "email" | "document" | "receipt" | "other";
+
 export interface Note {
   id: string;
   title: string;
@@ -52,6 +56,13 @@ export interface Note {
   rawHtml?: string | null; // Archived inbound HTML for re-render
   emailSource?: string | null; // EML storage path or brevo:messageId
   emailPipelineVersion?: number | null;
+  /** Files workflow: pending_review = triage queue; filed = approved library */
+  reviewStatus?: FileReviewStatus;
+  recordType?: FileRecordType;
+  memo?: string | null;
+  filedAt?: string | null;
+  reviewedBy?: string | null;
+  searchDocument?: string | null;
 }
 
 /** Google Keep–style checklist list (workspace-scoped). */

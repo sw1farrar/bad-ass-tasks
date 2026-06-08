@@ -216,6 +216,8 @@ export async function processInboundEmail(
     linked_task_ids: [],
     linked_note_ids: [],
     snapshots: [],
+    review_status: "pending_review",
+    record_type: "email",
   };
 
   if (inboxRow.parent_note_id) {
@@ -244,10 +246,13 @@ export async function processInboundEmail(
     .select("id")
     .single());
 
-  if (createError?.code === "42703" && rawHtml) {
-    const { raw_html: _raw, ...withoutArchive } = insertPayload;
+  if (createError?.code === "42703") {
+    const fallback = { ...insertPayload };
+    delete fallback.raw_html;
+    delete fallback.review_status;
+    delete fallback.record_type;
     ({ data: createdNote, error: createError } = await (supabase.from("notes") as any)
-      .insert(withoutArchive)
+      .insert(fallback)
       .select("id")
       .single());
   }

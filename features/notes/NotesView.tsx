@@ -85,6 +85,8 @@ interface NotesViewProps {
   onPersistSnapshot?: (noteId: string, snapshot: unknown) => Promise<void>;
   requestSnapshot?: (label?: string) => void;
   requestTitleSnapshot?: () => void;
+  /** When detail-only, parent shell (Files view) owns list + tag rail. */
+  shellMode?: "full" | "detail-only";
 }
 
 export function NotesView({
@@ -116,7 +118,9 @@ export function NotesView({
   onPersistSnapshot: _onPersistSnapshot,
   requestSnapshot: _requestSnapshot,
   requestTitleSnapshot: _requestTitleSnapshot,
+  shellMode = "full",
 }: NotesViewProps) {
+  const detailOnly = shellMode === "detail-only";
   const [isCreating, setIsCreating] = useState(false);
   const [showOpenTasksOnly, setShowOpenTasksOnly] = useState(false);
 
@@ -967,6 +971,7 @@ export function NotesView({
 
   return (
     <div className={cn("flex h-full min-h-0 overflow-hidden notes-root", mobileLayoutClass)}>
+      {!detailOnly && (
       <div className="notes-sidebar w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden overflow-x-hidden min-h-0">
         <NotesSidebarHeader
           showOpenTasksOnly={showOpenTasksOnly}
@@ -1063,8 +1068,12 @@ export function NotesView({
           )}
         </div>
       </div>
+      )}
 
-      <div className="notes-editor-panel relative flex-1 flex flex-col min-w-0 overflow-hidden hidden md:flex">
+      <div className={cn(
+        "notes-editor-panel relative flex-1 flex flex-col min-w-0 overflow-hidden",
+        detailOnly ? "flex" : "hidden md:flex",
+      )}>
         {selectedNote ? (
           <div className="flex-1 flex flex-col min-h-0">{renderNoteDetail()}</div>
         ) : (
@@ -1073,9 +1082,13 @@ export function NotesView({
               <div className="text-[#c084fc] mb-4">
                 <Star className="h-10 w-10 mx-auto" />
               </div>
-              <div className="text-xl font-semibold tracking-tight mb-2">No note selected</div>
+              <div className="text-xl font-semibold tracking-tight mb-2">
+                {detailOnly ? "No file selected" : "No note selected"}
+              </div>
               <div className="text-[#71717a] max-w-xs mx-auto">
-                Select a note from the list or create a new one to start writing with the full TipTap editor.
+                {detailOnly
+                  ? "Select a file from the list or open Review to approve incoming records."
+                  : "Select a note from the list or create a new one to start writing with the full TipTap editor."}
               </div>
               <button
                 onClick={handleCreateNote}

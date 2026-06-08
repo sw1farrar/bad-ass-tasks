@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/supabase";
 import type { BrevoInboundEmailItem } from "./inboundTypes";
 import { safeBuildInboundNoteContentJson } from "@/lib/notes/emailHtmlToTipTap";
+import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
 import { extractNoteSearchText } from "@/lib/notes/extractNoteSearchText";
 import { EMAIL_PIPELINE_VERSION } from "@/lib/notes/emailPipeline";
 
@@ -33,6 +34,11 @@ export async function finalizeInboundNoteContent(params: {
 }): Promise<boolean> {
   const finalContent = safeBuildInboundNoteContentJson(params.item, params.cidToUrl);
   const searchPlain = [params.title, extractNoteSearchText(finalContent)].filter(Boolean).join(" ").trim();
+  const searchDocument = buildSearchDocument({
+    title: params.title,
+    searchPlain,
+    tags: ["from-email"],
+  });
 
   const updatePayload: Record<string, unknown> = {
     content: finalContent,
@@ -40,7 +46,10 @@ export async function finalizeInboundNoteContent(params: {
     raw_html: params.rawHtml || null,
     email_source: params.emailSource ?? null,
     search_plain: searchPlain || null,
+    search_document: searchDocument || null,
     email_pipeline_version: EMAIL_PIPELINE_VERSION,
+    review_status: "pending_review",
+    record_type: "email",
   };
 
   const { error } = await updateNoteRow(params.supabase, params.noteId, updatePayload);

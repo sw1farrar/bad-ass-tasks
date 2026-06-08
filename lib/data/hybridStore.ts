@@ -15,7 +15,9 @@
 import { apiFetch } from "@/lib/api/apiFetch";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
-import type { Task, TaskStatus, Priority, Note, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem } from "@/types";
+import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem } from "@/types";
+import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
+import { FILE_REVIEW_FILED, FILE_REVIEW_PENDING, inferRecordTypeFromTags } from "@/lib/files/fileTypes";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
@@ -498,7 +500,97 @@ function mapNoteRow(row: NoteRow): Note {
     rawHtml: (row as any).raw_html ?? null,
     emailSource: (row as any).email_source ?? null,
     emailPipelineVersion: (row as any).email_pipeline_version ?? null,
+    reviewStatus: normalizeReviewStatus((row as any).review_status),
+    recordType: normalizeRecordType((row as any).record_type, row.tags ?? []),
+    memo: (row as any).memo ?? null,
+    filedAt: (row as any).filed_at ?? null,
+    reviewedBy: (row as any).reviewed_by ?? null,
+    searchDocument: (row as any).search_document ?? null,
   };
+}
+
+function normalizeReviewStatus(value: unknown): FileReviewStatus {
+  return value === FILE_REVIEW_PENDING ? FILE_REVIEW_PENDING : FILE_REVIEW_FILED;
+}
+
+function normalizeRecordType(value: unknown, tags: string[]): FileRecordType {
+  const allowed = new Set(["note", "email", "document", "receipt", "other"]);
+  if (typeof value === "string" && allowed.has(value)) return value as FileRecordType;
+  return inferRecordTypeFromTags(tags);
+}
+
+function isFilesWorkflowColumnMissing(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return (
+    e?.code === "PGRST204" &&
+    typeof e?.message === "string" &&
+    (e.message.includes("review_status") ||
+      e.message.includes("search_document") ||
+      e.message.includes("record_type"))
+  );
+}
+
+let filesWorkflowAvailable: boolean | null = null;
+let filesWorkflowMigrationWarned = false;
+
+export function isFilesWorkflowEnabled(): boolean {
+  return filesWorkflowAvailable !== false;
+}
+
+export function __resetFilesWorkflowProbeForTests(): void {
+  filesWorkflowAvailable = null;
+  filesWorkflowMigrationWarned = false;
+}
+
+async function probeFilesWorkflow(): Promise<void> {
+  if (filesWorkflowAvailable !== null) return;
+  if (!isSupabaseLive()) {
+    filesWorkflowAvailable = false;
+    return;
+  }
+  const supabase = getClient();
+  if (!supabase) {
+    filesWorkflowAvailable = false;
+    return;
+  }
+  const { error } = await supabase.from("notes").select("review_status").limit(1);
+  if (error && isFilesWorkflowColumnMissing(error)) {
+    filesWorkflowAvailable = false;
+    if (!filesWorkflowMigrationWarned) {
+      filesWorkflowMigrationWarned = true;
+      console.warn(
+        "[Badazz Tasks] Files workflow is not synced to Supabase yet. Run supabase/add-files-review-workflow.sql in the SQL Editor, then refresh.",
+      );
+    }
+  } else if (error) {
+    logHybridError("probeFilesWorkflow", error);
+    filesWorkflowAvailable = true;
+  } else {
+    filesWorkflowAvailable = true;
+  }
+}
+
+function appendSearchFieldsToNotePayload(
+  payload: Partial<NoteInsert> & Record<string, unknown>,
+  input: {
+    title?: string;
+    content?: string;
+    searchPlain?: string | null;
+    tags?: string[];
+    memo?: string | null;
+  },
+): void {
+  if (filesWorkflowAvailable === false) return;
+  const searchPlain =
+    input.searchPlain ??
+    (input.content ? buildSearchDocument({ title: input.title, content: input.content, tags: input.tags, memo: input.memo }) : null);
+  payload.search_plain = searchPlain ?? (payload as any).search_plain ?? null;
+  payload.search_document = buildSearchDocument({
+    title: input.title,
+    searchPlain,
+    tags: input.tags,
+    memo: input.memo,
+  });
 }
 
 function mapActivityLogRow(row: ActivityLogRow): ActivityLog {
@@ -1642,12 +1734,21 @@ export async function createNote(input: {
   // Optional pre-generated client UUID for offline create consistency
   id?: string;
   parentNoteId?: string | null; // Milestone 2: hierarchy
+  reviewStatus?: FileReviewStatus;
+  recordType?: FileRecordType;
+  memo?: string | null;
 }): Promise<Note | null> {
   if (!isSupabaseLive()) return null;
 
   const supabase = getClient();
   if (!supabase) return null;
 
+  await probeFilesWorkflow();
+  const reviewStatus =
+    input.reviewStatus ??
+    (filesWorkflowAvailable ? FILE_REVIEW_PENDING : FILE_REVIEW_FILED);
+  const recordType =
+    input.recordType ?? inferRecordTypeFromTags(input.tags ?? []);
   const online = isCurrentlyOnline();
 
   if (!online) {
@@ -1661,20 +1762,35 @@ export async function createNote(input: {
       updatedAt: new Date().toISOString(),
       tags: input.tags ?? [],
       linkedTaskIds: [],
+      reviewStatus,
+      recordType,
+      memo: input.memo ?? null,
     };
 
     const contentJson = noteContentToJson(input.content);
+    const pendingPayload: Record<string, unknown> = {
+      title: input.title,
+      content: contentJson,
+      tags: input.tags ?? [],
+      is_archived: false,
+      ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
+    };
+    if (filesWorkflowAvailable) {
+      pendingPayload.review_status = reviewStatus;
+      pendingPayload.record_type = recordType;
+      if (input.memo) pendingPayload.memo = input.memo;
+      appendSearchFieldsToNotePayload(pendingPayload as Partial<NoteInsert>, {
+        title: input.title,
+        content: input.content,
+        tags: input.tags,
+        memo: input.memo,
+      });
+    }
     enqueuePendingOperation({
       type: "create",
       entityType: "note",
       targetId: clientId,
-      payload: {
-        title: input.title,
-        content: contentJson,
-        tags: input.tags ?? [],
-        is_archived: false,
-        ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
-      },
+      payload: pendingPayload,
       workspaceId: input.workspaceId,
     });
 
@@ -1683,7 +1799,7 @@ export async function createNote(input: {
 
   const contentJson = noteContentToJson(input.content);
 
-  const insertPayload: NoteInsert = {
+  const insertPayload: NoteInsert & Record<string, unknown> = {
     ...(input.id ? { id: input.id } : {}),
     workspace_id: input.workspaceId,
     title: input.title,
@@ -1692,6 +1808,20 @@ export async function createNote(input: {
     is_archived: false,
     ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
   };
+  if (filesWorkflowAvailable) {
+    insertPayload.review_status = reviewStatus;
+    insertPayload.record_type = recordType;
+    if (input.memo) insertPayload.memo = input.memo;
+    if (reviewStatus === FILE_REVIEW_FILED) {
+      insertPayload.filed_at = new Date().toISOString();
+    }
+    appendSearchFieldsToNotePayload(insertPayload, {
+      title: input.title,
+      content: input.content,
+      tags: input.tags,
+      memo: input.memo,
+    });
+  }
 
   try {
     const { data, error } = await (supabase.from("notes") as any)
@@ -1805,6 +1935,8 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
   const supabase = getClient();
   if (!supabase) return false;
 
+  await probeFilesWorkflow();
+
   const payload: Partial<NoteInsert> = {};
 
   if (updates.title !== undefined) payload.title = updates.title;
@@ -1825,6 +1957,37 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
   }
   if ((updates as any).sortOrder !== undefined) {
     (payload as any).sort_order = (updates as any).sortOrder;
+  }
+  if (updates.reviewStatus !== undefined) {
+    (payload as any).review_status = updates.reviewStatus;
+  }
+  if (updates.recordType !== undefined) {
+    (payload as any).record_type = updates.recordType;
+  }
+  if (updates.memo !== undefined) {
+    (payload as any).memo = updates.memo;
+  }
+  if (updates.filedAt !== undefined) {
+    (payload as any).filed_at = updates.filedAt;
+  }
+  if (updates.reviewedBy !== undefined) {
+    (payload as any).reviewed_by = updates.reviewedBy;
+  }
+  if (
+    filesWorkflowAvailable &&
+    (updates.title !== undefined ||
+      updates.content !== undefined ||
+      updates.tags !== undefined ||
+      updates.memo !== undefined ||
+      updates.searchPlain !== undefined)
+  ) {
+    appendSearchFieldsToNotePayload(payload as Record<string, unknown>, {
+      title: updates.title,
+      content: updates.content,
+      searchPlain: updates.searchPlain,
+      tags: updates.tags,
+      memo: updates.memo,
+    });
   }
 
   // Resolve workspace for any compensation enqueue (offline or Supabase error path).
@@ -1873,6 +2036,83 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
     logHybridError("updateNote", err);
     return true;
   }
+}
+
+/** Approve a record from Review into the filed library. */
+export async function approveFileRecord(
+  id: string,
+  input: {
+    workspaceId: string;
+    title?: string;
+    tags: string[];
+    memo?: string | null;
+    recordType?: FileRecordType;
+    reviewedBy?: string | null;
+  },
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  return updateNote(id, {
+    workspaceId: input.workspaceId,
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    tags: input.tags,
+    memo: input.memo ?? null,
+    ...(input.recordType ? { recordType: input.recordType } : {}),
+    reviewStatus: FILE_REVIEW_FILED,
+    filedAt: now,
+    reviewedBy: input.reviewedBy ?? null,
+  });
+}
+
+/** Server-side workspace file search (FTS RPC with client fallback). */
+export async function searchWorkspaceFiles(
+  workspaceId: string,
+  query: string,
+  options?: { includePending?: boolean; limit?: number },
+): Promise<Note[]> {
+  if (!isSupabaseLive() || !workspaceId || ["w1", "w2"].includes(workspaceId)) return [];
+  if (!isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  await probeFilesWorkflow();
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  if (filesWorkflowAvailable) {
+    try {
+      const { data, error } = await (supabase as any).rpc("search_workspace_files", {
+        p_workspace_id: workspaceId,
+        p_query: trimmed,
+        p_include_pending: options?.includePending ?? false,
+        p_limit: options?.limit ?? 100,
+      });
+      if (!error && Array.isArray(data)) {
+        return data.map((row: NoteRow) => mapNoteRow(row));
+      }
+      if (error && !isFilesWorkflowColumnMissing(error)) {
+        logHybridError("searchWorkspaceFiles", error);
+      }
+    } catch (err) {
+      logHybridError("searchWorkspaceFiles", err);
+    }
+  }
+
+  const notes = await getNotes(workspaceId);
+  const q = trimmed.toLowerCase();
+  return notes.filter((n) => {
+    const hay = [
+      n.title,
+      n.searchPlain,
+      n.searchDocument,
+      n.memo,
+      ...(n.tags ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
+  });
 }
 
 /**

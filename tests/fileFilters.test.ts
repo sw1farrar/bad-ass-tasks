@@ -1,0 +1,44 @@
+import { describe, it, expect } from "vitest";
+import {
+  filterPendingReview,
+  filterFiledNotes,
+  collectWorkspaceTags,
+} from "@/lib/files/fileFilters";
+import type { Note } from "@/types";
+
+function note(partial: Partial<Note> & { id: string }): Note {
+  return {
+    id: partial.id,
+    title: partial.title ?? "Test",
+    content: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    tags: partial.tags ?? [],
+    linkedTaskIds: [],
+    workspaceId: "ws-1",
+    reviewStatus: partial.reviewStatus,
+    recordType: partial.recordType,
+    memo: partial.memo,
+    filedAt: partial.filedAt,
+  };
+}
+
+describe("fileFilters", () => {
+  it("splits pending review from filed notes", () => {
+    const notes = [
+      note({ id: "1", reviewStatus: "pending_review" }),
+      note({ id: "2", reviewStatus: "filed" }),
+      note({ id: "3" }),
+    ];
+    expect(filterPendingReview(notes).map((n) => n.id)).toEqual(["1"]);
+    expect(filterFiledNotes(notes).map((n) => n.id)).toEqual(["2", "3"]);
+  });
+
+  it("collects user tags excluding from-email", () => {
+    const tags = collectWorkspaceTags([
+      note({ id: "1", tags: ["receipt", "from-email"] }),
+      note({ id: "2", tags: ["acme"] }),
+    ]);
+    expect(tags).toEqual(["acme", "receipt"]);
+  });
+});
