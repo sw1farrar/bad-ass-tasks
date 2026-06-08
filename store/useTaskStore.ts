@@ -1376,53 +1376,9 @@ export const useTaskStore = create<TaskState>()(
         if (!currentUser) return;
 
         try {
-          // Check if user already has workspace membership(s) — decide bootstrap vs fetch full list
-          const { data: memberships, error: memErr } = await supabase
-            .from("workspace_members")
-            .select("workspace_id")
-            .eq("user_id", currentUser.id)
-            .limit(1);
-
-          if (memErr) {
-            console.error("[useTaskStore] ensureUserHasWorkspace membership query error:", memErr);
-          }
-
-          if (!memberships || memberships.length === 0) {
-            // Bootstrap a default workspace for the new (or first-time) user via the schema RPC
-            const emailLocal = (currentUser.email || "user").split("@")[0].replace(/[^a-z0-9]/gi, "");
-            const workspaceName = emailLocal ? `${emailLocal}'s Workspace` : "Personal Workspace";
-            const workspaceSlug = `personal-${emailLocal || currentUser.id.slice(0, 8)}`;
-
-            const { data: newId, error: rpcErr } = await (supabase.rpc as any)("create_workspace_for_user", {
-              user_id: currentUser.id,
-              workspace_name: workspaceName,
-              workspace_slug: workspaceSlug,
-            });
-
-            if (rpcErr || !newId) {
-              console.error("[useTaskStore] ensureUserHasWorkspace create RPC error or no id:", rpcErr);
-              // Still attempt fetch (may be partial state)
-              await get().fetchUserWorkspaces();
-              await get().initializeFromSupabase();
-              return;
-            }
-
-            // Optimistic workspace so a slow/empty follow-up fetch cannot flash "No workspaces yet".
-            const bootstrapWs: Workspace = {
-              id: String(newId),
-              name: workspaceName,
-              slug: workspaceSlug,
-              role: "owner",
-            };
-            set({ workspaces: [bootstrapWs], currentWorkspace: bootstrapWs });
-            saveLastWorkspaceId(currentUser.id, bootstrapWs.id);
-          }
-
-          // For both new users (post-create) and returning users: fetch the *full authoritative list* of real workspaces.
-          // This replaces the previous buggy "only first ws" logic and enables proper multi-workspace switcher.
+          // Load the user's workspace list. If empty, the UI shows CreateWorkspaceGate
+          // so they name and create their first workspace explicitly.
           await get().fetchUserWorkspaces();
-
-          // Ensure we have data for whatever currentWorkspace fetch decided on (or the one it set)
           await get().initializeFromSupabase();
         } catch (err) {
           console.error("[useTaskStore] ensureUserHasWorkspace error:", err);
@@ -1513,6 +1469,12 @@ export const useTaskStore = create<TaskState>()(
           set({ currentWorkspace: target });
           saveLastWorkspaceId(currentUser.id, target.id);
           await get().initializeFromSupabase();
+
+          if (isSupabaseLive() && !["w1", "w2"].includes(target.id)) {
+            await get().fetchMembers?.().catch(() => {});
+            await get().fetchInvites?.().catch(() => {});
+            get().setupWorkspaceRealtime();
+          }
 
           toast.success(`Workspace "${workspaceName}" created`, {
             description: "Switched to your new workspace.",
@@ -2850,11 +2812,28 @@ export const useTaskStore = create<TaskState>()(
             await get().fetchMembers?.().catch(() => {});
             await get().fetchNotifications?.().catch(() => {});
 
-            // If we just left the current workspace, switch to another one
+            // If we just left the current workspace, switch to another or show create gate
             if (wsId === get().currentWorkspace?.id) {
               const remaining = get().workspaces || [];
               if (remaining.length > 0) {
                 get().switchWorkspace(remaining[0].id);
+              } else {
+                get().teardownWorkspaceRealtime?.();
+                set({
+                  currentWorkspace: {
+                    id: "",
+                    name: "No workspace",
+                    slug: "",
+                    role: "owner",
+                  } as Workspace,
+                  tasks: [],
+                  notes: [],
+                  workspaceLists: [],
+                  listItems: [],
+                  members: [],
+                  invites: [],
+                  onlineUsers: [],
+                });
               }
             }
 
@@ -3613,6 +3592,32 @@ export const useTaskStore = create<TaskState>()(
               get().fetchNotifications?.().catch(() => {});
             }
           },
+          onProfileChange: (payload) => {
+            const { eventType, new: newRow } = payload;
+            if (eventType !== "UPDATE" || !newRow?.id) return;
+
+            const memberIds = new Set((get().members || []).map((m) => m.userId));
+            if (!memberIds.has(newRow.id)) return;
+
+            const userId = get().user?.id;
+            set((state) => {
+              const members = (state.members || []).map((m) =>
+                m.userId === newRow.id
+                  ? {
+                      ...m,
+                      fullName: newRow.full_name ?? m.fullName,
+                      username: newRow.username ?? m.username,
+                      location: newRow.location ?? m.location,
+                      avatarUrl: newRow.avatar_url ?? m.avatarUrl,
+                    }
+                  : m,
+              );
+              return {
+                members,
+                tasks: enrichTasksWithAssignees(state.tasks, members, userId),
+              };
+            });
+          },
           onMemberChange: (payload) => {
             // When a member is added (accept), removed, or updated,
             // refresh the members list so everyone sees the change instantly.
@@ -3675,9 +3680,15 @@ export const useTaskStore = create<TaskState>()(
                     // Automatically switch the removed user to another workspace they still belong to
                     get().switchWorkspace(remaining[0].id);
                   } else {
-                    // No workspaces left — clear the current workspace state cleanly
+                    // No workspaces left — show the create-workspace gate
                     set({
-                      currentWorkspace: undefined,
+                      workspaces: [],
+                      currentWorkspace: {
+                        id: "",
+                        name: "No workspace",
+                        slug: "",
+                        role: "owner",
+                      } as Workspace,
                       tasks: [],
                       notes: [],
                       workspaceLists: [],

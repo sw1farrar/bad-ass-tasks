@@ -912,6 +912,10 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE comments;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'profiles') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'workspace_messages') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE workspace_messages;
   END IF;

@@ -485,6 +485,7 @@ export function __resetRealtimeGuardForTests(): void {
   activeNoteChannel = null;
   activeInviteChannel = null;
   activeMemberChannel = null;
+  activeProfileChannel = null;
 }
 
 export function __getCurrentRealtimeWorkspaceIdForTests(): string | null {
@@ -3204,7 +3205,7 @@ export async function deleteWorkspace(workspaceId: string): Promise<boolean> {
 }
 
 // ------------------------------------------------------------------
-// Realtime subscriptions for workspace-scoped live updates (tasks + notes + invites + members)
+// Realtime subscriptions for workspace-scoped live updates (tasks + notes + invites + members + profiles)
 // Returns cleanup function. Call on workspace switch / unmount.
 // Demo mode: instant no-op. Changes from other clients/devices will update UI via callbacks.
 //
@@ -3221,6 +3222,7 @@ let activeTaskChannel: any = null;
 let activeNoteChannel: any = null;
 let activeInviteChannel: any = null;
 let activeMemberChannel: any = null;
+let activeProfileChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
 
 // Track the workspace we are currently actively subscribed for (prevents double-subscribe on rapid switchWorkspace + initializeFromSupabase)
@@ -3234,6 +3236,7 @@ export function subscribeToWorkspaceRealtime(
     onNoteChange?: (payload: any) => void;
     onInviteChange?: (payload: any) => void;
     onMemberChange?: (payload: any) => void;
+    onProfileChange?: (payload: any) => void;
   }
 ): () => void {
   // === ENTRY COERCION + PURGE (String() + bad-UUID discipline for realtime workspace path) ===
@@ -3257,7 +3260,7 @@ export function subscribeToWorkspaceRealtime(
   //  - currentRealtimeWorkspaceId cleared in every teardown path (see below)
   //  - Comparison + channel presence check after String coercion
   if (currentRealtimeWorkspaceId === wsId &&
-      (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel)) {
+      (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel)) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
       `(currentRealtimeWorkspaceId=${currentRealtimeWorkspaceId}). Skipping to avoid postgres_changes-after-subscribe crash on rapid switch.`
@@ -3268,7 +3271,7 @@ export function subscribeToWorkspaceRealtime(
   // === TEARDOWN PRIOR (one of the teardown paths: MUST clear guard) ===
   // Defensive: clear any stale channels from previous workspace BEFORE setting new guard value.
   // We clear currentRealtimeWorkspaceId here so that a subsequent subscribe for a *different* ws always proceeds.
-  if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel) {
+  if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel) {
     if (activeTaskChannel) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
       activeTaskChannel = null;
@@ -3285,6 +3288,10 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeMemberChannel).catch(() => {});
       activeMemberChannel = null;
     }
+    if (activeProfileChannel) {
+      supabase.removeChannel(activeProfileChannel).catch(() => {});
+      activeProfileChannel = null;
+    }
     currentRealtimeWorkspaceId = null; // explicit clear in teardown path
   }
 
@@ -3292,7 +3299,7 @@ export function subscribeToWorkspaceRealtime(
   // Set *before* creating channels (but after prior cleared). Guard will protect re-entrancy from here on.
   currentRealtimeWorkspaceId = wsId;
 
-  const { onTaskChange, onNoteChange, onInviteChange, onMemberChange } = handlers;
+  const { onTaskChange, onNoteChange, onInviteChange, onMemberChange, onProfileChange } = handlers;
 
   if (onTaskChange) {
     activeTaskChannel = supabase
@@ -3382,6 +3389,28 @@ export function subscribeToWorkspaceRealtime(
       });
   }
 
+  // Teammate profile updates (name, handle, location). RLS limits events to visible profiles.
+  if (onProfileChange) {
+    activeProfileChannel = supabase
+      .channel(`ws-profiles-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+        },
+        (payload: any) => {
+          onProfileChange(payload);
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[realtime] profiles subscribed for workspace ${wsId}`);
+        }
+      });
+  }
+
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
   activeRealtimeCleanup = () => {
     if (activeTaskChannel && supabase) {
@@ -3399,6 +3428,10 @@ export function subscribeToWorkspaceRealtime(
     if (activeMemberChannel && supabase) {
       supabase.removeChannel(activeMemberChannel).catch(() => {});
       activeMemberChannel = null;
+    }
+    if (activeProfileChannel && supabase) {
+      supabase.removeChannel(activeProfileChannel).catch(() => {});
+      activeProfileChannel = null;
     }
     currentRealtimeWorkspaceId = null;
     activeRealtimeCleanup = null;

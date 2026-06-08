@@ -9,6 +9,7 @@ type RouteContext = { params: Promise<{ inviteId: string }> };
 type JoinBody = {
   email?: string;
   password?: string;
+  fullName?: string;
 };
 
 function normalizeEmail(value: string): string {
@@ -89,6 +90,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const password = body.password?.trim() ?? "";
+  const fullName = body.fullName?.trim() ?? "";
   const requestedEmail = body.email ? normalizeEmail(body.email) : "";
   const inviteEmail = preview.email ? normalizeEmail(preview.email) : "";
   const email = inviteEmail || requestedEmail;
@@ -102,6 +104,9 @@ export async function POST(request: Request, context: RouteContext) {
   if (password.length < 6) {
     return NextResponse.json({ error: "Password must be at least 6 characters." }, { status: 400 });
   }
+  if (!fullName) {
+    return NextResponse.json({ error: "Your name is required." }, { status: 400 });
+  }
 
   const admin = createAdminSupabaseClient();
 
@@ -109,6 +114,7 @@ export async function POST(request: Request, context: RouteContext) {
     email,
     password,
     email_confirm: true,
+    user_metadata: { full_name: fullName },
   });
 
   if (createError && !/already|registered|exists/i.test(createError.message)) {
@@ -124,7 +130,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    await ensureUserProfile(signInData.user.id, signInData.user.email);
+    await ensureUserProfile(signInData.user.id, signInData.user.email, fullName);
     const workspaceId = await acceptInviteForUser(supabase, inviteId);
     return NextResponse.json({ ok: true, workspaceId });
   } catch (err) {

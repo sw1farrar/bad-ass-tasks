@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   getMemberDisplayName,
   getMemberMentionHandle,
+  getSearchResultDisplayName,
   memberMatchesMentionQuery,
 } from "@/lib/assignee";
 import type { WorkspaceMember } from "@/types";
@@ -19,6 +20,11 @@ describe("assignee mention helpers", () => {
     const m = member({ fullName: "Alex Rivera", username: "arivera" });
     expect(getMemberDisplayName(m)).toBe("Alex Rivera");
     expect(getMemberMentionHandle(m)).toBe("arivera");
+  });
+
+  it("falls back to email local part in search results", () => {
+    expect(getSearchResultDisplayName({ email: "riley@example.com" })).toBe("riley");
+    expect(getSearchResultDisplayName({ fullName: "Riley Park", email: "r@x.com" })).toBe("Riley Park");
   });
 
   it("matches mention queries by full name", () => {

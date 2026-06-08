@@ -6,6 +6,17 @@ export function getAssigneeFirstName(label: string): string {
   return trimmed.split(/\s+/)[0] || trimmed;
 }
 
+export function getSearchResultDisplayName(result: {
+  fullName?: string | null;
+  username?: string | null;
+  email?: string | null;
+}): string {
+  if (result.fullName?.trim()) return result.fullName.trim();
+  if (result.username?.trim()) return result.username.trim();
+  if (result.email?.includes("@")) return result.email.split("@")[0];
+  return "User";
+}
+
 export function getMemberDisplayName(
   member: WorkspaceMember,
   currentUserId?: string

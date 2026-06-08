@@ -28,6 +28,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -113,6 +114,10 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
     e.preventDefault();
     if (!invite?.isValid) return;
 
+    if (!fullName.trim()) {
+      setError("Please enter your name.");
+      return;
+    }
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
@@ -126,7 +131,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, fullName: fullName.trim() }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         workspaceId?: string;
@@ -220,7 +225,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
               ) : (
                 <form onSubmit={handleJoinWithPassword} className="space-y-4">
                   <p className="text-sm text-[#a1a1aa] text-center mb-2">
-                    Set a password to create your account and join the workspace.
+                    Enter your name and set a password to create your account and join the workspace.
                   </p>
 
                   {error && (
@@ -228,6 +233,19 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                       {error}
                     </div>
                   )}
+
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="Your name"
+                    className="input w-full px-4 py-3 rounded-2xl text-base"
+                    required
+                    autoComplete="name"
+                  />
 
                   <input
                     type="email"
@@ -273,7 +291,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
 
                   <button
                     type="submit"
-                    disabled={submitting || !email || password.length < 6 || confirmPassword.length < 6}
+                    disabled={submitting || !fullName.trim() || !email || password.length < 6 || confirmPassword.length < 6}
                     className="btn btn-primary w-full py-3.5 text-base flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     {submitting ? (

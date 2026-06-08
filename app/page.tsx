@@ -30,6 +30,7 @@ import { Confetti } from "@/components/Confetti";
 import { SupabaseSetupBanner } from "@/components/SupabaseSetupBanner";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { AuthModal } from "@/components/AuthModal";
+import { CreateWorkspaceGate } from "@/components/CreateWorkspaceGate";
 import { DualAuthGate } from "@/components/DualAuthGate";
 import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
@@ -46,7 +47,7 @@ import {
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
 import { countOpenAndOverdueTasks } from "@/features/home/lib/computeWorkspaceTaskStats";
-import { isSharedWorkspace } from "@/lib/assignee";
+import { getSearchResultDisplayName, isSharedWorkspace } from "@/lib/assignee";
 import { ListsView } from "@/features/lists";
 import { SiteAdminView } from "@/features/admin";
 import "@/features/lists/lists-workspace.css";
@@ -852,6 +853,15 @@ export default function BadAssTasks() {
     isLiveBootstrapping ||
     currentWorkspace.name === "Loading your workspaces...";
 
+  const showNoWorkspaceGate =
+    isSupabaseConfigured() &&
+    !!user &&
+    dualAuthChecked &&
+    (!dualAuthRequired || dualAuthVerified) &&
+    liveBootstrapFinished &&
+    !isLiveBootstrapping &&
+    workspaces.length === 0;
+
   const handleInstallApp = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
@@ -1139,6 +1149,16 @@ export default function BadAssTasks() {
         setIsCreatingWorkspace(false);
         setShowWorkspaceMenu(false);
       }
+    } finally {
+      setIsCreatingLoading(false);
+    }
+  };
+
+  const handleCreateFirstWorkspace = async (name: string) => {
+    setIsCreatingLoading(true);
+    try {
+      const created = await createWorkspace(name);
+      return !!created;
     } finally {
       setIsCreatingLoading(false);
     }
@@ -1823,7 +1843,7 @@ export default function BadAssTasks() {
               <div className="space-y-2 mb-4">
                 {teamSearchResults.map((result, idx) => {
                   const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
-                  const displayName = result.fullName || result.username || "User";
+                  const displayName = getSearchResultDisplayName(result);
                   return (
                     <div key={result.id || idx} className="team-invite-result-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition">
                       <div className="flex items-center gap-3 min-w-0">
@@ -2188,6 +2208,16 @@ export default function BadAssTasks() {
           <p className="text-sm text-[#71717a]">Loading your workspaces…</p>
         </div>
       </div>
+    );
+  }
+
+  if (showNoWorkspaceGate) {
+    return (
+      <CreateWorkspaceGate
+        userEmail={user?.email}
+        onCreate={handleCreateFirstWorkspace}
+        isCreating={isCreatingLoading}
+      />
     );
   }
 
@@ -3049,34 +3079,6 @@ export default function BadAssTasks() {
                 Demo mode — all data lives in your browser for now.
               </div>
               <button onClick={() => window.open("docs/MILESTONE-1-SUPABASE-ACTIVATION.md", "_blank")} className="text-xs underline text-[#c084fc] whitespace-nowrap">Connect Supabase</button>
-            </div>
-          )}
-
-          {/* Graceful edge case: logged in but no workspaces — only after fetch confirms empty (not while "Loading your workspaces...") */}
-          {user && !awaitingLiveBootstrap && !isLiveBootstrapping && workspaces.length === 0 && currentWorkspace.name === "No workspace" && (
-            <div className="mb-4 rounded-2xl border border-[#ff9500]/30 bg-[#111114] p-5 text-sm">
-              <div className="flex items-start gap-3">
-                <div className="text-[#ff9500] mt-0.5">ΓÜá∩╕Å</div>
-                <div className="flex-1">
-                  <div className="font-medium text-[#f4f4f5]">No workspaces yet</div>
-                  <div className="text-[#a1a1aa] mt-0.5 text-xs">
-                    A default should appear automatically. Or create one now:
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowWorkspaceMenu(true);
-                      // Slight delay so menu renders before flipping to create input
-                      setTimeout(() => {
-                        setIsCreatingWorkspace(true);
-                        setNewWorkspaceName("");
-                      }, 50);
-                    }}
-                    className="mt-2 text-xs btn btn-secondary px-3 py-1"
-                  >
-                    + Create workspace manually
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRoleLabel } from "@/lib/roles";
+import { getSearchResultDisplayName } from "@/lib/assignee";
 
 /**
  * TeamsView
@@ -295,7 +296,7 @@ export function TeamsView(props: TeamsViewProps) {
             <div className="space-y-2 mb-4">
               {teamSearchResults.map((result, idx) => {
                 const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
-                const displayName = result.fullName || result.username || "User";
+                const displayName = getSearchResultDisplayName(result);
                 return (
                   <div key={result.id || idx} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition">
                     <div className="flex items-center gap-3 min-w-0">
