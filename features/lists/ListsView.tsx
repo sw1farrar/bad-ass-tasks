@@ -168,7 +168,8 @@ export function ListsView({
   };
 
   return (
-    <div className="lists-workspace max-w-[1400px] mx-auto">
+    <div className="lists-workspace w-full max-w-[1400px] mx-auto max-md:max-w-none max-md:mx-0">
+      <div className="lists-workspace-header">
       <WorkspaceViewHeader
         variant={isMobileViewport ? "inline-centered" : "inline"}
         title="Lists"
@@ -279,6 +280,7 @@ export function ListsView({
           <p className="text-[11px] text-[#52525b] mt-2">Press Enter to create · drag cards to reorder</p>
         </div>
       )}
+      </div>
 
       {lists.length === 0 ? (
         <div className="glass rounded-2xl border border-white/10 p-10 text-center">
@@ -300,7 +302,7 @@ export function ListsView({
             <div
               className={
                 isMobileViewport
-                  ? "lists-masonry lists-masonry--mobile"
+                  ? "lists-stack lists-stack--mobile"
                   : desktopLayout === "stack"
                     ? "lists-stack lists-stack--desktop"
                     : "lists-masonry"
