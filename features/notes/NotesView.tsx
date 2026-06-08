@@ -834,7 +834,7 @@ export function NotesView({
       >
         <div
           className={cn(
-            "note-content-card w-full overflow-hidden flex flex-col",
+            "note-content-card w-full overflow-x-hidden flex flex-col",
             compact ? "rounded-none border-0 mb-0" : "rounded-xl border mb-4",
           )}
         >

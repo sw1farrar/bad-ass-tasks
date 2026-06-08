@@ -13,6 +13,11 @@
   overflow: hidden;
 }
 
+.notes-rich-editor .note-content-collapsed:has(.email-html-block) {
+  max-height: none !important;
+  overflow: visible;
+}
+
 .notes-rich-editor .note-content-collapsed-fade {
   background: linear-gradient(
     to top,

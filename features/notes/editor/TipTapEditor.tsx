@@ -1457,6 +1457,20 @@ export function TipTapEditor({
     const measureCollapse = () => {
       const prose = editorBodyRef.current?.querySelector(".ProseMirror");
       if (!prose) return;
+
+      let hasEmailBlock = false;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "emailHtmlBlock") {
+          hasEmailBlock = true;
+          return false;
+        }
+      });
+
+      if (hasEmailBlock) {
+        setNeedsCollapse(false);
+        return;
+      }
+
       setNeedsCollapse(prose.scrollHeight > NOTE_COLLAPSED_MAX_PX + 8);
     };
 

@@ -11,8 +11,11 @@ import {
   isSimpleEmailHtml,
 } from "@/lib/notes/emailHtmlToPlainDoc";
 import { toast } from "sonner";
-
-const IFRAME_MIN_HEIGHT_PX = 120;
+import {
+  EMAIL_IFRAME_MIN_HEIGHT_PX,
+  EMAIL_IFRAME_SANDBOX,
+  measureEmailIframeContentHeight,
+} from "@/lib/notes/emailIframe";
 
 function openEmailPrintWindow(srcdoc: string, title: string) {
   const win = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
@@ -41,7 +44,7 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
     (typeof node.attrs.noteId === "string" ? node.attrs.noteId : "");
 
   const [collapsed, setCollapsed] = useState(false);
-  const [frameHeight, setFrameHeight] = useState(IFRAME_MIN_HEIGHT_PX);
+  const [frameHeight, setFrameHeight] = useState(EMAIL_IFRAME_MIN_HEIGHT_PX);
   const [rerendering, setRerendering] = useState(false);
 
   const { html: displayHtml, extraCss } = useMemo(
@@ -52,14 +55,9 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
   const srcdoc = displayHtml ? buildEmailSrcdoc(displayHtml, extraCss) : "";
 
   const syncFrameHeight = useCallback(() => {
-    const iframe = iframeRef.current;
-    const doc = iframe?.contentDocument;
-    const body = doc?.body;
-    if (!body) return;
-
-    const root = body.querySelector(".email-message-root") ?? body;
-    const nextHeight = Math.max(IFRAME_MIN_HEIGHT_PX, Math.ceil(root.scrollHeight + 8));
-    setFrameHeight(nextHeight);
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    setFrameHeight(measureEmailIframeContentHeight(doc));
   }, []);
 
   useEffect(() => {
@@ -67,24 +65,59 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
     if (!iframe || !srcdoc || collapsed) return;
 
     let observer: ResizeObserver | null = null;
+    let cancelled = false;
+    const remeasureTimers: number[] = [];
+    const imageLoadCleanups: Array<() => void> = [];
+
+    const scheduleRemeasures = () => {
+      for (const delay of [0, 80, 250, 750, 2000]) {
+        remeasureTimers.push(
+          window.setTimeout(() => {
+            if (!cancelled) syncFrameHeight();
+          }, delay),
+        );
+      }
+    };
+
+    const bindImageLoadListeners = (doc: Document) => {
+      for (const img of Array.from(doc.images)) {
+        if (img.complete) continue;
+        const onLoad = () => syncFrameHeight();
+        img.addEventListener("load", onLoad);
+        img.addEventListener("error", onLoad);
+        imageLoadCleanups.push(() => {
+          img.removeEventListener("load", onLoad);
+          img.removeEventListener("error", onLoad);
+        });
+      }
+    };
 
     const handleLoad = () => {
       syncFrameHeight();
+      scheduleRemeasures();
 
       const doc = iframe.contentDocument;
       const body = doc?.body;
-      if (!body || typeof ResizeObserver === "undefined") return;
+      if (!body) return;
+
+      bindImageLoadListeners(doc);
+
+      if (typeof ResizeObserver === "undefined") return;
 
       const root = body.querySelector(".email-message-root") ?? body;
       observer?.disconnect();
       observer = new ResizeObserver(() => syncFrameHeight());
       observer.observe(root);
+      observer.observe(body);
     };
 
     iframe.addEventListener("load", handleLoad);
     return () => {
+      cancelled = true;
       iframe.removeEventListener("load", handleLoad);
       observer?.disconnect();
+      remeasureTimers.forEach((timer) => window.clearTimeout(timer));
+      imageLoadCleanups.forEach((cleanup) => cleanup());
     };
   }, [srcdoc, syncFrameHeight, collapsed]);
 
@@ -198,10 +231,11 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
         <iframe
           ref={iframeRef}
           title="Inbound email content"
-          sandbox=""
+          sandbox={EMAIL_IFRAME_SANDBOX}
           srcDoc={srcdoc}
+          scrolling="no"
           className="email-html-iframe w-full border-0 bg-white"
-          style={{ height: frameHeight, minHeight: IFRAME_MIN_HEIGHT_PX }}
+          style={{ height: frameHeight, minHeight: EMAIL_IFRAME_MIN_HEIGHT_PX }}
         />
       )}
     </NodeViewWrapper>

@@ -117,7 +117,11 @@
 .notes-drawer-body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding-bottom: env(safe-area-inset-bottom, 12px);
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 12px));
+}
+
+.notes-drawer-body .notes-editor-scroll--drawer {
+  padding-bottom: 0.5rem;
 }
 
 .notes-drawer-chrome {
