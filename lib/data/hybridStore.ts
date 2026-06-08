@@ -179,7 +179,8 @@ function sanitizePendingQueueListItemNesting(): void {
 }
 
 async function probeListItemNesting(force = false): Promise<void> {
-  if (!force && listItemNestingAvailable !== null) return;
+  // Re-probe when nesting was previously unavailable (e.g. user just ran the SQL migration).
+  if (!force && listItemNestingAvailable === true) return;
   if (!isSupabaseLive() || workspaceListTablesAvailable === false) {
     listItemNestingAvailable = false;
     return;
