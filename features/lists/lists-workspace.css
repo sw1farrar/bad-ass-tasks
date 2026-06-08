@@ -34,14 +34,28 @@
     padding: 0.875rem 1rem;
   }
 
-  .lists-masonry {
+  .lists-masonry,
+  .lists-masonry--mobile {
     grid-template-columns: 1fr;
     gap: 0.75rem;
     width: 100%;
+    justify-items: center;
   }
 
-  .sortable-list-card,
-  .list-card {
+  .lists-root .list-composer,
+  .lists-root .lists-new-list-btn {
+    max-width: min(22rem, calc(100vw - 1.5rem));
+    margin-left: auto;
+    margin-right: auto;
+    align-self: center;
+  }
+
+  .sortable-list-card {
+    width: 100%;
+    max-width: min(22rem, calc(100vw - 1.5rem));
+  }
+
+  .sortable-list-card .list-card {
     width: 100%;
     max-width: 100%;
   }
@@ -130,6 +144,22 @@
   gap: 1rem;
   align-items: start;
   justify-content: start;
+}
+
+/* Desktop list/stack layout — single centered column, vertical drag reorder */
+@media (min-width: 768px) {
+  .lists-stack--desktop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+  }
+
+  .lists-stack--desktop .sortable-list-card {
+    width: 100%;
+    max-width: min(42rem, 100%);
+  }
 }
 
 @media (min-width: 1280px) {
@@ -283,7 +313,8 @@
   opacity: 0.7;
 }
 
-.lists-masonry--mobile .sortable-list-card.is-sorting {
+.lists-masonry--mobile .sortable-list-card.is-sorting,
+.lists-stack--desktop .sortable-list-card.is-sorting {
   transition: transform 200ms cubic-bezier(0.25, 1, 0.5, 1) !important;
 }
 
@@ -360,4 +391,58 @@
 .list-home-chip:hover {
   border-color: rgba(192, 132, 252, 0.35);
   background: rgba(192, 132, 252, 0.08);
+}
+
+.list-card-open-target:focus-visible {
+  outline: 2px solid rgba(192, 132, 252, 0.45);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+.list-card-more-hint {
+  font-style: italic;
+}
+
+.list-item-indent-btn {
+  margin-top: 2px;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  padding: 0.375rem;
+  border-radius: 0.375rem;
+  touch-action: manipulation;
+}
+
+.list-detail-modal {
+  display: flex;
+  flex-direction: column;
+}
+
+.list-detail-body {
+  scrollbar-gutter: stable;
+}
+
+.list-detail-panel {
+  width: min(42rem, 100%);
+}
+
+.list-detail-sheet--mobile {
+  width: min(22rem, calc(100vw - 1.5rem));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 767px) {
+  .lists-root .lists-workspace > .glass,
+  .lists-root .lists-workspace > .mb-4 {
+    max-width: min(22rem, calc(100vw - 1.5rem));
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+  }
+
+  .list-item-indent-btn {
+    opacity: 0.55;
+    min-height: 40px !important;
+    min-width: 36px !important;
+  }
 }

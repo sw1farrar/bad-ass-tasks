@@ -399,7 +399,7 @@ function mapActivityLogRow(row: ActivityLogRow): ActivityLog {
     targetType: row.target_type,
     targetId: row.target_id ?? undefined,
     metadata: (row.metadata as Record<string, any>) ?? {},
-    createdAt: row.created_at,
+    createdAt: row.created_at ?? new Date().toISOString(),
   };
 }
 
@@ -1441,6 +1441,34 @@ export async function getNotes(workspaceId: string): Promise<Note[]> {
   } catch (err) {
     logHybridError("getNotes", err);
     return [];
+  }
+}
+
+/** Count active (non-archived) notes for a workspace — used by Home workspace tiles. */
+export async function getNoteCount(workspaceId: string): Promise<number> {
+  if (!isSupabaseLive()) return 0;
+  if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) return 0;
+  if (!isCurrentlyOnline()) return 0;
+
+  const supabase = getClient();
+  if (!supabase) return 0;
+
+  try {
+    const { count, error } = await supabase
+      .from("notes")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("is_archived", false);
+
+    if (error) {
+      logHybridError("getNoteCount", error);
+      return 0;
+    }
+
+    return count ?? 0;
+  } catch (err) {
+    logHybridError("getNoteCount", err);
+    return 0;
   }
 }
 
@@ -3795,7 +3823,7 @@ export async function getGlobalRecentActivity(userId: string, limit: number = 15
       targetType: row.target_type ?? "item",
       targetId: row.target_id ?? undefined,
       metadata: (row.metadata as Record<string, unknown>) ?? {},
-      createdAt: row.created_at,
+      createdAt: row.created_at ?? new Date().toISOString(),
     })) as ActivityLog[];
   } catch (err) {
     logHybridError("getGlobalRecentActivity", err);
@@ -4132,6 +4160,7 @@ function mapListItemRow(row: ListItemRow): ListItem {
     text: row.text,
     completed: row.completed,
     sortOrder: row.sort_order,
+    parentItemId: row.parent_item_id ?? undefined,
     completedAt: row.completed_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -4359,6 +4388,7 @@ export async function createListItem(input: {
   workspaceId: string;
   text: string;
   sortOrder?: number;
+  parentItemId?: string | null;
   completed?: boolean;
   completedAt?: string;
 }): Promise<boolean> {
@@ -4372,6 +4402,7 @@ export async function createListItem(input: {
     workspace_id: input.workspaceId,
     text: input.text,
     sort_order: input.sortOrder ?? 0,
+    parent_item_id: input.parentItemId ?? null,
     completed: input.completed ?? false,
     completed_at: input.completedAt ?? null,
   };
@@ -4430,7 +4461,7 @@ export async function createListItem(input: {
 export async function updateListItem(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<ListItem, "text" | "completed" | "sortOrder" | "completedAt">>,
+  updates: Partial<Pick<ListItem, "text" | "completed" | "sortOrder" | "parentItemId" | "completedAt">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isWorkspaceListPersistenceEnabled()) return true;
@@ -4440,6 +4471,7 @@ export async function updateListItem(
   if (updates.text !== undefined) payload.text = updates.text;
   if (updates.completed !== undefined) payload.completed = updates.completed;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (updates.parentItemId !== undefined) payload.parent_item_id = updates.parentItemId ?? null;
   if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt ?? null;
   if (Object.keys(payload).length === 0) return true;
 
@@ -4510,6 +4542,7 @@ export async function backfillWorkspaceListsIfNeeded(
       workspaceId,
       text: item.text,
       sortOrder: item.sortOrder,
+      parentItemId: item.parentItemId,
       completed: item.completed,
       completedAt: item.completedAt,
     });

@@ -1,18 +1,18 @@
-import { formatDistanceToNow } from "date-fns";
 import type { WorkspaceMember } from "@/types";
+import { safeFormatDistanceToNow } from "@/lib/datetime";
 
 export function formatMemberLastActive(lastActiveAt?: string): string | null {
   if (!lastActiveAt) return null;
-  const date = new Date(lastActiveAt);
-  if (Number.isNaN(date.getTime())) return null;
-  return `Active ${formatDistanceToNow(date, { addSuffix: true })}`;
+  const label = safeFormatDistanceToNow(lastActiveAt, "");
+  if (!label) return null;
+  return `Active ${label}`;
 }
 
 export function formatMemberJoined(joinedAt?: string): string | null {
   if (!joinedAt) return null;
-  const date = new Date(joinedAt);
-  if (Number.isNaN(date.getTime())) return null;
-  return `Joined ${formatDistanceToNow(date, { addSuffix: true })}`;
+  const label = safeFormatDistanceToNow(joinedAt, "");
+  if (!label) return null;
+  return `Joined ${label}`;
 }
 
 export function getMemberInitials(member: WorkspaceMember, currentUserId?: string): string {

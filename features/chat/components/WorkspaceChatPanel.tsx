@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
-import { format, isToday, isYesterday } from "date-fns";
+import { isToday, isYesterday, isValid } from "date-fns";
 import { Loader2, PanelRightClose } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { safeFormatDate } from "@/lib/datetime";
 import type { WorkspaceMember } from "@/types";
 import { useWorkspaceChat, type WorkspaceChatController } from "../hooks/useWorkspaceChat";
 import { ChatComposer } from "./ChatComposer";
@@ -11,9 +12,10 @@ import { ChatMessageItem } from "./ChatMessageItem";
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
+  if (!isValid(d)) return "Earlier";
   if (isToday(d)) return "Today";
   if (isYesterday(d)) return "Yesterday";
-  return format(d, "MMM d, yyyy");
+  return safeFormatDate(d, "MMM d, yyyy", "Earlier");
 }
 
 function initials(name: string): string {

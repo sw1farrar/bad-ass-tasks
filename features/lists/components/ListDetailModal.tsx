@@ -1,0 +1,266 @@
+"use client";
+
+import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { MoreHorizontal, Pin, PinOff, Trash2, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import type { ListItem, WorkspaceList } from "@/types";
+import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
+import { ListCardBody } from "./ListCard";
+
+interface ListDetailModalProps {
+  list: WorkspaceList | null;
+  items: ListItem[];
+  isOpen: boolean;
+  onClose: () => void;
+  onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
+  onDeleteList: (id: string) => void;
+  onTogglePinned: (id: string) => void;
+  onAddItem: (listId: string, text: string) => void;
+  onToggleItem: (id: string) => void;
+  onUpdateItem: (id: string, text: string) => void;
+  onDeleteItem: (id: string) => void;
+  onReorderItems: (listId: string, activeId: string, overId: string) => void;
+  onIndentItem: (id: string) => void;
+  onOutdentItem: (id: string) => void;
+  onClearCompleted: (listId: string) => void;
+}
+
+const PANEL_SPRING = { type: "spring" as const, damping: 32, stiffness: 380, mass: 0.85 };
+
+export function ListDetailModal({
+  list,
+  items,
+  isOpen,
+  onClose,
+  onUpdateList,
+  onDeleteList,
+  onTogglePinned,
+  onAddItem,
+  onToggleItem,
+  onUpdateItem,
+  onDeleteItem,
+  onReorderItems,
+  onIndentItem,
+  onOutdentItem,
+  onClearCompleted,
+}: ListDetailModalProps) {
+  const [mounted, setMounted] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
+  const isMobile = useIsMobileViewport();
+  const colorStyle = list ? getListColorStyle(list.color) : null;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
+  useScrollLock(isOpen);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setMenuOpen(false);
+      setColorOpen(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, handleClose]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <AnimatePresence>
+      {isOpen && list && colorStyle && (
+        <div
+          className={cn(
+            "list-detail-modal-root fixed inset-0 z-[200]",
+            "flex items-center justify-center p-4 sm:p-6",
+          )}
+        >
+          <motion.div
+            key="list-detail-backdrop"
+            className={cn(
+              "absolute inset-0",
+              isMobile ? "sheet-backdrop" : "bg-black/70 backdrop-blur-sm",
+            )}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={handleClose}
+            aria-hidden="true"
+          />
+
+          <motion.article
+            key="list-detail-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="list-detail-title"
+            className={cn(
+              "list-detail-modal glass relative flex w-full flex-col overflow-hidden border shadow-2xl",
+              isMobile
+                ? "list-detail-sheet list-detail-sheet--mobile max-h-[min(88dvh,720px)] rounded-2xl"
+                : "list-detail-panel max-h-[min(85vh,720px)] max-w-2xl rounded-2xl",
+            )}
+            style={{
+              background: colorStyle.bg,
+              borderColor: colorStyle.border,
+              ["--list-bg" as string]: colorStyle.bg,
+              ["--list-border" as string]: colorStyle.border,
+            }}
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.96, opacity: 0 }}
+            transition={PANEL_SPRING}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="list-detail-header flex shrink-0 items-start gap-2 border-b border-white/10 px-4 py-3.5">
+              <div className="min-w-0 flex-1">
+                {list.pinned && <div className="list-card-pinned-badge mb-1">Pinned</div>}
+                <input
+                  id="list-detail-title"
+                  value={list.title}
+                  onChange={(e) => onUpdateList(list.id, { title: e.target.value })}
+                  onBlur={(e) => {
+                    const trimmed = e.target.value.trim();
+                    onUpdateList(list.id, { title: trimmed || "Untitled list" });
+                  }}
+                  className="w-full bg-transparent text-lg font-semibold text-white outline-none placeholder:text-[#71717a]"
+                  placeholder="Title"
+                  aria-label="List title"
+                />
+                {items.length > 0 && (
+                  <div className="mt-1 text-[11px] text-[#71717a]">
+                    {items.filter((i) => !i.completed).length} open
+                    {items.some((i) => i.completed)
+                      ? ` · ${items.filter((i) => i.completed).length} done`
+                      : ""}
+                  </div>
+                )}
+              </div>
+              <div className="relative flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen((v) => !v);
+                    setColorOpen(false);
+                  }}
+                  className="rounded-lg p-2 text-[#a1a1aa] transition hover:bg-white/10 hover:text-white"
+                  aria-label="List options"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="rounded-lg p-2 text-[#a1a1aa] transition hover:bg-white/10 hover:text-white"
+                  aria-label="Close list"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded-xl border border-white/10 bg-[#141418] py-1 text-xs shadow-xl">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/5"
+                      onClick={() => {
+                        onTogglePinned(list.id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      {list.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+                      {list.pinned ? "Unpin" : "Pin to top"}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-white/5"
+                      onClick={() => setColorOpen((v) => !v)}
+                    >
+                      Change color
+                    </button>
+                    {items.some((i) => i.completed) && (
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-[#a1a1aa] hover:bg-white/5"
+                        onClick={() => {
+                          onClearCompleted(list.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        Delete completed
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#ff3366] hover:bg-white/5"
+                      onClick={() => {
+                        onDeleteList(list.id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete list
+                    </button>
+                  </div>
+                )}
+                {colorOpen && (
+                  <div className="absolute right-0 top-full z-30 mt-1 flex gap-1.5 rounded-xl border border-white/10 bg-[#141418] p-2 shadow-xl">
+                    {LIST_COLORS.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        title={c.label}
+                        className={cn("list-color-dot", list.color === c.id && "is-active")}
+                        style={{
+                          background: c.bg,
+                          borderColor: list.color === c.id ? "#f4f4f5" : c.border,
+                        }}
+                        onClick={() => {
+                          onUpdateList(list.id, { color: c.id as ListColorId });
+                          setColorOpen(false);
+                          setMenuOpen(false);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </header>
+
+            <ListCardBody
+              list={list}
+              items={items}
+              variant="detail"
+              onUpdateList={onUpdateList}
+              onDeleteList={onDeleteList}
+              onTogglePinned={onTogglePinned}
+              onAddItem={onAddItem}
+              onToggleItem={onToggleItem}
+              onUpdateItem={onUpdateItem}
+              onDeleteItem={onDeleteItem}
+              onReorderItems={onReorderItems}
+              onIndentItem={onIndentItem}
+              onOutdentItem={onOutdentItem}
+              onClearCompleted={onClearCompleted}
+            />
+          </motion.article>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+}

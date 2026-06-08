@@ -8,7 +8,6 @@ import {
   Trash2, Search, RefreshCw, FileText, Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { format } from "date-fns";
 import { toast } from "sonner";
 
 import { useTaskStore } from "@/store/useTaskStore";
@@ -142,6 +141,8 @@ export default function BadAssTasks() {
     updateListItem,
     deleteListItem,
     reorderListItems,
+    indentListItem,
+    outdentListItem,
     clearCompletedListItems,
     createWorkspace,
     refreshRecentActivity,
@@ -152,6 +153,7 @@ export default function BadAssTasks() {
     globalListHighlights,
     fetchGlobalHomeAggregates,
     refreshHomeListAggregatesFromStore,
+    refreshHomeNoteAggregatesFromStore,
     refreshHomeTaskFocusFromStore,
     hydrateWorkspaceListData,
     // Offline / sync (Agent 17 mobile polish — exposed from hybrid + store)
@@ -1294,9 +1296,10 @@ export default function BadAssTasks() {
   useEffect(() => {
     if (currentView === "home") {
       fetchGlobalHomeAggregates();
+      refreshHomeNoteAggregatesFromStore();
       fetchNotifications?.(false).catch(() => {});
     }
-  }, [currentView, fetchGlobalHomeAggregates, fetchNotifications]);
+  }, [currentView, fetchGlobalHomeAggregates, refreshHomeNoteAggregatesFromStore, fetchNotifications]);
 
   useEffect(() => {
     if (workspaceChat.hasUnread) {
@@ -1372,7 +1375,7 @@ export default function BadAssTasks() {
         onlineCount: currentWorkspace.id === ws.id ? (onlineUsers || []).length : undefined,
         listCount: stats?.listCount ?? 0,
         openListItemsCount: stats?.openListItemsCount ?? 0,
-        noteCount: (notes || []).filter((n) => n.workspaceId === ws.id).length,
+        noteCount: stats?.noteCount ?? 0,
         taskCount:
           stats?.totalTaskCount ??
           (tasks || []).filter((t) => t.workspaceId === ws.id).length,
@@ -1450,6 +1453,8 @@ export default function BadAssTasks() {
         onDeleteItem={(id) => { void deleteListItem(id); }}
         onReorderLists={reorderLists}
         onReorderItems={reorderListItems}
+        onIndentItem={(id) => { void indentListItem(id); }}
+        onOutdentItem={(id) => { void outdentListItem(id); }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
         highlightListId={highlightListId}
       />

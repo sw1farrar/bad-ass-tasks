@@ -22,6 +22,7 @@ import {
   sortUpcomingFocusItems,
 } from "@/features/home/lib/buildUpcomingFocus";
 import { computeWorkspaceTaskStats } from "@/features/home/lib/computeWorkspaceTaskStats";
+import { computeWorkspaceNoteCount } from "@/features/home/lib/computeWorkspaceNoteCount";
 import {
   createListSliceActions,
   SAMPLE_WORKSPACE_LISTS,
@@ -57,6 +58,7 @@ import {
   deleteTask as deleteTaskSupabase,
 
   getNotes,
+  getNoteCount,
   createNote as createNoteSupabase,
   updateNote as updateNoteSupabase,
   deleteNote as deleteNoteSupabase,
@@ -393,6 +395,8 @@ interface TaskState extends ListSliceActions {
   fetchGlobalHomeAggregates: () => Promise<void>;
   /** Instant Home list chips + workspace list stats from local store (no network). */
   refreshHomeListAggregatesFromStore: () => void;
+  /** Instant Home note counts for the active workspace from local store (no network). */
+  refreshHomeNoteAggregatesFromStore: () => void;
   /** Instant Home upcoming task rows from local store (no network). */
   refreshHomeTaskFocusFromStore: () => void;
   /** Load list + item rows for a workspace into the store (no workspace switch). */
@@ -1041,6 +1045,7 @@ export const useTaskStore = create<TaskState>()(
             pendingSyncCount: getPendingCount(),
             lastSyncAt: new Date().toISOString(),
           });
+          get().refreshHomeNoteAggregatesFromStore();
 
           void get().fetchTaskCommentSummaries();
 
@@ -1578,6 +1583,7 @@ export const useTaskStore = create<TaskState>()(
             ...computed,
             listCount: prevStats[ws.id]?.listCount,
             openListItemsCount: prevStats[ws.id]?.openListItemsCount,
+            noteCount: prevStats[ws.id]?.noteCount,
             memberCount: prevStats[ws.id]?.memberCount,
           };
         }
@@ -1611,6 +1617,7 @@ export const useTaskStore = create<TaskState>()(
             dueTodayCount: patchedStats[ws.id]?.dueTodayCount ?? 0,
             assigneeBreakdown: patchedStats[ws.id]?.assigneeBreakdown ?? [],
             memberCount: patchedStats[ws.id]?.memberCount,
+            noteCount: patchedStats[ws.id]?.noteCount,
             ...listStats,
           };
         }
@@ -1619,6 +1626,29 @@ export const useTaskStore = create<TaskState>()(
           globalListHighlights: pickGlobalListHighlights(allHighlights),
           globalWorkspaceStats: patchedStats,
         });
+      },
+
+      refreshHomeNoteAggregatesFromStore: () => {
+        const currentWsId = get().currentWorkspace.id;
+        const notes = get().notes || [];
+        const patchedStats: Record<string, WorkspaceTaskStats> = {
+          ...get().globalWorkspaceStats,
+        };
+        const noteCount = computeWorkspaceNoteCount(notes, currentWsId);
+        patchedStats[currentWsId] = {
+          openCount: patchedStats[currentWsId]?.openCount ?? 0,
+          totalTaskCount: patchedStats[currentWsId]?.totalTaskCount ?? 0,
+          doneCount: patchedStats[currentWsId]?.doneCount ?? 0,
+          overdueCount: patchedStats[currentWsId]?.overdueCount ?? 0,
+          dueTodayCount: patchedStats[currentWsId]?.dueTodayCount ?? 0,
+          assigneeBreakdown: patchedStats[currentWsId]?.assigneeBreakdown ?? [],
+          listCount: patchedStats[currentWsId]?.listCount,
+          openListItemsCount: patchedStats[currentWsId]?.openListItemsCount,
+          memberCount: patchedStats[currentWsId]?.memberCount,
+          unreadChat: patchedStats[currentWsId]?.unreadChat,
+          noteCount,
+        };
+        set({ globalWorkspaceStats: patchedStats });
       },
 
       fetchGlobalHomeAggregates: async () => {
@@ -1637,9 +1667,11 @@ export const useTaskStore = create<TaskState>()(
           for (const ws of wss) {
             const wsTasks = (get().tasks || []).filter((t) => t.workspaceId === ws.id);
             const listStats = computeWorkspaceListStats(lists, items, ws.id);
+            const noteCount = computeWorkspaceNoteCount(get().notes || [], ws.id);
             demoStats[ws.id] = {
               ...computeWorkspaceTaskStats(wsTasks, storeMembers, userId, today),
               ...listStats,
+              noteCount,
               memberCount: resolveWorkspaceMemberCount(
                 ws.id,
                 wsTasks,
@@ -1677,11 +1709,12 @@ export const useTaskStore = create<TaskState>()(
           for (const ws of wss.slice(0, 6)) {
             if (!ws.id || ["w1", "w2"].includes(ws.id)) continue;
             try {
-              const [wsTasks, wsMembers, wsLists, wsListItems] = await Promise.all([
+              const [wsTasks, wsMembers, wsLists, wsListItems, wsNoteCount] = await Promise.all([
                 getTasks(ws.id),
                 getWorkspaceMembers(ws.id).catch(() => [] as WorkspaceMember[]),
                 getWorkspaceLists(ws.id).catch(() => [] as WorkspaceList[]),
                 getListItems(ws.id).catch(() => [] as ListItem[]),
+                getNoteCount(ws.id).catch(() => 0),
               ]);
               const enrichedTasks = enrichTasksWithAssignees(wsTasks, wsMembers, userId);
               const listStats = computeWorkspaceListStats(wsLists, wsListItems, ws.id);
@@ -1708,6 +1741,7 @@ export const useTaskStore = create<TaskState>()(
                 ...computeWorkspaceTaskStats(enrichedTasks, wsMembers, userId, today),
                 memberCount: wsMembers.length,
                 unreadChat,
+                noteCount: wsNoteCount,
                 ...listStats,
               };
               allHighlights.push(
@@ -2317,6 +2351,7 @@ export const useTaskStore = create<TaskState>()(
               targetId: created.id,
               metadata: { title: created.title },
             });
+            get().refreshHomeNoteAggregatesFromStore();
             return created;
           } else {
             // Fallback to local on failure (keeps UX working)
@@ -2324,6 +2359,7 @@ export const useTaskStore = create<TaskState>()(
               if (state.notes.some((n) => n.id === newNote.id)) return {};
               return { notes: [newNote, ...state.notes] };
             });
+            get().refreshHomeNoteAggregatesFromStore();
             return newNote;
           }
         } else {
@@ -2332,6 +2368,7 @@ export const useTaskStore = create<TaskState>()(
             if (state.notes.some((n) => n.id === newNote.id)) return {};
             return { notes: [newNote, ...state.notes] };
           });
+          get().refreshHomeNoteAggregatesFromStore();
           return newNote;
         }
       },
@@ -2361,6 +2398,7 @@ export const useTaskStore = create<TaskState>()(
         set((state) => ({
           notes: state.notes.filter((n) => n.id !== id),
         }));
+        get().refreshHomeNoteAggregatesFromStore();
         return true;
       },
 
@@ -2468,6 +2506,7 @@ export const useTaskStore = create<TaskState>()(
                 assigneeBreakdown: state.globalWorkspaceStats[wsId]?.assigneeBreakdown ?? [],
                 listCount: state.globalWorkspaceStats[wsId]?.listCount,
                 openListItemsCount: state.globalWorkspaceStats[wsId]?.openListItemsCount,
+                noteCount: state.globalWorkspaceStats[wsId]?.noteCount,
                 memberCount: members.length,
               },
             },
@@ -3551,6 +3590,7 @@ export const useTaskStore = create<TaskState>()(
               if (!currentNotes.some((n) => n.id === newRow.id)) {
                 const mapped = mapRealtimeNoteRow(newRow as Record<string, unknown>);
                 set({ notes: [mapped, ...currentNotes] });
+                get().refreshHomeNoteAggregatesFromStore();
               }
             } else if (eventType === "UPDATE" && newRow) {
               // Agent 30: live conflict detection for concurrent note edits
@@ -3580,6 +3620,7 @@ export const useTaskStore = create<TaskState>()(
               });
             } else if (eventType === "DELETE" && oldRow) {
               set({ notes: currentNotes.filter((n) => n.id !== oldRow.id) });
+              get().refreshHomeNoteAggregatesFromStore();
             }
           },
           onInviteChange: (payload) => {

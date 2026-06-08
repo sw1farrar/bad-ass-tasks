@@ -981,6 +981,7 @@ CREATE TABLE IF NOT EXISTS list_items (
   text TEXT NOT NULL,
   completed BOOLEAN NOT NULL DEFAULT FALSE,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  parent_item_id UUID REFERENCES list_items(id) ON DELETE CASCADE,
   completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -989,6 +990,8 @@ CREATE TABLE IF NOT EXISTS list_items (
 CREATE INDEX IF NOT EXISTS idx_workspace_lists_ws_sort
   ON workspace_lists (workspace_id, pinned DESC, sort_order ASC);
 CREATE INDEX IF NOT EXISTS idx_list_items_list_sort ON list_items (list_id, sort_order ASC);
+CREATE INDEX IF NOT EXISTS idx_list_items_list_parent_sort
+  ON list_items (list_id, parent_item_id, sort_order ASC);
 CREATE INDEX IF NOT EXISTS idx_list_items_workspace ON list_items (workspace_id);
 
 ALTER TABLE workspace_lists ENABLE ROW LEVEL SECURITY;

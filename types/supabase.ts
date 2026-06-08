@@ -444,6 +444,7 @@ export interface Database {
           text: string
           completed: boolean
           sort_order: number
+          parent_item_id: string | null
           completed_at: string | null
           created_at: string
           updated_at: string
@@ -455,6 +456,7 @@ export interface Database {
           text: string
           completed?: boolean
           sort_order?: number
+          parent_item_id?: string | null
           completed_at?: string | null
           created_at?: string
           updated_at?: string
@@ -466,6 +468,7 @@ export interface Database {
           text?: string
           completed?: boolean
           sort_order?: number
+          parent_item_id?: string | null
           completed_at?: string | null
           created_at?: string
           updated_at?: string

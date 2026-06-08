@@ -18,12 +18,18 @@ import {
   rectSortingStrategy,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { ListChecks, Plus } from "lucide-react";
+import { LayoutGrid, List, ListChecks, Plus } from "lucide-react";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
-import { triggerHaptic } from "@/lib/utils";
+import { cn, triggerHaptic } from "@/lib/utils";
+import {
+  readListsDesktopLayout,
+  writeListsDesktopLayout,
+  type ListsDesktopLayout,
+} from "./lib/listsDesktopLayout";
 import type { ListItem, WorkspaceList } from "@/types";
 import { ListCard, SortableListCard } from "./components/ListCard";
+import { ListDetailModal } from "./components/ListDetailModal";
 import { useListDndSensors } from "./dndConfig";
 import "./lists-workspace.css";
 
@@ -41,6 +47,8 @@ interface ListsViewProps {
   onDeleteItem: (id: string) => void;
   onReorderLists: (activeId: string, overId: string) => void;
   onReorderItems: (listId: string, activeId: string, overId: string) => void;
+  onIndentItem: (id: string) => void;
+  onOutdentItem: (id: string) => void;
   onClearCompleted: (listId: string) => void;
   highlightListId?: string | null;
 }
@@ -59,22 +67,31 @@ export function ListsView({
   onDeleteItem,
   onReorderLists,
   onReorderItems,
+  onIndentItem,
+  onOutdentItem,
   onClearCompleted,
   highlightListId = null,
 }: ListsViewProps) {
   const [composerOpen, setComposerOpen] = useState(false);
+  const [detailListId, setDetailListId] = useState<string | null>(null);
   const [newListTitle, setNewListTitle] = useState("");
   const [listsDbReady, setListsDbReady] = useState<boolean | null>(null);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [dragOverlayWidth, setDragOverlayWidth] = useState<number | null>(null);
   const [dragSlotHeight, setDragSlotHeight] = useState<number | null>(null);
+  const [desktopLayout, setDesktopLayout] = useState<ListsDesktopLayout>("grid");
   const isMobileViewport = useIsMobileViewport();
   const sensors = useListDndSensors();
   const listIds = useMemo(() => lists.map((l) => l.id), [lists]);
-  const listSortStrategy = isMobileViewport ? verticalListSortingStrategy : rectSortingStrategy;
+  const isStackLayout = isMobileViewport || desktopLayout === "stack";
+  const listSortStrategy = isStackLayout ? verticalListSortingStrategy : rectSortingStrategy;
   const activeList = useMemo(
     () => (activeListId ? lists.find((l) => l.id === activeListId) : undefined),
     [activeListId, lists],
+  );
+  const detailList = useMemo(
+    () => (detailListId ? lists.find((l) => l.id === detailListId) : undefined),
+    [detailListId, lists],
   );
 
   useEffect(() => {
@@ -87,6 +104,10 @@ export function ListsView({
   }, [highlightListId, lists]);
 
   useEffect(() => {
+    setDesktopLayout(readListsDesktopLayout());
+  }, []);
+
+  useEffect(() => {
     if (!isSupabaseConfigured()) {
       setListsDbReady(null);
       return;
@@ -96,12 +117,17 @@ export function ListsView({
     });
   }, []);
 
-  /** Desktop grid: pointer hit first, then corners. Mobile stack: center-based. */
+  /** Stack layout: center-based. Grid: pointer hit first, then corners. */
   const listCollisionDetection: CollisionDetection = (args) => {
-    if (isMobileViewport) return closestCenter(args);
+    if (isStackLayout) return closestCenter(args);
     const within = pointerWithin(args);
     if (within.length > 0) return within;
     return closestCorners(args);
+  };
+
+  const handleLayoutChange = (layout: ListsDesktopLayout) => {
+    setDesktopLayout(layout);
+    writeListsDesktopLayout(layout);
   };
 
   const totalOpen = useMemo(() => {
@@ -143,7 +169,7 @@ export function ListsView({
   return (
     <div className="lists-workspace max-w-[1400px] mx-auto">
       <WorkspaceViewHeader
-        variant="inline"
+        variant={isMobileViewport ? "inline-centered" : "inline"}
         title="Lists"
         workspaceName={workspaceName}
         hideWorkspaceLabelOnMobile
@@ -162,26 +188,65 @@ export function ListsView({
         }
         className="mb-6"
         actions={
-        <button
-          type="button"
-          onClick={() => {
-            setComposerOpen(true);
-            setTimeout(() => {
-              document.getElementById("list-composer-input")?.focus();
-            }, 0);
-          }}
-          className="lists-new-list-btn inline-flex items-center gap-2 self-start rounded-xl border border-[#c084fc]/40 bg-[#c084fc]/10 px-4 py-2 text-sm font-medium text-[#e4e4e7] hover:bg-[#c084fc]/20 transition"
-        >
-          <Plus className="h-4 w-4 text-[#c084fc]" />
-          New list
-        </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isMobileViewport && (
+              <div
+                className="lists-layout-toggle hidden md:inline-flex items-center rounded-xl border border-white/10 bg-white/[0.03] p-0.5"
+                role="group"
+                aria-label="List layout"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleLayoutChange("grid")}
+                  aria-pressed={desktopLayout === "grid"}
+                  className={cn(
+                    "lists-layout-toggle-btn inline-flex items-center gap-1.5 rounded-[0.65rem] px-2.5 py-1.5 text-xs font-semibold transition",
+                    desktopLayout === "grid"
+                      ? "bg-[#c084fc] text-black shadow-[0_0_12px_rgba(192,132,252,0.28)]"
+                      : "text-[#a1a1aa] hover:text-white hover:bg-white/5",
+                  )}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLayoutChange("stack")}
+                  aria-pressed={desktopLayout === "stack"}
+                  className={cn(
+                    "lists-layout-toggle-btn inline-flex items-center gap-1.5 rounded-[0.65rem] px-2.5 py-1.5 text-xs font-semibold transition",
+                    desktopLayout === "stack"
+                      ? "bg-[#c084fc] text-black shadow-[0_0_12px_rgba(192,132,252,0.28)]"
+                      : "text-[#a1a1aa] hover:text-white hover:bg-white/5",
+                  )}
+                >
+                  <List className="h-3.5 w-3.5" />
+                  List
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setComposerOpen(true);
+                setTimeout(() => {
+                  document.getElementById("list-composer-input")?.focus();
+                }, 0);
+              }}
+              className="lists-new-list-btn inline-flex items-center gap-2 self-start rounded-xl border border-[#c084fc]/40 bg-[#c084fc]/10 px-4 py-2 text-sm font-medium text-[#e4e4e7] hover:bg-[#c084fc]/20 transition"
+            >
+              <Plus className="h-4 w-4 text-[#c084fc]" />
+              New list
+            </button>
+          </div>
         }
       />
 
       {listsDbReady === false && (
         <div className="mb-4 rounded-2xl border border-[#ff9500]/35 bg-[#111114] px-4 py-3 text-sm text-[#a1a1aa]">
           <span className="text-[#ff9500] font-medium">Lists database not set up.</span>{" "}
-          Run <code className="text-[#e4e4e7] text-xs">supabase/add-workspace-lists.sql</code> in your
+          Run <code className="text-[#e4e4e7] text-xs">supabase/add-workspace-lists.sql</code> and{" "}
+          <code className="text-[#e4e4e7] text-xs">supabase/add-list-items-nesting.sql</code> in your
           Supabase SQL Editor, then hard-refresh. Until then, lists are saved in this browser only.
         </div>
       )}
@@ -231,7 +296,15 @@ export function ListsView({
           onDragCancel={handleListDragCancel}
         >
           <SortableContext items={listIds} strategy={listSortStrategy}>
-            <div className={isMobileViewport ? "lists-masonry lists-masonry--mobile" : "lists-masonry"}>
+            <div
+              className={
+                isMobileViewport
+                  ? "lists-masonry lists-masonry--mobile"
+                  : desktopLayout === "stack"
+                    ? "lists-stack lists-stack--desktop"
+                    : "lists-masonry"
+              }
+            >
               {lists.map((list) => (
                 <SortableListCard
                   key={list.id}
@@ -247,7 +320,10 @@ export function ListsView({
                   onUpdateItem={onUpdateItem}
                   onDeleteItem={onDeleteItem}
                   onReorderItems={onReorderItems}
+                  onIndentItem={onIndentItem}
+                  onOutdentItem={onOutdentItem}
                   onClearCompleted={onClearCompleted}
+                  onOpenDetail={() => setDetailListId(list.id)}
                   isHighlighted={list.id === highlightListId}
                 />
               ))}
@@ -270,6 +346,8 @@ export function ListsView({
                   onUpdateItem={onUpdateItem}
                   onDeleteItem={onDeleteItem}
                   onReorderItems={onReorderItems}
+                  onIndentItem={onIndentItem}
+                  onOutdentItem={onOutdentItem}
                   onClearCompleted={onClearCompleted}
                 />
               </div>
@@ -277,6 +355,27 @@ export function ListsView({
           </DragOverlay>
         </DndContext>
       )}
+
+      <ListDetailModal
+        list={detailList ?? null}
+        items={detailList ? getItemsForList(detailList.id) : []}
+        isOpen={!!detailList}
+        onClose={() => setDetailListId(null)}
+        onUpdateList={onUpdateList}
+        onDeleteList={(id) => {
+          onDeleteList(id);
+          setDetailListId(null);
+        }}
+        onTogglePinned={onTogglePinned}
+        onAddItem={onAddItem}
+        onToggleItem={onToggleItem}
+        onUpdateItem={onUpdateItem}
+        onDeleteItem={onDeleteItem}
+        onReorderItems={onReorderItems}
+        onIndentItem={onIndentItem}
+        onOutdentItem={onOutdentItem}
+        onClearCompleted={onClearCompleted}
+      />
     </div>
   );
 }

@@ -5,24 +5,57 @@
  * local timezone. Timestamps (created_at, comments, chat) are stored as ISO
  * instants and displayed via the browser's local timezone.
  */
-import { addDays, format, isToday, isTomorrow, isPast, startOfDay } from "date-fns";
+import {
+  addDays,
+  format,
+  formatDistanceToNow,
+  isToday,
+  isTomorrow,
+  isPast,
+  isValid,
+  startOfDay,
+} from "date-fns";
+
+function toValidLocalDate(y: number, m: number, d: number): Date | undefined {
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return undefined;
+  const date = new Date(y, m - 1, d);
+  return isValid(date) ? date : undefined;
+}
 
 /** Parse YYYY-MM-DD or stored due-date ISO as a local calendar date (midnight local). */
 export function parseLocalDate(input?: string | null): Date | undefined {
   if (!input) return undefined;
   const trimmed = input.trim();
+  if (!trimmed) return undefined;
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     const [y, m, d] = trimmed.split("-").map(Number);
-    return new Date(y, m - 1, d);
+    return toValidLocalDate(y, m, d);
   }
   const isoPrefix = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
   if (isoPrefix) {
     const [y, m, d] = isoPrefix[1].split("-").map(Number);
-    return new Date(y, m - 1, d);
+    return toValidLocalDate(y, m, d);
   }
   const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  if (!isValid(parsed)) return undefined;
+  return toValidLocalDate(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+}
+
+/** Safe date-fns format — never throws on invalid Date values. */
+export function safeFormatDate(date: Date, pattern: string, fallback = ""): string {
+  if (!isValid(date)) return fallback;
+  return format(date, pattern);
+}
+
+/** Relative time label for activity feeds, presence, etc. */
+export function safeFormatDistanceToNow(
+  input?: string | null,
+  fallback = "Recently",
+): string {
+  if (!input?.trim()) return fallback;
+  const date = new Date(input);
+  if (!isValid(date)) return fallback;
+  return formatDistanceToNow(date, { addSuffix: true });
 }
 
 /** Format a Date as YYYY-MM-DD in the user's local timezone. */
@@ -99,7 +132,7 @@ export function formatLocalTime(iso: string): string {
 export function formatLocalDateShort(input: string): string {
   const d = parseLocalDate(input);
   if (!d) return "";
-  return format(d, "MMM d");
+  return safeFormatDate(d, "MMM d");
 }
 
 /** Parse YYYY-MM-DD user input into stored due-date ISO. */

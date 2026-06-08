@@ -68,6 +68,11 @@ describe('utils — core pure functions (production reliability)', () => {
       expect(res?.variant).toBe('overdue');
       expect(res?.label).not.toBe('Today');
     });
+
+    it('returns null for invalid date strings without throwing', () => {
+      expect(formatDueDate('not-a-date')).toBeNull();
+      expect(formatDueDate('   ')).toBeNull();
+    });
   });
 
   describe('getPriorityColor', () => {

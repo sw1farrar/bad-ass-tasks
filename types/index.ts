@@ -73,6 +73,8 @@ export interface ListItem {
   text: string;
   completed: boolean;
   sortOrder: number;
+  /** Parent row for nested items; null/undefined = top-level. */
+  parentItemId?: string | null;
   completedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -96,6 +98,7 @@ export interface WorkspaceTaskStats {
   assigneeBreakdown: Array<{ label: string; count: number }>;
   listCount?: number;
   openListItemsCount?: number;
+  noteCount?: number;
   memberCount?: number;
   /** True when workspace has 2+ members and chat has unread messages/reactions. */
   unreadChat?: boolean;

@@ -1,6 +1,6 @@
-import { formatDistanceToNow } from "date-fns";
 import type { ActivityLog, WorkspaceMember } from "@/types";
 import { getMemberDisplayName } from "@/lib/assignee";
+import { safeFormatDistanceToNow } from "@/lib/datetime";
 
 export interface TeamActivityItem {
   id: string;
@@ -72,7 +72,7 @@ export function formatTeamActivityItem(
       else headline = `${who} — ${action.replace(/\./g, " ")}`;
   }
 
-  const timeLabel = formatDistanceToNow(new Date(log.createdAt), { addSuffix: true });
+  const timeLabel = safeFormatDistanceToNow(log.createdAt);
 
   return {
     id: log.id,

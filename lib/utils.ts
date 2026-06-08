@@ -1,8 +1,9 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { format, isToday, isTomorrow, isPast, addDays, addWeeks, addMonths, addYears, startOfDay, getDay, differenceInCalendarWeeks } from "date-fns";
+import { isToday, isTomorrow, isPast, isValid, addDays, addWeeks, addMonths, addYears, startOfDay, getDay, differenceInCalendarWeeks } from "date-fns";
 import {
   parseLocalDate,
+  safeFormatDate,
   toDueDateStorage,
   toLocalDateString,
   normalizeCalendarDateKey,
@@ -112,11 +113,11 @@ export function parseNaturalLanguage(input: string): Partial<Task> {
 export function formatDueDate(dateString?: string) {
   if (!dateString) return null;
   const date = parseLocalDate(dateString);
-  if (!date) return null;
+  if (!date || !isValid(date)) return null;
   if (isToday(date)) return { label: "Today", variant: "today" as const };
   if (isTomorrow(date)) return { label: "Tomorrow", variant: "soon" as const };
-  if (isPast(date)) return { label: format(date, "MMM d"), variant: "overdue" as const };
-  return { label: format(date, "MMM d"), variant: "default" as const };
+  if (isPast(date)) return { label: safeFormatDate(date, "MMM d"), variant: "overdue" as const };
+  return { label: safeFormatDate(date, "MMM d"), variant: "default" as const };
 }
 
 /** First token of a display name, with sensible fallbacks for greetings. */
@@ -458,9 +459,10 @@ export function getUpcomingRecurrencesPreview(
   const end = addMonths(now, 18); // generous window
   const dates = getOccurrencesInRange(anchorDue, rule, now, end, count + 2, exceptionDates);
   return dates.slice(0, count).map((d) => {
+    if (!isValid(d)) return "—";
     if (isToday(d)) return "Today";
     if (isTomorrow(d)) return "Tomorrow";
-    return format(d, "MMM d");
+    return safeFormatDate(d, "MMM d", "—");
   });
 }
 

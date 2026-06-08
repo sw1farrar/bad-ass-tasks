@@ -1,4 +1,5 @@
 import type { HomeListHighlight, ListItem, WorkspaceList } from "@/types";
+import { flattenListItems } from "@/lib/lists/listItemTree";
 
 export function buildListHighlightsForWorkspace(
   lists: WorkspaceList[],
@@ -9,7 +10,9 @@ export function buildListHighlightsForWorkspace(
   return lists
     .filter((l) => l.workspaceId === workspaceId)
     .map((list) => {
-      const listItems = items.filter((i) => i.listId === list.id && i.workspaceId === workspaceId);
+      const listItems = flattenListItems(
+        items.filter((i) => i.listId === list.id && i.workspaceId === workspaceId),
+      );
       const open = listItems.filter((i) => !i.completed);
       return {
         id: list.id,
@@ -19,10 +22,7 @@ export function buildListHighlightsForWorkspace(
         workspaceName,
         openCount: open.length,
         totalCount: listItems.length,
-        preview: open
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .slice(0, 3)
-          .map((i) => i.text),
+        preview: open.slice(0, 3).map((i) => i.text),
         pinned: list.pinned,
       };
     });

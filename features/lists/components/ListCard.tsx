@@ -15,14 +15,24 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, MoreHorizontal, Pin, PinOff, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ListItem, WorkspaceList } from "@/types";
+import type { FlatListItem } from "@/lib/lists/listItemTree";
 import { triggerHaptic } from "@/lib/utils";
+import {
+  LIST_ITEM_PREVIEW_LIMIT,
+  canIndentListItem,
+  canOutdentListItem,
+  flattenListItems,
+} from "@/lib/lists/listItemTree";
 import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
 import { useListDndSensors } from "../dndConfig";
 import { ListItemRow } from "./ListItemRow";
 
-interface ListCardProps {
+type ListCardVariant = "preview" | "detail";
+
+interface ListCardBodyProps {
   list: WorkspaceList;
   items: ListItem[];
+  variant: ListCardVariant;
   onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
   onDeleteList: (id: string) => void;
   onTogglePinned: (id: string) => void;
@@ -31,14 +41,17 @@ interface ListCardProps {
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;
   onReorderItems: (listId: string, activeId: string, overId: string) => void;
+  onIndentItem: (id: string) => void;
+  onOutdentItem: (id: string) => void;
   onClearCompleted: (listId: string) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
-  isHighlighted?: boolean;
+  onOpenDetail?: (e: React.MouseEvent) => void;
 }
 
-export function ListCard({
+export function ListCardBody({
   list,
   items,
+  variant,
   onUpdateList,
   onDeleteList,
   onTogglePinned,
@@ -47,15 +60,19 @@ export function ListCard({
   onUpdateItem,
   onDeleteItem,
   onReorderItems,
+  onIndentItem,
+  onOutdentItem,
   onClearCompleted,
   dragHandleProps,
-  isHighlighted = false,
-}: ListCardProps) {
+  onOpenDetail,
+}: ListCardBodyProps) {
   const [newItemText, setNewItemText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const isPreview = variant === "preview";
+  const isDetail = variant === "detail";
 
   useEffect(() => {
     if (!menuOpen && !colorOpen) return;
@@ -68,15 +85,28 @@ export function ListCard({
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [menuOpen, colorOpen]);
-  const colorStyle = getListColorStyle(list.color);
-  const openCount = items.filter((i) => !i.completed).length;
-  const completedCount = items.length - openCount;
-  const itemIds = useMemo(() => items.map((i) => i.id), [items]);
+
+  const flatItems = useMemo(() => {
+    const withDepth = items as FlatListItem[];
+    if (withDepth.length > 0 && "depth" in withDepth[0]) {
+      return withDepth;
+    }
+    return flattenListItems(items);
+  }, [items]);
+
+  const visibleItems = isPreview
+    ? flatItems.slice(0, LIST_ITEM_PREVIEW_LIMIT)
+    : flatItems;
+  const hiddenCount = isPreview ? Math.max(0, flatItems.length - LIST_ITEM_PREVIEW_LIMIT) : 0;
+  const openCount = flatItems.filter((i) => !i.completed).length;
+  const completedCount = flatItems.length - openCount;
+  const itemIds = useMemo(() => visibleItems.map((i) => i.id), [visibleItems]);
+  const rawItems = useMemo(() => items.map((i) => ({ ...i, parentItemId: i.parentItemId })), [items]);
 
   const sensors = useListDndSensors();
   const activeItem = useMemo(
-    () => (activeItemId ? items.find((i) => i.id === activeItemId) : undefined),
-    [activeItemId, items],
+    () => (activeItemId ? visibleItems.find((i) => i.id === activeItemId) : undefined),
+    [activeItemId, visibleItems],
   );
 
   const handleAddItem = () => {
@@ -104,22 +134,115 @@ export function ListCard({
     setActiveItemId(null);
   };
 
+  const itemsPanel = (
+    <>
+      {isDetail ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleItemDragStart}
+          onDragEnd={handleItemDragEnd}
+          onDragCancel={handleItemDragCancel}
+        >
+          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+            <div className="list-items-stack space-y-0.5">
+              {visibleItems.map((item) => (
+                <ListItemRow
+                  key={item.id}
+                  item={item}
+                  depth={item.depth}
+                  onToggle={onToggleItem}
+                  onDelete={onDeleteItem}
+                  onTextChange={onUpdateItem}
+                  onIndent={onIndentItem}
+                  onOutdent={onOutdentItem}
+                  canIndent={canIndentListItem(item.id, rawItems)}
+                  canOutdent={canOutdentListItem(item.id, rawItems)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+          <DragOverlay adjustScale={false} dropAnimation={null}>
+            {activeItem ? (
+              <div className="list-item-drag-overlay">
+                <ListItemRow
+                  item={activeItem}
+                  depth={activeItem.depth}
+                  onToggle={onToggleItem}
+                  onDelete={onDeleteItem}
+                  onTextChange={onUpdateItem}
+                  sortable={false}
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        <div className="list-items-stack space-y-0.5">
+          {visibleItems.map((item) => (
+            <ListItemRow
+              key={item.id}
+              item={item}
+              depth={item.depth}
+              readOnly
+              onToggle={onToggleItem}
+              onDelete={onDeleteItem}
+              onTextChange={onUpdateItem}
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <div className="list-card-more-hint px-1 pt-1 text-[11px] text-[#a1a1aa]">
+              +{hiddenCount} more — open list
+            </div>
+          )}
+        </div>
+      )}
+
+      {isDetail && (
+        <div className="mt-2 flex items-start gap-2">
+          <button
+            type="button"
+            className="list-item-check shrink-0 opacity-40 mt-0.5"
+            tabIndex={-1}
+            aria-hidden
+          />
+          <input
+            value={newItemText}
+            onChange={(e) => setNewItemText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAddItem();
+              }
+            }}
+            onBlur={() => {
+              if (newItemText.trim()) handleAddItem();
+            }}
+            placeholder="List item"
+            className="flex-1 bg-transparent text-sm text-[#e4e4e7] placeholder:text-[#52525b] outline-none"
+            aria-label="Add list item"
+          />
+        </div>
+      )}
+    </>
+  );
+
+  if (isDetail) {
+    return (
+      <div className="list-detail-body flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-2">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{itemsPanel}</div>
+      </div>
+    );
+  }
+
   return (
-    <article
-      data-list-id={list.id}
-      className={cn("list-card flex flex-col", isHighlighted && "is-highlighted")}
-      style={{
-        background: colorStyle.bg,
-        borderColor: colorStyle.border,
-        ["--list-bg" as string]: colorStyle.bg,
-        ["--list-border" as string]: colorStyle.border,
-      }}
-    >
+    <>
       <header className="flex items-start gap-2 px-3.5 pt-3.5 pb-2">
         <button
           type="button"
           className="list-card-drag-handle mt-1 shrink-0 text-[#71717a] hover:text-[#c084fc] cursor-grab active:cursor-grabbing touch-none"
           aria-label="Drag list"
+          data-no-open
           {...dragHandleProps}
         >
           <GripVertical className="h-4 w-4" />
@@ -137,7 +260,7 @@ export function ListCard({
             placeholder="Title"
             aria-label="List title"
           />
-          {items.length > 0 && (
+          {flatItems.length > 0 && (
             <div className="text-[10px] text-[#71717a] mt-1">
               {openCount} open{completedCount > 0 ? ` · ${completedCount} done` : ""}
             </div>
@@ -223,74 +346,111 @@ export function ListCard({
         </div>
       </header>
 
-      <div className="px-3 pb-2 flex-1 min-h-0">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleItemDragStart}
-          onDragEnd={handleItemDragEnd}
-          onDragCancel={handleItemDragCancel}
-        >
-          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <div className="list-items-stack space-y-0.5">
-              {items.map((item) => (
-                <ListItemRow
-                  key={item.id}
-                  item={item}
-                  onToggle={onToggleItem}
-                  onDelete={onDeleteItem}
-                  onTextChange={onUpdateItem}
-                />
-              ))}
-            </div>
-          </SortableContext>
-          <DragOverlay adjustScale={false} dropAnimation={null}>
-            {activeItem ? (
-              <div className="list-item-drag-overlay">
-                <ListItemRow
-                  item={activeItem}
-                  onToggle={onToggleItem}
-                  onDelete={onDeleteItem}
-                  onTextChange={onUpdateItem}
-                  sortable={false}
-                />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-
-        <div className="mt-2 flex items-start gap-2">
-          <button
-            type="button"
-            className="list-item-check shrink-0 opacity-40 mt-0.5"
-            tabIndex={-1}
-            aria-hidden
-          />
-          <input
-            value={newItemText}
-            onChange={(e) => setNewItemText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAddItem();
+      <div
+        className={cn(
+          "px-3 pb-2 flex-1 min-h-0",
+          onOpenDetail && "list-card-open-target cursor-pointer",
+        )}
+        onClick={onOpenDetail}
+        role={onOpenDetail ? "button" : undefined}
+        tabIndex={onOpenDetail ? 0 : undefined}
+        onKeyDown={
+          onOpenDetail
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpenDetail(e as unknown as React.MouseEvent);
+                }
               }
-            }}
-            onBlur={() => {
-              if (newItemText.trim()) handleAddItem();
-            }}
-            placeholder="List item"
-            className="flex-1 bg-transparent text-sm text-[#e4e4e7] placeholder:text-[#52525b] outline-none"
-            aria-label="Add list item"
-          />
-        </div>
+            : undefined
+        }
+      >
+        {itemsPanel}
       </div>
+    </>
+  );
+}
+
+interface ListCardProps {
+  list: WorkspaceList;
+  items: ListItem[];
+  onOpenDetail?: () => void;
+  onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
+  onDeleteList: (id: string) => void;
+  onTogglePinned: (id: string) => void;
+  onAddItem: (listId: string, text: string) => void;
+  onToggleItem: (id: string) => void;
+  onUpdateItem: (id: string, text: string) => void;
+  onDeleteItem: (id: string) => void;
+  onReorderItems: (listId: string, activeId: string, overId: string) => void;
+  onIndentItem: (id: string) => void;
+  onOutdentItem: (id: string) => void;
+  onClearCompleted: (listId: string) => void;
+  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+  isHighlighted?: boolean;
+}
+
+export function ListCard({
+  list,
+  items,
+  onOpenDetail,
+  onUpdateList,
+  onDeleteList,
+  onTogglePinned,
+  onAddItem,
+  onToggleItem,
+  onUpdateItem,
+  onDeleteItem,
+  onReorderItems,
+  onIndentItem,
+  onOutdentItem,
+  onClearCompleted,
+  dragHandleProps,
+  isHighlighted = false,
+}: ListCardProps) {
+  const colorStyle = getListColorStyle(list.color);
+
+  const handleOpenDetail = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input, a, [data-no-open]")) return;
+    onOpenDetail?.();
+  };
+
+  return (
+    <article
+      data-list-id={list.id}
+      className={cn("list-card flex flex-col", isHighlighted && "is-highlighted")}
+      style={{
+        background: colorStyle.bg,
+        borderColor: colorStyle.border,
+        ["--list-bg" as string]: colorStyle.bg,
+        ["--list-border" as string]: colorStyle.border,
+      }}
+    >
+      <ListCardBody
+        list={list}
+        items={items}
+        variant="preview"
+        onUpdateList={onUpdateList}
+        onDeleteList={onDeleteList}
+        onTogglePinned={onTogglePinned}
+        onAddItem={onAddItem}
+        onToggleItem={onToggleItem}
+        onUpdateItem={onUpdateItem}
+        onDeleteItem={onDeleteItem}
+        onReorderItems={onReorderItems}
+        onIndentItem={onIndentItem}
+        onOutdentItem={onOutdentItem}
+        onClearCompleted={onClearCompleted}
+        dragHandleProps={dragHandleProps}
+        onOpenDetail={onOpenDetail ? handleOpenDetail : undefined}
+      />
     </article>
   );
 }
 
 interface SortableListCardProps extends Omit<ListCardProps, "dragHandleProps"> {
   id: string;
-  /** Locked height of the dragged card so the drop slot keeps stable dimensions. */
   dragSlotHeight?: number | null;
 }
 
@@ -319,8 +479,6 @@ export function SortableListCard(props: SortableListCardProps) {
   const isDropSlot = isDragging && overIndex >= 0 && overIndex !== index;
 
   const style: React.CSSProperties = {
-    // DragOverlay mode: dnd-kit translates the source wrapper to the drop cell.
-    // Translate only — scale from rectSortingStrategy warps variable-height masonry cards.
     transform: transform
       ? isDragging
         ? CSS.Translate.toString(transform)
