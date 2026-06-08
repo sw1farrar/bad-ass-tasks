@@ -72,18 +72,25 @@
 }
 
 @media (min-width: 768px) {
+  .tasks-root .task-recurring-filters {
+    overflow: visible;
+  }
+
   .tasks-root .task-recurring-filters__track {
-    display: inline-grid;
-    grid-template-columns: repeat(3, 7.5rem);
+    display: inline-flex;
+    width: auto;
+    flex: none;
   }
 
   .tasks-root .task-recurring-filter-pill {
-    width: 100%;
-    height: 2.5rem;
-    min-height: 2.5rem !important;
-    padding-inline: 0.5rem;
+    width: auto;
+    height: 1.75rem;
+    min-height: 1.75rem !important;
+    padding-inline: 0.625rem;
     line-height: 1;
     flex: none;
+    font-size: 11px;
+    letter-spacing: 0.01em;
   }
 }
 

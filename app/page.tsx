@@ -1098,9 +1098,9 @@ export default function BadAssTasks() {
             placeholder="Search tasks"
             className="tasks-page-search input px-3 py-2.5 rounded-xl text-sm w-full md:max-w-md"
           />
-          <div className="task-recurring-filters w-full max-md:w-full md:w-auto overflow-x-auto pb-1">
+          <div className="task-recurring-filters w-full max-md:w-full md:w-auto md:shrink-0 overflow-x-auto md:overflow-visible pb-1">
             <div
-              className="task-recurring-filters__track flex w-full md:w-auto items-center gap-1 p-1 rounded-full border border-white/10 bg-white/[0.04]"
+              className="task-recurring-filters__track flex w-full md:w-auto items-center gap-0.5 md:gap-0.5 p-1 md:p-0.5 rounded-full border border-white/10 bg-white/[0.04]"
               role="group"
               aria-label="Filter tasks by status"
             >
@@ -1108,7 +1108,7 @@ export default function BadAssTasks() {
               const activeMode = taskFilter.recurring ?? "incomplete";
               const isActive = activeMode === mode;
               const label =
-                mode === "all" ? "All" : mode === "incomplete" ? "Incomplete" : "Completed";
+                mode === "all" ? "All" : mode === "incomplete" ? "Incomplete" : "Complete";
               return (
                 <button
                   key={`task-status-filter-${mode}`}
@@ -1117,7 +1117,7 @@ export default function BadAssTasks() {
                   aria-pressed={isActive}
                   className={cn(
                     "task-recurring-filter-pill inline-flex items-center justify-center rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                    "flex-1 min-w-0 max-md:flex-1 md:flex-none h-9 md:h-10 max-md:px-1.5 md:px-4 min-h-0",
+                    "flex-1 min-w-0 max-md:flex-1 md:flex-none h-9 max-md:px-1.5 md:h-7 md:px-2.5 min-h-0",
                     isActive
                       ? "is-active bg-[#c084fc] text-black shadow-[0_0_12px_rgba(192,132,252,0.28)]"
                       : "text-[#a1a1aa] hover:text-white hover:bg-white/5",
