@@ -13,8 +13,8 @@ import {
 } from "@/lib/assignee";
 import { DateTimePicker } from "./DateTimePicker";
 import { ConfirmationModal } from "./ConfirmationModal";
-import { format } from "date-fns";
 import { toast } from "sonner";
+import { safeFormatDate, safeFormatTimestampIso } from "@/lib/datetime";
 import { motion, AnimatePresence, PanInfo, useDragControls } from "framer-motion";
 import { useTaskStore } from "@/store/useTaskStore";
 import type { Comment, Task, WorkspaceMember } from "@/types";
@@ -472,7 +472,7 @@ function RecurrenceEditor({
     const nextEx = [...currentEx, exKey];
     save({ exceptionDates: nextEx });
     toast.success(isOverdue ? "This occurrence skipped" : "Next occurrence skipped", {
-      description: `${format(skipTarget, "MMM d")} excluded from series`,
+      description: `${safeFormatDate(skipTarget, "MMM d", "that date")} excluded from series`,
     });
   };
 
@@ -1273,9 +1273,9 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           </CollapsibleSection>
 
           <div className="text-[10px] text-[#71717a] pt-1">
-            Created {format(new Date(localTask.createdAt), "MMM d, yyyy")}
+            Created {safeFormatTimestampIso(localTask.createdAt, "MMM d, yyyy", "—")}
             {localTask.status === "done" && localTask.completedAt && (
-              <span> · Completed {format(new Date(localTask.completedAt), "MMM d, yyyy")}</span>
+              <span> · Completed {safeFormatTimestampIso(localTask.completedAt, "MMM d, yyyy", "—")}</span>
             )}
           </div>
 
@@ -1448,9 +1448,9 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             />
 
             <div className="pt-3 border-t border-white/10 text-[11px] text-[#71717a] leading-relaxed">
-              Created {format(new Date(localTask.createdAt), "MMM d, yyyy")}
+              Created {safeFormatTimestampIso(localTask.createdAt, "MMM d, yyyy", "—")}
               {localTask.status === "done" && localTask.completedAt && (
-                <div>Completed {format(new Date(localTask.completedAt), "MMM d, yyyy")}</div>
+                <div>Completed {safeFormatTimestampIso(localTask.completedAt, "MMM d, yyyy", "—")}</div>
               )}
             </div>
           </div>

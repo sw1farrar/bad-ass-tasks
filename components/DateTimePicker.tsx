@@ -6,7 +6,7 @@ import { addDays, format, startOfToday } from 'date-fns';
 import { DayPicker, type MonthCaptionProps, useDayPicker } from 'react-day-picker';
 import { Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { parseLocalDate, toLocalDateString } from '@/lib/datetime';
+import { parseLocalDate, safeFormatDate, toLocalDateString } from '@/lib/datetime';
 import { useScrollLock } from '@/lib/hooks/useScrollLock';
 
 interface DatePickerProps {
@@ -94,8 +94,8 @@ export function DateTimePicker({
 
   const selectedDate = parseToLocalDate(value);
 
-  const displayValue = value
-    ? format(parseToLocalDate(value)!, 'MMM d, yyyy')
+  const displayValue = selectedDate
+    ? safeFormatDate(selectedDate, 'MMM d, yyyy', placeholder)
     : placeholder;
 
   useEffect(() => {

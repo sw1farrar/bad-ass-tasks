@@ -47,6 +47,17 @@ export function safeFormatDate(date: Date, pattern: string, fallback = ""): stri
   return format(date, pattern);
 }
 
+/** Format a stored ISO timestamp — never throws on missing or invalid values. */
+export function safeFormatTimestampIso(
+  iso?: string | null,
+  pattern = "MMM d, yyyy",
+  fallback = "",
+): string {
+  if (!iso?.trim()) return fallback;
+  const date = new Date(iso);
+  return safeFormatDate(date, pattern, fallback);
+}
+
 /** Relative time label for activity feeds, presence, etc. */
 export function safeFormatDistanceToNow(
   input?: string | null,

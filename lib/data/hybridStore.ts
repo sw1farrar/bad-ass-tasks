@@ -322,8 +322,14 @@ function mapTaskRow(row: TaskRow): Task {
     assigneeIds: row.assignee_ids ?? [],
     assignee: undefined,
     tags: row.tags ?? [],
-    createdAt: row.created_at,
-    completedAt: row.completed_at ?? undefined,
+    createdAt:
+      row.created_at && String(row.created_at).trim()
+        ? row.created_at
+        : new Date().toISOString(),
+    completedAt:
+      row.completed_at && String(row.completed_at).trim()
+        ? row.completed_at
+        : undefined,
     timeEstimate: row.time_estimate ?? undefined,
     linkedNoteIds: row.linked_note_ids ?? [],
     // Recurring + exceptions (Agent 13 production prep, built on Agent 8)
