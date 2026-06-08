@@ -566,6 +566,18 @@ const SAMPLE_TASKS: Task[] = [
 // Demo-only beautiful sample data (see SAMPLE_TASKS comment for usage rules; never used in live auth).
 const SAMPLE_NOTES: Note[] = [
   {
+    id: "n0",
+    title: "Vendor invoice — Acme Cloud",
+    content: "Inbound PDF from accounts@acme.example — needs tags and memo before filing.",
+    createdAt: new Date(Date.now() - 1000 * 3600 * 2).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 3600 * 2).toISOString(),
+    tags: [],
+    linkedTaskIds: [],
+    workspaceId: "w1",
+    reviewStatus: "pending_review",
+    recordType: "document",
+  },
+  {
     id: "n1",
     title: "Investor Deck Outline — Q1 2026",
     content: "Key slides needed:\n• Traction: 4.2x YoY revenue\n• Market: $47B TAM\n• Why now: AI agents are exploding\n\nAction items extracted automatically.",
@@ -574,6 +586,9 @@ const SAMPLE_NOTES: Note[] = [
     tags: ["investors", "strategy"],
     linkedTaskIds: ["t1"],
     workspaceId: "w1",
+    reviewStatus: "filed",
+    recordType: "note",
+    filedAt: new Date(Date.now() - 1000 * 3600 * 28).toISOString(),
   },
   {
     id: "n2",
@@ -584,6 +599,9 @@ const SAMPLE_NOTES: Note[] = [
     tags: ["marketing", "website"],
     linkedTaskIds: ["t3"],
     workspaceId: "w1",
+    reviewStatus: "filed",
+    recordType: "note",
+    filedAt: new Date(Date.now() - 1000 * 3600 * 17).toISOString(),
   },
   {
     id: "n3",
@@ -594,6 +612,9 @@ const SAMPLE_NOTES: Note[] = [
     tags: ["launch"],
     linkedTaskIds: ["t6"],
     workspaceId: "w1",
+    reviewStatus: "filed",
+    recordType: "note",
+    filedAt: new Date(Date.now() - 1000 * 3600 * 48).toISOString(),
   },
 ];
 

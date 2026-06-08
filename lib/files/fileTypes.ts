@@ -18,6 +18,26 @@ export function inferRecordTypeFromTags(tags: string[]): FileRecordType {
   return "note";
 }
 
+/** Classify uploaded attachments for Review intake. */
+export function inferRecordTypeFromMime(mimeType: string): FileRecordType {
+  const mime = (mimeType || "").toLowerCase();
+  if (mime.includes("receipt") || mime === "application/vnd.sealedmedia.softseal.pdf") {
+    return "receipt";
+  }
+  if (
+    mime.startsWith("image/") ||
+    mime === "application/pdf" ||
+    mime.startsWith("application/vnd.") ||
+    mime.startsWith("text/") ||
+    mime.includes("document") ||
+    mime.includes("spreadsheet") ||
+    mime.includes("presentation")
+  ) {
+    return "document";
+  }
+  return "document";
+}
+
 export function recordTypeLabel(type: FileRecordType): string {
   switch (type) {
     case "email":

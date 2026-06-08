@@ -3,6 +3,10 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { uploadNoteAttachment } from "@/lib/storage/noteAttachments";
 import { buildNoteAttachmentFileUrl } from "@/lib/notes/attachmentUrls";
+import {
+  maybePromoteNoteToDocumentRecord,
+  refreshNoteSearchDocument,
+} from "@/lib/notes/refreshNoteSearchDocument";
 import { parsePdfAnnotations } from "@/lib/pdf/annotations";
 
 type RouteContext = { params: Promise<{ noteId: string }> };
@@ -140,15 +144,19 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const buffer = await file.arrayBuffer();
+    const mimeType = file.type || "application/octet-stream";
     const stored = await uploadNoteAttachment({
       workspaceId,
       noteId,
       fileName: file.name,
-      mimeType: file.type || "application/octet-stream",
+      mimeType,
       buffer,
       source: "upload",
       createdBy: user.id,
     });
+
+    await refreshNoteSearchDocument(noteId);
+    const promotedRecordType = await maybePromoteNoteToDocumentRecord(noteId, mimeType);
 
     return NextResponse.json({
       ok: true,
@@ -161,6 +169,7 @@ export async function POST(request: Request, context: RouteContext) {
         source: stored.source,
         previewUrl: buildNoteAttachmentFileUrl(noteId, stored.id),
       },
+      recordType: promotedRecordType,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "upload_failed";

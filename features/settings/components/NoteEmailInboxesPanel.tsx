@@ -74,7 +74,7 @@ export function NoteEmailInboxesPanel() {
       setInboxes((prev) => [data.inbox, ...prev]);
       setShowCreate(false);
       setSelectedParentId("");
-      toast.success("Email inbox created — copy the address below");
+      toast.success("File inbox created — copy the address below");
     } finally {
       setCreating(false);
     }
@@ -130,7 +130,7 @@ export function NoteEmailInboxesPanel() {
   if (!isSupabaseConfigured() || isDemoWorkspace) {
     return (
       <div className="settings-inbox-hint rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-[#71717a]">
-        Email inboxes are available in live workspaces after database migration.
+        File inboxes are available in live workspaces after you run the email migration scripts.
       </div>
     );
   }
@@ -139,8 +139,9 @@ export function NoteEmailInboxesPanel() {
     <>
       <div className="space-y-3 md:space-y-4">
         <p className="text-[11px] md:text-xs text-[#71717a] leading-relaxed">
-          Pick a parent note, get a private address, and every email sent there becomes a child note
-          with the subject as the title. Anyone with the address can send in.
+          Pick a parent file, get a private address, and every email sent there lands in{" "}
+          <strong className="font-medium text-[#a1a1aa]">Review</strong> as a child record with the
+          subject as the title. Anyone with the address can send in.
         </p>
 
         {!showCreate ? (
@@ -150,18 +151,18 @@ export function NoteEmailInboxesPanel() {
             className="w-full md:w-auto flex items-center justify-center gap-2 rounded-xl border border-[#c084fc]/30 bg-[#c084fc]/10 px-4 py-2.5 text-sm text-[#e9d5ff] hover:bg-[#c084fc]/15 min-h-[40px]"
           >
             <Plus className="h-4 w-4" />
-            Create inbox
+            Create file inbox
           </button>
         ) : (
           <div className="settings-inbox-create rounded-xl border border-white/10 bg-white/5 p-4 space-y-3">
-            <div className="text-xs uppercase tracking-widest text-[#a1a1aa]">1. Choose parent note</div>
+            <div className="text-xs uppercase tracking-widest text-[#a1a1aa]">1. Choose parent file</div>
             <div className="relative">
               <select
                 value={selectedParentId}
                 onChange={(e) => setSelectedParentId(e.target.value)}
                 className="input w-full appearance-none rounded-xl px-4 py-2.5 pr-10 text-sm"
               >
-                <option value="">Select a main or child note…</option>
+                <option value="">Select a main or child file…</option>
                 {eligibleParents.map(({ note, depth }) => (
                   <option key={note.id} value={note.id}>
                     {depth > 0 ? "↳ " : ""}
@@ -173,7 +174,7 @@ export function NoteEmailInboxesPanel() {
             </div>
             {eligibleParents.length === 0 && (
               <p className="text-[11px] text-[#71717a]">
-                Create a note first. Grandchild notes cannot be parents.
+                Create a file first. Grandchild files cannot be parents.
               </p>
             )}
             <div className="settings-inbox-actions flex flex-col sm:flex-row gap-2">
@@ -279,7 +280,7 @@ export function NoteEmailInboxesPanel() {
         onConfirm={handleDelete}
         title="Delete email inbox?"
         highlight={pendingDelete?.emailAddress}
-        description="Future emails to this address will not create notes."
+        description="Future emails to this address will not create files."
         confirmText="Delete"
         variant="destructive"
       />

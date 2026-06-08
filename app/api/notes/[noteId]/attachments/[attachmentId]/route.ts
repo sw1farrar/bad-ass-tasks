@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { NOTE_ATTACHMENTS_BUCKET } from "@/lib/storage/noteAttachments";
+import { refreshNoteSearchDocument } from "@/lib/notes/refreshNoteSearchDocument";
 import { parsePdfAnnotations } from "@/lib/pdf/annotations";
 type RouteContext = { params: Promise<{ noteId: string; attachmentId: string }> };
 
@@ -212,6 +213,8 @@ export async function DELETE(_request: Request, context: RouteContext) {
   if (deleteError) {
     return NextResponse.json({ error: "attachment_delete_failed" }, { status: 500 });
   }
+
+  await refreshNoteSearchDocument(noteId);
 
   return NextResponse.json({ ok: true });
 }

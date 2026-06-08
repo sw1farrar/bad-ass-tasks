@@ -58,7 +58,7 @@ export function MainLayout(props: MainLayoutProps) {
   const VIEWS = [
     { id: "home", label: "Home", icon: Home },
     { id: "tasks", label: "Tasks", icon: Check },
-    { id: "notes", label: "Notes", icon: Star },
+    { id: "notes", label: "Files", icon: Star },
     { id: "teams", label: "Team", icon: Users },
   ] as const;
 

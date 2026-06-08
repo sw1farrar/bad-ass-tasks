@@ -18,6 +18,18 @@ Run these scripts in the **Supabase SQL Editor** in order. Each file is idempote
 1. Hard-refresh https://badazztasks.com (or your deployment).
 2. Confirm no console warning: *"Files workflow is not synced to Supabase yet"*.
 3. New files (manual, upload, email) should land in **Review** until approved.
+4. Attachment uploads automatically refresh `search_document` (no extra script).
+
+## Quick checklist
+
+| Step | Script | You ran it? |
+|------|--------|-------------|
+| Lists | `add-workspace-lists.sql` | if needed |
+| List nesting | `add-list-items-nesting.sql` | yes |
+| Attachments | `add-note-attachments.sql` | |
+| Email inboxes | `add-note-email-inboxes.sql` | |
+| Email archive | `add-email-note-archive.sql` | |
+| **Files Review + search** | **`add-files-review-workflow.sql`** | **required** |
 
 ## What script #6 adds
 

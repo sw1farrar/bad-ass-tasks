@@ -3296,7 +3296,7 @@ export default function BadAssTasks() {
                 ]},
                 { cat: "Navigation", items: [
                   { key: "1", desc: "Go to All Tasks view" },
-                  { key: "2", desc: "Go to Notes view" },
+                  { key: "2", desc: "Go to Files view" },
                   { key: "3", desc: "Go to Lists view" },
                   { key: "4", desc: "Go to Team" },
                   { key: "5", desc: "Go to Workspace Settings" },

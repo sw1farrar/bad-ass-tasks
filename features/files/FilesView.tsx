@@ -146,7 +146,7 @@ export function FilesView({
         }}
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
-        onNewFile={() => void onCreateNote?.()}
+        onNewFile={() => void onCreateNote?.("Untitled file")}
         isCreating={false}
       />
 
