@@ -762,7 +762,7 @@ export function NotesView({
     ));
   };
 
-  const mobileLayoutClass = isMobile ? "notes-mobile-list" : "";
+  const mobileLayoutClass = isMobile && !detailOnly ? "notes-mobile-list" : "";
 
   useEffect(() => {
     if (!isMobile || !selectedNoteId) {
@@ -1105,7 +1105,7 @@ export function NotesView({
         )}
       </div>
 
-      {isMobile && (
+      {isMobile && !detailOnly && (
         <NoteMobileDrawer
           open={!!selectedNote && !!mobileDraft}
           onSave={() => void handleDrawerSave()}

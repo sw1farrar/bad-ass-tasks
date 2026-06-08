@@ -46,6 +46,8 @@ import {
 } from "@/components/WorkspaceSwitchEffects";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
+import { FilesNavIndicator } from "@/components/FilesNavIndicator";
+import { filterPendingReview } from "@/lib/files/fileFilters";
 import { countOpenAndOverdueTasks } from "@/features/home/lib/computeWorkspaceTaskStats";
 import { getSearchResultDisplayName, isSharedWorkspace } from "@/lib/assignee";
 import { ListsView } from "@/features/lists";
@@ -548,6 +550,11 @@ export default function BadAssTasks() {
       overdueCount: stats?.overdueCount ?? 0,
     };
   }, [tasks, currentWorkspace.id, globalWorkspaceStats]);
+
+  const pendingReviewCount = useMemo(() => {
+    const wsId = currentWorkspace.id;
+    return filterPendingReview(notes.filter((n) => n.workspaceId === wsId)).length;
+  }, [notes, currentWorkspace.id]);
 
   const selectedTask = useMemo(() => {
     if (!showFullTaskModal) return undefined;
@@ -2944,6 +2951,9 @@ export default function BadAssTasks() {
                       variant="sidebar"
                     />
                   )}
+                  {v.id === "notes" && (
+                    <FilesNavIndicator reviewCount={pendingReviewCount} variant="sidebar" />
+                  )}
                 </div>
               );
             })}
@@ -3174,6 +3184,9 @@ export default function BadAssTasks() {
                       overdueCount={currentWorkspaceTaskCounts.overdueCount}
                       variant="bottom"
                     />
+                  )}
+                  {v.id === "notes" && (
+                    <FilesNavIndicator reviewCount={pendingReviewCount} variant="bottom" />
                   )}
                 </span>
                 <span className="font-medium tracking-tight">{label}</span>

@@ -26,10 +26,10 @@ Run these scripts in the **Supabase SQL Editor** in order. Each file is idempote
 |------|--------|-------------|
 | Lists | `add-workspace-lists.sql` | if needed |
 | List nesting | `add-list-items-nesting.sql` | yes |
-| Attachments | `add-note-attachments.sql` | |
-| Email inboxes | `add-note-email-inboxes.sql` | |
-| Email archive | `add-email-note-archive.sql` | |
-| **Files Review + search** | **`add-files-review-workflow.sql`** | **required** |
+| Attachments | `add-note-attachments.sql` | done |
+| Email inboxes | `add-note-email-inboxes.sql` | done |
+| Email archive | `add-email-note-archive.sql` | done |
+| **Files Review + search** | **`add-files-review-workflow.sql`** | done |
 
 ## What script #6 adds
 

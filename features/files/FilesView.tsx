@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, ChevronLeft, Plus } from "lucide-react";
 import { NotesView } from "@/features/notes/NotesView";
-import type { Note, Task, FileRecordType } from "@/types";
+import type { Note, FileRecordType } from "@/types";
 import { apiFetch } from "@/lib/api/apiFetch";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { cn } from "@/lib/utils";
 import {
   collectWorkspaceTags,
   filterByTags,
@@ -33,6 +35,10 @@ export function FilesView({
   onCreateNote,
   ...notesProps
 }: FilesViewProps) {
+  const isMobile = useIsMobileViewport();
+  const selectedNoteId = notesProps.selectedNoteId;
+  const showMobileDetail = isMobile && !!selectedNoteId;
+
   const pendingFiles = useMemo(() => sortFiledNotes(filterPendingReview(notes)), [notes]);
   const filedFiles = useMemo(() => sortFiledNotes(filterFiledNotes(notes)), [notes]);
   const workspaceTags = useMemo(() => collectWorkspaceTags(filedFiles), [filedFiles]);
@@ -42,8 +48,14 @@ export function FilesView({
   const [searching, setSearching] = useState(false);
   const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
+
+  const selectedFile = useMemo(
+    () => (selectedNoteId ? notes.find((n) => n.id === selectedNoteId) : null),
+    [notes, selectedNoteId],
+  );
 
   useEffect(() => {
     if (pendingFiles.length > 0 && filter.kind === "all") {
@@ -124,6 +136,16 @@ export function FilesView({
     [approveTarget, onApproveFile, filter.kind, pendingFiles.length],
   );
 
+  const handleNewFile = useCallback(async () => {
+    if (!onCreateNote || isCreating) return;
+    setIsCreating(true);
+    try {
+      await onCreateNote("Untitled file");
+    } finally {
+      setIsCreating(false);
+    }
+  }, [onCreateNote, isCreating]);
+
   const listTitle =
     filter.kind === "review"
       ? "Review"
@@ -136,7 +158,12 @@ export function FilesView({
             : "All filed";
 
   return (
-    <div className="files-root flex h-full min-h-0 overflow-hidden">
+    <div
+      className={cn(
+        "files-root flex h-full min-h-0 overflow-hidden",
+        showMobileDetail && "files-mobile-detail",
+      )}
+    >
       <TagRail
         filter={filter}
         onFilterChange={(f) => {
@@ -146,14 +173,27 @@ export function FilesView({
         }}
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
-        onNewFile={() => void onCreateNote?.("Untitled file")}
-        isCreating={false}
+        onNewFile={() => void handleNewFile()}
+        isCreating={isCreating}
       />
 
       <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-white/10 bg-[#0a0a0a]">
         <div className="p-3 border-b border-white/10 space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-widest text-[#71717a] px-1">
-            {listTitle}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <div className="text-xs font-semibold uppercase tracking-widest text-[#71717a]">
+              {listTitle}
+            </div>
+            {isMobile && (
+              <button
+                type="button"
+                onClick={() => void handleNewFile()}
+                disabled={isCreating}
+                className="md:hidden flex items-center gap-1 rounded-lg border border-[#c084fc]/30 bg-[#c084fc]/10 px-2.5 py-1.5 text-[11px] font-semibold text-[#e9d5ff]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {isCreating ? "…" : "New"}
+              </button>
+            )}
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b]" />
@@ -174,7 +214,7 @@ export function FilesView({
         {filter.kind === "review" ? (
           <ReviewPanel
             files={streamedFiles}
-            selectedId={notesProps.selectedNoteId}
+            selectedId={selectedNoteId}
             onSelect={(id) => notesProps.onSelectNote(id)}
             onApprove={(id) => {
               const file = notes.find((n) => n.id === id);
@@ -185,7 +225,7 @@ export function FilesView({
         ) : (
           <FileStream
             files={streamedFiles}
-            selectedId={notesProps.selectedNoteId}
+            selectedId={selectedNoteId}
             onSelect={(id) => notesProps.onSelectNote(id)}
             attachmentCounts={attachmentCounts}
             emptyMessage={
@@ -196,6 +236,23 @@ export function FilesView({
           />
         )}
       </div>
+
+      {showMobileDetail && (
+        <div className="files-mobile-back-bar">
+          <button
+            type="button"
+            onClick={() => notesProps.onSelectNote(null)}
+            className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm text-[#a1a1aa] hover:bg-white/5 hover:text-white min-h-[40px]"
+            aria-label="Back to file list"
+          >
+            <ChevronLeft className="h-5 w-5" />
+            Files
+          </button>
+          <div className="min-w-0 flex-1 text-sm font-medium truncate text-[#f4f4f5]">
+            {selectedFile?.title || "Untitled file"}
+          </div>
+        </div>
+      )}
 
       <div className="files-detail-column flex-1 min-w-0 min-h-0">
         <NotesView

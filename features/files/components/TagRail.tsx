@@ -37,7 +37,7 @@ export function TagRail({
 
   return (
     <aside className="files-tag-rail w-52 sm:w-56 shrink-0 border-r border-white/10 bg-[#0a0a0f] flex flex-col min-h-0">
-      <div className="p-3 border-b border-white/10">
+      <div className="files-tag-rail__new-file p-3 border-b border-white/10">
         <button
           type="button"
           onClick={onNewFile}
@@ -83,7 +83,7 @@ export function TagRail({
         </button>
 
         {tags.length > 0 && (
-          <div className="pt-2 pb-1 px-2 text-[10px] uppercase tracking-widest text-[#52525b] font-semibold">
+          <div className="files-tag-rail__tags-label pt-2 pb-1 px-2 text-[10px] uppercase tracking-widest text-[#52525b] font-semibold">
             Tags
           </div>
         )}
