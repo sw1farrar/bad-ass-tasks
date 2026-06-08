@@ -402,8 +402,8 @@ export default function BadAssTasks() {
         el.style.fontSize = "";
         return;
       }
-      const maxSize = 21;
-      const minSize = 13;
+      const maxSize = 33;
+      const minSize = 20;
       let size = maxSize;
       el.style.fontSize = `${size}px`;
       while (el.scrollWidth > el.clientWidth && size > minSize) {
@@ -2274,7 +2274,7 @@ export default function BadAssTasks() {
                   setNewWorkspaceName("");
                 }
               }}
-              className="group relative flex items-center gap-2 text-base md:text-sm px-4 py-3 md:px-4 md:py-2 rounded-none md:rounded-xl hover:bg-white/5 border-0 border-t md:border border-white/10 workspace-switcher w-full md:w-[28rem] max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between min-h-[48px] md:min-h-[44px] max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
+              className="group relative flex items-center gap-2 text-base md:text-sm px-4 py-3 md:px-4 md:py-2 rounded-none md:rounded-xl hover:bg-white/5 border-0 border-t md:border border-white/10 workspace-switcher w-full md:w-[28rem] max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between min-h-[56px] md:min-h-[44px] max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
               aria-expanded={showWorkspaceMenu}
             >
               <WorkspaceSwitchEffects
@@ -2306,7 +2306,7 @@ export default function BadAssTasks() {
                     ref={workspaceNameRef}
                     workspaceId={currentWorkspace.id}
                     name={currentWorkspace.name}
-                    className="workspace-name-label block w-full whitespace-nowrap text-center text-[21px] font-semibold leading-tight"
+                    className="workspace-name-label block w-full whitespace-nowrap text-center text-[33px] font-semibold leading-tight"
                   />
                 </span>
                 <span className="hidden md:block truncate text-left text-sm font-normal leading-tight">

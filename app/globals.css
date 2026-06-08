@@ -604,7 +604,7 @@ body {
 
   .top-bar .workspace-switcher {
     width: 100%;
-    min-height: 48px;
+    min-height: 56px;
     padding-right: 0;
     border-radius: 0;
     border-left: none;
@@ -618,7 +618,7 @@ body {
   }
 
   .top-bar .workspace-name-label {
-    font-size: 22px;
+    font-size: 33px;
     font-weight: 600;
     letter-spacing: -0.2px;
     text-overflow: clip;
@@ -643,7 +643,7 @@ body {
   /* Mobile notifications dropdown — full width, opaque, flush below top bar */
   .top-bar {
     --notifications-panel-top: calc(
-      max(6px, env(safe-area-inset-top, 4px)) + 44px + 48px
+      max(6px, env(safe-area-inset-top, 4px)) + 44px + 56px
     );
   }
 
