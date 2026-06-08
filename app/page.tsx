@@ -2555,20 +2555,25 @@ export default function BadAssTasks() {
           {showWorkspaceChat && (
             <button
               type="button"
-              onClick={toggleChat}
+              onClick={() => {
+                setShowNotifications(false);
+                setShowProfilePopover(false);
+                toggleChat();
+              }}
               className={cn(
-                "relative hidden md:flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border transition",
+                "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-full md:rounded-xl border transition",
                 chatOpen
                   ? "border-[#c084fc]/50 bg-[#c084fc]/10 text-[#c084fc]"
-                  : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40"
+                  : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40 hover:bg-white/10"
               )}
+              title="Messages"
               aria-label={chatOpen ? "Collapse messages" : "Open messages"}
               aria-expanded={chatOpen}
             >
               <MessageCircle className="h-4 w-4" />
               {workspaceChat.hasUnread && !chatOpen && (
                 <span
-                  className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-[#ff3366] ring-2 ring-[#0a0a0f]"
+                  className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ff3366] ring-2 ring-[#0a0a0f]"
                   aria-label="Unread messages"
                 />
               )}
