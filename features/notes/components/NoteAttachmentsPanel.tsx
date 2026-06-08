@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { Note } from "@/types";
 import { FilePreviewModal } from "@/components/FilePreviewModal";
+import { isWordFile, isXlsxPreviewable } from "@/lib/preview/officeMime";
 import type { PdfHighlightAnnotation } from "@/lib/pdf/annotations";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
@@ -44,20 +45,11 @@ function isImageAttachment(mimeType: string, fileName: string): boolean {
 type AttachmentFileKind = "word" | "excel" | "pdf" | "generic";
 
 function isWordAttachment(mimeType: string, fileName: string): boolean {
-  return (
-    mimeType.includes("wordprocessingml") ||
-    mimeType === "application/msword" ||
-    /\.docx?$/i.test(fileName)
-  );
+  return isWordFile(mimeType, fileName);
 }
 
 function isExcelAttachment(mimeType: string, fileName: string): boolean {
-  return (
-    mimeType.includes("spreadsheetml") ||
-    mimeType.includes("spreadsheet") ||
-    mimeType === "application/vnd.ms-excel" ||
-    /\.xlsx?$/i.test(fileName)
-  );
+  return isXlsxPreviewable(mimeType, fileName);
 }
 
 function isPdfAttachment(mimeType: string, fileName: string): boolean {

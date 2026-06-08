@@ -16,6 +16,13 @@ import { ExcelPreview } from "@/components/ExcelPreview";
 import type { PdfHighlightAnnotation } from "@/lib/pdf/annotations";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import {
+  isDocxPreviewable,
+  isLegacyWordDoc,
+  isWordFile,
+  isXlsxPreviewable,
+  resolvePreviewMimeType,
+} from "@/lib/preview/officeMime";
 import { cn, triggerHaptic } from "@/lib/utils";
 
 export type FilePreviewTarget = {
@@ -41,16 +48,6 @@ function isImageMime(mime?: string, fileName?: string): boolean {
 function isPdfMime(mime?: string, fileName?: string): boolean {
   if (mime === "application/pdf") return true;
   return /\.pdf$/i.test(fileName ?? "");
-}
-
-function isDocxMime(mime?: string, fileName?: string): boolean {
-  if (mime?.includes("wordprocessingml")) return true;
-  return /\.docx$/i.test(fileName ?? "");
-}
-
-function isXlsxMime(mime?: string, fileName?: string): boolean {
-  if (mime?.includes("spreadsheetml")) return true;
-  return /\.xlsx?$/i.test(fileName ?? "");
 }
 
 function OfficeLoadingState({ compact = false }: { compact?: boolean }) {
@@ -100,7 +97,7 @@ function DocxPreview({ file, compact = false }: { file: FilePreviewTarget; compa
       if (styleContainer) styleContainer.innerHTML = "";
 
       try {
-        const response = await fetch(file.url);
+        const response = await fetch(file.url, { credentials: "include" });
         if (!response.ok) throw new Error("fetch_failed");
         const buffer = await response.arrayBuffer();
         const { renderAsync } = await import("docx-preview");
@@ -161,11 +158,23 @@ function DocxPreview({ file, compact = false }: { file: FilePreviewTarget; compa
   );
 }
 
+function LegacyDocPreview({ compact = false }: { compact?: boolean }) {
+  return (
+    <OfficeErrorState
+      compact={compact}
+      message="Preview isn't supported for older .doc files. Download the file to open it in Word."
+    />
+  );
+}
+
 function OfficePreview({ file, compact = false }: { file: FilePreviewTarget; compact?: boolean }) {
-  if (isDocxMime(file.mimeType, file.fileName)) {
+  if (isDocxPreviewable(file.mimeType, file.fileName)) {
     return <DocxPreview file={file} compact={compact} />;
   }
-  if (isXlsxMime(file.mimeType, file.fileName)) {
+  if (isLegacyWordDoc(file.mimeType, file.fileName)) {
+    return <LegacyDocPreview compact={compact} />;
+  }
+  if (isXlsxPreviewable(file.mimeType, file.fileName)) {
     return <ExcelPreview url={file.url} compact={compact} />;
   }
   return null;
@@ -197,7 +206,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
   }, [onClose]);
 
   const attemptClose = useCallback(() => {
-    const isPdf = file && isPdfMime(file.mimeType, file.fileName);
+    const isPdf = file && isPdfMime(resolvePreviewMimeType(file.mimeType, file.fileName), file.fileName);
     if (isPdf && file?.attachmentId && pdfRef.current?.isDirty()) {
       setShowSavePrompt(true);
       return;
@@ -220,12 +229,18 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
 
   if (!mounted || !file) return null;
 
-  if (isImageMime(file.mimeType, file.fileName)) {
+  const resolvedMimeType = resolvePreviewMimeType(file.mimeType, file.fileName);
+  const previewFile: FilePreviewTarget = {
+    ...file,
+    mimeType: resolvedMimeType ?? file.mimeType,
+  };
+
+  if (isImageMime(previewFile.mimeType, previewFile.fileName)) {
     return (
       <ImagePreviewModal
-        src={file.url}
-        alt={file.fileName}
-        mimeType={file.mimeType}
+        src={previewFile.url}
+        alt={previewFile.fileName}
+        mimeType={previewFile.mimeType}
         onClose={finishClose}
       />
     );
@@ -233,18 +248,21 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
 
   const handleDownload = () => {
     const link = document.createElement("a");
-    link.href = file.url;
-    link.download = file.fileName;
+    link.href = previewFile.url;
+    link.download = previewFile.fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     triggerHaptic("light");
   };
 
-  const showPdf = isPdfMime(file.mimeType, file.fileName);
-  const showDocx = isDocxMime(file.mimeType, file.fileName);
-  const showOffice = showDocx || isXlsxMime(file.mimeType, file.fileName);
-  const mobileDocxChrome = isMobile && showDocx;
+  const showPdf = isPdfMime(previewFile.mimeType, previewFile.fileName);
+  const showDocx = isDocxPreviewable(previewFile.mimeType, previewFile.fileName);
+  const showLegacyDoc = isLegacyWordDoc(previewFile.mimeType, previewFile.fileName);
+  const showWord = isWordFile(previewFile.mimeType, previewFile.fileName);
+  const showOffice =
+    showDocx || showLegacyDoc || isXlsxPreviewable(previewFile.mimeType, previewFile.fileName);
+  const mobileDocxChrome = isMobile && showWord;
 
   const handleSaveHighlights = async () => {
     const ok = await pdfRef.current?.save();
@@ -295,11 +313,11 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                     <FileText className="h-4 w-4 shrink-0 text-[#2B579A]" aria-hidden />
                     <div className="file-preview-mobile-chrome__meta">
                       <span className="file-preview-mobile-chrome__type">Word document</span>
-                      <span className="file-preview-mobile-chrome__name">{file.fileName}</span>
+                      <span className="file-preview-mobile-chrome__name">{previewFile.fileName}</span>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <PreviewMobileActions file={file} />
+                    <PreviewMobileActions file={previewFile} />
                     <button
                       type="button"
                       onClick={close}
@@ -321,7 +339,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                   {!isMobile && (
                     <div className="flex min-w-0 items-center gap-2 text-sm text-white/80">
                       <FileText className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{file.fileName}</span>
+                      <span className="truncate">{previewFile.fileName}</span>
                     </div>
                   )}
 
@@ -336,7 +354,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                         Download
                       </button>
                     )}
-                    {isMobile && <PreviewMobileActions file={file} />}
+                    {isMobile && <PreviewMobileActions file={previewFile} />}
                     <button
                       type="button"
                       onClick={close}
@@ -377,14 +395,14 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                   {showPdf ? (
                     <PdfAnnotationPreview
                       ref={pdfRef}
-                      url={file.url}
-                      attachmentId={file.attachmentId}
-                      noteId={file.noteId}
-                      initialAnnotations={file.pdfAnnotations}
+                      url={previewFile.url}
+                      attachmentId={previewFile.attachmentId}
+                      noteId={previewFile.noteId}
+                      initialAnnotations={previewFile.pdfAnnotations}
                       onDirtyChange={setPdfDirty}
                       onSaved={(annotations) => {
-                        if (file.attachmentId) {
-                          onPdfAnnotationsSaved?.(file.attachmentId, annotations);
+                        if (previewFile.attachmentId) {
+                          onPdfAnnotationsSaved?.(previewFile.attachmentId, annotations);
                         }
                       }}
                       mobilePreview={isMobile}
@@ -392,9 +410,9 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                         isMobile
                           ? {
                               file: {
-                                url: file.url,
-                                fileName: file.fileName,
-                                mimeType: file.mimeType,
+                                url: previewFile.url,
+                                fileName: previewFile.fileName,
+                                mimeType: previewFile.mimeType,
                               },
                               onClose: close,
                             }
@@ -402,9 +420,9 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                       }
                     />
                   ) : showOffice ? (
-                    isXlsxMime(file.mimeType, file.fileName) ? (
+                    isXlsxPreviewable(previewFile.mimeType, previewFile.fileName) ? (
                       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <OfficePreview file={file} compact={isMobile} />
+                        <OfficePreview file={previewFile} compact={isMobile} />
                       </div>
                     ) : (
                       <div
@@ -413,7 +431,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                           isMobile && "pb-[calc(1rem+env(safe-area-inset-bottom))]",
                         )}
                       >
-                        <OfficePreview file={file} compact={isMobile} />
+                        <OfficePreview file={previewFile} compact={isMobile} />
                       </div>
                     )
                   ) : (
@@ -451,7 +469,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
           }
         }}
         title="Save PDF highlights?"
-        highlight={file?.fileName}
+        highlight={previewFile?.fileName}
         description="You have unsaved highlight markups on this PDF."
         confirmText="Save & close"
         cancelText="Discard"

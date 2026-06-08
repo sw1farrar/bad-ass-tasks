@@ -45,7 +45,7 @@ export function ExcelPreview({ url, compact = false }: ExcelPreviewProps) {
       setSelection({ row: 0, col: 0 });
 
       try {
-        const response = await fetch(url);
+        const response = await fetch(url, { credentials: "include" });
         if (!response.ok) throw new Error("fetch_failed");
         const buffer = await response.arrayBuffer();
         const XLSX = await import("xlsx");
