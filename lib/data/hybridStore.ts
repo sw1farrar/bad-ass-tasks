@@ -105,6 +105,104 @@ export function areWorkspaceListTablesReady(): boolean {
 export function __resetWorkspaceListTableProbeForTests(): void {
   workspaceListTablesAvailable = null;
   listsMigrationWarned = false;
+  listItemNestingAvailable = null;
+  listNestingMigrationWarned = false;
+}
+
+/** null = not probed yet; false = parent_item_id column missing; true = nesting column exists */
+let listItemNestingAvailable: boolean | null = null;
+let listNestingMigrationWarned = false;
+
+/** PostgREST: column not in schema cache (nesting migration not applied yet). */
+function isListItemNestingColumnMissing(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return (
+    e?.code === "PGRST204" &&
+    typeof e?.message === "string" &&
+    e.message.includes("parent_item_id")
+  );
+}
+
+function markListItemNestingMissing(): void {
+  if (listItemNestingAvailable === false) return;
+  listItemNestingAvailable = false;
+  if (!listNestingMigrationWarned) {
+    listNestingMigrationWarned = true;
+    console.warn(
+      "[Badazz Tasks] List nesting is not synced to Supabase yet. Run supabase/add-list-items-nesting.sql in the SQL Editor, then refresh.",
+    );
+  }
+  sanitizePendingQueueListItemNesting();
+}
+
+function markListItemNestingAvailable(): void {
+  listItemNestingAvailable = true;
+}
+
+function stripListItemNestingField<T extends Record<string, unknown>>(payload: T): T {
+  if (listItemNestingAvailable !== false) return payload;
+  if (!("parent_item_id" in payload)) return payload;
+  const next = { ...payload };
+  delete next.parent_item_id;
+  return next;
+}
+
+function sanitizePendingQueueListItemNesting(): void {
+  const queue = loadPendingQueue();
+  let changed = false;
+  const next: PendingOperation[] = [];
+
+  for (const op of queue) {
+    if (op.entityType !== "list_item" || (op.type !== "create" && op.type !== "update")) {
+      next.push(op);
+      continue;
+    }
+
+    const raw = { ...(op.payload as Record<string, unknown>) };
+    delete raw.parent_item_id;
+    if (op.type === "update" && Object.keys(raw).length === 0) {
+      changed = true;
+      continue;
+    }
+    if (JSON.stringify(raw) !== JSON.stringify(op.payload)) {
+      changed = true;
+      next.push({ ...op, payload: raw });
+      continue;
+    }
+    next.push(op);
+  }
+
+  if (changed) {
+    savePendingQueue(next);
+    inMemoryQueue = [...next];
+  }
+}
+
+async function probeListItemNesting(force = false): Promise<void> {
+  if (!force && listItemNestingAvailable !== null) return;
+  if (!isSupabaseLive() || workspaceListTablesAvailable === false) {
+    listItemNestingAvailable = false;
+    return;
+  }
+
+  const supabase = getClient();
+  if (!supabase) {
+    listItemNestingAvailable = false;
+    return;
+  }
+
+  const { error } = await supabase.from("list_items").select("parent_item_id").limit(1);
+  if (error && isListItemNestingColumnMissing(error)) {
+    markListItemNestingMissing();
+  } else if (error && isSchemaTableMissing(error)) {
+    markWorkspaceListTablesMissing();
+    listItemNestingAvailable = false;
+  } else if (error) {
+    logHybridError("probeListItemNesting", error);
+    listItemNestingAvailable = true;
+  } else {
+    markListItemNestingAvailable();
+  }
 }
 
 const UUID_RE =
@@ -200,8 +298,14 @@ async function probeWorkspaceListTables(force = false): Promise<void> {
 
 /** Re-check whether list tables exist (e.g. after running SQL migration without refresh). */
 export async function ensureWorkspaceListPersistenceReady(): Promise<boolean> {
-  if (workspaceListTablesAvailable === true) return true;
+  if (workspaceListTablesAvailable === true) {
+    await probeListItemNesting();
+    return true;
+  }
   await probeWorkspaceListTables(true);
+  if (workspaceListTablesAvailable !== false && workspaceListTablesAvailable !== null) {
+    await probeListItemNesting(true);
+  }
   return workspaceListTablesAvailable !== false && workspaceListTablesAvailable !== null;
 }
 
@@ -758,6 +862,9 @@ async function processPendingOperationsInner(): Promise<{
 
   if (queue.some((op) => op.entityType === "list" || op.entityType === "list_item")) {
     await probeWorkspaceListTables();
+    if (workspaceListTablesAvailable !== false) {
+      await probeListItemNesting();
+    }
   }
 
   let synced = 0;
@@ -920,7 +1027,7 @@ async function processPendingOperationsInner(): Promise<{
         const itemsTable = supabase.from("list_items") as ReturnType<typeof supabase.from>;
         const itemId = normalizeListEntityId(op.targetId);
         if (op.type === "create") {
-          const raw = { ...(op.payload as Record<string, unknown>) };
+          const raw = stripListItemNestingField({ ...(op.payload as Record<string, unknown>) });
           delete raw.id;
           delete raw.workspace_id;
           if (typeof raw.list_id === "string") {
@@ -934,6 +1041,11 @@ async function processPendingOperationsInner(): Promise<{
           if (error && error.code !== "23505") throw error;
           synced++;
         } else if (op.type === "update") {
+          const updatePayload = stripListItemNestingField({ ...(op.payload as Record<string, unknown>) });
+          if (Object.keys(updatePayload).length === 0) {
+            synced++;
+            continue;
+          }
           const { data: current } = await itemsTable
             .select("updated_at")
             .eq("id", itemId)
@@ -945,7 +1057,7 @@ async function processPendingOperationsInner(): Promise<{
           if (serverTs > ourTs) {
             skippedConflicts++;
           } else {
-            const { error } = await itemsTable.update(op.payload).eq("id", itemId);
+            const { error } = await itemsTable.update(updatePayload).eq("id", itemId);
             if (error) throw error;
             synced++;
           }
@@ -959,6 +1071,48 @@ async function processPendingOperationsInner(): Promise<{
       if (isSchemaTableMissing(err)) {
         markWorkspaceListTablesMissing();
         remaining.push(op);
+        continue;
+      }
+      if (isListItemNestingColumnMissing(err) && op.entityType === "list_item") {
+        markListItemNestingMissing();
+        if (op.type === "create" || op.type === "update") {
+          const retryPayload = stripListItemNestingField({ ...(op.payload as Record<string, unknown>) });
+          if (op.type === "update" && Object.keys(retryPayload).length === 0) {
+            synced++;
+            continue;
+          }
+          try {
+            const itemsTable = supabase.from("list_items") as ReturnType<typeof supabase.from>;
+            const itemId = normalizeListEntityId(op.targetId);
+            if (op.type === "create") {
+              const raw = { ...retryPayload };
+              delete raw.id;
+              delete raw.workspace_id;
+              if (typeof raw.list_id === "string") {
+                raw.list_id = normalizeListEntityId(raw.list_id);
+              }
+              const { error: retryError } = await itemsTable.insert({
+                ...raw,
+                id: itemId,
+                workspace_id: op.workspaceId,
+              });
+              if (retryError && retryError.code !== "23505") throw retryError;
+            } else {
+              const { error: retryError } = await itemsTable.update(retryPayload).eq("id", itemId);
+              if (retryError) throw retryError;
+            }
+            synced++;
+            continue;
+          } catch (retryErr) {
+            logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, retryErr);
+            failed++;
+            remaining.push({
+              ...op,
+              payload: retryPayload,
+            });
+            continue;
+          }
+        }
         continue;
       }
       logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, err);
@@ -4396,7 +4550,7 @@ export async function createListItem(input: {
   if (!(await ensureWorkspaceListPersistenceReady())) return true;
 
   const clientId = normalizeListEntityId(input.id);
-  const payload: ListItemInsert = {
+  const payload = stripListItemNestingField({
     id: clientId,
     list_id: normalizeListEntityId(input.listId),
     workspace_id: input.workspaceId,
@@ -4405,7 +4559,7 @@ export async function createListItem(input: {
     parent_item_id: input.parentItemId ?? null,
     completed: input.completed ?? false,
     completed_at: input.completedAt ?? null,
-  };
+  } as ListItemInsert);
 
   if (!isCurrentlyOnline()) {
     enqueuePendingOperation({
@@ -4429,6 +4583,15 @@ export async function createListItem(input: {
         markWorkspaceListTablesMissing();
         return true;
       }
+      if (isListItemNestingColumnMissing(error)) {
+        markListItemNestingMissing();
+        const retryPayload = stripListItemNestingField({ ...payload });
+        const { error: retryError } = await table.insert(retryPayload);
+        if (!retryError) {
+          markWorkspaceListTablesAvailable();
+          return true;
+        }
+      }
       enqueuePendingOperation({
         type: "create",
         entityType: "list_item",
@@ -4444,6 +4607,10 @@ export async function createListItem(input: {
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
+      return true;
+    }
+    if (isListItemNestingColumnMissing(err)) {
+      markListItemNestingMissing();
       return true;
     }
     enqueuePendingOperation({
@@ -4465,14 +4632,16 @@ export async function updateListItem(
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isWorkspaceListPersistenceEnabled()) return true;
+  await probeListItemNesting();
 
   const itemId = normalizeListEntityId(id);
-  const payload: Partial<ListItemInsert> = {};
-  if (updates.text !== undefined) payload.text = updates.text;
-  if (updates.completed !== undefined) payload.completed = updates.completed;
-  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
-  if (updates.parentItemId !== undefined) payload.parent_item_id = updates.parentItemId ?? null;
-  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt ?? null;
+  const payload = stripListItemNestingField({
+    ...(updates.text !== undefined ? { text: updates.text } : {}),
+    ...(updates.completed !== undefined ? { completed: updates.completed } : {}),
+    ...(updates.sortOrder !== undefined ? { sort_order: updates.sortOrder } : {}),
+    ...(updates.parentItemId !== undefined ? { parent_item_id: updates.parentItemId ?? null } : {}),
+    ...(updates.completedAt !== undefined ? { completed_at: updates.completedAt ?? null } : {}),
+  } as Partial<ListItemInsert>);
   if (Object.keys(payload).length === 0) return true;
 
   if (!isCurrentlyOnline()) {
@@ -4491,6 +4660,16 @@ export async function updateListItem(
         markWorkspaceListTablesMissing();
         return true;
       }
+      if (isListItemNestingColumnMissing(error)) {
+        markListItemNestingMissing();
+        const retryPayload = stripListItemNestingField({ ...payload });
+        if (Object.keys(retryPayload).length === 0) return true;
+        const { error: retryError } = await table
+          .update(retryPayload)
+          .eq("id", itemId)
+          .eq("workspace_id", workspaceId);
+        if (!retryError) return true;
+      }
       enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
       logHybridError("updateListItem", error);
     }
@@ -4498,6 +4677,10 @@ export async function updateListItem(
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
+      return true;
+    }
+    if (isListItemNestingColumnMissing(err)) {
+      markListItemNestingMissing();
       return true;
     }
     enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
