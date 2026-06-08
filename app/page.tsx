@@ -208,6 +208,10 @@ export default function BadAssTasks() {
     notificationPrefs,
     updateNotificationPrefs,
     exitWorkspace,
+    filesOpenReview,
+    setFilesOpenReview,
+    filesSelectNoteId,
+    setFilesSelectNoteId,
   } = useTaskStore();
 
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
@@ -445,7 +449,6 @@ export default function BadAssTasks() {
   }, [currentWorkspace.id]);
 
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
-  const [filesOpenReview, setFilesOpenReview] = useState(false);
 
   // Extracted note keyboard (M2 extraction - reduces monolith)
   useNoteKeyboard({
@@ -453,6 +456,12 @@ export default function BadAssTasks() {
     setSelectedNoteId,
     isTyping: false, // simplified; in full extraction would use stable isInputActive
   });
+
+  useEffect(() => {
+    if (!filesSelectNoteId) return;
+    setSelectedNoteId(filesSelectNoteId);
+    setFilesSelectNoteId(null);
+  }, [filesSelectNoteId, setFilesSelectNoteId]);
 
   // Client-only state for the mobile sync indicator to prevent hydration mismatch.
   // These values can differ between server render and client (navigator.onLine + queue rehydration).
@@ -1543,6 +1552,13 @@ export default function BadAssTasks() {
             filedAt: new Date().toISOString(),
             reviewedBy: user?.id ?? null,
           });
+        }}
+        onRejectFile={async (id) => {
+          await updateNote(id, {
+            workspaceId: currentWorkspace.id,
+            isArchived: true,
+          });
+          if (selectedNoteId === id) setSelectedNoteId(null);
         }}
         openReviewOnMount={filesOpenReview}
         onOpenReviewConsumed={() => setFilesOpenReview(false)}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Check, Paperclip, CheckSquare, Square } from "lucide-react";
+import { Check, Paperclip, CheckSquare, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Note } from "@/types";
 import { recordTypeLabel } from "@/lib/files/fileTypes";
@@ -12,6 +12,7 @@ interface ReviewPanelProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onApprove: (id: string) => void;
+  onReject?: (id: string) => void;
   onBulkApprove?: (ids: string[]) => void;
   attachmentCounts?: Record<string, number>;
 }
@@ -21,6 +22,7 @@ export function ReviewPanel({
   selectedId,
   onSelect,
   onApprove,
+  onReject,
   onBulkApprove,
   attachmentCounts = {},
 }: ReviewPanelProps) {
@@ -142,14 +144,27 @@ export function ReviewPanel({
                     </span>
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onApprove(file.id)}
-                  className="shrink-0 min-h-[40px] px-3 rounded-xl bg-[#c084fc]/15 border border-[#c084fc]/35 text-[#e9d5ff] text-xs font-semibold hover:bg-[#c084fc]/25 flex items-center gap-1"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Approve
-                </button>
+                <div className="shrink-0 flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onApprove(file.id)}
+                    className="min-h-[40px] px-3 rounded-xl bg-[#c084fc]/15 border border-[#c084fc]/35 text-[#e9d5ff] text-xs font-semibold hover:bg-[#c084fc]/25 flex items-center gap-1"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Approve
+                  </button>
+                  {onReject && (
+                    <button
+                      type="button"
+                      onClick={() => onReject(file.id)}
+                      className="min-h-[36px] px-3 rounded-xl border border-white/10 text-[#a1a1aa] text-xs font-medium hover:bg-white/5 hover:text-[#f4f4f5] flex items-center gap-1"
+                      aria-label={`Reject ${file.title || "file"}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Reject
+                    </button>
+                  )}
+                </div>
               </div>
             </li>
           );

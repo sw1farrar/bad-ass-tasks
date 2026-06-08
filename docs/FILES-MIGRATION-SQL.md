@@ -13,6 +13,14 @@ Run these scripts in the **Supabase SQL Editor** in order. Each file is idempote
 | 5 | [`supabase/add-email-note-archive.sql`](../supabase/add-email-note-archive.sql) | `search_plain`, `raw_html`, email archive |
 | 6 | **`supabase/add-files-review-workflow.sql`** | **Review queue + `search_document` + FTS RPC** |
 
+## Optional (PDF attachment search)
+
+| Order | Script | Purpose |
+|-------|--------|---------|
+| 7 | [`supabase/add-attachment-extracted-text.sql`](../supabase/add-attachment-extracted-text.sql) | Persist PDF extracted text for durable full-text search |
+
+The app works without script #7 — PDF text is still indexed on upload when possible. Script #7 stores extracted text on the attachment row for re-indexing and search refresh.
+
 ## After running
 
 1. Hard-refresh https://badazztasks.com (or your deployment).
@@ -30,6 +38,7 @@ Run these scripts in the **Supabase SQL Editor** in order. Each file is idempote
 | Email inboxes | `add-note-email-inboxes.sql` | done |
 | Email archive | `add-email-note-archive.sql` | done |
 | **Files Review + search** | **`add-files-review-workflow.sql`** | done |
+| PDF text column (optional) | `add-attachment-extracted-text.sql` | when you want PDF search persistence |
 
 ## What script #6 adds
 

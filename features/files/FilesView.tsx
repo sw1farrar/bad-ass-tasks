@@ -19,6 +19,7 @@ import { FileStream } from "./components/FileStream";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { ApproveFileModal } from "./components/ApproveFileModal";
 import { BulkApproveFilesModal } from "./components/BulkApproveFilesModal";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { useNoteAttachmentCounts } from "@/features/notes/hooks";
 import "./files-workspace.css";
 
@@ -27,6 +28,7 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
     id: string,
     input: { title: string; tags: string[]; memo: string; recordType: FileRecordType },
   ) => Promise<void>;
+  onRejectFile?: (id: string) => Promise<void>;
   /** Open Review drawer once (e.g. from Home). */
   openReviewOnMount?: boolean;
   onOpenReviewConsumed?: () => void;
@@ -34,6 +36,7 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
 
 export function FilesView({
   onApproveFile,
+  onRejectFile,
   workspaceId,
   notes,
   onCreateNote,
@@ -43,6 +46,7 @@ export function FilesView({
 }: FilesViewProps) {
   const isMobile = useIsMobileViewport();
   const selectedNoteId = notesProps.selectedNoteId;
+  const onSelectNote = notesProps.onSelectNote;
   const showMobileDetail = isMobile && !!selectedNoteId;
 
   const pendingFiles = useMemo(() => sortFiledNotes(filterPendingReview(notes)), [notes]);
@@ -55,6 +59,8 @@ export function FilesView({
   const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
   const [bulkApproveTargets, setBulkApproveTargets] = useState<Note[]>([]);
+  const [rejectTarget, setRejectTarget] = useState<Note | null>(null);
+  const [rejecting, setRejecting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
@@ -171,6 +177,30 @@ export function FilesView({
             ? "Untagged"
             : "All filed";
 
+  const handleReject = useCallback(async () => {
+    if (!rejectTarget || !onRejectFile) return;
+    setRejecting(true);
+    try {
+      await onRejectFile(rejectTarget.id);
+      setRejectTarget(null);
+      if (filter.kind === "review" && pendingFiles.length <= 1) {
+        setFilter({ kind: "all" });
+      }
+      if (selectedNoteId === rejectTarget.id) {
+        onSelectNote(null);
+      }
+    } finally {
+      setRejecting(false);
+    }
+  }, [
+    rejectTarget,
+    onRejectFile,
+    filter.kind,
+    pendingFiles.length,
+    selectedNoteId,
+    onSelectNote,
+  ]);
+
   const handleBulkApprove = useCallback(
     async (input: { tags: string[]; memo: string }) => {
       for (const file of bulkApproveTargets) {
@@ -252,6 +282,14 @@ export function FilesView({
               const file = notes.find((n) => n.id === id);
               if (file) setApproveTarget(file);
             }}
+            onReject={
+              onRejectFile
+                ? (id) => {
+                    const file = notes.find((n) => n.id === id);
+                    if (file) setRejectTarget(file);
+                  }
+                : undefined
+            }
             onBulkApprove={(ids) => {
               const selected = notes.filter((n) => ids.includes(n.id));
               if (selected.length) setBulkApproveTargets(selected);
@@ -312,6 +350,21 @@ export function FilesView({
         isOpen={bulkApproveTargets.length > 0}
         onClose={() => setBulkApproveTargets([])}
         onApprove={handleBulkApprove}
+      />
+
+      <ConfirmationModal
+        open={!!rejectTarget}
+        onOpenChange={(open) => {
+          if (!open && !rejecting) setRejectTarget(null);
+        }}
+        title="Reject file?"
+        description="This removes the file from your library without filing it. You can still recover it from the database if needed."
+        highlight={rejectTarget?.title || "Untitled"}
+        confirmText="Reject"
+        cancelText="Keep in Review"
+        variant="destructive"
+        onConfirm={handleReject}
+        isLoading={rejecting}
       />
     </div>
   );

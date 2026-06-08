@@ -16,6 +16,11 @@ type NoteSearchRow = {
   review_status: string | null;
 };
 
+type AttachmentSearchRow = {
+  file_name: string;
+  extracted_text?: string | null;
+};
+
 function contentToSearchPlain(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") {
@@ -39,7 +44,42 @@ function contentToSearchPlain(content: unknown): string {
   return "";
 }
 
-/** Rebuild notes.search_document from note fields + attachment filenames. */
+async function loadAttachmentSearchParts(
+  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  noteId: string,
+): Promise<{ fileNames: string[]; extractedTexts: string[] }> {
+  const fullSelect = await (supabase.from("note_attachments") as any)
+    .select("file_name, extracted_text")
+    .eq("note_id", noteId);
+
+  if (fullSelect.error?.code === "42703") {
+    const legacySelect = await (supabase.from("note_attachments") as any)
+      .select("file_name")
+      .eq("note_id", noteId);
+    if (legacySelect.error?.code === "42P01" || legacySelect.error) {
+      return { fileNames: [], extractedTexts: [] };
+    }
+    const rows = (legacySelect.data ?? []) as Array<{ file_name: string }>;
+    return { fileNames: rows.map((a) => a.file_name), extractedTexts: [] };
+  }
+
+  if (fullSelect.error?.code === "42P01") {
+    return { fileNames: [], extractedTexts: [] };
+  }
+  if (fullSelect.error) {
+    return { fileNames: [], extractedTexts: [] };
+  }
+
+  const rows = (fullSelect.data ?? []) as AttachmentSearchRow[];
+  return {
+    fileNames: rows.map((a) => a.file_name),
+    extractedTexts: rows
+      .map((a) => a.extracted_text?.trim())
+      .filter((t): t is string => !!t),
+  };
+}
+
+/** Rebuild notes.search_document from note fields + attachment metadata/text. */
 export async function refreshNoteSearchDocument(noteId: string): Promise<void> {
   const supabase = createAdminSupabaseClient();
 
@@ -53,26 +93,15 @@ export async function refreshNoteSearchDocument(noteId: string): Promise<void> {
   if (noteError || !note) return;
 
   const row = note as NoteSearchRow;
-  const { data: attachments, error: attachError } = await (supabase.from("note_attachments") as any)
-    .select("file_name")
-    .eq("note_id", noteId);
-
-  if (attachError?.code === "42P01") {
-    // Attachments table missing — still update search_document from note fields only.
-  } else if (attachError) {
-    return;
-  }
-
-  const attachmentFileNames = ((attachments ?? []) as Array<{ file_name: string }>).map(
-    (a) => a.file_name,
-  );
+  const { fileNames, extractedTexts } = await loadAttachmentSearchParts(supabase, noteId);
   const searchPlain = row.search_plain?.trim() || contentToSearchPlain(row.content);
   const searchDocument = buildSearchDocument({
     title: row.title ?? undefined,
     searchPlain,
     tags: row.tags ?? [],
     memo: row.memo,
-    attachmentFileNames,
+    attachmentFileNames: fileNames,
+    attachmentExtractedTexts: extractedTexts,
   });
 
   const { error: updateError } = await (supabase.from("notes") as any)
@@ -80,6 +109,19 @@ export async function refreshNoteSearchDocument(noteId: string): Promise<void> {
     .eq("id", noteId);
 
   if (updateError?.code === "42703") return;
+}
+
+/** Persist PDF/plain extraction on an attachment row (column optional). */
+export async function saveAttachmentExtractedText(
+  attachmentId: string,
+  extractedText: string,
+): Promise<void> {
+  if (!extractedText.trim()) return;
+  const supabase = createAdminSupabaseClient();
+  const { error } = await (supabase.from("note_attachments") as any)
+    .update({ extracted_text: extractedText.slice(0, 120_000) })
+    .eq("id", attachmentId);
+  if (error?.code === "42703") return;
 }
 
 /** After an upload, classify pending_review intake as a document when appropriate. */
@@ -114,3 +156,4 @@ export async function maybePromoteNoteToDocumentRecord(
   if (updateError?.code === "42703") return null;
   return nextType;
 }
+

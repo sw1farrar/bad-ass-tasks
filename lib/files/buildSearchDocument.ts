@@ -22,6 +22,7 @@ export function buildSearchDocument(input: {
   tags?: string[];
   memo?: string | null;
   attachmentFileNames?: string[];
+  attachmentExtractedTexts?: string[];
 }): string {
   const body =
     input.searchPlain?.trim() ||
@@ -33,6 +34,7 @@ export function buildSearchDocument(input: {
     input.memo?.trim() ?? "",
     ...(input.tags ?? []),
     ...(input.attachmentFileNames ?? []),
+    ...(input.attachmentExtractedTexts ?? []),
   ].filter(Boolean);
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
@@ -40,6 +42,7 @@ export function buildSearchDocument(input: {
 export function buildSearchDocumentFromNote(
   note: Pick<Note, "title" | "content" | "searchPlain" | "tags" | "memo">,
   attachmentFileNames: string[] = [],
+  attachmentExtractedTexts: string[] = [],
 ): string {
   return buildSearchDocument({
     title: note.title,
@@ -48,5 +51,6 @@ export function buildSearchDocumentFromNote(
     tags: note.tags,
     memo: note.memo,
     attachmentFileNames,
+    attachmentExtractedTexts,
   });
 }

@@ -4,8 +4,10 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Command } from "cmdk";
 import { 
   Search, Plus, CheckSquare, FileText, ListChecks, Users, Settings,
-  Zap, ArrowRight, Briefcase, FilePlus, Hash, Filter, Sparkles, Download, GitBranch
+  ArrowRight, Briefcase, FilePlus, Hash, Filter, Download, FolderOpen,
 } from "lucide-react";
+import { searchNotesLocal } from "@/lib/files/searchNotesLocal";
+import { filterPendingReview } from "@/lib/files/fileFilters";
 import { useTaskStore } from "@/store/useTaskStore";
 import { toast } from "sonner";
 import { triggerHaptic } from "@/lib/utils";
@@ -59,6 +61,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     selectTask,
     setTaskFilter,
     recentActivity,
+    setFilesOpenReview,
+    setFilesSelectNoteId,
   } = useTaskStore();
 
   const runCommand = (action: () => void | Promise<void>) => {
@@ -157,17 +161,24 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
     .slice(0, 6);
 
+  const pendingReviewCount = useMemo(
+    () => filterPendingReview(notes).length,
+    [notes],
+  );
+
   const searchResults = useMemo(() => {
-    const q = paletteQuery.trim().toLowerCase();
+    const q = paletteQuery.trim();
     if (q.length < 2) return [];
     const taskHits = tasks
-      .filter((t) => t.title.toLowerCase().includes(q))
+      .filter((t) => t.title.toLowerCase().includes(q.toLowerCase()))
       .slice(0, 6)
-      .map((t) => ({ type: "task" as const, id: t.id, title: t.title }));
-    const noteHits = notes
-      .filter((n) => n.title.toLowerCase().includes(q))
-      .slice(0, 4)
-      .map((n) => ({ type: "note" as const, id: n.id, title: n.title }));
+      .map((t) => ({ type: "task" as const, id: t.id, title: t.title, subtitle: undefined as string | undefined }));
+    const noteHits = searchNotesLocal(notes, q, 6).map((n) => {
+      const tagLine = (n.tags ?? []).filter((t) => t !== "from-email").slice(0, 3).join(", ");
+      const memoSnippet = (n.memo ?? n.searchPlain ?? "").trim().slice(0, 60);
+      const subtitle = [tagLine, memoSnippet].filter(Boolean).join(" · ") || undefined;
+      return { type: "file" as const, id: n.id, title: n.title || "Untitled", subtitle };
+    });
     return [...taskHits, ...noteHits];
   }, [paletteQuery, tasks, notes]);
 
@@ -299,6 +310,33 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <div>Clear all task filters</div>
               </Command.Item>
 
+              <Command.Item
+                onSelect={() =>
+                  runCommand(() => {
+                    setFilesOpenReview(true);
+                    setView("notes");
+                    if (pendingReviewCount > 0) {
+                      toast.info("Files Review", {
+                        description: `${pendingReviewCount} file${pendingReviewCount === 1 ? "" : "s"} awaiting approval`,
+                      });
+                    } else {
+                      toast.info("Review is clear");
+                    }
+                  })
+                }
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+              >
+                <FolderOpen className="h-4 w-4 text-[#c084fc]" />
+                <div className="flex-1">
+                  <div>Open Files Review</div>
+                  <div className="text-xs text-[#71717a]">
+                    {pendingReviewCount > 0
+                      ? `${pendingReviewCount} pending`
+                      : "No files awaiting approval"}
+                  </div>
+                </div>
+              </Command.Item>
+
               <Command.Item 
                 onSelect={() => runCommand(() => {
                   toggleKeyboardCheatsheet(true);
@@ -370,18 +408,25 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                         setView("tasks");
                         selectTask(r.id);
                       } else {
+                        setFilesSelectNoteId(r.id);
                         setView("notes");
+                        toast.info("File selected", { description: r.title });
                       }
                     })}
                     className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
-                    value={`${r.type} ${r.title}`}
+                    value={`${r.type} ${r.title} ${r.subtitle ?? ""}`}
                   >
                     {r.type === "task" ? (
                       <CheckSquare className="h-4 w-4 shrink-0" />
                     ) : (
                       <FileText className="h-4 w-4 shrink-0" />
                     )}
-                    <div className="flex-1 min-w-0 truncate">{r.title}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate">{r.title}</div>
+                      {r.subtitle && (
+                        <div className="text-[10px] text-[#71717a] truncate">{r.subtitle}</div>
+                      )}
+                    </div>
                   </Command.Item>
                 ))}
               </Command.Group>
@@ -417,8 +462,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   <Command.Item
                     key={note.id}
                     onSelect={() => runCommand(() => {
+                      setFilesSelectNoteId(note.id);
                       setView("notes");
-                      toast.info("Note selected", { description: note.title });
+                      toast.info("File selected", { description: note.title });
                     })}
                     className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
                     value={`note ${note.title} ${note.tags?.join(" ") || ""}`}

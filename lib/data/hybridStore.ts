@@ -1973,6 +1973,9 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
   if (updates.reviewedBy !== undefined) {
     (payload as any).reviewed_by = updates.reviewedBy;
   }
+  if ((updates as { isArchived?: boolean }).isArchived !== undefined) {
+    (payload as any).is_archived = (updates as { isArchived?: boolean }).isArchived;
+  }
   if (
     filesWorkflowAvailable &&
     (updates.title !== undefined ||
@@ -2036,6 +2039,17 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
     logHybridError("updateNote", err);
     return true;
   }
+}
+
+/** Archive a file from Review without filing (removes from active library). */
+export async function archiveFileRecord(
+  id: string,
+  workspaceId?: string,
+): Promise<boolean> {
+  return updateNote(id, {
+    workspaceId,
+    isArchived: true,
+  } as Partial<import("@/types").Note> & { workspaceId?: string; isArchived: boolean });
 }
 
 /** Approve a record from Review into the filed library. */

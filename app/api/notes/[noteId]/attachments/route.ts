@@ -6,7 +6,9 @@ import { buildNoteAttachmentFileUrl } from "@/lib/notes/attachmentUrls";
 import {
   maybePromoteNoteToDocumentRecord,
   refreshNoteSearchDocument,
+  saveAttachmentExtractedText,
 } from "@/lib/notes/refreshNoteSearchDocument";
+import { extractPdfText, isPdfMimeType } from "@/lib/pdf/extractPdfText";
 import { parsePdfAnnotations } from "@/lib/pdf/annotations";
 
 type RouteContext = { params: Promise<{ noteId: string }> };
@@ -154,6 +156,13 @@ export async function POST(request: Request, context: RouteContext) {
       source: "upload",
       createdBy: user.id,
     });
+
+    if (isPdfMimeType(mimeType, file.name)) {
+      const extractedText = await extractPdfText(buffer);
+      if (extractedText) {
+        await saveAttachmentExtractedText(stored.id, extractedText);
+      }
+    }
 
     await refreshNoteSearchDocument(noteId);
     const promotedRecordType = await maybePromoteNoteToDocumentRecord(noteId, mimeType);

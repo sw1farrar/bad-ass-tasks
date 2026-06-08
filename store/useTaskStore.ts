@@ -224,6 +224,10 @@ interface TaskState extends ListSliceActions {
   selectedTaskId: string | null;
   isCommandPaletteOpen: boolean;
   isKeyboardCheatsheetOpen: boolean;
+  /** One-shot: Files view should open on Review drawer (Home, ⌘K). */
+  filesOpenReview: boolean;
+  /** One-shot: select this file after navigating to Files (⌘K search). */
+  filesSelectNoteId: string | null;
   /** Increment to fire the global completion confetti (tasks, list items, etc.). */
   celebrationTrigger: number;
   isInitializing: boolean;
@@ -313,6 +317,8 @@ interface TaskState extends ListSliceActions {
   selectTask: (id: string | null) => void;
   toggleCommandPalette: (open?: boolean) => void;
   toggleKeyboardCheatsheet: (open?: boolean) => void;
+  setFilesOpenReview: (open: boolean) => void;
+  setFilesSelectNoteId: (id: string | null) => void;
   triggerCelebration: () => void;
 
   // Workspace (demo in !live mode)
@@ -694,6 +700,8 @@ export const useTaskStore = create<TaskState>()(
       selectedTaskId: null,
       isCommandPaletteOpen: false,
       isKeyboardCheatsheetOpen: false,
+      filesOpenReview: false,
+      filesSelectNoteId: null,
       celebrationTrigger: 0,
       isInitializing: false,
       taskLoadingStates: {},
@@ -845,6 +853,8 @@ export const useTaskStore = create<TaskState>()(
         set((state) => ({
           isKeyboardCheatsheetOpen: open !== undefined ? open : !state.isKeyboardCheatsheetOpen,
         })),
+      setFilesOpenReview: (open) => set({ filesOpenReview: open }),
+      setFilesSelectNoteId: (id) => set({ filesSelectNoteId: id }),
       triggerCelebration: () =>
         set((state) => ({ celebrationTrigger: state.celebrationTrigger + 1 })),
 
@@ -2406,11 +2416,17 @@ export const useTaskStore = create<TaskState>()(
           await updateNoteSupabase(id, updates);
         }
 
-        set((state) => ({
-          notes: state.notes.map((n) =>
-            n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n
-          ),
-        }));
+        set((state) => {
+          if ((updates as { isArchived?: boolean }).isArchived) {
+            return { notes: state.notes.filter((n) => n.id !== id) };
+          }
+          return {
+            notes: state.notes.map((n) =>
+              n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n,
+            ),
+          };
+        });
+        get().refreshHomeNoteAggregatesFromStore();
         return true;
       },
 

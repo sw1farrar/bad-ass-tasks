@@ -63,6 +63,7 @@ export interface Note {
   filedAt?: string | null;
   reviewedBy?: string | null;
   searchDocument?: string | null;
+  isArchived?: boolean;
 }
 
 /** Google Keep–style checklist list (workspace-scoped). */
