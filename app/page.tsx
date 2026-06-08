@@ -1302,7 +1302,15 @@ export default function BadAssTasks() {
         return;
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+        if (typing || paletteOpen) return;
+        e.preventDefault();
+        setFilesCaptureOpen(true);
+        setView("notes");
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n" && !e.shiftKey) {
         if (typing) return;
         e.preventDefault();
         setView("tasks");
@@ -1329,6 +1337,10 @@ export default function BadAssTasks() {
       }
 
       if (e.key === "Escape") {
+        if (filesCaptureOpen) {
+          setFilesCaptureOpen(false);
+          return;
+        }
         if (isKeyboardCheatsheetOpen) {
           toggleKeyboardCheatsheet(false);
           return;
@@ -1390,6 +1402,8 @@ export default function BadAssTasks() {
     homeListModal,
     showAuthModal,
     setView,
+    filesCaptureOpen,
+    setFilesCaptureOpen,
   ]);
 
   useEffect(() => {
@@ -1522,6 +1536,10 @@ export default function BadAssTasks() {
         onOpenFilesReview={() => {
           setFilesOpenReview(true);
           setSelectedNoteId(null);
+          setView("notes");
+        }}
+        onOpenCaptureFile={() => {
+          setFilesCaptureOpen(true);
           setView("notes");
         }}
       />
@@ -3412,7 +3430,13 @@ export default function BadAssTasks() {
                   { key: "⌘K / Ctrl+K", desc: "Open / close Command Palette (your command center)" },
                   { key: "?", desc: "Open this keyboard cheatsheet from anywhere" },
                   { key: "⌘N / Ctrl+N", desc: "Focus task quick-add" },
+                  { key: "⌘⇧N / Ctrl+Shift+N", desc: "Open Capture file modal" },
                   { key: "ESC", desc: "Close any modal, sheet, or selection" },
+                ]},
+                { cat: "Files", items: [
+                  { key: "⌘⇧N", desc: "Capture file (tags, notes, attachments)" },
+                  { key: "⌘K → Capture file", desc: "Same from command palette" },
+                  { key: "⌘K → Open Files Review", desc: "Jump to Review queue" },
                 ]},
                 { cat: "Navigation", items: [
                   { key: "1", desc: "Go to All Tasks view" },

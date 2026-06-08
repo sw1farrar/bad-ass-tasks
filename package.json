@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "capture:landing": "playwright test capture-landing-screenshots --project=chromium --config=playwright.capture.config.ts",
     "test:e2e:ui": "playwright test --ui",
-    "db:apply-missing": "node scripts/apply-supabase-sql.mjs supabase/apply-missing-on-live.sql"
+    "db:apply-missing": "node scripts/apply-supabase-sql.mjs supabase/apply-missing-on-live.sql",
+    "deploy:prod": "vercel --prod --yes"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -60,7 +60,7 @@ export function TagRail({
           className="w-full btn btn-primary py-2.5 text-sm flex items-center justify-center gap-2"
         >
           <Plus className="h-4 w-4" />
-          {isCreating ? "Creating…" : "New file"}
+          Capture file
         </button>
       </div>
 

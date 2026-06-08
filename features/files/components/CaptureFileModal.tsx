@@ -292,7 +292,8 @@ export function CaptureFileModal({
 
           {!isLive && (
             <p className="text-xs text-[#71717a] rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              Demo mode: captures are saved locally. Connect Supabase for uploads and Review queue.
+              Demo mode: captures save locally. Live Supabase unlocks attachment uploads and email
+              intake.
             </p>
           )}
         </div>

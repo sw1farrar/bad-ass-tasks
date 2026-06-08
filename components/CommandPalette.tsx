@@ -473,7 +473,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <div className="ml-auto text-xs text-[#c084fc] font-mono">?</div>
               </Command.Item>
               <div className="px-3 pt-1 pb-2 text-[11px] text-[#a1a1aa] leading-snug">
-                Global: ⌘K palette • ⌘N quick task • 1-5 switch views • ? cheatsheet • Space complete • ESC close
+                Global: ⌘K palette • ⌘N quick task • ⌘⇧N capture file • 1-5 switch views • ? cheatsheet • ESC close
               </div>
               <div className="px-3 pb-1 text-[11px] text-[#a1a1aa] leading-snug">
                 Inside palette: ↑↓ navigate • Enter run • Type to live fuzzy-search tasks/notes + power actions

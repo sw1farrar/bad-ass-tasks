@@ -14,6 +14,7 @@ import {
   filterPendingReview,
   sortFiledNotes,
 } from "@/lib/files/fileFilters";
+import { searchFilesInWorkspace } from "@/lib/files/searchFilesInWorkspace";
 import { TagRail, type FilesBrowseFilter } from "./components/TagRail";
 import { FileStream } from "./components/FileStream";
 import { ReviewPanel } from "./components/ReviewPanel";
@@ -124,16 +125,8 @@ export function FilesView({
           setSearchResultIds((json.results ?? []).map((r) => r.id));
         })
         .catch(() => {
-          const lower = q.toLowerCase();
-          const ids = notes
-            .filter((n) => {
-              const hay = [n.title, n.searchPlain, n.searchDocument, n.memo, ...(n.tags ?? [])]
-                .filter(Boolean)
-                .join(" ")
-                .toLowerCase();
-              return hay.includes(lower);
-            })
-            .map((n) => n.id);
+          const scope = filter.kind === "review" ? "review" : "filed";
+          const ids = searchFilesInWorkspace(notes, q, { scope }).map((n) => n.id);
           setSearchResultIds(ids);
         })
         .finally(() => setSearching(false));

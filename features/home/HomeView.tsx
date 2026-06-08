@@ -5,6 +5,7 @@ import {
   Bell,
   Check,
   Inbox,
+  FolderOpen,
   ListChecks,
   Lock,
   MessageCircle,
@@ -80,6 +81,7 @@ interface HomeViewProps {
   onOpenNotification: (notification: Notification) => void;
   pendingReviewTotal?: number;
   onOpenFilesReview?: () => void;
+  onOpenCaptureFile?: () => void;
 }
 
 function getGreeting(): string {
@@ -108,6 +110,7 @@ export function HomeView({
   onOpenNotification,
   pendingReviewTotal = 0,
   onOpenFilesReview,
+  onOpenCaptureFile,
 }: HomeViewProps) {
   const pulseById = new Map(workspacePulse.map((p) => [p.id, p]));
   const upcomingFocus = useMemo(
@@ -184,6 +187,22 @@ export function HomeView({
         </div>
         <p className="text-[#a1a1aa] mt-2 text-sm max-w-2xl">{summary}</p>
       </div>
+
+      {onOpenCaptureFile && (
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic("light");
+              onOpenCaptureFile();
+            }}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl border border-[#c084fc]/30 bg-[#c084fc]/10 px-4 py-2.5 text-sm font-semibold text-[#e9d5ff] hover:bg-[#c084fc]/15 min-h-[44px]"
+          >
+            <FolderOpen className="h-4 w-4" />
+            Capture file
+          </button>
+        </div>
+      )}
 
       {pendingReviewTotal > 0 && onOpenFilesReview && (
         <div className="mb-8">
