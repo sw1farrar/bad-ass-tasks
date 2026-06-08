@@ -1459,7 +1459,9 @@ export default function BadAssTasks() {
         onUpdateList={(id, updates) => { void updateList(id, updates); }}
         onDeleteList={(id) => { void deleteList(id); }}
         onTogglePinned={(id) => { void toggleListPinned(id); }}
-        onAddItem={(listId, text) => { void addListItem(listId, text); }}
+        onAddItem={(listId, text, options) =>
+          addListItem(listId, text, options).then((item) => item?.id ?? null)
+        }
         onToggleItem={(id) => { void toggleListItem(id); }}
         onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
         onDeleteItem={(id) => { void deleteListItem(id); }}

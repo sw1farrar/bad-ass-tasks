@@ -27,6 +27,7 @@ import {
   writeListsDesktopLayout,
   type ListsDesktopLayout,
 } from "./lib/listsDesktopLayout";
+import type { OnAddListItem } from "@/lib/lists/addListItem";
 import type { ListItem, WorkspaceList } from "@/types";
 import { ListCard, SortableListCard } from "./components/ListCard";
 import { ListDetailModal } from "./components/ListDetailModal";
@@ -41,7 +42,7 @@ interface ListsViewProps {
   onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
   onDeleteList: (id: string) => void;
   onTogglePinned: (id: string) => void;
-  onAddItem: (listId: string, text: string) => void;
+  onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;

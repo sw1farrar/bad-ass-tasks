@@ -6,6 +6,7 @@ import {
   flattenListItems,
   getIndentParentId,
   getOutdentParentId,
+  sortOrderForInsertAfter,
 } from "@/lib/lists/listItemTree";
 
 function item(
@@ -36,6 +37,20 @@ describe("flattenListItems", () => {
     const flat = flattenListItems(items);
     expect(flat.map((i) => i.id)).toEqual(["a", "b", "c"]);
     expect(flat.find((i) => i.id === "b")?.depth).toBe(1);
+  });
+});
+
+describe("sortOrderForInsertAfter", () => {
+  it("places a new item between siblings", () => {
+    const items = [item("a", 0), item("b", 1000), item("c", 2000)];
+    const placement = sortOrderForInsertAfter(items, "a");
+    expect(placement).toEqual({ parentItemId: null, sortOrder: 500 });
+  });
+
+  it("appends after the last sibling", () => {
+    const items = [item("a", 0), item("b", 1000)];
+    const placement = sortOrderForInsertAfter(items, "b");
+    expect(placement).toEqual({ parentItemId: null, sortOrder: 2000 });
   });
 });
 

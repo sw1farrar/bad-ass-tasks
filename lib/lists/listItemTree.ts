@@ -113,3 +113,41 @@ export function nextSortOrderAmongSiblings(
   if (siblings.length === 0) return 0;
   return Math.max(...siblings.map((i) => i.sortOrder)) + 1000;
 }
+
+export type InsertAfterListItemPlacement = {
+  parentItemId: string | null;
+  sortOrder: number;
+};
+
+/** Place a new sibling directly after an existing item (same parent). */
+export function sortOrderForInsertAfter(
+  items: ListItem[],
+  afterItemId: string,
+): InsertAfterListItemPlacement | null {
+  const after = items.find((i) => i.id === afterItemId);
+  if (!after) return null;
+
+  const parentItemId = after.parentItemId ?? null;
+  const siblings = items
+    .filter(
+      (i) =>
+        i.listId === after.listId &&
+        (i.parentItemId ?? null) === parentItemId,
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const index = siblings.findIndex((i) => i.id === afterItemId);
+  if (index < 0) return null;
+
+  const next = siblings[index + 1];
+  if (!next) {
+    return { parentItemId, sortOrder: after.sortOrder + 1000 };
+  }
+
+  const gap = next.sortOrder - after.sortOrder;
+  if (gap <= 1) {
+    return { parentItemId, sortOrder: after.sortOrder + 1 };
+  }
+
+  return { parentItemId, sortOrder: Math.floor((after.sortOrder + next.sortOrder) / 2) };
+}

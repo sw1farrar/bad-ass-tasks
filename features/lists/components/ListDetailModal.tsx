@@ -7,6 +7,7 @@ import { MoreHorizontal, Pin, PinOff, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import type { OnAddListItem } from "@/lib/lists/addListItem";
 import type { ListItem, WorkspaceList } from "@/types";
 import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
 import { ListCardBody } from "./ListCard";
@@ -19,7 +20,7 @@ interface ListDetailModalProps {
   onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
   onDeleteList: (id: string) => void;
   onTogglePinned: (id: string) => void;
-  onAddItem: (listId: string, text: string) => void;
+  onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;

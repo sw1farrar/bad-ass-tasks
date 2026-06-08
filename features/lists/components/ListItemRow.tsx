@@ -21,6 +21,9 @@ interface ListItemRowProps {
   canOutdent?: boolean;
   readOnly?: boolean;
   sortable?: boolean;
+  insertBelowOnEnter?: boolean;
+  onInsertBelow?: (id: string) => void;
+  registerInputRef?: (el: HTMLInputElement | null) => void;
 }
 
 export function ListItemRow({
@@ -35,6 +38,9 @@ export function ListItemRow({
   canOutdent = false,
   readOnly = false,
   sortable = true,
+  insertBelowOnEnter = false,
+  onInsertBelow,
+  registerInputRef,
 }: ListItemRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -50,7 +56,15 @@ export function ListItemRow({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      (e.target as HTMLInputElement).blur();
+      const input = e.currentTarget;
+      const cursorAtEnd =
+        input.selectionStart === input.value.length &&
+        input.selectionEnd === input.value.length;
+      if (insertBelowOnEnter && cursorAtEnd && onInsertBelow) {
+        onInsertBelow(item.id);
+        return;
+      }
+      input.blur();
       return;
     }
     if (e.key === "Tab" && !readOnly) {
@@ -101,6 +115,7 @@ export function ListItemRow({
         </span>
       ) : (
         <input
+          ref={registerInputRef}
           value={item.text}
           onChange={(e) => onTextChange(item.id, e.target.value)}
           onBlur={(e) => {

@@ -24,6 +24,8 @@ import {
   flattenListItems,
 } from "@/lib/lists/listItemTree";
 import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
+import type { OnAddListItem } from "@/lib/lists/addListItem";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useListDndSensors } from "../dndConfig";
 import { ListItemRow } from "./ListItemRow";
 
@@ -36,7 +38,7 @@ interface ListCardBodyProps {
   onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
   onDeleteList: (id: string) => void;
   onTogglePinned: (id: string) => void;
-  onAddItem: (listId: string, text: string) => void;
+  onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;
@@ -70,9 +72,13 @@ export function ListCardBody({
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [focusItemId, setFocusItemId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const itemInputRefs = useRef(new Map<string, HTMLInputElement>());
+  const isMobile = useIsMobileViewport();
   const isPreview = variant === "preview";
   const isDetail = variant === "detail";
+  const mobileDetail = isDetail && isMobile;
 
   useEffect(() => {
     if (!menuOpen && !colorOpen) return;
@@ -109,12 +115,27 @@ export function ListCardBody({
     [activeItemId, visibleItems],
   );
 
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     const trimmed = newItemText.trim();
     if (!trimmed) return;
-    onAddItem(list.id, trimmed);
+    await onAddItem(list.id, trimmed);
     setNewItemText("");
   };
+
+  const handleInsertBelow = async (afterItemId: string) => {
+    const result = await onAddItem(list.id, "", { afterItemId });
+    const newId = typeof result === "string" ? result : null;
+    if (newId) setFocusItemId(newId);
+  };
+
+  useEffect(() => {
+    if (!focusItemId) return;
+    const id = focusItemId;
+    setFocusItemId(null);
+    requestAnimationFrame(() => {
+      itemInputRefs.current.get(id)?.focus();
+    });
+  }, [focusItemId, items]);
 
   const handleItemDragStart = (event: DragStartEvent) => {
     setActiveItemId(String(event.active.id));
@@ -134,8 +155,36 @@ export function ListCardBody({
     setActiveItemId(null);
   };
 
+  const addItemRow = isDetail ? (
+    <div className={cn("flex items-start gap-2", mobileDetail ? "mb-2" : "mt-2")}>
+      <button
+        type="button"
+        className="list-item-check shrink-0 opacity-40 mt-0.5"
+        tabIndex={-1}
+        aria-hidden
+      />
+      <input
+        value={newItemText}
+        onChange={(e) => setNewItemText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void handleAddItem();
+          }
+        }}
+        onBlur={() => {
+          if (newItemText.trim()) void handleAddItem();
+        }}
+        placeholder="List item"
+        className="flex-1 bg-transparent text-sm text-[#e4e4e7] placeholder:text-[#52525b] outline-none"
+        aria-label="Add list item"
+      />
+    </div>
+  ) : null;
+
   const itemsPanel = (
     <>
+      {mobileDetail && addItemRow}
       {isDetail ? (
         <DndContext
           sensors={sensors}
@@ -158,6 +207,14 @@ export function ListCardBody({
                   onOutdent={onOutdentItem}
                   canIndent={canIndentListItem(item.id, rawItems)}
                   canOutdent={canOutdentListItem(item.id, rawItems)}
+                  insertBelowOnEnter={mobileDetail}
+                  onInsertBelow={(id) => {
+                    void handleInsertBelow(id);
+                  }}
+                  registerInputRef={(el) => {
+                    if (el) itemInputRefs.current.set(item.id, el);
+                    else itemInputRefs.current.delete(item.id);
+                  }}
                 />
               ))}
             </div>
@@ -198,32 +255,7 @@ export function ListCardBody({
         </div>
       )}
 
-      {isDetail && (
-        <div className="mt-2 flex items-start gap-2">
-          <button
-            type="button"
-            className="list-item-check shrink-0 opacity-40 mt-0.5"
-            tabIndex={-1}
-            aria-hidden
-          />
-          <input
-            value={newItemText}
-            onChange={(e) => setNewItemText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAddItem();
-              }
-            }}
-            onBlur={() => {
-              if (newItemText.trim()) handleAddItem();
-            }}
-            placeholder="List item"
-            className="flex-1 bg-transparent text-sm text-[#e4e4e7] placeholder:text-[#52525b] outline-none"
-            aria-label="Add list item"
-          />
-        </div>
-      )}
+      {isDetail && !mobileDetail && addItemRow}
     </>
   );
 
@@ -378,7 +410,7 @@ interface ListCardProps {
   onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
   onDeleteList: (id: string) => void;
   onTogglePinned: (id: string) => void;
-  onAddItem: (listId: string, text: string) => void;
+  onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;

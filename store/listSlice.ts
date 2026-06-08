@@ -6,6 +6,7 @@ import {
   getIndentParentId,
   getOutdentParentId,
   nextSortOrderAmongSiblings,
+  sortOrderForInsertAfter,
 } from "@/lib/lists/listItemTree";
 import { generateId, triggerHaptic } from "@/lib/utils";
 import {
@@ -231,19 +232,27 @@ export function createListSliceActions(get: Get, set: Set) {
     addListItem: async (
       listId: string,
       text: string,
-      options?: { parentItemId?: string | null },
+      options?: { parentItemId?: string | null; afterItemId?: string },
     ) => {
       const trimmed = text.trim();
-      if (!trimmed) return null;
+      const allowEmpty = Boolean(options?.afterItemId);
+      if (!trimmed && !allowEmpty) return null;
       const list = get().workspaceLists.find((l) => l.id === listId);
       const workspaceId = list?.workspaceId ?? wsId();
       const now = new Date().toISOString();
-      const parentItemId = options?.parentItemId ?? null;
-      const sortOrder = nextSortOrderAmongSiblings(
-        get().listItems,
-        listId,
-        parentItemId,
-      );
+      const allItems = get().listItems;
+
+      let parentItemId = options?.parentItemId ?? null;
+      let sortOrder = nextSortOrderAmongSiblings(allItems, listId, parentItemId);
+
+      if (options?.afterItemId) {
+        const placement = sortOrderForInsertAfter(allItems, options.afterItemId);
+        if (placement) {
+          parentItemId = placement.parentItemId;
+          sortOrder = placement.sortOrder;
+        }
+      }
+
       const item: ListItem = {
         id: newListEntityId(workspaceId),
         listId,
