@@ -1,5 +1,6 @@
 -- ============================================
--- Note email inboxes (Brevo inbound → child notes)
+-- Note email inboxes (Brevo inbound → Files Review queue)
+-- Prefer migrate-note-inbox-one-per-workspace.sql on existing DBs for one-per-workspace constraint.
 -- Run in Supabase SQL Editor (idempotent)
 -- ============================================
 
@@ -39,5 +40,5 @@ CREATE TRIGGER update_note_email_inboxes_updated_at
   BEFORE UPDATE ON note_email_inboxes
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-COMMENT ON TABLE note_email_inboxes IS 'Inbound email addresses mapped to workspace + parent note for Brevo parsing webhooks.';
+COMMENT ON TABLE note_email_inboxes IS 'Inbound email addresses mapped to a workspace for Brevo file intake (Files Review queue).';
 COMMENT ON COLUMN note_email_inboxes.local_part IS 'Mailbox local-part before @inbound domain, e.g. n-a1b2c3d4-x9y8z7w6';

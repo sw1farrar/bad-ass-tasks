@@ -21,6 +21,14 @@ Run these scripts in the **Supabase SQL Editor** in order. Each file is idempote
 
 The app works without script #7 — PDF text is still indexed on upload when possible. Script #7 stores extracted text on the attachment row for re-indexing and search refresh.
 
+## Workspace files-review email (one per workspace)
+
+| Order | Script | Purpose |
+|-------|--------|---------|
+| 8 | [`supabase/migrate-note-inbox-one-per-workspace.sql`](../supabase/migrate-note-inbox-one-per-workspace.sql) | **One email address per workspace → Review queue** (replaces per-note inboxes) |
+
+Run script #8 if you previously created multiple file inboxes tied to parent notes. It keeps the oldest inbox per workspace and adds a unique constraint on `workspace_id`.
+
 ## After running
 
 1. Hard-refresh https://badazztasks.com (or your deployment).
@@ -39,6 +47,7 @@ The app works without script #7 — PDF text is still indexed on upload when pos
 | Email archive | `add-email-note-archive.sql` | done |
 | **Files Review + search** | **`add-files-review-workflow.sql`** | done |
 | PDF text column (optional) | `add-attachment-extracted-text.sql` | when you want PDF search persistence |
+| One workspace review email | `migrate-note-inbox-one-per-workspace.sql` | when upgrading from per-note inboxes |
 
 ## What script #6 adds
 

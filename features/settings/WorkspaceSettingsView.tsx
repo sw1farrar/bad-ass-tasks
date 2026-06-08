@@ -252,7 +252,7 @@ export function WorkspaceSettingsView() {
       <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
         <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
           <Mail className="h-4 w-4 text-[#c084fc] shrink-0" />
-          <span className="truncate">File inboxes</span>
+          <span className="truncate">Files review email</span>
         </div>
         <NoteEmailInboxesPanel />
       </div>

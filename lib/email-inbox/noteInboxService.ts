@@ -1,12 +1,12 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { generateInboxLocalPart } from "./generateInboxLocalPart";
+import { generateNoteInboxLocalPart } from "./generateInboxLocalPart";
 import { formatInboxEmailAddress } from "./buildInboxAddress";
-import { getNoteDepth, isEligibleEmailInboxParent } from "@/lib/notes/noteDepth";
 
 export type NoteEmailInboxDto = {
   id: string;
   workspaceId: string;
+  /** @deprecated Legacy per-note inboxes; new workspaces use workspace-level Review intake only. */
   parentNoteId: string | null;
   parentNoteTitle: string | null;
   label: string | null;
@@ -16,8 +16,6 @@ export type NoteEmailInboxDto = {
   createdAt: string;
   updatedAt: string;
 };
-
-type NoteRow = { id: string; title: string; workspace_id: string; parent_note_id: string | null };
 
 async function assertWorkspaceMember(workspaceId: string, userId: string) {
   const supabase = await createServerSupabaseClient();
@@ -32,39 +30,6 @@ async function assertWorkspaceMember(workspaceId: string, userId: string) {
   if (!data) throw new Error("not_a_member");
 }
 
-async function fetchNotesForDepthCheck(workspaceId: string): Promise<NoteRow[]> {
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("notes")
-    .select("id, title, workspace_id, parent_note_id")
-    .eq("workspace_id", workspaceId)
-    .eq("is_archived", false);
-
-  if (error) throw new Error("notes_fetch_failed");
-  return (data ?? []) as NoteRow[];
-}
-
-export async function validateParentNoteForInbox(
-  workspaceId: string,
-  parentNoteId: string,
-): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
-  const notes = await fetchNotesForDepthCheck(workspaceId);
-  const parent = notes.find((n) => n.id === parentNoteId);
-  if (!parent) return { ok: false, error: "parent_note_not_found" };
-  if (parent.workspace_id !== workspaceId) return { ok: false, error: "parent_workspace_mismatch" };
-
-  const depth = getNoteDepth(
-    parentNoteId,
-    notes.map((n) => ({ id: n.id, parentNoteId: n.parent_note_id })),
-  );
-
-  if (!isEligibleEmailInboxParent(depth)) {
-    return { ok: false, error: "parent_depth_not_allowed" };
-  }
-
-  return { ok: true, title: parent.title?.trim() || "Untitled note" };
-}
-
 function mapInboxRow(
   row: {
     id: string;
@@ -76,7 +41,7 @@ function mapInboxRow(
     created_at: string;
     updated_at: string;
   },
-  parentTitle: string | null,
+  parentTitle: string | null = null,
 ): NoteEmailInboxDto {
   return {
     id: row.id,
@@ -102,7 +67,7 @@ export async function listWorkspaceNoteInboxes(
   const { data: inboxes, error } = await (supabase.from("note_email_inboxes") as any)
     .select("id, workspace_id, parent_note_id, label, local_part, is_active, created_at, updated_at")
     .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   if (error) throw new Error("inbox_list_failed");
 
@@ -117,26 +82,19 @@ export async function listWorkspaceNoteInboxes(
     updated_at: string;
   }>;
 
-  const parentIds = [...new Set(inboxRows.map((i) => i.parent_note_id).filter(Boolean))] as string[];
-  const parentTitleById = new Map<string, string>();
+  return inboxRows.map((row) => mapInboxRow(row));
+}
 
-  if (parentIds.length) {
-    const { data: parents } = await (supabase.from("notes") as any)
-      .select("id, title")
-      .in("id", parentIds);
-    ((parents ?? []) as Array<{ id: string; title: string | null }>).forEach((p) => {
-      parentTitleById.set(p.id, p.title?.trim() || "Untitled note");
-    });
-  }
-
-  return inboxRows.map((row) =>
-    mapInboxRow(row, row.parent_note_id ? parentTitleById.get(row.parent_note_id) ?? null : null),
-  );
+export async function getWorkspaceNoteInbox(
+  workspaceId: string,
+  userId: string,
+): Promise<NoteEmailInboxDto | null> {
+  const inboxes = await listWorkspaceNoteInboxes(workspaceId, userId);
+  return inboxes[0] ?? null;
 }
 
 export async function createWorkspaceNoteInbox(params: {
   workspaceId: string;
-  parentNoteId: string;
   userId: string;
 }): Promise<NoteEmailInboxDto> {
   if (["w1", "w2"].includes(params.workspaceId)) {
@@ -145,17 +103,19 @@ export async function createWorkspaceNoteInbox(params: {
 
   await assertWorkspaceMember(params.workspaceId, params.userId);
 
-  const parentCheck = await validateParentNoteForInbox(params.workspaceId, params.parentNoteId);
-  if (!parentCheck.ok) throw new Error(parentCheck.error);
+  const existing = await getWorkspaceNoteInbox(params.workspaceId, params.userId);
+  if (existing) {
+    throw new Error("inbox_already_exists");
+  }
 
   const supabase = await createServerSupabaseClient();
-  const localPart = generateInboxLocalPart(params.workspaceId);
-  const label = `${parentCheck.title} · ${localPart.slice(-8)}`;
+  const localPart = generateNoteInboxLocalPart(params.workspaceId);
+  const label = `Files Review · ${localPart.slice(-8)}`;
 
   const { data, error } = await (supabase.from("note_email_inboxes") as any)
     .insert({
       workspace_id: params.workspaceId,
-      parent_note_id: params.parentNoteId,
+      parent_note_id: null,
       local_part: localPart,
       label,
       created_by: params.userId,
@@ -164,9 +124,15 @@ export async function createWorkspaceNoteInbox(params: {
     .select("id, workspace_id, parent_note_id, label, local_part, is_active, created_at, updated_at")
     .single();
 
-  if (error || !data) throw new Error("inbox_create_failed");
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error("inbox_already_exists");
+    }
+    throw new Error("inbox_create_failed");
+  }
+  if (!data) throw new Error("inbox_create_failed");
 
-  return mapInboxRow(data, parentCheck.title);
+  return mapInboxRow(data);
 }
 
 export async function updateWorkspaceNoteInbox(params: {
@@ -192,16 +158,7 @@ export async function updateWorkspaceNoteInbox(params: {
 
   if (error || !data) throw new Error("inbox_update_failed");
 
-  let parentTitle: string | null = null;
-  if (data.parent_note_id) {
-    const { data: parent } = await (supabase.from("notes") as any)
-      .select("title")
-      .eq("id", data.parent_note_id)
-      .maybeSingle();
-    parentTitle = (parent as { title?: string } | null)?.title?.trim() || "Untitled note";
-  }
-
-  return mapInboxRow(data, parentTitle);
+  return mapInboxRow(data);
 }
 
 export async function deleteWorkspaceNoteInbox(params: {

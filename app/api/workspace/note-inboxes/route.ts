@@ -7,7 +7,6 @@ import {
 
 type CreateBody = {
   workspaceId?: string;
-  parentNoteId?: string;
 };
 
 export async function GET(request: Request) {
@@ -56,16 +55,14 @@ export async function POST(request: Request) {
   }
 
   const workspaceId = body.workspaceId?.trim();
-  const parentNoteId = body.parentNoteId?.trim();
 
-  if (!workspaceId || !parentNoteId) {
-    return NextResponse.json({ error: "workspaceId and parentNoteId are required" }, { status: 400 });
+  if (!workspaceId) {
+    return NextResponse.json({ error: "workspaceId is required" }, { status: 400 });
   }
 
   try {
     const inbox = await createWorkspaceNoteInbox({
       workspaceId,
-      parentNoteId,
       userId: user.id,
     });
     return NextResponse.json({ ok: true, inbox });
@@ -74,11 +71,9 @@ export async function POST(request: Request) {
     const status =
       message === "not_a_member"
         ? 403
-        : message === "demo_workspace"
+        : message === "demo_workspace" || message === "inbox_already_exists"
           ? 400
-          : message === "parent_depth_not_allowed" || message === "parent_note_not_found"
-            ? 400
-            : 500;
+          : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

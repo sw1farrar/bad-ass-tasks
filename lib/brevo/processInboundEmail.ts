@@ -187,22 +187,6 @@ export async function processInboundEmail(
     return { ok: true, status: "ignored", reason: "inbox_not_found" };
   }
 
-  if (inboxRow.parent_note_id) {
-    const { data: parentNote, error: parentError } = await supabase
-      .from("notes")
-      .select("id, workspace_id, parent_note_id")
-      .eq("id", inboxRow.parent_note_id)
-      .maybeSingle();
-
-    if (parentError || !parentNote) {
-      return { ok: true, status: "ignored", reason: "parent_note_missing" };
-    }
-
-    if ((parentNote as { workspace_id: string }).workspace_id !== inboxRow.workspace_id) {
-      return { ok: true, status: "ignored", reason: "parent_workspace_mismatch" };
-    }
-  }
-
   const title = buildInboundNoteTitle(item);
   const rawHtml = item.RawHtmlBody?.trim() ?? "";
 
@@ -219,15 +203,6 @@ export async function processInboundEmail(
     review_status: "pending_review",
     record_type: "email",
   };
-
-  if (inboxRow.parent_note_id) {
-    insertPayload.parent_note_id = inboxRow.parent_note_id;
-  } else {
-    console.warn("[brevo-inbound] inbox has no parent_note_id; note will appear at root", {
-      inboxId: inboxRow.id,
-      localPart,
-    });
-  }
 
   if (inboxRow.created_by) {
     insertPayload.created_by = inboxRow.created_by;
