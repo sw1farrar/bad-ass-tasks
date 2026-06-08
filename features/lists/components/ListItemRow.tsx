@@ -17,8 +17,6 @@ interface ListItemRowProps {
   onTextChange: (id: string, text: string) => void;
   onIndent?: (id: string) => void;
   onOutdent?: (id: string) => void;
-  canIndent?: boolean;
-  canOutdent?: boolean;
   readOnly?: boolean;
   sortable?: boolean;
   insertBelowOnEnter?: boolean;
@@ -34,8 +32,6 @@ export function ListItemRow({
   onTextChange,
   onIndent,
   onOutdent,
-  canIndent = false,
-  canOutdent = false,
   readOnly = false,
   sortable = true,
   insertBelowOnEnter = false,
@@ -70,8 +66,8 @@ export function ListItemRow({
     if (e.key === "Tab" && !readOnly) {
       e.preventDefault();
       if (e.shiftKey) {
-        if (canOutdent) onOutdent?.(item.id);
-      } else if (canIndent) {
+        onOutdent?.(item.id);
+      } else {
         onIndent?.(item.id);
       }
     }
@@ -136,11 +132,9 @@ export function ListItemRow({
           <button
             type="button"
             onClick={() => onOutdent?.(item.id)}
-            disabled={!canOutdent}
             className={cn(
               "list-item-indent-btn shrink-0 text-[#52525b] hover:text-[#c084fc] transition",
-              !canOutdent && "opacity-0 pointer-events-none",
-              canOutdent && "opacity-50 md:opacity-0 md:group-hover:opacity-100",
+              "opacity-50 md:opacity-0 md:group-hover:opacity-100",
             )}
             aria-label="Outdent item"
             title="Outdent (Shift+Tab)"
@@ -150,11 +144,9 @@ export function ListItemRow({
           <button
             type="button"
             onClick={() => onIndent?.(item.id)}
-            disabled={!canIndent}
             className={cn(
               "list-item-indent-btn shrink-0 text-[#52525b] hover:text-[#c084fc] transition",
-              !canIndent && "opacity-0 pointer-events-none",
-              canIndent && "opacity-50 md:opacity-0 md:group-hover:opacity-100",
+              "opacity-50 md:opacity-0 md:group-hover:opacity-100",
             )}
             aria-label="Indent item"
             title="Indent (Tab)"

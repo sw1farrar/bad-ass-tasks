@@ -1,7 +1,5 @@
 import type { ListItem, WorkspaceList } from "@/types";
 import {
-  canIndentListItem,
-  canOutdentListItem,
   flattenListItems,
   getIndentParentId,
   getOutdentParentId,
@@ -399,12 +397,11 @@ export function createListSliceActions(get: Get, set: Set) {
     indentListItem: async (id: string) => {
       const allItems = get().listItems;
       const current = allItems.find((i) => i.id === id);
-      if (!current || !canIndentListItem(id, allItems.filter((i) => i.listId === current.listId))) {
-        return false;
-      }
+      if (!current) return false;
 
-      const parentId = getIndentParentId(id, allItems.filter((i) => i.listId === current.listId));
-      if (!parentId) return false;
+      const listItems = allItems.filter((i) => i.listId === current.listId);
+      const parentId = getIndentParentId(id, listItems);
+      if (!parentId || parentId === current.parentItemId) return false;
 
       const now = new Date().toISOString();
       const sortOrder = nextSortOrderAmongSiblings(allItems, current.listId, parentId);
@@ -428,7 +425,7 @@ export function createListSliceActions(get: Get, set: Set) {
     outdentListItem: async (id: string) => {
       const allItems = get().listItems;
       const current = allItems.find((i) => i.id === id);
-      if (!current || !canOutdentListItem(id, allItems)) return false;
+      if (!current?.parentItemId) return false;
 
       const listItems = allItems.filter((i) => i.listId === current.listId);
       const newParentId = getOutdentParentId(id, listItems);

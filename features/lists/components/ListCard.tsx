@@ -19,8 +19,6 @@ import type { FlatListItem } from "@/lib/lists/listItemTree";
 import { triggerHaptic } from "@/lib/utils";
 import {
   LIST_ITEM_PREVIEW_LIMIT,
-  canIndentListItem,
-  canOutdentListItem,
   flattenListItems,
 } from "@/lib/lists/listItemTree";
 import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
@@ -205,8 +203,6 @@ export function ListCardBody({
                   onTextChange={onUpdateItem}
                   onIndent={onIndentItem}
                   onOutdent={onOutdentItem}
-                  canIndent={canIndentListItem(item.id, rawItems)}
-                  canOutdent={canOutdentListItem(item.id, rawItems)}
                   insertBelowOnEnter={mobileDetail}
                   onInsertBelow={(id) => {
                     void handleInsertBelow(id);

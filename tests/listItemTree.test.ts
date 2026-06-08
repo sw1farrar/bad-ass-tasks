@@ -66,6 +66,27 @@ describe("indent/outdent", () => {
     expect(canIndentListItem("a", items)).toBe(false);
   });
 
+  it("indents siblings under the item above them", () => {
+    const nested = [item("a", 0), item("b", 0, "a"), item("c", 1000, "a")];
+    expect(getIndentParentId("c", nested)).toBe("b");
+  });
+
+  it("supports nesting deeper than three levels", () => {
+    const deep = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 0, "b"),
+      item("d", 0, "c"),
+      item("e", 0, "d"),
+      item("f", 1000, "d"),
+    ];
+    const flat = flattenListItems(deep);
+    expect(flat.map((row) => row.id)).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(flat.map((row) => row.depth)).toEqual([0, 1, 2, 3, 4, 4]);
+    expect(canIndentListItem("f", deep)).toBe(true);
+    expect(getIndentParentId("f", deep)).toBe("e");
+  });
+
   it("outdents to grandparent", () => {
     const nested = [item("a", 0), item("b", 0, "a")];
     expect(canOutdentListItem("b", nested)).toBe(true);

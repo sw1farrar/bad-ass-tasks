@@ -1,7 +1,6 @@
 import type { ListItem } from "@/types";
 
 export const LIST_ITEM_PREVIEW_LIMIT = 10;
-export const MAX_LIST_ITEM_DEPTH = 3;
 
 export type FlatListItem = ListItem & { depth: number };
 
@@ -30,7 +29,6 @@ export function getListItemDepth(itemId: string, items: ListItem[]): number {
     visited.add(current.id);
     depth += 1;
     current = byId.get(current.parentItemId);
-    if (depth >= MAX_LIST_ITEM_DEPTH) break;
   }
 
   return depth;
@@ -45,9 +43,7 @@ export function flattenListItems(items: ListItem[]): FlatListItem[] {
     const children = byParent.get(parentId) ?? [];
     for (const child of children) {
       result.push({ ...child, depth });
-      if (depth + 1 < MAX_LIST_ITEM_DEPTH) {
-        walk(child.id, depth + 1);
-      }
+      walk(child.id, depth + 1);
     }
   };
 
@@ -71,21 +67,72 @@ export function getPreviousFlatSibling(itemId: string, items: ListItem[]): ListI
   return flat[index - 1];
 }
 
-export function canIndentListItem(itemId: string, items: ListItem[]): boolean {
-  const item = items.find((i) => i.id === itemId);
-  if (!item) return false;
-
-  const previous = getPreviousFlatSibling(itemId, items);
-  if (!previous) return false;
-
-  const newDepth = getListItemDepth(previous.id, items) + 1;
-  return newDepth < MAX_LIST_ITEM_DEPTH;
+export function getPreviousSibling(itemId: string, items: ListItem[]): ListItem | undefined {
+  const siblings = getListItemSiblings(itemId, items);
+  const index = siblings.findIndex((i) => i.id === itemId);
+  if (index <= 0) return undefined;
+  return siblings[index - 1];
 }
 
-export function getIndentParentId(itemId: string, items: ListItem[]): string | null | undefined {
-  if (!canIndentListItem(itemId, items)) return undefined;
-  const previous = getPreviousFlatSibling(itemId, items);
-  return previous?.id ?? undefined;
+function isDescendantOf(itemId: string, ancestorId: string, items: ListItem[]): boolean {
+  let current = items.find((i) => i.id === itemId);
+  const visited = new Set<string>();
+
+  while (current?.parentItemId) {
+    const parentItemId = current.parentItemId;
+    if (visited.has(current.id)) break;
+    visited.add(current.id);
+    if (parentItemId === ancestorId) return true;
+    const parent = items.find((i) => i.id === parentItemId);
+    if (!parent) break;
+    current = parent;
+  }
+
+  return false;
+}
+
+function wouldCreateCycle(itemId: string, newParentId: string, items: ListItem[]): boolean {
+  return itemId === newParentId || isDescendantOf(newParentId, itemId, items);
+}
+
+export function getIndentParentId(itemId: string, items: ListItem[]): string | undefined {
+  const item = items.find((i) => i.id === itemId);
+  if (!item) return undefined;
+
+  const prevSibling = getPreviousSibling(itemId, items);
+  if (prevSibling && !wouldCreateCycle(itemId, prevSibling.id, items)) {
+    return prevSibling.id;
+  }
+
+  const previousFlat = getPreviousFlatSibling(itemId, items);
+  if (!previousFlat) return undefined;
+
+  if (
+    item.parentItemId !== previousFlat.id &&
+    !wouldCreateCycle(itemId, previousFlat.id, items)
+  ) {
+    return previousFlat.id;
+  }
+
+  const flat = flattenListItems(items);
+  const itemIndex = flat.findIndex((i) => i.id === itemId);
+  for (let i = itemIndex - 1; i >= 0; i--) {
+    const candidate = flat[i];
+    if (candidate.id === previousFlat.id) break;
+    if (
+      isDescendantOf(candidate.id, previousFlat.id, items) &&
+      candidate.id !== itemId &&
+      !wouldCreateCycle(itemId, candidate.id, items)
+    ) {
+      return candidate.id;
+    }
+  }
+
+  return undefined;
+}
+
+export function canIndentListItem(itemId: string, items: ListItem[]): boolean {
+  return getIndentParentId(itemId, items) !== undefined;
 }
 
 export function canOutdentListItem(itemId: string, items: ListItem[]): boolean {
