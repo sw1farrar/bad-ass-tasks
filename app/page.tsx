@@ -402,8 +402,8 @@ export default function BadAssTasks() {
         el.style.fontSize = "";
         return;
       }
-      const maxSize = 16;
-      const minSize = 10;
+      const maxSize = 21;
+      const minSize = 13;
       let size = maxSize;
       el.style.fontSize = `${size}px`;
       while (el.scrollWidth > el.clientWidth && size > minSize) {
@@ -745,6 +745,18 @@ export default function BadAssTasks() {
       window.history.replaceState({}, "", url.toString());
     })();
   }, [user, switchWorkspace]);
+
+  // Open auth modal when middleware or /login redirects with ?signin=1
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("signin") !== "1") return;
+    setShowAuthModal(true);
+    params.delete("signin");
+    const url = new URL(window.location.href);
+    url.search = params.toString();
+    window.history.replaceState({}, "", url.toString());
+  }, []);
 
   // Deep links for PWA shortcuts + shareable views: ?view=home|tasks|notes|teams
   // Initializes from manifest shortcuts (?view=...&source=pwa). Syncs on change for back/forward + share.
@@ -2294,7 +2306,7 @@ export default function BadAssTasks() {
                     ref={workspaceNameRef}
                     workspaceId={currentWorkspace.id}
                     name={currentWorkspace.name}
-                    className="workspace-name-label block w-full whitespace-nowrap text-center text-[16px] font-semibold leading-tight"
+                    className="workspace-name-label block w-full whitespace-nowrap text-center text-[21px] font-semibold leading-tight"
                   />
                 </span>
                 <span className="hidden md:block truncate text-left text-sm font-normal leading-tight">

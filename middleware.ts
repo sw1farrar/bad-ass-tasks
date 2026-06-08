@@ -57,6 +57,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/invite/") ||
     pathname === "/api/profile/check-username";
 
+  /** PWA + static assets must stay reachable before sign-in (manifest, SW, icons). */
+  const isPublicAsset =
+    pathname === "/manifest.json" ||
+    pathname === "/sw.js" ||
+    pathname === "/favicon.svg" ||
+    pathname.startsWith("/icon-");
+
   const isDualAuthExemptApi =
     pathname.startsWith("/api/auth/dual-auth") ||
     pathname.startsWith("/api/auth/signup") ||
@@ -110,10 +117,17 @@ export async function middleware(request: NextRequest) {
     process.env.NODE_ENV === "production" &&
     !user &&
     !isAuthPage &&
+    !isPublicAsset &&
     pathname !== "/" &&
     !pathname.startsWith("/api/")
   ) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const signInUrl = new URL("/", request.url);
+    signInUrl.searchParams.set("signin", "1");
+    const returnPath = `${pathname}${request.nextUrl.search}`;
+    if (returnPath && returnPath !== "/") {
+      signInUrl.searchParams.set("next", returnPath);
+    }
+    return NextResponse.redirect(signInUrl);
   }
 
   return supabaseResponse;
