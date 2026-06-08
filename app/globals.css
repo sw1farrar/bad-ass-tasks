@@ -702,26 +702,38 @@ body {
 @media (max-width: 768px) {
   .bottom-nav {
     display: flex;
-    padding-top: 4px;
+    padding-top: 5px;
     overflow: hidden;
   }
 
   .bottom-nav .bottom-nav-item {
-    min-height: 56px;
-    padding: 6px 4px 6px;
-    gap: 2px;
+    min-height: 67px;
+    padding: 7px 5px 7px;
+    gap: 3px;
+    font-size: 14.4px;
+  }
+
+  .bottom-nav .bottom-nav-item .icon {
+    width: 28.8px;
+    height: 28.8px;
+  }
+
+  .bottom-nav .bottom-nav-item--home .bottom-nav-item__icon-wrap {
+    width: 43px;
+    height: 43px;
+    border-radius: 12px;
   }
 }
 
 /* Ultra-narrow phones (<360px): tighter but still >=44px targets, more breathing */
 @media (max-width: 360px) {
   .bottom-nav-item {
-    padding: 4px 2px 5px;
-    font-size: 11px;
+    padding: 5px 2px 6px;
+    font-size: 13.2px;
   }
   .bottom-nav-item .icon {
-    width: 22px;
-    height: 22px;
+    width: 26.4px;
+    height: 26.4px;
   }
   .fab,
   .ai-fab {
