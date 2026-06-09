@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Loader2, Plus, Search } from "lucide-react";
 import { NotesView } from "@/features/notes/NotesView";
 import type { Note, FileRecordType } from "@/types";
@@ -59,6 +59,7 @@ export function FilesView({
   const workspaceTags = useMemo(() => collectWorkspaceTags(filedFiles), [filedFiles]);
 
   const [filter, setFilter] = useState<FilesBrowseFilter>({ kind: "all" });
+  const filterChosenByUser = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
@@ -77,15 +78,26 @@ export function FilesView({
   useEffect(() => {
     if (openReviewOnMount) {
       setFilter({ kind: "review" });
+      filterChosenByUser.current = true;
       onOpenReviewConsumed?.();
     }
   }, [openReviewOnMount, onOpenReviewConsumed]);
 
+  // Default to Review once when pending items exist — never override a user choice.
   useEffect(() => {
-    if (pendingFiles.length > 0 && filter.kind === "all" && !openReviewOnMount) {
+    if (filterChosenByUser.current || openReviewOnMount) return;
+    if (pendingFiles.length > 0) {
       setFilter({ kind: "review" });
+      filterChosenByUser.current = true;
     }
-  }, [pendingFiles.length, filter.kind, openReviewOnMount]);
+  }, [pendingFiles.length, openReviewOnMount]);
+
+  const handleFilterChange = useCallback((next: FilesBrowseFilter) => {
+    filterChosenByUser.current = true;
+    setFilter(next);
+    setSearchQuery("");
+    setSearchResultIds(null);
+  }, []);
 
   const streamedFiles = useMemo(() => {
     if (searchResultIds) {
@@ -254,11 +266,7 @@ export function FilesView({
     >
       <TagRail
         filter={filter}
-        onFilterChange={(f) => {
-          setFilter(f);
-          setSearchQuery("");
-          setSearchResultIds(null);
-        }}
+        onFilterChange={handleFilterChange}
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
         onNewFile={handleNewFile}
