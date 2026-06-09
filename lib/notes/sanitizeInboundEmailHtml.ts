@@ -445,6 +445,12 @@ export const normalizeEmailImagesForDisplay = preserveEmailImagesFaithfully;
  * Display-time pass only — does not re-run full ingest (no double juice on current pipeline).
  * Legacy notes (pipelineVersion < EMAIL_PIPELINE_VERSION or separate styles blob) may re-inline once.
  */
+/** Strip scripts/iframes and other executable markup before sandboxed iframe render. */
+export function stripEmailExecutableMarkup(html: string): string {
+  if (!html.trim()) return "";
+  return sanitizeInboundEmailHtml(html);
+}
+
 export function displayStoredEmailHtml(
   html: string,
   styles = "",
@@ -452,7 +458,7 @@ export function displayStoredEmailHtml(
 ): { html: string; extraCss: string } {
   if (!html.trim()) return { html: "", extraCss: "" };
 
-  let result = normalizeTableCellDisplay(html);
+  let result = stripEmailExecutableMarkup(normalizeTableCellDisplay(html));
   const css = sanitizeEmailCss(styles);
   const legacy = pipelineVersion == null || pipelineVersion < EMAIL_PIPELINE_VERSION;
   let extraCss = "";

@@ -1,3 +1,5 @@
+import { stripEmailExecutableMarkup } from "@/lib/notes/sanitizeInboundEmailHtml";
+
 /**
  * Build a complete HTML document for faithful email rendering (iframe srcdoc).
  * Matches how Gmail/Front isolate sender HTML in its own document context.
@@ -36,7 +38,7 @@ const EMAIL_IFRAME_BASE_CSS = `
 `;
 
 export function buildEmailSrcdoc(bodyHtml: string, extraCss = ""): string {
-  const safeBody = bodyHtml.trim() || "<p></p>";
+  const safeBody = stripEmailExecutableMarkup(bodyHtml.trim()) || "<p></p>";
   const safeCss = extraCss.trim();
 
   return `<!DOCTYPE html>

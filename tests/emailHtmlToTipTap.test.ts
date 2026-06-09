@@ -208,6 +208,15 @@ describe("emailHtmlToTipTap", () => {
     expect(srcdoc).toContain("<p>Hi</p>");
   });
 
+  it("buildEmailSrcdoc strips script tags for sandboxed iframe render", () => {
+    const srcdoc = buildEmailSrcdoc(
+      '<p>Hi</p><script>alert("xss")</script>',
+      "",
+    );
+    expect(srcdoc).not.toContain("<script");
+    expect(srcdoc).toContain("<p>Hi</p>");
+  });
+
   it("inlineEmailStyles applies class rules to elements", () => {
     const inlined = inlineEmailStyles(
       '<p class="title">Hello</p>',
