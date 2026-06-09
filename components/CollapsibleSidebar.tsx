@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
+  ChevronDown,
   FolderOpen,
   Home,
   ListChecks,
+  PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -18,9 +20,10 @@ import { SidebarWorkspaceIndicator } from "@/components/SidebarWorkspaceIndicato
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
 import { FilesNavIndicator } from "@/components/FilesNavIndicator";
 import {
-  readSidebarPinMode,
-  writeSidebarPinMode,
-  type SidebarPinMode,
+  readSidebarDisplayMode,
+  writeSidebarDisplayMode,
+  SIDEBAR_DISPLAY_OPTIONS,
+  type SidebarDisplayMode,
 } from "@/lib/sidebarPreferences";
 import type { Workspace } from "@/types";
 
@@ -33,6 +36,17 @@ const WORKSPACE_VIEWS: Array<{ id: AppViewId; label: string; Icon: LucideIcon }>
   { id: "teams", label: "Team", Icon: Users },
   { id: "settings", label: "Workspace Settings", Icon: Settings },
 ];
+
+function modeIcon(mode: SidebarDisplayMode) {
+  switch (mode) {
+    case "expanded":
+      return PanelLeft;
+    case "hover-expand":
+      return PanelLeftOpen;
+    case "icons-only":
+      return PanelLeftClose;
+  }
+}
 
 function SidebarTooltip({
   label,
@@ -80,25 +94,36 @@ export function CollapsibleSidebar({
   reviewCount,
   isSiteAdmin,
 }: CollapsibleSidebarProps) {
-  const [pinMode, setPinMode] = useState<SidebarPinMode>("pinned");
+  const [displayMode, setDisplayMode] = useState<SidebarDisplayMode>("expanded");
   const [hoverExpanded, setHoverExpanded] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setPinMode(readSidebarPinMode());
+    setDisplayMode(readSidebarDisplayMode());
     setHydrated(true);
   }, []);
 
-  const isCollapsed = pinMode === "auto" && !hoverExpanded;
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
+
+  const isCollapsed =
+    displayMode === "icons-only" ||
+    (displayMode === "hover-expand" && !hoverExpanded);
   const showTooltips = isCollapsed;
 
-  const togglePinMode = useCallback(() => {
-    setPinMode((prev) => {
-      const next: SidebarPinMode = prev === "pinned" ? "auto" : "pinned";
-      writeSidebarPinMode(next);
-      if (next === "pinned") setHoverExpanded(false);
-      return next;
-    });
+  const selectMode = useCallback((mode: SidebarDisplayMode) => {
+    setDisplayMode(mode);
+    writeSidebarDisplayMode(mode);
+    setHoverExpanded(false);
+    setMenuOpen(false);
   }, []);
 
   const navItemClass = (active: boolean, compact?: boolean) =>
@@ -107,6 +132,11 @@ export function CollapsibleSidebar({
       compact && "sidebar-item--compact justify-center px-0",
       active && "active",
     );
+
+  const activeOption =
+    SIDEBAR_DISPLAY_OPTIONS.find((o) => o.mode === displayMode) ??
+    SIDEBAR_DISPLAY_OPTIONS[0];
+  const ModeIcon = modeIcon(displayMode);
 
   return (
     <aside
@@ -117,10 +147,10 @@ export function CollapsibleSidebar({
       )}
       aria-label="Workspace navigation and views"
       onMouseEnter={() => {
-        if (pinMode === "auto") setHoverExpanded(true);
+        if (displayMode === "hover-expand") setHoverExpanded(true);
       }}
       onMouseLeave={() => {
-        if (pinMode === "auto") setHoverExpanded(false);
+        if (displayMode === "hover-expand") setHoverExpanded(false);
       }}
     >
       <div className="flex flex-col flex-1 min-h-0 pt-3 px-2">
@@ -172,8 +202,7 @@ export function CollapsibleSidebar({
           {WORKSPACE_VIEWS.map((v) => {
             const Icon = v.Icon;
             const isActive = currentView === v.id;
-            const label =
-              v.id === "settings" ? "Settings" : v.label;
+            const label = v.id === "settings" ? "Settings" : v.label;
 
             return (
               <SidebarTooltip key={v.id} label={label} show={showTooltips}>
@@ -255,36 +284,93 @@ export function CollapsibleSidebar({
             </div>
           )}
 
-          <SidebarTooltip
-            label={pinMode === "pinned" ? "Collapse automatically" : "Keep expanded"}
-            show={showTooltips}
-          >
-            <button
-              type="button"
-              onClick={togglePinMode}
-              className={cn(
-                "sidebar-item w-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.06]",
-                isCollapsed && "sidebar-item--compact justify-center px-0",
-              )}
-              aria-pressed={pinMode === "pinned"}
-              aria-label={
-                pinMode === "pinned"
-                  ? "Switch to automatic collapse"
-                  : "Keep sidebar expanded"
-              }
-            >
-              {pinMode === "pinned" ? (
-                <PanelLeftClose className="h-4 w-4 shrink-0 text-[#a1a1aa]" />
-              ) : (
-                <PanelLeftOpen className="h-4 w-4 shrink-0 text-[#c084fc]" />
-              )}
-              {!isCollapsed && (
-                <span className="text-xs text-[#a1a1aa]">
-                  {pinMode === "pinned" ? "Collapse automatically" : "Keep expanded"}
-                </span>
-              )}
-            </button>
-          </SidebarTooltip>
+          <div ref={menuRef} className="relative">
+            <SidebarTooltip label="Sidebar layout" show={showTooltips}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
+                className={cn(
+                  "sidebar-item w-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.06]",
+                  isCollapsed && "sidebar-item--compact justify-center px-0",
+                  menuOpen && "bg-white/[0.06] border-[#c084fc]/30",
+                )}
+                aria-expanded={menuOpen}
+                aria-haspopup="listbox"
+                aria-label={`Sidebar layout: ${activeOption.label}`}
+              >
+                <ModeIcon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    displayMode === "expanded" ? "text-[#a1a1aa]" : "text-[#c084fc]",
+                  )}
+                />
+                {!isCollapsed && (
+                  <>
+                    <span className="flex-1 text-left text-xs text-[#a1a1aa] truncate">
+                      {activeOption.label}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 text-[#71717a] transition",
+                        menuOpen && "rotate-180",
+                      )}
+                    />
+                  </>
+                )}
+              </button>
+            </SidebarTooltip>
+
+            {menuOpen && (
+              <div
+                className={cn(
+                  "absolute z-50 rounded-xl border border-white/10 bg-[#141416] py-1 shadow-xl",
+                  isCollapsed
+                    ? "left-full bottom-0 ml-2 w-56"
+                    : "left-0 right-0 bottom-full mb-1",
+                )}
+                role="listbox"
+                aria-label="Sidebar layout options"
+              >
+                {SIDEBAR_DISPLAY_OPTIONS.map((option) => {
+                  const OptionIcon = modeIcon(option.mode);
+                  const selected = displayMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => selectMode(option.mode)}
+                      className={cn(
+                        "w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-white/5",
+                        selected && "bg-[#c084fc]/10",
+                      )}
+                    >
+                      <OptionIcon
+                        className={cn(
+                          "h-4 w-4 shrink-0 mt-0.5",
+                          selected ? "text-[#c084fc]" : "text-[#71717a]",
+                        )}
+                      />
+                      <span className="min-w-0">
+                        <span
+                          className={cn(
+                            "block text-xs font-medium",
+                            selected ? "text-[#e9d5ff]" : "text-[#f4f4f5]",
+                          )}
+                        >
+                          {option.label}
+                        </span>
+                        <span className="block text-[10px] text-[#71717a] mt-0.5 leading-snug">
+                          {option.description}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </aside>

@@ -1,17 +1,32 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { readSidebarPinMode, writeSidebarPinMode } from "@/lib/sidebarPreferences";
+import {
+  readSidebarDisplayMode,
+  writeSidebarDisplayMode,
+} from "@/lib/sidebarPreferences";
 
 describe("sidebarPreferences", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("defaults to pinned when unset", () => {
-    expect(readSidebarPinMode()).toBe("pinned");
+  it("defaults to expanded when unset", () => {
+    expect(readSidebarDisplayMode()).toBe("expanded");
   });
 
-  it("persists auto mode", () => {
-    writeSidebarPinMode("auto");
-    expect(readSidebarPinMode()).toBe("auto");
+  it("persists all three display modes", () => {
+    writeSidebarDisplayMode("hover-expand");
+    expect(readSidebarDisplayMode()).toBe("hover-expand");
+
+    writeSidebarDisplayMode("icons-only");
+    expect(readSidebarDisplayMode()).toBe("icons-only");
+
+    writeSidebarDisplayMode("expanded");
+    expect(readSidebarDisplayMode()).toBe("expanded");
+  });
+
+  it("migrates legacy pinned/auto values", () => {
+    localStorage.setItem("badazz-sidebar-pin-mode", "auto");
+    expect(readSidebarDisplayMode()).toBe("hover-expand");
+    expect(localStorage.getItem("badazz-sidebar-display-mode")).toBe("hover-expand");
   });
 });
