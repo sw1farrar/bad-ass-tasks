@@ -245,9 +245,43 @@ body {
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.1s ease;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   cursor: pointer;
   user-select: none;
+  position: relative;
+}
+
+.sidebar-item--compact {
+  gap: 0;
+  min-height: 40px;
+}
+
+.sidebar-item__dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  border: 2px solid var(--bg-secondary);
+}
+
+.sidebar-item__dot--tasks {
+  background: #c084fc;
+}
+
+.sidebar-item__dot--review {
+  background: #ff3366;
+}
+
+.sidebar--collapsed .sidebar-item--home {
+  padding-left: 0;
+  padding-right: 0;
+  justify-content: center;
+}
+
+.sidebar--collapsed .sidebar-item--home .sidebar-item--home__icon {
+  margin: 0;
 }
 
 .sidebar-item:hover {

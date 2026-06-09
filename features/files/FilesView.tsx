@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Loader2, ChevronLeft, Plus } from "lucide-react";
+import { ChevronLeft, Loader2, Plus, Search } from "lucide-react";
 import { NotesView } from "@/features/notes/NotesView";
 import type { Note, FileRecordType } from "@/types";
 import { apiFetch } from "@/lib/api/apiFetch";
@@ -49,6 +49,7 @@ export function FilesView({
   ...notesProps
 }: FilesViewProps) {
   const isMobile = useIsMobileViewport();
+  const isDesktop = !isMobile;
   const selectedNoteId = notesProps.selectedNoteId;
   const onSelectNote = notesProps.onSelectNote;
   const showMobileDetail = isMobile && !!selectedNoteId;
@@ -65,7 +66,6 @@ export function FilesView({
   const [bulkApproveTargets, setBulkApproveTargets] = useState<Note[]>([]);
   const [rejectTarget, setRejectTarget] = useState<Note | null>(null);
   const [rejecting, setRejecting] = useState(false);
-
 
   const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
 
@@ -156,17 +156,6 @@ export function FilesView({
     onOpenCapture?.();
   }, [onOpenCapture]);
 
-  const listTitle =
-    filter.kind === "review"
-      ? "Review"
-      : searchQuery.trim()
-        ? "Search results"
-        : filter.kind === "tags"
-          ? filter.tags.join(" + ")
-          : filter.kind === "untagged"
-            ? "Untagged"
-            : "All filed";
-
   const handleReject = useCallback(async () => {
     if (!rejectTarget || !onRejectFile) return;
     setRejecting(true);
@@ -209,6 +198,53 @@ export function FilesView({
     [bulkApproveTargets, onApproveFile, filter.kind, pendingFiles.length],
   );
 
+  const listTitle =
+    filter.kind === "review"
+      ? "Review"
+      : searchQuery.trim()
+        ? "Search results"
+        : filter.kind === "tags"
+          ? filter.tags.join(" + ")
+          : "Archive";
+
+  const fileListContent =
+    filter.kind === "review" ? (
+      <ReviewPanel
+        files={streamedFiles}
+        selectedId={selectedNoteId}
+        onSelect={(id) => notesProps.onSelectNote(id)}
+        onApprove={(id) => {
+          const file = notes.find((n) => n.id === id);
+          if (file) setApproveTarget(file);
+        }}
+        onReject={
+          onRejectFile
+            ? (id) => {
+                const file = notes.find((n) => n.id === id);
+                if (file) setRejectTarget(file);
+              }
+            : undefined
+        }
+        onBulkApprove={(ids) => {
+          const selected = notes.filter((n) => ids.includes(n.id));
+          if (selected.length) setBulkApproveTargets(selected);
+        }}
+        attachmentCounts={attachmentCounts}
+      />
+    ) : (
+      <FileStream
+        files={streamedFiles}
+        selectedId={selectedNoteId}
+        onSelect={(id) => notesProps.onSelectNote(id)}
+        attachmentCounts={attachmentCounts}
+        emptyMessage={
+          searchQuery.trim()
+            ? "No files match your search."
+            : "No archived files match this filter yet."
+        }
+      />
+    );
+
   return (
     <div
       className={cn(
@@ -226,15 +262,20 @@ export function FilesView({
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
         onNewFile={handleNewFile}
+        isDesktop={isDesktop}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        searching={searching}
+        listContent={isDesktop ? fileListContent : undefined}
       />
 
-      <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-white/10 bg-[#0a0a0a]">
-        <div className="p-3 border-b border-white/10 space-y-2">
-          <div className="flex items-center justify-between gap-2 px-1">
-            <div className="text-xs font-semibold uppercase tracking-widest text-[#71717a]">
-              {listTitle}
-            </div>
-            {isMobile && (
+      {!isDesktop && (
+        <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-white/10 bg-[#0a0a0a]">
+          <div className="p-3 border-b border-white/10 space-y-2">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="text-xs font-semibold uppercase tracking-widest text-[#71717a]">
+                {listTitle}
+              </div>
               <button
                 type="button"
                 onClick={() => void handleNewFile()}
@@ -243,61 +284,25 @@ export function FilesView({
                 <Plus className="h-3.5 w-3.5" />
                 New
               </button>
-            )}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b]" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search files…"
+                className="w-full bg-[#111114] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#c084fc]/40 placeholder:text-[#52525b]"
+                aria-label="Search files"
+              />
+              {searching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-[#c084fc]" />
+              )}
+            </div>
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b]" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search files…"
-              className="w-full bg-[#111114] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#c084fc]/40 placeholder:text-[#52525b]"
-              aria-label="Search files"
-            />
-            {searching && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-[#c084fc]" />
-            )}
-          </div>
+          {fileListContent}
         </div>
-
-        {filter.kind === "review" ? (
-          <ReviewPanel
-            files={streamedFiles}
-            selectedId={selectedNoteId}
-            onSelect={(id) => notesProps.onSelectNote(id)}
-            onApprove={(id) => {
-              const file = notes.find((n) => n.id === id);
-              if (file) setApproveTarget(file);
-            }}
-            onReject={
-              onRejectFile
-                ? (id) => {
-                    const file = notes.find((n) => n.id === id);
-                    if (file) setRejectTarget(file);
-                  }
-                : undefined
-            }
-            onBulkApprove={(ids) => {
-              const selected = notes.filter((n) => ids.includes(n.id));
-              if (selected.length) setBulkApproveTargets(selected);
-            }}
-            attachmentCounts={attachmentCounts}
-          />
-        ) : (
-          <FileStream
-            files={streamedFiles}
-            selectedId={selectedNoteId}
-            onSelect={(id) => notesProps.onSelectNote(id)}
-            attachmentCounts={attachmentCounts}
-            emptyMessage={
-              searchQuery.trim()
-                ? "No files match your search."
-                : "No filed files in this drawer yet."
-            }
-          />
-        )}
-      </div>
+      )}
 
       {showMobileDetail && (
         <div className="files-mobile-back-bar">

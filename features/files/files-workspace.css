@@ -3,6 +3,10 @@
   min-height: 0;
 }
 
+.files-browse-panel {
+  transition: width 0.25s ease;
+}
+
 .main-content:has(.files-root) {
   padding: 0 !important;
 }

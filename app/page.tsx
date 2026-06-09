@@ -45,7 +45,7 @@ import "@/features/files/files-workspace.css";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
 import { HomeView, HomeListModal, type HomeListModalTarget } from "@/features/home";
-import { SidebarWorkspaceIndicator } from "@/components/SidebarWorkspaceIndicator";
+import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import {
   AnimatedBottomNavItemContent,
   AnimatedWorkspaceName,
@@ -3001,110 +3001,17 @@ export default function BadAssTasks() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar — improved a11y: navigation landmark + aria */}
-        <aside className="sidebar w-64 hidden lg:flex flex-col pt-3 px-3 border-r border-white/10" aria-label="Workspace navigation and views">
-          {/* Sidebar content starts here (unchanged inner structure for minimal diff) */}
-
-          {/* Home - Global meta view (sits above the per-workspace section) */}
-          <div className="px-1 mb-2">
-            <div
-              role="button"
-              tabIndex={0}
-              aria-current={currentView === "home" ? "page" : undefined}
-              onClick={() => setView("home")}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setView("home");
-                }
-              }}
-              className={cn(
-                "sidebar-item sidebar-item--home",
-                currentView === "home" && "active",
-              )}
-            >
-              <span className="sidebar-item--home__icon" aria-hidden="true">
-                <Home className="h-4 w-4" />
-              </span>
-              Home
-            </div>
-          </div>
-
-          <SidebarWorkspaceIndicator
-            workspace={currentWorkspace}
-            showRole={!isSingleOwnerWorkspace}
-            canManage={canManage}
-          />
-
-          <div className="space-y-0.5 px-1">
-            {VIEWS.filter(v => v.id !== "home").map((v) => {
-              const navMeta =
-                v.id === "settings"
-                  ? { label: "Settings", Icon: Settings }
-                  : { label: v.label, Icon: v.icon };
-              const Icon = navMeta.Icon;
-              const isActive = currentView === v.id;
-              const handleSidebarNav = (e?: React.KeyboardEvent) => {
-                if (e && e.key !== "Enter" && e.key !== " ") return;
-                if (e) e.preventDefault();
-                setView(v.id as any);
-              };
-              return (
-                <div
-                  key={v.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => setView(v.id as any)}
-                  onKeyDown={handleSidebarNav}
-                  className={cn("sidebar-item", isActive && "active")}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="flex-1 min-w-0 truncate">{navMeta.label}</span>
-                  {v.id === "tasks" && (
-                    <TasksNavIndicator
-                      openCount={currentWorkspaceTaskCounts.openCount}
-                      overdueCount={currentWorkspaceTaskCounts.overdueCount}
-                      variant="sidebar"
-                    />
-                  )}
-                  {v.id === "notes" && (
-                    <FilesNavIndicator reviewCount={pendingReviewCount} variant="sidebar" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {isSiteAdmin && user && (
-            <div className="px-1 mt-4 pt-4 border-t border-white/10">
-              <div
-                role="button"
-                tabIndex={0}
-                aria-current={currentView === "admin" ? "page" : undefined}
-                onClick={() => setView("admin")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setView("admin");
-                  }
-                }}
-                className={cn(
-                  "sidebar-item border border-transparent",
-                  currentView === "admin" && "active border-[#c084fc]/30 bg-[#c084fc]/10"
-                )}
-              >
-                <Shield className="h-4 w-4 text-[#c084fc]" />
-                Admin
-              </div>
-            </div>
-          )}
-
-          <div className="mt-auto px-4 pb-6 text-[10px] text-[#71717a]">
-            <div className="mb-1">Badazz Tasks</div>
-            <div>Real-time sync active.</div>
-          </div>
-        </aside>
+        <CollapsibleSidebar
+          currentView={currentView as "home" | "tasks" | "notes" | "lists" | "teams" | "settings" | "admin"}
+          onNavigate={(view) => setView(view as typeof currentView)}
+          workspace={currentWorkspace}
+          showRole={!isSingleOwnerWorkspace}
+          canManage={canManage}
+          openTaskCount={currentWorkspaceTaskCounts.openCount}
+          overdueTaskCount={currentWorkspaceTaskCounts.overdueCount}
+          reviewCount={pendingReviewCount}
+          isSiteAdmin={!!(isSiteAdmin && user)}
+        />
 
         {/* Main Content — mobile gets extra pb via .main-content + globals.css for bottom nav. a11y: main landmark */}
         <main className="main-content relative flex-1 overflow-auto p-6 lg:p-8">
