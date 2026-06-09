@@ -7,7 +7,7 @@ import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { TipTapEditor } from "@/features/notes/editor";
 import type { FileRecordType } from "@/types";
 import { FILE_RECORD_TYPES, recordTypeLabel } from "@/lib/files/fileTypes";
-import { parseTagsInput } from "@/lib/files/parseTagsInput";
+import { TagPicker } from "./TagPicker";
 
 export type CaptureFileSubmitMode = "review" | "file";
 
@@ -31,7 +31,7 @@ interface CaptureFileModalProps {
 function emptyState() {
   return {
     title: "",
-    tagsInput: "",
+    tags: [] as string[],
     memo: "",
     recordType: "note" as FileRecordType,
     content: "",
@@ -47,7 +47,7 @@ export function CaptureFileModal({
   onSubmit,
 }: CaptureFileModalProps) {
   const [title, setTitle] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [memo, setMemo] = useState("");
   const [recordType, setRecordType] = useState<FileRecordType>("note");
   const [content, setContent] = useState("");
@@ -62,7 +62,7 @@ export function CaptureFileModal({
     if (!isOpen) return;
     const next = emptyState();
     setTitle(next.title);
-    setTagsInput(next.tagsInput);
+    setTags(next.tags);
     setMemo(next.memo);
     setRecordType(next.recordType);
     setContent(next.content);
@@ -80,17 +80,10 @@ export function CaptureFileModal({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const appendTag = (tag: string) => {
-    const existing = parseTagsInput(tagsInput);
-    if (existing.includes(tag)) return;
-    setTagsInput(existing.length ? `${existing.join(", ")}, ${tag}` : tag);
-  };
-
   const handleSubmit = async (mode: CaptureFileSubmitMode) => {
     if (saving) return;
     setSaving(mode);
     try {
-      const tags = parseTagsInput(tagsInput);
       await onSubmit(
         {
           title: title.trim() || "Untitled",
@@ -158,15 +151,15 @@ export function CaptureFileModal({
               />
             </label>
 
-            <label className="block text-xs text-[#a1a1aa]">
-              Tags
-              <input
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-                placeholder="receipt, acme, 2026"
-                className="mt-1 w-full input px-3 py-2.5 rounded-xl text-sm"
+            <div className="block text-xs text-[#a1a1aa]">
+              <div className="mb-1">Tags</div>
+              <TagPicker
+                availableTags={workspaceTags}
+                selected={tags}
+                onChange={setTags}
+                disabled={!!saving}
               />
-            </label>
+            </div>
 
             <label className="block text-xs text-[#a1a1aa]">
               Type
@@ -183,21 +176,6 @@ export function CaptureFileModal({
               </select>
             </label>
           </div>
-
-          {workspaceTags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {workspaceTags.slice(0, 12).map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => appendTag(tag)}
-                  className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#a1a1aa] hover:border-[#c084fc]/40 hover:text-[#e9d5ff]"
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          )}
 
           <label className="block text-xs text-[#a1a1aa]">
             Memo <span className="text-[#52525b]">(short note for search)</span>

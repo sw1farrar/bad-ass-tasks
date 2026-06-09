@@ -878,7 +878,7 @@ export default function BadAssTasks() {
   const isTrulyLive = isConfigured && !!user && dualAuthVerified;
 
   const captureWorkspaceTags = useMemo(
-    () => collectWorkspaceTags(filterFiledNotes(notes || [])),
+    () => collectWorkspaceTags(notes || []),
     [notes],
   );
 
@@ -1641,13 +1641,7 @@ export default function BadAssTasks() {
             reviewedBy: user?.id ?? null,
           });
         }}
-        onRejectFile={async (id) => {
-          await updateNote(id, {
-            workspaceId: currentWorkspace.id,
-            isArchived: true,
-          });
-          if (selectedNoteId === id) setSelectedNoteId(null);
-        }}
+
         openReviewOnMount={filesOpenReview}
         onOpenReviewConsumed={() => setFilesOpenReview(false)}
         onOpenCapture={() => setFilesCaptureOpen(true)}

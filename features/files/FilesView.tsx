@@ -18,9 +18,10 @@ import { searchFilesInWorkspace } from "@/lib/files/searchFilesInWorkspace";
 import { TagRail, type FilesBrowseFilter } from "./components/TagRail";
 import { FileStream } from "./components/FileStream";
 import { ReviewPanel } from "./components/ReviewPanel";
-import { ApproveFileModal } from "./components/ApproveFileModal";
-import { BulkApproveFilesModal } from "./components/BulkApproveFilesModal";
-import { ConfirmationModal } from "@/components/ConfirmationModal";
+import {
+  ApproveFileModal,
+  type ApproveFileResult,
+} from "./components/ApproveFileModal";
 import { useNoteAttachmentCounts } from "@/features/notes/hooks";
 import "./files-workspace.css";
 
@@ -29,7 +30,6 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
     id: string,
     input: { title: string; tags: string[]; memo: string; recordType: FileRecordType },
   ) => Promise<void>;
-  onRejectFile?: (id: string) => Promise<void>;
   /** Open Review drawer once (e.g. from Home). */
   openReviewOnMount?: boolean;
   onOpenReviewConsumed?: () => void;
@@ -39,7 +39,6 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
 
 export function FilesView({
   onApproveFile,
-  onRejectFile,
   workspaceId,
   notes,
   onCreateNote,
@@ -56,7 +55,10 @@ export function FilesView({
 
   const pendingFiles = useMemo(() => sortFiledNotes(filterPendingReview(notes)), [notes]);
   const filedFiles = useMemo(() => sortFiledNotes(filterFiledNotes(notes)), [notes]);
-  const workspaceTags = useMemo(() => collectWorkspaceTags(filedFiles), [filedFiles]);
+  const workspaceTags = useMemo(
+    () => collectWorkspaceTags([...filedFiles, ...pendingFiles]),
+    [filedFiles, pendingFiles],
+  );
 
   const [filter, setFilter] = useState<FilesBrowseFilter>({ kind: "all" });
   const filterChosenByUser = useRef(false);
@@ -64,9 +66,6 @@ export function FilesView({
   const [searching, setSearching] = useState(false);
   const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
-  const [bulkApproveTargets, setBulkApproveTargets] = useState<Note[]>([]);
-  const [rejectTarget, setRejectTarget] = useState<Note | null>(null);
-  const [rejecting, setRejecting] = useState(false);
 
   const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
 
@@ -83,7 +82,6 @@ export function FilesView({
     }
   }, [openReviewOnMount, onOpenReviewConsumed]);
 
-  // Default to Review once when pending items exist — never override a user choice.
   useEffect(() => {
     if (filterChosenByUser.current || openReviewOnMount) return;
     if (pendingFiles.length > 0) {
@@ -147,68 +145,51 @@ export function FilesView({
     return () => window.clearTimeout(handle);
   }, [searchQuery, workspaceId, notes, filter.kind]);
 
+  const openReview = useCallback(
+    (id: string) => {
+      const file = notes.find((n) => n.id === id);
+      if (!file) return;
+      setApproveTarget(file);
+      onSelectNote(id);
+    },
+    [notes, onSelectNote],
+  );
+
   const handleApprove = useCallback(
-    async (input: {
-      title: string;
-      tags: string[];
-      memo: string;
-      recordType: FileRecordType;
-    }) => {
+    async (
+      input: {
+        title: string;
+        tags: string[];
+        memo: string;
+        recordType: FileRecordType;
+      },
+      result: ApproveFileResult,
+    ) => {
       if (!approveTarget) return;
-      await onApproveFile(approveTarget.id, input);
+
+      const currentId = approveTarget.id;
+      const idx = pendingFiles.findIndex((f) => f.id === currentId);
+      const nextFile = idx >= 0 ? (pendingFiles[idx + 1] ?? null) : null;
+
+      await onApproveFile(currentId, input);
+
+      if (result === "next" && nextFile) {
+        setApproveTarget(nextFile);
+        onSelectNote(nextFile.id);
+        return;
+      }
+
       setApproveTarget(null);
       if (filter.kind === "review" && pendingFiles.length <= 1) {
         setFilter({ kind: "all" });
       }
     },
-    [approveTarget, onApproveFile, filter.kind, pendingFiles.length],
+    [approveTarget, onApproveFile, pendingFiles, filter.kind, onSelectNote],
   );
 
   const handleNewFile = useCallback(() => {
     onOpenCapture?.();
   }, [onOpenCapture]);
-
-  const handleReject = useCallback(async () => {
-    if (!rejectTarget || !onRejectFile) return;
-    setRejecting(true);
-    try {
-      await onRejectFile(rejectTarget.id);
-      setRejectTarget(null);
-      if (filter.kind === "review" && pendingFiles.length <= 1) {
-        setFilter({ kind: "all" });
-      }
-      if (selectedNoteId === rejectTarget.id) {
-        onSelectNote(null);
-      }
-    } finally {
-      setRejecting(false);
-    }
-  }, [
-    rejectTarget,
-    onRejectFile,
-    filter.kind,
-    pendingFiles.length,
-    selectedNoteId,
-    onSelectNote,
-  ]);
-
-  const handleBulkApprove = useCallback(
-    async (input: { tags: string[]; memo: string }) => {
-      for (const file of bulkApproveTargets) {
-        await onApproveFile(file.id, {
-          title: file.title || "Untitled",
-          tags: input.tags,
-          memo: input.memo,
-          recordType: file.recordType ?? "note",
-        });
-      }
-      setBulkApproveTargets([]);
-      if (filter.kind === "review" && pendingFiles.length <= bulkApproveTargets.length) {
-        setFilter({ kind: "all" });
-      }
-    },
-    [bulkApproveTargets, onApproveFile, filter.kind, pendingFiles.length],
-  );
 
   const listTitle =
     filter.kind === "review"
@@ -225,22 +206,7 @@ export function FilesView({
         files={streamedFiles}
         selectedId={selectedNoteId}
         onSelect={(id) => notesProps.onSelectNote(id)}
-        onApprove={(id) => {
-          const file = notes.find((n) => n.id === id);
-          if (file) setApproveTarget(file);
-        }}
-        onReject={
-          onRejectFile
-            ? (id) => {
-                const file = notes.find((n) => n.id === id);
-                if (file) setRejectTarget(file);
-              }
-            : undefined
-        }
-        onBulkApprove={(ids) => {
-          const selected = notes.filter((n) => ids.includes(n.id));
-          if (selected.length) setBulkApproveTargets(selected);
-        }}
+        onReview={openReview}
         attachmentCounts={attachmentCounts}
       />
     ) : (
@@ -343,29 +309,9 @@ export function FilesView({
         file={approveTarget}
         isOpen={!!approveTarget}
         onClose={() => setApproveTarget(null)}
+        workspaceTags={workspaceTags}
+        remainingInQueue={pendingFiles.length}
         onApprove={handleApprove}
-      />
-
-      <BulkApproveFilesModal
-        files={bulkApproveTargets}
-        isOpen={bulkApproveTargets.length > 0}
-        onClose={() => setBulkApproveTargets([])}
-        onApprove={handleBulkApprove}
-      />
-
-      <ConfirmationModal
-        open={!!rejectTarget}
-        onOpenChange={(open) => {
-          if (!open && !rejecting) setRejectTarget(null);
-        }}
-        title="Reject file?"
-        description="This removes the file from your library without filing it. You can still recover it from the database if needed."
-        highlight={rejectTarget?.title || "Untitled"}
-        confirmText="Reject"
-        cancelText="Keep in Review"
-        variant="destructive"
-        onConfirm={handleReject}
-        isLoading={rejecting}
       />
     </div>
   );
