@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { hasOpenOverlay } from "@/lib/dom/hasOpenOverlay";
 
 /**
  * useNoteKeyboard
@@ -21,9 +22,7 @@ export function useNoteKeyboard({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isTyping) return;
 
-      // Escape to deselect note (if no other modals open - caller should gate)
-      if (e.key === "Escape" && selectedNoteId) {
-        // Only if no higher priority handlers (e.g. modals) - caller controls
+      if (e.key === "Escape" && selectedNoteId && !hasOpenOverlay()) {
         setSelectedNoteId(null);
       }
     };

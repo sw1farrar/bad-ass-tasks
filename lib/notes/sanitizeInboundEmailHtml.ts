@@ -321,12 +321,36 @@ export function extractEmailBodyFragment(html: string): string {
     .trim();
 }
 
+/** Remove executable markup that must never reach a sandboxed srcdoc iframe. */
+export function stripResidualExecutableMarkup(html: string): string {
+  if (!html.trim()) return "";
+
+  return (
+    html
+      // Script tags (including partial / malformed variants).
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+      .replace(/<script\b[^>]*>/gi, "")
+      .replace(/<\/script>/gi, "")
+      // Other embedded documents / plugins.
+      .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "")
+      .replace(/<iframe\b[^>]*\/?>/gi, "")
+      .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "")
+      .replace(/<object\b[^>]*\/?>/gi, "")
+      .replace(/<embed\b[^>]*\/?>/gi, "")
+      .replace(/<applet\b[^>]*>[\s\S]*?<\/applet>/gi, "")
+      // Inline event handlers (onclick, onerror, etc.).
+      .replace(/\s+on[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      // javascript: URLs that slipped through attribute sanitization.
+      .replace(/javascript:/gi, "")
+  );
+}
+
 export function sanitizeInboundEmailHtml(html: string): string {
   const expanded = expandMsoConditionalHtml(html);
   const fragment = extractEmailBodyFragment(expanded);
   if (!fragment) return "";
 
-  return sanitizeHtml(fragment, SANITIZE_OPTIONS).trim();
+  return stripResidualExecutableMarkup(sanitizeHtml(fragment, SANITIZE_OPTIONS).trim());
 }
 
 function normalizeCidKey(value: string): string {
@@ -448,7 +472,7 @@ export const normalizeEmailImagesForDisplay = preserveEmailImagesFaithfully;
 /** Strip scripts/iframes and other executable markup before sandboxed iframe render. */
 export function stripEmailExecutableMarkup(html: string): string {
   if (!html.trim()) return "";
-  return sanitizeInboundEmailHtml(html);
+  return stripResidualExecutableMarkup(sanitizeInboundEmailHtml(html));
 }
 
 export function displayStoredEmailHtml(

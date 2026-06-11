@@ -104,8 +104,8 @@ export function BottomSheet({
       (useMobileSheet
         ? "sheet-backdrop"
         : useMobileCentered
-          ? "bg-black/[0.88] backdrop-blur-md"
-          : "bg-black/70"),
+          ? "overlay-scrim backdrop-blur-md"
+          : "overlay-scrim"),
   );
 
   return createPortal(
@@ -138,7 +138,7 @@ export function BottomSheet({
               aria-modal="true"
               aria-label={ariaLabel || title}
               className={cn(
-                "pointer-events-auto w-full bg-[#0f0f12] border border-white/10 shadow-2xl flex flex-col overflow-hidden",
+                "bottom-sheet-panel pointer-events-auto w-full bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden",
                 useMobileSheet && "mobile-bottom-sheet rounded-t-3xl max-h-[92dvh]",
                 useMobileCentered &&
                   "max-w-[min(20rem,calc(100vw-2rem))] mx-auto rounded-2xl max-h-[min(85dvh,640px)]",
@@ -177,7 +177,7 @@ export function BottomSheet({
 
               {(title || showClose) && (
                 <div
-                  className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-white/10"
+                  className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-border-glass"
                   style={
                     useMobileSheet
                       ? { paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }
@@ -185,7 +185,7 @@ export function BottomSheet({
                   }
                 >
                   {title ? (
-                    <h2 className="font-semibold text-base tracking-tight text-[#f4f4f5] min-w-0 truncate">
+                    <h2 className="font-semibold text-base tracking-tight text-text-primary min-w-0 truncate">
                       {title}
                     </h2>
                   ) : (
@@ -195,7 +195,7 @@ export function BottomSheet({
                     <button
                       type="button"
                       onClick={handleClose}
-                      className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#71717a] hover:text-white hover:bg-white/10 transition active:scale-95"
+                      className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-text-muted hover:text-text-primary hover:bg-surface-hover transition active:scale-95"
                       aria-label="Close"
                     >
                       <X className="h-5 w-5" />

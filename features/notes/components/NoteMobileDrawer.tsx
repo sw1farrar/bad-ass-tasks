@@ -100,7 +100,7 @@ export function NoteMobileDrawer({
             className={cn(
               "notes-drawer-sheet mobile-bottom-sheet relative flex flex-col",
               "h-[92dvh] max-h-[92dvh] rounded-t-3xl max-w-none w-full overflow-hidden",
-              "bg-[#0a0a0f] border-t border-white/10 shadow-2xl",
+              "bg-bg border-t border-border-glass shadow-2xl",
             )}
             onClick={(e) => e.stopPropagation()}
             drag="y"
@@ -121,12 +121,12 @@ export function NoteMobileDrawer({
               aria-hidden="true"
             />
 
-            <div className="notes-drawer-chrome shrink-0 flex items-center justify-between gap-3 w-full px-4 py-3 border-b border-white/10">
+            <div className="notes-drawer-chrome shrink-0 flex items-center justify-between gap-3 w-full px-4 py-3 border-b border-border-glass">
               <button
                 type="button"
                 onClick={handleCancel}
                 disabled={isSaving}
-                className="text-sm font-medium text-[#a1a1aa] hover:text-white min-h-[44px] px-1 disabled:opacity-50 active:scale-[0.98] transition"
+                className="text-sm font-medium text-text-secondary hover:text-text-primary min-h-[44px] px-1 disabled:opacity-50 active:scale-[0.98] transition"
                 aria-label="Cancel changes"
               >
                 Cancel

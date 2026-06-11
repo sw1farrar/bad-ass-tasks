@@ -211,8 +211,8 @@ export function SiteAdminView() {
   if (loading) {
     return (
       <div className="site-admin max-w-6xl mx-auto flex flex-col items-center justify-center py-24 gap-3">
-        <Loader2 className="h-8 w-8 animate-spin text-[#c084fc]" />
-        <p className="text-sm text-[#71717a]">Loading platform admin…</p>
+        <Loader2 className="h-8 w-8 animate-spin text-neon-purple" />
+        <p className="text-sm text-text-muted">Loading platform admin…</p>
       </div>
     );
   }
@@ -222,12 +222,12 @@ export function SiteAdminView() {
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="h-10 w-10 rounded-xl bg-[#c084fc]/15 border border-[#c084fc]/30 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-[#c084fc]" />
+            <div className="site-admin-header-icon h-10 w-10 rounded-xl bg-neon-purple/15 border border-neon-purple/30 flex items-center justify-center">
+              <Shield className="h-5 w-5 text-neon-purple" />
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Site Admin</h1>
-              <p className="text-sm text-[#71717a] mt-0.5">
+              <p className="text-sm text-text-muted mt-0.5">
                 Platform control · users · activity · vitals
               </p>
             </div>
@@ -237,7 +237,7 @@ export function SiteAdminView() {
           type="button"
           onClick={() => void loadAll(true)}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 self-start rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-[#e4e4e7] hover:border-[#c084fc]/40 transition disabled:opacity-50"
+          className="site-admin-refresh-btn inline-flex items-center gap-2 self-start rounded-xl border px-3.5 py-2 text-xs font-medium text-text-primary transition disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
@@ -273,14 +273,14 @@ export function SiteAdminView() {
             <AdminSignupChart analytics={analytics ?? createEmptyPlatformAnalytics()} />
           </div>
           <AdminVitalsStrip stats={stats} />
-          <p className="text-[11px] text-[#52525b]">
+          <p className="text-[11px] text-text-faint">
             Snapshot generated {formatLocalTimestamp(stats.generatedAt)} · workspace switches excluded from activity metrics
           </p>
         </div>
       )}
 
       {tab === "overview" && !stats && !loading && (
-        <div className="py-16 text-center text-sm text-[#71717a]">
+        <div className="py-16 text-center text-sm text-text-muted">
           Could not load platform overview. Check admin API configuration and refresh.
         </div>
       )}
@@ -292,12 +292,12 @@ export function SiteAdminView() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search users by email, name, username…"
-              className="flex-1 max-w-md rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-sm outline-none focus:border-[#c084fc]/40"
+              className="input flex-1 max-w-md rounded-xl px-3.5 py-2.5 text-sm"
             />
             <button
               type="button"
               onClick={() => setShowAddUser((v) => !v)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#c084fc]/40 bg-[#c084fc]/10 px-4 py-2 text-sm font-medium hover:bg-[#c084fc]/20 transition"
+              className="site-admin-add-user-btn inline-flex items-center gap-2 rounded-xl border border-neon-purple/40 bg-neon-purple/10 px-4 py-2 text-sm font-medium transition"
             >
               <UserPlus className="h-4 w-4" />
               Add user
@@ -310,26 +310,26 @@ export function SiteAdminView() {
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 placeholder="Email"
-                className="rounded-lg border border-white/10 bg-[#0a0a0f]/60 px-3 py-2 text-sm outline-none"
+                className="input rounded-lg px-3 py-2 text-sm"
               />
               <input
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Temporary password"
                 type="password"
-                className="rounded-lg border border-white/10 bg-[#0a0a0f]/60 px-3 py-2 text-sm outline-none"
+                className="input rounded-lg px-3 py-2 text-sm"
               />
               <input
                 value={newFullName}
                 onChange={(e) => setNewFullName(e.target.value)}
                 placeholder="Full name (optional)"
-                className="rounded-lg border border-white/10 bg-[#0a0a0f]/60 px-3 py-2 text-sm outline-none"
+                className="input rounded-lg px-3 py-2 text-sm"
               />
               <button
                 type="button"
                 onClick={() => void handleCreateUser()}
                 disabled={busyUserId === "__create__"}
-                className="rounded-lg bg-[#c084fc] text-black font-medium text-sm py-2 hover:opacity-90 disabled:opacity-50"
+                className="btn btn-primary rounded-lg text-sm py-2 disabled:opacity-50"
               >
                 {busyUserId === "__create__" ? "Creating…" : "Create account"}
               </button>
@@ -353,22 +353,22 @@ export function SiteAdminView() {
                 {filteredUsers.map((u) => (
                   <tr key={u.id}>
                     <td>
-                      <div className="font-medium text-[#f4f4f5]">
+                      <div className="font-medium text-text-primary">
                         {u.fullName || u.email || "Unnamed"}
                       </div>
-                      <div className="text-[11px] text-[#71717a] mt-0.5">
+                      <div className="text-[11px] text-text-muted mt-0.5">
                         {u.email}
                         {u.username ? ` · @${u.username}` : ""}
                       </div>
                     </td>
                     <td>{u.workspaceCount}</td>
-                    <td className="text-[#a1a1aa]">
+                    <td className="text-text-secondary">
                       {u.taskCount} tasks · {u.noteCount} notes
                     </td>
-                    <td className="text-[#a1a1aa] whitespace-nowrap">
+                    <td className="text-text-secondary whitespace-nowrap">
                       {u.lastActiveAt ? formatLocalTimestamp(u.lastActiveAt) : "—"}
                     </td>
-                    <td className="text-[#a1a1aa] whitespace-nowrap">
+                    <td className="text-text-secondary whitespace-nowrap">
                       {u.lastSignInAt ? formatLocalTimestamp(u.lastSignInAt) : "—"}
                     </td>
                     <td>
@@ -385,7 +385,7 @@ export function SiteAdminView() {
                           title={u.accessPaused ? "Restore access" : "Pause access"}
                           disabled={busyUserId === u.id}
                           onClick={() => void handlePauseToggle(u)}
-                          className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-[#c084fc] hover:bg-white/5 disabled:opacity-40"
+                          className="p-1.5 rounded-lg text-text-secondary hover:text-neon-purple hover:bg-surface-hover disabled:opacity-40"
                         >
                           {u.accessPaused ? (
                             <Play className="h-4 w-4" />
@@ -398,7 +398,7 @@ export function SiteAdminView() {
                           title="Delete user"
                           disabled={busyUserId === u.id}
                           onClick={() => void handleDeleteUser(u)}
-                          className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-[#ff3366] hover:bg-[#ff3366]/10 disabled:opacity-40"
+                          className="p-1.5 rounded-lg text-text-secondary hover:text-[var(--priority-p0)] hover:bg-[var(--priority-p0)]/10 disabled:opacity-40"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -409,7 +409,7 @@ export function SiteAdminView() {
               </tbody>
             </table>
             {filteredUsers.length === 0 && (
-              <div className="py-12 text-center text-sm text-[#71717a]">No users match your search.</div>
+              <div className="py-12 text-center text-sm text-text-muted">No users match your search.</div>
             )}
           </div>
         </div>
@@ -445,13 +445,13 @@ export function SiteAdminView() {
                     {badgeLabel}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm text-[#f4f4f5] font-medium">
+                    <div className="text-sm text-text-primary font-medium">
                       {formatPlatformActivityHeadline(item)}
                     </div>
                     {detail ? (
-                      <div className="text-xs text-[#a1a1aa] mt-0.5 truncate">{detail}</div>
+                      <div className="text-xs text-text-secondary mt-0.5 truncate">{detail}</div>
                     ) : null}
-                    <div className="text-[11px] text-[#71717a] mt-0.5 truncate">
+                    <div className="text-[11px] text-text-muted mt-0.5 truncate">
                       {item.workspaceName ?? "Workspace"} · {formatLocalTimestamp(item.createdAt)}
                     </div>
                   </div>
@@ -459,7 +459,7 @@ export function SiteAdminView() {
               );
             })}
             {activity.length === 0 && (
-              <div className="py-12 text-center text-sm text-[#71717a]">No platform activity yet.</div>
+              <div className="py-12 text-center text-sm text-text-muted">No platform activity yet.</div>
             )}
           </div>
         </div>

@@ -31,7 +31,7 @@ export function WorkspaceSwitchEffects({
             initial={{ opacity: 0.55, scaleY: 0.85 }}
             animate={{ opacity: 0, scaleY: 1.12 }}
             transition={{ duration: 0.95, ease: "easeOut" }}
-            className="absolute inset-0 bg-gradient-to-t from-[#c084fc]/28 via-[#a855f7]/10 to-transparent"
+            className="absolute inset-0 bg-gradient-to-t from-neon-purple/28 via-[#a855f7]/10 to-transparent"
           />
           <motion.div
             key={`bnav-shimmer-${workspaceId}`}
@@ -46,7 +46,7 @@ export function WorkspaceSwitchEffects({
               initial={{ opacity: 0, y: 6, scale: 0 }}
               animate={{ opacity: [0, 0.9, 0], y: -14 - i * 5, scale: [0, 1, 0.4] }}
               transition={{ duration: 0.75, delay: 0.1 + i * 0.065, ease: "easeOut" }}
-              className="absolute bottom-2.5 h-1 w-1 rounded-full bg-[#e9d5ff]"
+              className="absolute bottom-2.5 h-1 w-1 rounded-full bg-neon-purple-tint"
               style={{
                 left: `${10 + i * 20}%`,
                 boxShadow: "0 0 8px rgba(233, 213, 255, 0.85)",
@@ -60,7 +60,7 @@ export function WorkspaceSwitchEffects({
           initial={{ scaleX: 0.12, opacity: 0.25 }}
           animate={{ scaleX: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
-          className="absolute left-0 right-0 top-0 h-[2px] origin-center bg-gradient-to-r from-transparent via-[#c084fc] to-transparent"
+          className="absolute left-0 right-0 top-0 h-[2px] origin-center bg-gradient-to-r from-transparent via-neon-purple to-transparent"
           style={{ boxShadow: "0 0 22px rgba(192, 132, 252, 0.5)" }}
         />
       </div>
@@ -78,7 +78,7 @@ export function WorkspaceSwitchEffects({
           animate={{ opacity: 0, scale: isMobile ? 1.04 : 1.06 }}
           transition={{ duration: isMobile ? 0.85 : 0.7, ease: "easeOut" }}
           className={cn(
-            "absolute inset-0 bg-[#c084fc]/20",
+            "absolute inset-0 bg-neon-purple/20",
             isMobile ? "rounded-none" : "rounded-xl",
           )}
         />
@@ -101,8 +101,8 @@ export function WorkspaceSwitchEffects({
         transition={{ type: "spring", stiffness: 420, damping: 30 }}
         className={cn(
           isMobile
-            ? "absolute left-0 right-0 bottom-0 h-[2px] origin-center bg-gradient-to-r from-[#a855f7] via-[#c084fc] to-[#a855f7]"
-            : "absolute left-0 top-1.5 bottom-1.5 w-[3px] origin-center rounded-full bg-gradient-to-b from-[#e9d5ff] via-[#c084fc] to-[#a855f7]",
+            ? "absolute left-0 right-0 bottom-0 h-[2px] origin-center bg-gradient-to-r from-neon-purple-dark via-neon-purple to-neon-purple-dark"
+            : "absolute left-0 top-1.5 bottom-1.5 w-[3px] origin-center rounded-full bg-gradient-to-b from-[#e9d5ff] via-neon-purple to-neon-purple-dark",
         )}
         style={{ boxShadow: "0 0 16px rgba(192, 132, 252, 0.55)" }}
       />

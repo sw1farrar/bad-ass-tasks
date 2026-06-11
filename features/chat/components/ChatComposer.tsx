@@ -45,12 +45,12 @@ export function ChatComposer({
 
   return (
     <div
-      className="border-t border-white/10 bg-[#0a0a0f]/95 p-3 shrink-0"
+      className="chat-composer border-t border-border-glass bg-bg/95 p-3 shrink-0"
       style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
     >
       <div className="flex gap-2 items-end min-w-0">
         <EmojiPicker
-          className="shrink-0"
+          className="chat-composer__emoji-btn shrink-0"
           onPick={onEmojiPick}
           disabled={disabled || isSending}
         />
@@ -73,9 +73,9 @@ export function ChatComposer({
           disabled={disabled || isSending}
           placeholder={placeholder}
           className={cn(
-            "flex-1 resize-none rounded-xl bg-white/5 border border-white/10",
-            "px-3 py-2.5 text-sm outline-none focus:border-[#c084fc]/50",
-            "placeholder:text-[#71717a] min-h-[42px] max-h-[120px]",
+            "chat-composer__input flex-1 resize-none rounded-xl bg-surface-hover border border-border-glass",
+            "px-3 py-2.5 text-sm outline-none focus:border-neon-purple/50",
+            "placeholder:text-text-muted min-h-[42px] max-h-[120px]",
             "whitespace-pre-wrap"
           )}
           style={{ fontFamily: 'inherit, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}
@@ -84,7 +84,7 @@ export function ChatComposer({
           type="button"
           onClick={() => void submit()}
           disabled={disabled || isSending || !value.trim()}
-          className="btn btn-primary h-[42px] w-[42px] p-0 rounded-xl flex items-center justify-center shrink-0 disabled:opacity-50"
+          className="chat-composer__send btn btn-primary h-[42px] w-[42px] p-0 rounded-xl flex items-center justify-center shrink-0 disabled:opacity-50"
           aria-label="Send message"
         >
           {isSending ? (

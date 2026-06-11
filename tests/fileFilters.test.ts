@@ -4,6 +4,8 @@ import {
   filterFiledNotes,
   filterByAllTags,
   collectWorkspaceTags,
+  countPendingReviewForWorkspace,
+  hasUserFilingTags,
 } from "@/lib/files/fileFilters";
 import type { Note } from "@/types";
 
@@ -16,7 +18,7 @@ function note(partial: Partial<Note> & { id: string }): Note {
     updatedAt: new Date().toISOString(),
     tags: partial.tags ?? [],
     linkedTaskIds: [],
-    workspaceId: "ws-1",
+    workspaceId: partial.workspaceId ?? "ws-1",
     reviewStatus: partial.reviewStatus,
     recordType: partial.recordType,
     memo: partial.memo,
@@ -43,6 +45,24 @@ describe("fileFilters", () => {
     ];
     expect(filterByAllTags(notes, ["receipt", "acme"]).map((n) => n.id)).toEqual(["1"]);
     expect(filterByAllTags(notes, ["receipt"]).map((n) => n.id)).toEqual(["1", "2"]);
+  });
+
+  it("hasUserFilingTags requires a user tag (not from-email alone)", () => {
+    expect(hasUserFilingTags([])).toBe(false);
+    expect(hasUserFilingTags(["from-email"])).toBe(false);
+    expect(hasUserFilingTags(["receipt"])).toBe(true);
+    expect(hasUserFilingTags(["from-email", "acme"])).toBe(true);
+  });
+
+  it("counts pending review per workspace", () => {
+    const notes = [
+      note({ id: "1", workspaceId: "ws-a", reviewStatus: "pending_review" }),
+      note({ id: "2", workspaceId: "ws-a", reviewStatus: "filed" }),
+      note({ id: "3", workspaceId: "ws-b", reviewStatus: "pending_review" }),
+    ];
+    expect(countPendingReviewForWorkspace(notes, "ws-a")).toBe(1);
+    expect(countPendingReviewForWorkspace(notes, "ws-b")).toBe(1);
+    expect(countPendingReviewForWorkspace(notes, "ws-c")).toBe(0);
   });
 
   it("collects user tags excluding from-email", () => {

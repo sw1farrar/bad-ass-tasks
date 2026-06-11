@@ -37,6 +37,14 @@ export function countPendingReviewForWorkspace(notes: Note[], workspaceId: strin
   return filterPendingReview(notes.filter((n) => n.workspaceId === workspaceId)).length;
 }
 
+/** True when at least one user-facing tag is present (excludes system tag from-email). */
+export function hasUserFilingTags(tags: string[]): boolean {
+  return tags.some((t) => {
+    const n = t.trim().toLowerCase();
+    return n.length > 0 && n !== "from-email";
+  });
+}
+
 export function collectWorkspaceTags(notes: Note[]): string[] {
   const set = new Set<string>();
   for (const n of notes) {

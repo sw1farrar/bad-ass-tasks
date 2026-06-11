@@ -23,6 +23,7 @@ import {
 } from "@/features/home/lib/buildUpcomingFocus";
 import { computeWorkspaceTaskStats } from "@/features/home/lib/computeWorkspaceTaskStats";
 import { computeWorkspaceNoteCount } from "@/features/home/lib/computeWorkspaceNoteCount";
+import { countPendingReviewForWorkspace } from "@/lib/files/fileFilters";
 import {
   createListSliceActions,
   SAMPLE_WORKSPACE_LISTS,
@@ -32,6 +33,7 @@ import {
 import { buildAssigneeBreakdown, enrichTasksWithAssignees, getMemberDisplayName, resolveAssigneeLabel } from "@/lib/assignee";
 import { deliverNotification, recipientAllowsNotificationChannel } from "@/lib/notifications/deliverNotification";
 import { mapRealtimeNoteRow, mergeRealtimeNoteUpdate } from "@/lib/notes/mapRealtimeNoteRow";
+import { isNoteBodyHydrated, mergeHydratedNote } from "@/lib/files/noteListProjection";
 import { generateId, parseNaturalLanguage, getNextRecurringDue, toDueDateStorage, applyTaskUpdateSideEffects } from "@/lib/utils";
 import { startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, parseLocalDate, toLocalDateString } from "@/lib/datetime";
 import {
@@ -44,6 +46,14 @@ import {
   saveLastWorkspaceId,
 } from "@/lib/workspacePersistence";
 import { toast } from "sonner";
+import {
+  applyThemeToDocument,
+  DEFAULT_THEME,
+  normalizeThemeMode,
+  readThemeMode,
+  writeThemeMode,
+  type ThemeMode,
+} from "@/lib/themePreferences";
 import { fromDbRole, formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
 import {
   getTasks,
@@ -58,7 +68,9 @@ import {
   deleteTask as deleteTaskSupabase,
 
   getNotes,
+  getNoteById,
   getNoteCount,
+  getPendingReviewCount,
   createNote as createNoteSupabase,
   updateNote as updateNoteSupabase,
   deleteNote as deleteNoteSupabase,
@@ -226,12 +238,16 @@ interface TaskState extends ListSliceActions {
   isKeyboardCheatsheetOpen: boolean;
   /** One-shot: Files view should open on Review drawer (Home, ⌘K). */
   filesOpenReview: boolean;
+  /** One-shot: open the Review approve modal for this note (Home workspace tile). */
+  filesOpenReviewNoteId: string | null;
   /** One-shot: select this file after navigating to Files (⌘K search). */
   filesSelectNoteId: string | null;
   /** Open the full-screen file capture modal (Files, ⌘K). */
   filesCaptureOpen: boolean;
   /** Increment to fire the global completion confetti (tasks, list items, etc.). */
   celebrationTrigger: number;
+  /** App-wide color theme (dark default). */
+  theme: ThemeMode;
   isInitializing: boolean;
 
   // Per-task operation loading states (Phase 1: individual CRUD feedback + optimistic)
@@ -321,6 +337,8 @@ interface TaskState extends ListSliceActions {
   ) => Promise<Note | null>;
   updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   deleteNote: (id: string) => Promise<boolean | null>;
+  /** Load full note body (content, rawHtml, snapshots) for preview/edit. */
+  hydrateNoteDetail: (noteId: string) => Promise<Note | null>;
 
   // UI
   setView: (view: AppView) => void;
@@ -329,9 +347,11 @@ interface TaskState extends ListSliceActions {
   toggleCommandPalette: (open?: boolean) => void;
   toggleKeyboardCheatsheet: (open?: boolean) => void;
   setFilesOpenReview: (open: boolean) => void;
+  setFilesOpenReviewNoteId: (id: string | null) => void;
   setFilesSelectNoteId: (id: string | null) => void;
   setFilesCaptureOpen: (open: boolean) => void;
   triggerCelebration: () => void;
+  setTheme: (mode: ThemeMode, options?: { persist?: boolean }) => void;
 
   // Workspace (demo in !live mode)
   switchWorkspace: (id: string) => void;
@@ -598,7 +618,28 @@ const SAMPLE_NOTES: Note[] = [
   {
     id: "n0b",
     title: "Fwd: Conference registration",
-    content: "Email forward with receipt attached — tag as travel when approving.",
+    content: JSON.stringify({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "From: events@conference.example" }],
+        },
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Sent: Mon, 3 Jun 2026 09:14:00 +0000" }],
+        },
+        { type: "paragraph" },
+        {
+          type: "emailHtmlBlock",
+          attrs: {
+            html: "<p>Hi — your <strong>conference registration</strong> is confirmed.</p><p>Total: <span style=\"color:#16a34a\">$249.00</span></p><p>Receipt attached. See you in Austin!</p>",
+            styles: "",
+            pipelineVersion: 1,
+          },
+        },
+      ],
+    }),
     createdAt: new Date(Date.now() - 1000 * 3600 * 5).toISOString(),
     updatedAt: new Date(Date.now() - 1000 * 3600 * 5).toISOString(),
     tags: ["from-email"],
@@ -607,6 +648,9 @@ const SAMPLE_NOTES: Note[] = [
     reviewStatus: "pending_review",
     recordType: "email",
     memo: "Inbound from files review email",
+    rawHtml:
+      "<p>Hi — your <strong>conference registration</strong> is confirmed.</p><p>Total: <span style=\"color:#16a34a\">$249.00</span></p><p>Receipt attached. See you in Austin!</p>",
+    emailPipelineVersion: 1,
   },
   {
     id: "n1",
@@ -726,9 +770,11 @@ export const useTaskStore = create<TaskState>()(
       isCommandPaletteOpen: false,
       isKeyboardCheatsheetOpen: false,
       filesOpenReview: false,
+      filesOpenReviewNoteId: null,
       filesSelectNoteId: null,
       filesCaptureOpen: false,
       celebrationTrigger: 0,
+      theme: DEFAULT_THEME,
       isInitializing: false,
       taskLoadingStates: {},
 
@@ -880,10 +926,18 @@ export const useTaskStore = create<TaskState>()(
           isKeyboardCheatsheetOpen: open !== undefined ? open : !state.isKeyboardCheatsheetOpen,
         })),
       setFilesOpenReview: (open) => set({ filesOpenReview: open }),
+      setFilesOpenReviewNoteId: (id) => set({ filesOpenReviewNoteId: id }),
       setFilesSelectNoteId: (id) => set({ filesSelectNoteId: id }),
       setFilesCaptureOpen: (open) => set({ filesCaptureOpen: open }),
       triggerCelebration: () =>
         set((state) => ({ celebrationTrigger: state.celebrationTrigger + 1 })),
+
+      setTheme: (mode, options) => {
+        const next = normalizeThemeMode(mode);
+        if (options?.persist !== false) writeThemeMode(next);
+        applyThemeToDocument(next);
+        set({ theme: next });
+      },
 
       switchWorkspace: (id) => {
         const ws = get().workspaces.find((w) => w.id === id);
@@ -1693,6 +1747,7 @@ export const useTaskStore = create<TaskState>()(
           ...get().globalWorkspaceStats,
         };
         const noteCount = computeWorkspaceNoteCount(notes, currentWsId);
+        const pendingReviewCount = countPendingReviewForWorkspace(notes, currentWsId);
         patchedStats[currentWsId] = {
           openCount: patchedStats[currentWsId]?.openCount ?? 0,
           totalTaskCount: patchedStats[currentWsId]?.totalTaskCount ?? 0,
@@ -1705,6 +1760,7 @@ export const useTaskStore = create<TaskState>()(
           memberCount: patchedStats[currentWsId]?.memberCount,
           unreadChat: patchedStats[currentWsId]?.unreadChat,
           noteCount,
+          pendingReviewCount,
         };
         set({ globalWorkspaceStats: patchedStats });
       },
@@ -1725,11 +1781,13 @@ export const useTaskStore = create<TaskState>()(
           for (const ws of wss) {
             const wsTasks = (get().tasks || []).filter((t) => t.workspaceId === ws.id);
             const listStats = computeWorkspaceListStats(lists, items, ws.id);
-            const noteCount = computeWorkspaceNoteCount(get().notes || [], ws.id);
+            const noteCount = computeWorkspaceNoteCount(SAMPLE_NOTES, ws.id);
+            const pendingReviewCount = countPendingReviewForWorkspace(SAMPLE_NOTES, ws.id);
             demoStats[ws.id] = {
               ...computeWorkspaceTaskStats(wsTasks, storeMembers, userId, today),
               ...listStats,
               noteCount,
+              pendingReviewCount,
               memberCount: resolveWorkspaceMemberCount(
                 ws.id,
                 wsTasks,
@@ -1767,12 +1825,14 @@ export const useTaskStore = create<TaskState>()(
           for (const ws of wss.slice(0, 6)) {
             if (!ws.id || ["w1", "w2"].includes(ws.id)) continue;
             try {
-              const [wsTasks, wsMembers, wsLists, wsListItems, wsNoteCount] = await Promise.all([
+              const [wsTasks, wsMembers, wsLists, wsListItems, wsNoteCount, wsPendingReviewCount] =
+                await Promise.all([
                 getTasks(ws.id),
                 getWorkspaceMembers(ws.id).catch(() => [] as WorkspaceMember[]),
                 getWorkspaceLists(ws.id).catch(() => [] as WorkspaceList[]),
                 getListItems(ws.id).catch(() => [] as ListItem[]),
                 getNoteCount(ws.id).catch(() => 0),
+                getPendingReviewCount(ws.id).catch(() => 0),
               ]);
               const enrichedTasks = enrichTasksWithAssignees(wsTasks, wsMembers, userId);
               const listStats = computeWorkspaceListStats(wsLists, wsListItems, ws.id);
@@ -1800,6 +1860,7 @@ export const useTaskStore = create<TaskState>()(
                 memberCount: wsMembers.length,
                 unreadChat,
                 noteCount: wsNoteCount,
+                pendingReviewCount: wsPendingReviewCount,
                 ...listStats,
               };
               allHighlights.push(
@@ -2460,7 +2521,14 @@ export const useTaskStore = create<TaskState>()(
           }
           return {
             notes: state.notes.map((n) =>
-              n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n,
+              n.id === id
+                ? {
+                    ...n,
+                    ...updates,
+                    updatedAt: new Date().toISOString(),
+                    ...(updates.content !== undefined ? { bodyHydrated: true } : {}),
+                  }
+                : n,
             ),
           };
         });
@@ -2478,6 +2546,24 @@ export const useTaskStore = create<TaskState>()(
         }));
         get().refreshHomeNoteAggregatesFromStore();
         return true;
+      },
+
+      hydrateNoteDetail: async (noteId) => {
+        const existing = get().notes.find((n) => n.id === noteId);
+        if (!existing) return null;
+        if (isNoteBodyHydrated(existing)) return existing;
+
+        if (!isSupabaseLive()) return existing;
+
+        const full = await getNoteById(noteId);
+        if (!full) return existing;
+
+        set((state) => ({
+          notes: state.notes.map((n) =>
+            n.id === noteId ? mergeHydratedNote(n, full) : n,
+          ),
+        }));
+        return mergeHydratedNote(existing, full);
       },
 
       // ------------------------------------------------------------------
@@ -2576,6 +2662,7 @@ export const useTaskStore = create<TaskState>()(
             globalWorkspaceStats: {
               ...state.globalWorkspaceStats,
               [wsId]: {
+                ...state.globalWorkspaceStats[wsId],
                 openCount: state.globalWorkspaceStats[wsId]?.openCount ?? 0,
                 totalTaskCount: state.globalWorkspaceStats[wsId]?.totalTaskCount ?? 0,
                 doneCount: state.globalWorkspaceStats[wsId]?.doneCount ?? 0,
@@ -2585,6 +2672,7 @@ export const useTaskStore = create<TaskState>()(
                 listCount: state.globalWorkspaceStats[wsId]?.listCount,
                 openListItemsCount: state.globalWorkspaceStats[wsId]?.openListItemsCount,
                 noteCount: state.globalWorkspaceStats[wsId]?.noteCount,
+                pendingReviewCount: state.globalWorkspaceStats[wsId]?.pendingReviewCount,
                 memberCount: members.length,
               },
             },
@@ -4218,6 +4306,7 @@ export const useTaskStore = create<TaskState>()(
             workspaces: state.workspaces,
             currentView: state.currentView,
             taskFilter: state.taskFilter,
+            theme: state.theme,
             myProfile: state.myProfile,
             taskCommentsReadAt: state.taskCommentsReadAt,
           };
@@ -4229,6 +4318,7 @@ export const useTaskStore = create<TaskState>()(
           listItems: state.listItems,
           currentWorkspace: state.currentWorkspace,
           workspaces: state.workspaces,
+          theme: state.theme,
           myProfile: state.myProfile,
           taskCommentsReadAt: state.taskCommentsReadAt,
         };
@@ -4246,6 +4336,12 @@ export const useTaskStore = create<TaskState>()(
 if (typeof window !== "undefined") {
   // @ts-ignore - persist API is available on the store instance
   useTaskStore.persist.onFinishHydration((state) => {
+    const theme = normalizeThemeMode((state as { theme?: unknown })?.theme ?? readThemeMode());
+    applyThemeToDocument(theme);
+    if ((state as { theme?: unknown })?.theme !== theme) {
+      useTaskStore.setState({ theme });
+    }
+
     const persistedView = (state as { currentView?: string })?.currentView;
     if (persistedView === "calendar" || persistedView === "today") {
       useTaskStore.setState({ currentView: "home" });

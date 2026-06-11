@@ -114,9 +114,9 @@ export function ReactionPicker({
             role="dialog"
             aria-label="Add reaction"
           >
-            <div className="rounded-2xl border border-white/10 bg-[#111114] shadow-2xl overflow-hidden">
+            <div className="rounded-2xl border border-border-glass bg-bg-secondary shadow-2xl overflow-hidden">
               <div
-                className="flex items-center gap-0.5 p-2 border-b border-white/10 overflow-x-auto"
+                className="flex items-center gap-0.5 p-2 border-b border-border-glass overflow-x-auto"
                 style={{
                   fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif',
                 }}
@@ -126,7 +126,7 @@ export function ReactionPicker({
                     key={emoji}
                     type="button"
                     onClick={() => handlePick(emoji)}
-                    className="h-9 w-9 flex items-center justify-center rounded-xl text-xl hover:bg-white/10 active:scale-90 transition"
+                    className="h-9 w-9 flex items-center justify-center rounded-xl text-xl hover:bg-surface-hover active:scale-90 transition"
                     title={`React with ${emoji}`}
                   >
                     {emoji}
@@ -137,7 +137,7 @@ export function ReactionPicker({
                 <button
                   type="button"
                   onClick={() => setShowFullGrid(true)}
-                  className="w-full py-2 text-[11px] text-[#c084fc] hover:bg-white/5 transition"
+                  className="w-full py-2 text-[11px] text-neon-purple hover:bg-surface-hover transition"
                 >
                   More emojis…
                 </button>
@@ -165,8 +165,8 @@ export function ReactionPicker({
           setOpen(!open);
         }}
         className={cn(
-          "h-7 w-7 rounded-full border border-white/10 bg-[#111114]/90 backdrop-blur-sm",
-          "flex items-center justify-center text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40 hover:bg-white/10 transition shadow-sm",
+          "h-7 w-7 rounded-full border border-border-glass bg-bg-secondary/90 backdrop-blur-sm",
+          "flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-neon-purple/40 hover:bg-surface-hover transition shadow-sm",
           className
         )}
         aria-label="Add reaction"

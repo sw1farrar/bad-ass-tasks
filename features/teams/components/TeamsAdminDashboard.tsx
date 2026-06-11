@@ -11,6 +11,7 @@ import {
   Download,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { useTaskStore } from "@/store/useTaskStore";
 import { ActivityLog, Note, Task, WorkspaceMember } from "@/types";
 import { isDueDatePast } from "@/lib/datetime";
@@ -120,12 +121,12 @@ export function TeamsAdminDashboard({
   };
 
   return (
-    <div className="teams-admin-dashboard glass rounded-2xl border border-white/10 overflow-hidden">
-      <div className="teams-admin-header px-5 py-3 border-b border-white/10 bg-white/5">
+    <div className="teams-admin-dashboard glass rounded-2xl border border-border-glass overflow-hidden">
+      <div className="teams-admin-header px-5 py-3 border-b border-border-glass bg-surface-hover">
         <div className="font-semibold flex items-center gap-2 text-base md:text-lg tracking-tight mb-0.5 md:mb-1">
-          <BarChart3 className="h-5 w-5 text-[#c084fc] shrink-0" /> Data &amp; admin
+          <BarChart3 className="h-5 w-5 text-neon-purple shrink-0" /> Data &amp; admin
         </div>
-        <p className="text-[11px] text-[#71717a] mb-2 md:mb-3 hidden md:block">
+        <p className="text-[11px] text-text-muted mb-2 md:mb-3 hidden md:block">
           Export, import, templates, and workspace insights for your team.
         </p>
 
@@ -145,11 +146,12 @@ export function TeamsAdminDashboard({
               <button
                 key={tab.id}
                 onClick={() => setAdminTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] snap-start rounded-xl border transition-all shrink-0 ${
+                className={cn(
+                  "teams-admin-tab flex items-center gap-1.5 px-3 py-2 min-h-[44px] snap-start rounded-xl border transition-all shrink-0",
                   active
-                    ? "bg-[#c084fc] text-black border-[#c084fc] font-medium"
-                    : "bg-white/5 border-white/10 hover:bg-white/10 text-[#a1a1aa] hover:text-white"
-                }`}
+                    ? "teams-admin-tab--active bg-neon-purple text-accent-on border-neon-purple font-medium"
+                    : "bg-surface-hover border-border-glass hover:bg-surface-hover text-text-secondary hover:text-text-primary",
+                )}
               >
                 <Icon className="h-3.5 w-3.5" /> {tab.label}
               </button>
@@ -161,27 +163,27 @@ export function TeamsAdminDashboard({
       {adminTab === "overview" && (
         <div className="teams-admin-body p-4 md:p-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
-            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <div className="text-[#71717a] text-xs flex items-center gap-1">
+            <div className="bg-surface-hover rounded-xl p-3 border border-border-glass">
+              <div className="text-text-muted text-xs flex items-center gap-1">
                 Tasks <span className="text-emerald-400">•</span> Done
               </div>
               <div className="text-2xl font-semibold tabular-nums mt-1">
                 {tasks.length}{" "}
-                <span className="text-xs text-[#a1a1aa]">
+                <span className="text-xs text-text-secondary">
                   / {tasks.filter((t) => t.status === "done").length}
                 </span>
               </div>
             </div>
-            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <div className="text-[#71717a] text-xs">Notes • Team Size</div>
+            <div className="bg-surface-hover rounded-xl p-3 border border-border-glass">
+              <div className="text-text-muted text-xs">Notes • Team Size</div>
               <div className="text-2xl font-semibold tabular-nums mt-1">
                 {notes.length}{" "}
-                <span className="text-xs text-[#a1a1aa]">/ {members.length}</span>
+                <span className="text-xs text-text-secondary">/ {members.length}</span>
               </div>
             </div>
-            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <div className="text-[#71717a] text-xs">Overdue • Completion</div>
-              <div className="text-2xl font-semibold tabular-nums mt-1 text-[#ff3366]">
+            <div className="bg-surface-hover rounded-xl p-3 border border-border-glass">
+              <div className="text-text-muted text-xs">Overdue • Completion</div>
+              <div className="text-2xl font-semibold tabular-nums mt-1 text-[var(--priority-p0)]">
                 {
                   tasks.filter(
                     (t) =>
@@ -190,7 +192,7 @@ export function TeamsAdminDashboard({
                       t.status !== "done"
                   ).length
                 }{" "}
-                <span className="text-xs text-[#a1a1aa]">
+                <span className="text-xs text-text-secondary">
                   / ~
                   {Math.round(
                     (tasks.filter((t) => t.status === "done").length /
@@ -201,8 +203,8 @@ export function TeamsAdminDashboard({
                 </span>
               </div>
             </div>
-            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <div className="text-[#71717a] text-xs">Activity</div>
+            <div className="bg-surface-hover rounded-xl p-3 border border-border-glass">
+              <div className="text-text-muted text-xs">Activity</div>
               <div className="text-2xl font-semibold tabular-nums mt-1">
                 {recentActivity.length}
               </div>
@@ -212,7 +214,7 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "exports" && (
-        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-border-glass">
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => useTaskStore.getState().exportWorkspace("json")}
@@ -238,7 +240,7 @@ export function TeamsAdminDashboard({
             <button
               onClick={() => useTaskStore.getState().exportWorkspace("all")}
               disabled={liveBlocked}
-              className="btn btn-primary text-xs px-4 py-2 flex items-center gap-2 bg-[#c084fc] text-black hover:bg-[#a855f7]"
+              className="btn btn-primary text-xs px-4 py-2 flex items-center gap-2"
             >
               <Download className="h-4 w-4" /> All
             </button>
@@ -247,15 +249,15 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "imports" && (
-        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10 space-y-4">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-border-glass space-y-4">
           <div className="flex flex-wrap gap-3 items-center">
             <div>
               <div className="flex gap-2 text-xs">
                 <label
                   className={`px-3 py-1 rounded-xl border cursor-pointer ${
                     importStrategy === "skip-dupe-titles"
-                      ? "border-[#c084fc] bg-white/10"
-                      : "border-white/20"
+                      ? "border-neon-purple bg-surface-hover"
+                      : "border-border-glass"
                   }`}
                 >
                   <input
@@ -269,8 +271,8 @@ export function TeamsAdminDashboard({
                 <label
                   className={`px-3 py-1 rounded-xl border cursor-pointer ${
                     importStrategy === "append"
-                      ? "border-[#c084fc] bg-white/10"
-                      : "border-white/20"
+                      ? "border-neon-purple bg-surface-hover"
+                      : "border-border-glass"
                   }`}
                 >
                   <input
@@ -329,7 +331,7 @@ export function TeamsAdminDashboard({
             </label>
           </div>
           {importPreview && (
-            <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-xs">
+            <div className="bg-surface-hover border border-border-glass rounded-xl p-3 text-xs">
               <div>
                 Preview from <span className="font-mono">{importPreview.source}</span>:
               </div>
@@ -386,30 +388,31 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "templates" && (
-        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-border-glass">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
             {(useTaskStore.getState().getAdminTemplateLibrary?.() || []).map(
               (tpl: { title: string; type: string; description?: string; tags?: string[] }, idx: number) => (
                 <div
                   key={idx}
-                  className="bg-white/5 border border-white/10 rounded-xl p-3 hover:border-[#c084fc]/40 transition group"
+                  className="bg-surface-hover border border-border-glass rounded-xl p-3 hover:border-neon-purple/40 transition group"
                 >
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="font-medium flex items-center gap-1.5">
                         {tpl.title}
                         <span
-                          className={`text-[9px] px-1 rounded ${
+                          className={cn(
+                            "text-[9px] px-1 rounded",
                             tpl.type === "note"
-                              ? "bg-blue-500/20 text-blue-300"
-                              : "bg-emerald-500/20 text-emerald-300"
-                          }`}
+                              ? "teams-admin-badge--note bg-blue-500/20 text-blue-300"
+                              : "teams-admin-badge--task bg-emerald-500/20 text-emerald-300",
+                          )}
                         >
                           {tpl.type}
                         </span>
                       </div>
                       {tpl.description && (
-                        <div className="text-[10px] text-[#a1a1aa] line-clamp-2 mt-0.5 pr-2">
+                        <div className="text-[10px] text-text-secondary line-clamp-2 mt-0.5 pr-2">
                           {tpl.description.slice(0, 110)}
                           {tpl.description.length > 110 ? "…" : ""}
                         </div>
@@ -421,7 +424,7 @@ export function TeamsAdminDashboard({
                         if (res) toast.success(`Applied: ${tpl.title}`);
                         else toast.info("Template applied (demo or error — check tasks/notes)");
                       }}
-                      className="opacity-70 group-hover:opacity-100 text-[#c084fc] hover:text-white text-[10px] px-2 py-0.5 border border-white/20 rounded hover:bg-[#c084fc]/10 self-start"
+                      className="opacity-70 group-hover:opacity-100 text-neon-purple hover:text-text-primary text-[10px] px-2 py-0.5 border border-border-glass rounded hover:bg-neon-purple/10 self-start"
                       disabled={liveBlocked}
                     >
                       Apply
@@ -435,7 +438,7 @@ export function TeamsAdminDashboard({
       )}
 
       {adminTab === "insights" && (
-        <div className="teams-admin-body p-4 md:p-5 border-t border-white/10 space-y-4 text-sm">
+        <div className="teams-admin-body p-4 md:p-5 border-t border-border-glass space-y-4 text-sm">
           <div className="flex items-center justify-end">
             <button
               onClick={loadInsights}
@@ -448,18 +451,18 @@ export function TeamsAdminDashboard({
           </div>
           {insights ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                <div className="text-xs text-[#71717a] mb-1">Activity & Admin Volume</div>
+              <div className="bg-surface-hover rounded-xl p-3 border border-border-glass">
+                <div className="text-xs text-text-muted mb-1">Activity & Admin Volume</div>
                 <div className="text-xl font-semibold">
                   {insights.totalActivity} total events • {insights.adminActions || 0} admin actions
                 </div>
-                <div className="text-[10px] mt-1 text-[#a1a1aa]">
+                <div className="text-[10px] mt-1 text-text-secondary">
                   Last analyzed: {insights.lastAnalyzed}
                 </div>
               </div>
-              <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                <div className="text-xs text-[#71717a] mb-1">Overdue Trends</div>
-                <div className="text-xl font-semibold text-[#ff3366]">
+              <div className="bg-surface-hover rounded-xl p-3 border border-border-glass">
+                <div className="text-xs text-text-muted mb-1">Overdue Trends</div>
+                <div className="text-xl font-semibold text-[var(--priority-p0)]">
                   {insights.overdueCount} overdue now
                 </div>
                 <div className="text-xs mt-1">
@@ -469,18 +472,18 @@ export function TeamsAdminDashboard({
                     .join("  ") || "—"}
                 </div>
               </div>
-              <div className="bg-white/5 rounded-xl p-3 border border-white/10 md:col-span-2">
-                <div className="text-xs text-[#71717a] mb-1.5">Top contributors</div>
+              <div className="bg-surface-hover rounded-xl p-3 border border-border-glass md:col-span-2">
+                <div className="text-xs text-text-muted mb-1.5">Top contributors</div>
                 {insights.topContributors?.length ? (
                   <div className="flex flex-wrap gap-2">
                     {insights.topContributors.map(([user, count], i) => (
-                      <div key={i} className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">
-                        {user.slice(0, 12)}: <span className="text-[#c084fc]">{count}</span>
+                      <div key={i} className="px-2 py-0.5 bg-surface-hover rounded text-xs font-mono">
+                        {user.slice(0, 12)}: <span className="text-neon-purple">{count}</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-xs text-[#71717a]">No data</div>
+                  <div className="text-xs text-text-muted">No data</div>
                 )}
               </div>
             </div>
@@ -488,10 +491,10 @@ export function TeamsAdminDashboard({
         </div>
       )}
 
-      <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex justify-end">
+      <div className="teams-admin-footer px-5 py-3 border-t border-border-glass bg-surface-hover/50 flex justify-end">
         <button
           onClick={onOpenWorkspaceSettings}
-          className="text-xs text-[#c084fc] hover:underline flex items-center gap-1"
+          className="text-xs text-neon-purple hover:underline flex items-center gap-1"
         >
           {canEditWorkspaceDetails ? "Workspace settings" : "Notification settings"} <Settings className="h-3 w-3" />
         </button>

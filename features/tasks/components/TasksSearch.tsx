@@ -53,7 +53,7 @@ export function TasksSearch({
   return (
     <>
       {/* Agent 32: Upgraded hybrid semantic global search + filters */}
-      <div className="flex flex-col gap-2 mb-3">
+      <div className="tasks-search flex flex-col gap-2 mb-3">
         <div className="flex gap-2 items-center">
           <input
             value={globalSearchQuery}
@@ -66,7 +66,7 @@ export function TasksSearch({
           />
           <button
             onClick={() => setIsGraphOpen(true)}
-            className="btn btn-secondary px-2.5 py-2 text-xs md:text-sm flex items-center gap-1 border-[#c084fc]/40 hover:border-[#c084fc]"
+            className="btn btn-secondary px-2.5 py-2 text-xs md:text-sm flex items-center gap-1 border-neon-purple/40 hover:border-neon-purple"
             title="Knowledge Graph"
           >
             <Network className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Graph</span>
@@ -81,7 +81,7 @@ export function TasksSearch({
               onClick={() => setSearchResultType(t)}
               className={cn(
                 "px-2.5 py-1 rounded-full border transition snap-start shrink-0",
-                searchResultType === t ? "bg-[#c084fc] text-black border-[#c084fc]" : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+                searchResultType === t ? "bg-neon-purple text-accent-on border-neon-purple" : "border-border-glass hover:bg-surface-hover text-text-secondary"
               )}
             >
               {t === 'all' ? 'All' : t === 'task' ? 'Tasks' : 'Notes'}
@@ -93,7 +93,7 @@ export function TasksSearch({
               setTaskFilter({ search: "", recurring: "all" });
               setSearchResultType('all');
             }}
-            className="px-2 py-1 text-[#71717a] hover:text-white shrink-0"
+            className="px-2 py-1 text-text-muted hover:text-text-primary shrink-0"
           >
             Clear
           </button>
@@ -106,8 +106,8 @@ export function TasksSearch({
               className={cn(
                 "px-2 py-1 rounded-full border transition snap-start shrink-0",
                 (taskFilter.recurring ?? "all") === mode
-                  ? "bg-[#c084fc] text-black border-[#c084fc]"
-                  : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+                  ? "bg-neon-purple text-accent-on border-neon-purple"
+                  : "border-border-glass hover:bg-surface-hover text-text-secondary"
               )}
             >
               {mode === "all" ? "All tasks" : mode === "only" ? "Recurring" : "Non-recurring"}
@@ -124,14 +124,14 @@ export function TasksSearch({
         });
         if (hybrid.length === 0) return null;
         return (
-          <div className="mb-4 glass rounded-2xl p-3 border border-[#c084fc]/20">
+          <div className="tasks-search-results mb-4 glass rounded-2xl p-3 border border-neon-purple/20">
             <div className="flex items-center justify-between mb-2 px-1">
-              <div className="text-xs font-semibold tracking-widest text-[#c084fc]">
+              <div className="text-xs font-semibold tracking-widest text-neon-purple">
                 SEMANTIC RESULTS • {hybrid.length} matches
               </div>
               <button
                 onClick={() => setIsGraphOpen(true)}
-                className="text-[10px] text-[#c084fc] hover:underline flex items-center gap-1"
+                className="text-[10px] text-neon-purple hover:underline flex items-center gap-1"
               >
                 View in Graph <Network className="h-3 w-3" />
               </button>
@@ -150,15 +150,15 @@ export function TasksSearch({
                       setSelectedNoteId(r.id);
                     }
                   }}
-                  className="group p-2.5 rounded-xl border border-white/10 hover:border-[#c084fc]/40 bg-white/5 cursor-pointer flex gap-2 text-sm"
+                  className="group p-2.5 rounded-xl border border-border-glass hover:border-neon-purple/40 bg-surface-hover cursor-pointer flex gap-2 text-sm"
                 >
                   <div className="mt-0.5">
-                    {r.type === 'task' ? <Check className="h-4 w-4 text-[#c084fc]" /> : <Star className="h-4 w-4 text-[#00ff9f]" />}
+                    {r.type === 'task' ? <Check className="h-4 w-4 text-neon-purple" /> : <Star className="h-4 w-4 text-neon-green" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate group-hover:text-[#c084fc]">{r.title}</div>
-                    <div className="text-[10px] text-[#71717a] truncate">{r.snippet}</div>
-                    <div className="text-[9px] mt-0.5 text-[#c084fc]/70 font-mono">
+                    <div className="font-medium truncate group-hover:text-neon-purple">{r.title}</div>
+                    <div className="text-[10px] text-text-muted truncate">{r.snippet}</div>
+                    <div className="text-[9px] mt-0.5 text-neon-purple/70 font-mono">
                       {r.score}% • {r.reasons.join(' ')}
                     </div>
                   </div>
@@ -168,7 +168,7 @@ export function TasksSearch({
                       setIsGraphOpen(true);
                       setGraphFocusId(r.id);
                     }}
-                    className="self-start text-[9px] px-1.5 py-0.5 rounded bg-white/10 opacity-60 group-hover:opacity-100"
+                    className="self-start text-[9px] px-1.5 py-0.5 rounded bg-surface-hover opacity-60 group-hover:opacity-100"
                   >
                     Graph
                   </button>

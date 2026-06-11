@@ -10,7 +10,7 @@ import { Note, Task } from "@/types";
  * - Note CRUD wiring (delegates to store with guards)
  * - Bidirectional task ↔ note linking
  * - /task slash command flow (create + auto-link + open modal)
- * - Sub-note creation + reparenting (with cycle prevention)
+ * - Note reparenting (with cycle prevention)
  * - Snapshot persistence handler for live mode version history (M2 monolith slimming)
  *
  * This keeps the giant monolith page.tsx thinner and moves note-specific
@@ -230,47 +230,6 @@ export function useNoteOperations({
     });
   };
 
-  const handleCreateSubNote = async (parentNoteId: string, title = "New sub-note") => {
-    const parent = String(parentNoteId || "").trim();
-    if (!parent) {
-      console.warn('[useNoteOperations] handleCreateSubNote received bad parentNoteId', parentNoteId);
-      return null;
-    }
-
-    // Hierarchy limit: parent (0) → child (1) → grandchild (2). Nothing deeper.
-    // Walk upward from the intended parent to compute its depth (defensive, cheap).
-    let parentDepth = 0;
-    {
-      let cur: string | null = parent;
-      const seen = new Set<string>();
-      while (cur) {
-        if (seen.has(cur)) break;
-        seen.add(cur);
-        const n = notes.find(nn => nn.id === cur);
-        if (!n?.parentNoteId) break;
-        parentDepth += 1;
-        if (parentDepth >= 2) break;
-        cur = n.parentNoteId;
-      }
-    }
-    if (parentDepth >= 2) {
-      console.warn('[useNoteOperations] Refusing to create sub-note: parent is already at maximum depth (grandchild). Notes are limited to parent → child → grandchild only.');
-      return null;
-    }
-
-    // addNote returns Note | null, not a string ID (M2 extraction contract)
-    const createdNote = await addNote(title);
-    if (!createdNote?.id) return null;
-
-    const newId = createdNote.id;
-
-    // Only structural change needed now: parent link. Display order is pure recency (newest first)
-    // at every level — no sortOrder writes, no renormalization, no extra store churn.
-    await updateNote(newId, { parentNoteId: parent });
-
-    return newId; // return the string ID, not the object
-  };
-
   const handleReparentNote = (draggedNoteId: string, targetNoteId: string) => {
     // Defensive: dnd-kit ids should be primitives, but coerce to be safe (prevents "[object Object]" uuid errors)
     const dragged = String(draggedNoteId || "").trim();
@@ -438,7 +397,6 @@ export function useNoteOperations({
     onUpdateTask: handleUpdateTask,
     onCreateTaskAndEmbed: handleCreateTaskAndEmbed,
     onCreateTaskAndLink: handleCreateTaskAndLink,
-    onCreateSubNote: handleCreateSubNote,
     onReparentNote: handleReparentNote,
     // New slimmed adapters (task 4)
     onRemoveLinked: handleRemoveLinked,

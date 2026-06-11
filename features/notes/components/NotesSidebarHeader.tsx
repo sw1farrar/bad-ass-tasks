@@ -22,7 +22,7 @@ export function NotesSidebarHeader({
   isCreating,
 }: NotesSidebarHeaderProps) {
   return (
-    <div className="border-b border-white/10">
+    <div className="border-b border-border-glass">
       <div className="notes-sidebar-toolbar px-3 pt-3 pb-3">
         <button
           type="button"
@@ -47,7 +47,7 @@ export function NotesSidebarHeader({
             <span
               className={cn(
                 "tabular-nums shrink-0",
-                hasOverdueOpenTaskNotes ? "text-[#ff3366]" : "opacity-80",
+                hasOverdueOpenTaskNotes ? "text-[var(--priority-p0)]" : "opacity-80",
               )}
             >
               {openTasksNoteCount}

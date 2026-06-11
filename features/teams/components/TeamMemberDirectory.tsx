@@ -53,24 +53,24 @@ export function TeamMemberDirectory({
   const onlineCount = members.filter((m) => onlineUserIds.has(m.userId)).length;
 
   return (
-    <div className="team-directory-panel glass rounded-2xl border border-white/10 overflow-hidden">
-      <div className="team-directory-header px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+    <div className="team-directory-panel glass rounded-2xl border border-border-glass overflow-hidden">
+      <div className="team-directory-header px-5 py-3 border-b border-border-glass flex items-center justify-between bg-surface-hover">
         <div className="min-w-0">
           <div className="font-medium text-sm md:text-base">Team directory</div>
-          <div className="text-[10px] text-[#71717a] mt-0.5">
+          <div className="text-[10px] text-text-muted mt-0.5">
             {members.length} member{members.length === 1 ? "" : "s"}
             {onlineCount > 0 && (
-              <span className="text-[#34d399] ml-1.5">{onlineCount} online</span>
+              <span className="text-neon-green ml-1.5">{onlineCount} online</span>
             )}
           </div>
         </div>
-        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-[#c084fc] shrink-0" />}
+        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-neon-purple shrink-0" />}
       </div>
 
       {members.length === 0 ? (
-        <div className="p-6 md:p-8 text-center text-[#71717a] text-sm">No members</div>
+        <div className="p-6 md:p-8 text-center text-text-muted text-sm">No members</div>
       ) : (
-        <div className="divide-y divide-white/10">
+        <div className="divide-y divide-border-glass">
           {sortedMembers.map((member) => {
             const isSelf = member.userId === currentUserId;
             const isOnline = onlineUserIds.has(member.userId);
@@ -83,7 +83,7 @@ export function TeamMemberDirectory({
             return (
               <div
                 key={member.userId}
-                className="team-directory-member flex hover:bg-white/[0.03] transition-colors"
+                className="team-directory-member flex hover:bg-surface-hover transition-colors"
               >
                 <div className="team-directory-member__main">
                   <div className="relative shrink-0">
@@ -91,37 +91,37 @@ export function TeamMemberDirectory({
                       <img
                         src={member.avatarUrl}
                         alt=""
-                        className="h-10 w-10 rounded-full object-cover border border-white/10"
+                        className="h-10 w-10 rounded-full object-cover border border-border-glass"
                       />
                     ) : (
-                      <div className="h-10 w-10 rounded-full bg-[#c084fc]/15 border border-[#c084fc]/25 flex items-center justify-center text-sm font-medium text-[#c084fc]">
+                      <div className="h-10 w-10 rounded-full bg-neon-purple/15 border border-neon-purple/25 flex items-center justify-center text-sm font-medium text-neon-purple">
                         {getMemberInitials(member, currentUserId)}
                       </div>
                     )}
                     {isOnline && (
-                      <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#34d399] border-2 border-[#0a0a0f]" />
+                      <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-neon-green border-2 border-bg" />
                     )}
                   </div>
 
                   <div className="team-directory-member__identity flex-1 min-w-0">
                     <div className="team-directory-member__name-row">
-                      <span className="font-medium text-[#f4f4f5] truncate">{displayName}</span>
+                      <span className="font-medium text-text-primary truncate">{displayName}</span>
                       <span
                         className={cn(
                           "team-directory-role-badge text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 border",
                           member.role === "owner"
-                            ? "bg-[#c084fc]/10 text-[#c084fc] border-[#c084fc]/30"
+                            ? "bg-neon-purple/10 text-neon-purple border-neon-purple/30"
                             : member.role === "admin"
-                              ? "bg-white/5 text-[#a1a1aa] border-white/10"
-                              : "bg-white/5 text-[#71717a] border-white/10"
+                              ? "bg-surface-hover text-text-secondary border-border-glass"
+                              : "bg-surface-hover text-text-muted border-border-glass"
                         )}
                       >
                         {formatRoleLabel(member.role)}
                       </span>
                     </div>
-                    <div className="team-directory-member__meta flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-[#71717a]">
+                    <div className="team-directory-member__meta flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-text-muted">
                       {presenceLabel && (
-                        <span className={isOnline ? "text-[#34d399]" : undefined}>{presenceLabel}</span>
+                        <span className={isOnline ? "text-neon-green" : undefined}>{presenceLabel}</span>
                       )}
                       {joined && (
                         <>
@@ -138,7 +138,7 @@ export function TeamMemberDirectory({
                       {openTasks > 0 && (
                         <>
                           <span aria-hidden>·</span>
-                          <span className="text-[#a1a1aa]">
+                          <span className="text-text-secondary">
                             {openTasks} open task{openTasks === 1 ? "" : "s"}
                           </span>
                         </>
@@ -150,7 +150,7 @@ export function TeamMemberDirectory({
                 {renderMemberActions && (
                   <div className="team-directory-member__actions">
                     {renderMemberActions(member, isSelf) ?? (
-                      <span className="team-directory-role-readonly text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
+                      <span className="team-directory-role-readonly text-xs px-2.5 py-1 rounded bg-surface-hover border border-border-glass font-mono text-text-secondary">
                         {formatRoleLabel(member.role)}
                       </span>
                     )}

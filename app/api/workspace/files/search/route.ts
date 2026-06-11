@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ results: [], query: q });
   }
 
-  const { data, error } = await (supabase as any).rpc("search_workspace_files", {
+  const { data, error } = await (supabase as any).rpc("search_workspace_files_slim", {
     p_workspace_id: workspaceId,
     p_query: q,
     p_include_pending: includePending,
@@ -43,8 +43,27 @@ export async function GET(request: Request) {
   });
 
   if (error) {
+    if (error.code === "PGRST202") {
+      const { data: legacy, error: legacyError } = await (supabase as any).rpc(
+        "search_workspace_files",
+        {
+          p_workspace_id: workspaceId,
+          p_query: q,
+          p_include_pending: includePending,
+          p_limit: 100,
+        },
+      );
+      if (legacyError) {
+        return NextResponse.json({ error: legacyError.message, results: [] }, { status: 500 });
+      }
+      const legacyResults = ((legacy ?? []) as Array<{ id: string }>).map((row) => ({
+        id: row.id,
+      }));
+      return NextResponse.json({ results: legacyResults, query: q });
+    }
     return NextResponse.json({ error: error.message, results: [] }, { status: 500 });
   }
 
-  return NextResponse.json({ results: data ?? [], query: q });
+  const results = ((data ?? []) as Array<{ id: string }>).map((row) => ({ id: row.id }));
+  return NextResponse.json({ results, query: q });
 }

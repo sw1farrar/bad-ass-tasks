@@ -1,6 +1,5 @@
 import type { Note } from "@/types";
-import { isFiledNote, isPendingReview } from "./fileFilters";
-import { searchNotesLocal } from "./searchNotesLocal";
+import { buildFilesSearchIndex, rankFilesSearchIds } from "@/lib/files/filesSearchRank";
 
 export type FilesSearchScope = "review" | "filed" | "all";
 
@@ -11,13 +10,9 @@ export function searchFilesInWorkspace(
 ): Note[] {
   const scope = options?.scope ?? "all";
   const limit = options?.limit ?? 100;
-  const hits = searchNotesLocal(notes, query, limit);
+  const ids = rankFilesSearchIds(buildFilesSearchIndex(notes), query, { scope, limit });
+  if (ids.length === 0) return [];
 
-  if (scope === "review") {
-    return hits.filter(isPendingReview);
-  }
-  if (scope === "filed") {
-    return hits.filter(isFiledNote);
-  }
-  return hits;
+  const byId = new Map(notes.map((note) => [note.id, note]));
+  return ids.map((id) => byId.get(id)).filter(Boolean) as Note[];
 }

@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { sortableTranslateOnly } from "../lib/sortableTransform";
 import { GripVertical, MoreHorizontal, Pin, PinOff, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ListItem, WorkspaceList } from "@/types";
@@ -21,7 +21,12 @@ import {
   LIST_ITEM_PREVIEW_LIMIT,
   flattenListItems,
 } from "@/lib/lists/listItemTree";
-import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
+import {
+  getListColorStyleForTheme,
+  getListColorsForTheme,
+} from "@/lib/lists/listColorStyles";
+import type { ListColorId } from "@/store/listSlice";
+import { useTaskStore } from "@/store/useTaskStore";
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useListDndSensors } from "../dndConfig";
@@ -45,6 +50,7 @@ interface ListCardBodyProps {
   onOutdentItem: (id: string) => void;
   onClearCompleted: (listId: string) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+  dragHandleRef?: React.Ref<HTMLButtonElement>;
   onOpenDetail?: (e: React.MouseEvent) => void;
 }
 
@@ -64,8 +70,12 @@ export function ListCardBody({
   onOutdentItem,
   onClearCompleted,
   dragHandleProps,
+  dragHandleRef,
   onOpenDetail,
 }: ListCardBodyProps) {
+  const theme = useTaskStore((s) => s.theme);
+  const listColors = getListColorsForTheme(theme);
+  const activeColorRing = theme === "light" ? "#7c3aed" : "#f4f4f5";
   const [newItemText, setNewItemText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
@@ -174,7 +184,7 @@ export function ListCardBody({
           if (newItemText.trim()) void handleAddItem();
         }}
         placeholder="List item"
-        className="flex-1 bg-transparent text-sm text-[#e4e4e7] placeholder:text-[#52525b] outline-none"
+        className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-faint outline-none"
         aria-label="Add list item"
       />
     </div>
@@ -244,7 +254,7 @@ export function ListCardBody({
             />
           ))}
           {hiddenCount > 0 && (
-            <div className="list-card-more-hint px-1 pt-1 text-[11px] text-[#a1a1aa]">
+            <div className="list-card-more-hint px-1 pt-1 text-[11px] text-text-secondary">
               +{hiddenCount} more — open list
             </div>
           )}
@@ -265,10 +275,11 @@ export function ListCardBody({
 
   return (
     <>
-      <header className="flex items-start gap-2 px-3.5 pt-3.5 pb-2">
+      <header className="list-card-header flex items-start gap-2.5 px-4 pt-4 pb-2.5">
         <button
           type="button"
-          className="list-card-drag-handle mt-1 shrink-0 text-[#71717a] hover:text-[#c084fc] cursor-grab active:cursor-grabbing touch-none"
+          ref={dragHandleRef}
+          className="list-card-drag-handle mt-1 shrink-0 text-text-muted hover:text-neon-purple cursor-grab active:cursor-grabbing touch-none"
           aria-label="Drag list"
           data-no-open
           {...dragHandleProps}
@@ -284,12 +295,12 @@ export function ListCardBody({
               const trimmed = e.target.value.trim();
               onUpdateList(list.id, { title: trimmed || "Untitled list" });
             }}
-            className="w-full bg-transparent text-[15px] font-semibold text-white outline-none placeholder:text-[#71717a]"
+            className="w-full bg-transparent text-base font-semibold text-text-primary outline-none placeholder:text-text-muted tracking-tight"
             placeholder="Title"
             aria-label="List title"
           />
           {flatItems.length > 0 && (
-            <div className="text-[10px] text-[#71717a] mt-1">
+            <div className="list-card-stats text-[11px] text-text-muted mt-1.5 font-medium">
               {openCount} open{completedCount > 0 ? ` · ${completedCount} done` : ""}
             </div>
           )}
@@ -301,16 +312,16 @@ export function ListCardBody({
               setMenuOpen((v) => !v);
               setColorOpen(false);
             }}
-            className="p-1.5 rounded-lg text-[#71717a] hover:text-white hover:bg-white/10"
+            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover"
             aria-label="List options"
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-30 min-w-[10rem] rounded-xl border border-white/10 bg-[#141418] shadow-xl py-1 text-xs">
+            <div className="absolute right-0 top-full mt-1 z-30 min-w-[10rem] rounded-xl border border-border-glass bg-bg-card shadow-xl py-1 text-xs">
               <button
                 type="button"
-                className="w-full px-3 py-2 text-left hover:bg-white/5 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left hover:bg-surface-hover flex items-center gap-2"
                 onClick={() => {
                   onTogglePinned(list.id);
                   setMenuOpen(false);
@@ -321,7 +332,7 @@ export function ListCardBody({
               </button>
               <button
                 type="button"
-                className="w-full px-3 py-2 text-left hover:bg-white/5"
+                className="w-full px-3 py-2 text-left hover:bg-surface-hover"
                 onClick={() => {
                   setColorOpen((v) => !v);
                 }}
@@ -331,7 +342,7 @@ export function ListCardBody({
               {completedCount > 0 && (
                 <button
                   type="button"
-                  className="w-full px-3 py-2 text-left hover:bg-white/5 text-[#a1a1aa]"
+                  className="w-full px-3 py-2 text-left hover:bg-surface-hover text-text-secondary"
                   onClick={() => {
                     onClearCompleted(list.id);
                     setMenuOpen(false);
@@ -342,7 +353,7 @@ export function ListCardBody({
               )}
               <button
                 type="button"
-                className="w-full px-3 py-2 text-left hover:bg-white/5 text-[#ff3366] flex items-center gap-2"
+                className="w-full px-3 py-2 text-left hover:bg-surface-hover text-[var(--priority-p0)] flex items-center gap-2"
                 onClick={() => {
                   onDeleteList(list.id);
                   setMenuOpen(false);
@@ -354,14 +365,14 @@ export function ListCardBody({
             </div>
           )}
           {colorOpen && (
-            <div className="absolute right-0 top-full mt-1 z-30 flex gap-1.5 p-2 rounded-xl border border-white/10 bg-[#141418] shadow-xl">
-              {LIST_COLORS.map((c) => (
+            <div className="absolute right-0 top-full mt-1 z-30 flex gap-1.5 p-2 rounded-xl border border-border-glass bg-bg-card shadow-xl">
+              {listColors.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   title={c.label}
                   className={cn("list-color-dot", list.color === c.id && "is-active")}
-                  style={{ background: c.bg, borderColor: list.color === c.id ? "#f4f4f5" : c.border }}
+                  style={{ background: c.bg, borderColor: list.color === c.id ? activeColorRing : c.border }}
                   onClick={() => {
                     onUpdateList(list.id, { color: c.id as ListColorId });
                     setColorOpen(false);
@@ -376,7 +387,7 @@ export function ListCardBody({
 
       <div
         className={cn(
-          "px-3 pb-2 flex-1 min-h-0",
+          "list-card-body px-4 pb-3.5 flex-1 min-h-0",
           onOpenDetail && "list-card-open-target cursor-pointer",
         )}
         onClick={onOpenDetail}
@@ -415,6 +426,7 @@ interface ListCardProps {
   onOutdentItem: (id: string) => void;
   onClearCompleted: (listId: string) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+  dragHandleRef?: React.Ref<HTMLButtonElement>;
   isHighlighted?: boolean;
 }
 
@@ -434,9 +446,11 @@ export function ListCard({
   onOutdentItem,
   onClearCompleted,
   dragHandleProps,
+  dragHandleRef,
   isHighlighted = false,
 }: ListCardProps) {
-  const colorStyle = getListColorStyle(list.color);
+  const theme = useTaskStore((s) => s.theme);
+  const colorStyle = getListColorStyleForTheme(list.color, theme);
 
   const handleOpenDetail = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -447,12 +461,15 @@ export function ListCard({
   return (
     <article
       data-list-id={list.id}
+      data-list-color={list.color}
       className={cn("list-card flex flex-col", isHighlighted && "is-highlighted")}
       style={{
         background: colorStyle.bg,
         borderColor: colorStyle.border,
         ["--list-bg" as string]: colorStyle.bg,
         ["--list-border" as string]: colorStyle.border,
+        ["--list-chip-bg" as string]: colorStyle.bg,
+        ["--list-chip-border" as string]: colorStyle.border,
       }}
     >
       <ListCardBody
@@ -471,23 +488,27 @@ export function ListCard({
         onOutdentItem={onOutdentItem}
         onClearCompleted={onClearCompleted}
         dragHandleProps={dragHandleProps}
+        dragHandleRef={dragHandleRef}
         onOpenDetail={onOpenDetail ? handleOpenDetail : undefined}
       />
     </article>
   );
 }
 
-interface SortableListCardProps extends Omit<ListCardProps, "dragHandleProps"> {
+export type ListDragSlotSize = { width: number; height: number };
+
+interface SortableListCardProps extends Omit<ListCardProps, "dragHandleProps" | "dragHandleRef"> {
   id: string;
-  dragSlotHeight?: number | null;
+  dragSlotSize?: ListDragSlotSize | null;
 }
 
 export function SortableListCard(props: SortableListCardProps) {
-  const { dragSlotHeight, ...cardProps } = props;
+  const { dragSlotSize, ...cardProps } = props;
   const {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -507,13 +528,17 @@ export function SortableListCard(props: SortableListCardProps) {
   const isDropSlot = isDragging && overIndex >= 0 && overIndex !== index;
 
   const style: React.CSSProperties = {
-    transform: transform
-      ? isDragging
-        ? CSS.Translate.toString(transform)
-        : CSS.Transform.toString(transform)
-      : undefined,
+    transform: sortableTranslateOnly(transform),
     transition: isDragging || isSorting ? undefined : transition,
-    ...(isDragging && dragSlotHeight ? { minHeight: dragSlotHeight } : null),
+    ...(isDragging && dragSlotSize
+      ? {
+          width: dragSlotSize.width,
+          minWidth: dragSlotSize.width,
+          maxWidth: dragSlotSize.width,
+          minHeight: dragSlotSize.height,
+          height: dragSlotSize.height,
+        }
+      : null),
   };
 
   return (
@@ -528,7 +553,11 @@ export function SortableListCard(props: SortableListCardProps) {
         isOver && !isDragging && isSorting && "is-drop-target",
       )}
     >
-      <ListCard {...cardProps} dragHandleProps={{ ...attributes, ...listeners }} />
+      <ListCard
+        {...cardProps}
+        dragHandleRef={setActivatorNodeRef}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
     </div>
   );
 }

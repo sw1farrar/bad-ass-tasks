@@ -123,3 +123,124 @@
     gap: 1.5rem;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   Settings workspace — dark theme refinements
+   ══════════════════════════════════════════════════════════════ */
+
+[data-theme="dark"] .settings-root .settings-panel,
+[data-theme="dark"] .settings-root .settings-panel.glass,
+[data-theme="dark"] .settings-root .settings-workspace-card,
+[data-theme="dark"] .settings-root .settings-workspace-card.glass {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
+[data-theme="dark"] .settings-root .workspace-view-header .border-neon-purple\/25.bg-neon-purple\/8 {
+  background: var(--accent-purple-muted) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-panel-header,
+[data-theme="dark"] .settings-root .settings-panel .text-text-muted {
+  color: var(--text-muted) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-notif-matrix {
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-notif-matrix__header {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-muted) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-notif-matrix__row {
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-notif-matrix__row:hover {
+  background: var(--surface-hover) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-hint,
+[data-theme="dark"] .settings-root .settings-inbox-card {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-email {
+  background: var(--accent-purple-muted) !important;
+  border-color: var(--accent-purple-border) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-email code {
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-create {
+  background: var(--accent-purple-muted) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple-tint) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-create:hover:not(:disabled) {
+  background: var(--surface-hover) !important;
+  border-color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-copy {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-inbox-copy:hover {
+  background: var(--surface-hover) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-danger-panel,
+[data-theme="dark"] .settings-root .settings-danger-panel.glass {
+  background: color-mix(in srgb, var(--priority-p0) 8%, var(--bg-card)) !important;
+  border-color: color-mix(in srgb, var(--priority-p0) 28%, var(--border)) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-danger-panel .text-red-400 {
+  color: var(--priority-p0) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-delete-input {
+  background: var(--bg-secondary) !important;
+  border-color: color-mix(in srgb, var(--priority-p0) 35%, var(--border)) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-delete-btn {
+  background: color-mix(in srgb, var(--priority-p0) 90%, transparent) !important;
+  color: var(--on-accent) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-delete-btn:hover:not(:disabled) {
+  background: var(--priority-p0) !important;
+}
+
+[data-theme="dark"] .settings-root .text-amber-400\/90 {
+  color: var(--priority-p1) !important;
+}
+
+[data-theme="dark"] .settings-root .settings-workspace-name {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .settings-root button[aria-label="Edit workspace name"]:hover {
+  background: var(--accent-purple-muted) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .settings-root .hover\:bg-red-500\/10:hover {
+  background: var(--danger-subtle) !important;
+}

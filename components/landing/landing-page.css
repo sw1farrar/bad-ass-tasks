@@ -2,6 +2,14 @@
   --landing-canvas: #0a0a0f;
 }
 
+.landing-page__glow {
+  background: radial-gradient(
+    ellipse 90% 60% at 50% -20%,
+    rgba(255, 255, 255, 0.04),
+    transparent 60%
+  );
+}
+
 .landing-page .btn-primary:hover {
   transform: none;
   box-shadow: none;

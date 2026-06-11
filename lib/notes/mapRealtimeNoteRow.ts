@@ -18,11 +18,18 @@ export function contentFromNoteRow(raw: unknown): string {
 }
 
 export function mapRealtimeNoteRow(row: Record<string, unknown>): Note {
+  const content = contentFromNoteRow(row.content);
+  const rawHtml = typeof row.raw_html === "string" ? row.raw_html : null;
+  const hasBody =
+    content.length > 0 ||
+    (typeof rawHtml === "string" && rawHtml.length > 0) ||
+    (Array.isArray(row.snapshots) && row.snapshots.length > 0);
+
   return {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
     title: String(row.title ?? ""),
-    content: contentFromNoteRow(row.content),
+    content,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
@@ -45,6 +52,9 @@ export function mapRealtimeNoteRow(row: Record<string, unknown>): Note {
     reviewedBy: typeof row.reviewed_by === "string" ? row.reviewed_by : null,
     searchDocument: typeof row.search_document === "string" ? row.search_document : null,
     searchPlain: typeof row.search_plain === "string" ? row.search_plain : null,
+    rawHtml,
+    snapshots: Array.isArray(row.snapshots) ? (row.snapshots as Note["snapshots"]) : [],
+    bodyHydrated: hasBody,
   };
 }
 
@@ -61,6 +71,11 @@ export function mergeRealtimeNoteUpdate(existing: Note, row: Record<string, unkn
   }
   if (row.content !== undefined && row.content !== null) {
     next.content = contentFromNoteRow(row.content);
+    next.bodyHydrated = true;
+  }
+  if (row.raw_html !== undefined) {
+    next.rawHtml = typeof row.raw_html === "string" ? row.raw_html : null;
+    if (next.rawHtml) next.bodyHydrated = true;
   }
   if (row.linked_task_ids !== undefined) {
     next.linkedTaskIds = Array.isArray(row.linked_task_ids)

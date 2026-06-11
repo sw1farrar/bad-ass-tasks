@@ -219,79 +219,79 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       </VisuallyHidden>
 
       <div 
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm" 
+        className="fixed inset-0 overlay-scrim backdrop-blur-sm" 
         onClick={() => onOpenChange(false)} 
       />
       
-      <div className="relative w-full max-w-[640px] mx-4 overflow-hidden rounded-2xl glass-strong shadow-2xl">
+      <div className="command-palette-panel relative w-full max-w-[640px] mx-4 overflow-hidden rounded-2xl glass-strong modal-panel shadow-2xl">
         <Command className="border-none bg-transparent">
-          <div className="flex items-center border-b border-white/10 px-4">
-            <Search className="mr-3 h-4 w-4 text-[#c084fc]" />
+          <div className="flex items-center border-b border-border-glass px-4">
+            <Search className="mr-3 h-4 w-4 text-neon-purple" />
             <Command.Input 
               placeholder="Search tasks, notes, or commands…"
-              className="cmdk-input flex-1 py-4 text-[15px] placeholder:text-[#71717a] outline-none" 
+              className="cmdk-input flex-1 py-4 text-[15px] placeholder:text-text-muted outline-none" 
               value={paletteQuery}
               onValueChange={setPaletteQuery}
             />
-            <div className="text-[10px] text-[#71717a] font-mono px-2 py-0.5 rounded bg-white/5">ESC</div>
+            <div className="text-[10px] text-text-muted font-mono px-2 py-0.5 rounded bg-surface-hover">ESC</div>
           </div>
 
           <Command.List className="max-h-[420px] overflow-y-auto p-2 text-sm">
-            <Command.Empty className="py-8 text-center text-[#71717a]">
+            <Command.Empty className="py-8 text-center text-text-muted">
               No matches. Try create or a task title.
             </Command.Empty>
 
             {/* Quick Actions - core power moves + new Phase 2 power */}
-            <Command.Group heading="Quick Actions" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase">
+            <Command.Group heading="Quick Actions" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase">
               <Command.Item 
                 onSelect={() => runCommand(handleCreateTask)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <Plus className="h-4 w-4 text-[#c084fc]" />
+                <Plus className="h-4 w-4 text-neon-purple" />
                 <div className="flex-1">
                   <div>Create new task</div>
-                  <div className="text-xs text-[#71717a]">Adds a new task to this workspace</div>
+                  <div className="text-xs text-text-muted">Adds a new task to this workspace</div>
                 </div>
-                <div className="text-xs text-[#c084fc] font-mono">⌘N</div>
+                <div className="text-xs text-neon-purple font-mono">⌘N</div>
               </Command.Item>
 
               <Command.Item 
                 onSelect={() => runCommand(handleCaptureFile)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <FilePlus className="h-4 w-4 text-[#c084fc]" />
+                <FilePlus className="h-4 w-4 text-neon-purple" />
                 <div className="flex-1">
                   <div>Capture file</div>
-                  <div className="text-xs text-[#71717a]">Tags, notes, images & attachments in one modal</div>
+                  <div className="text-xs text-text-muted">Tags, notes, images & attachments in one modal</div>
                 </div>
-                <div className="text-xs text-[#c084fc] font-mono">⌘⇧N</div>
+                <div className="text-xs text-neon-purple font-mono">⌘⇧N</div>
               </Command.Item>
 
               <Command.Item
                 onSelect={() => runCommand(handleCreateList)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <ListChecks className="h-4 w-4 text-[#c084fc]" />
+                <ListChecks className="h-4 w-4 text-neon-purple" />
                 <div className="flex-1">
                   <div>Create new list</div>
-                  <div className="text-xs text-[#71717a]">Quick checklist like Google Keep</div>
+                  <div className="text-xs text-text-muted">Quick checklist like Google Keep</div>
                 </div>
               </Command.Item>
 
               <Command.Item 
                 onSelect={() => runCommand(completeRandom)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <CheckSquare className="h-4 w-4 text-[#c084fc]" />
+                <CheckSquare className="h-4 w-4 text-neon-purple" />
                 <div>Complete a random task</div>
-                <div className="ml-auto text-[10px] text-[#71717a] font-mono">lucky</div>
+                <div className="ml-auto text-[10px] text-text-muted font-mono">lucky</div>
               </Command.Item>
 
               <Command.Item 
                 onSelect={() => runCommand(clearFilters)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <Filter className="h-4 w-4 text-[#c084fc]" />
+                <Filter className="h-4 w-4 text-neon-purple" />
                 <div>Clear all task filters</div>
               </Command.Item>
 
@@ -309,12 +309,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     }
                   })
                 }
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <FolderOpen className="h-4 w-4 text-[#c084fc]" />
+                <FolderOpen className="h-4 w-4 text-neon-purple" />
                 <div className="flex-1">
                   <div>Open Files Review</div>
-                  <div className="text-xs text-[#71717a]">
+                  <div className="text-xs text-text-muted">
                     {pendingReviewCount > 0
                       ? `${pendingReviewCount} pending`
                       : "No files awaiting approval"}
@@ -326,16 +326,16 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 onSelect={() => runCommand(() => {
                   toggleKeyboardCheatsheet(true);
                 })}
-                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <Hash className="h-4 w-4 text-[#c084fc]" />
+                <Hash className="h-4 w-4 text-neon-purple" />
                 <div>Show full keyboard cheatsheet</div>
-                <div className="ml-auto text-xs text-[#c084fc] font-mono">?</div>
+                <div className="ml-auto text-xs text-neon-purple font-mono">?</div>
               </Command.Item>
             </Command.Group>
 
             {/* Workspaces - switch instantly (new powerful command) */}
-            <Command.Group heading="Switch Workspace" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
+            <Command.Group heading="Switch Workspace" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
               {workspaces.map((ws) => (
                 <Command.Item
                   key={ws.id}
@@ -343,18 +343,18 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     switchWorkspace(ws.id);
                     toast.info(`Switched to ${ws.name}`);
                   })}
-                  className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                  className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
                 >
                   <Briefcase className="h-4 w-4" />
                   <span>{ws.name}</span>
-                  {currentWorkspace.id === ws.id && <div className="ml-auto text-[10px] text-[#c084fc]">current</div>}
+                  {currentWorkspace.id === ws.id && <div className="ml-auto text-[10px] text-neon-purple">current</div>}
                 </Command.Item>
               ))}
               <Command.Item
                 onSelect={() => runCommand(() => {
                   toast("Create workspace coming in full multi-user phase");
                 })}
-                className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5 text-[#71717a]"
+                className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover text-text-muted"
               >
                 <Plus className="h-4 w-4" />
                 <span>Create new workspace...</span>
@@ -362,7 +362,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             </Command.Group>
 
             {/* Navigation - all views + current indicator */}
-            <Command.Group heading="Navigate Views" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
+            <Command.Group heading="Navigate Views" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
               {[
                 { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "1" },
                 { label: "Files", view: "notes" as const, icon: FileText, shortcut: "2" },
@@ -373,18 +373,18 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <Command.Item
                   key={item.view}
                   onSelect={() => runCommand(() => setView(item.view))}
-                  className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                  className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
                 >
                   <item.icon className="h-4 w-4" />
                   <span>{item.label}</span>
-                  {currentView === item.view && <div className="ml-auto text-[10px] text-[#c084fc]">current</div>}
-                  <div className="ml-2 text-[10px] text-[#71717a] font-mono">{item.shortcut}</div>
+                  {currentView === item.view && <div className="ml-auto text-[10px] text-neon-purple">current</div>}
+                  <div className="ml-2 text-[10px] text-text-muted font-mono">{item.shortcut}</div>
                 </Command.Item>
               ))}
             </Command.Group>
 
             {searchResults.length > 0 && (
-              <Command.Group heading="Search" className="px-2 py-1.5 text-[10px] font-semibold text-[#71717a] uppercase mt-2">
+              <Command.Group heading="Search" className="px-2 py-1.5 text-[10px] font-semibold text-text-muted uppercase mt-2">
                 {searchResults.map((r) => (
                   <Command.Item
                     key={`${r.type}-${r.id}`}
@@ -398,7 +398,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                         toast.info("File selected", { description: r.title });
                       }
                     })}
-                    className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                    className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
                     value={`${r.type} ${r.title} ${r.subtitle ?? ""}`}
                   >
                     {r.type === "task" ? (
@@ -409,7 +409,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     <div className="flex-1 min-w-0">
                       <div className="truncate">{r.title}</div>
                       {r.subtitle && (
-                        <div className="text-[10px] text-[#71717a] truncate">{r.subtitle}</div>
+                        <div className="text-[10px] text-text-muted truncate">{r.subtitle}</div>
                       )}
                     </div>
                   </Command.Item>
@@ -419,7 +419,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
             {/* LIVE searchable results over REAL tasks (cmdk fuzzy filters these live as you type — huge power upgrade) */}
             {liveTasks.length > 0 && (
-              <Command.Group heading="Jump to / Act on Task (live search)" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
+              <Command.Group heading="Jump to / Act on Task (live search)" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
                 {liveTasks.map((task) => (
                   <Command.Item
                     key={task.id}
@@ -428,21 +428,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                       selectTask(task.id);
                       toast.info("Task selected", { description: task.title });
                     })}
-                    className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                    className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
                     value={`task ${task.title} ${task.status} ${task.assignee || ""}`}
                   >
                     <CheckSquare className="h-4 w-4 shrink-0" />
                     <div className="flex-1 min-w-0 truncate">{task.title}</div>
-                    <div className="text-[10px] text-[#71717a] font-mono shrink-0 capitalize">{task.status}</div>
+                    <div className="text-[10px] text-text-muted font-mono shrink-0 capitalize">{task.status}</div>
                   </Command.Item>
                 ))}
-                <div className="px-3 py-1 text-[9px] text-[#a1a1aa]">Type to filter live across open tasks • Enter to jump + select</div>
+                <div className="px-3 py-1 text-[9px] text-text-secondary">Type to filter live across open tasks • Enter to jump + select</div>
               </Command.Group>
             )}
 
             {/* LIVE searchable results over REAL notes */}
             {liveNotes.length > 0 && (
-              <Command.Group heading="Jump to Note (live search)" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
+              <Command.Group heading="Jump to Note (live search)" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
                 {liveNotes.map((note) => (
                   <Command.Item
                     key={note.id}
@@ -451,51 +451,51 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                       setView("notes");
                       toast.info("File selected", { description: note.title });
                     })}
-                    className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                    className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
                     value={`note ${note.title} ${note.tags?.join(" ") || ""}`}
                   >
                     <FileText className="h-4 w-4 shrink-0" />
                     <div className="flex-1 min-w-0 truncate">{note.title}</div>
-                    <div className="text-[10px] text-[#71717a] font-mono shrink-0">note</div>
+                    <div className="text-[10px] text-text-muted font-mono shrink-0">note</div>
                   </Command.Item>
                 ))}
               </Command.Group>
             )}
 
             {/* Keyboard Shortcuts - fully documented inside palette for discoverability */}
-            <Command.Group heading="Keyboard Shortcuts" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
+            <Command.Group heading="Keyboard Shortcuts" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
               <Command.Item 
                 onSelect={() => runCommand(() => toggleKeyboardCheatsheet(true))}
-                className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
                 <Hash className="h-4 w-4" />
                 <span>View complete cheatsheet (all keys)</span>
-                <div className="ml-auto text-xs text-[#c084fc] font-mono">?</div>
+                <div className="ml-auto text-xs text-neon-purple font-mono">?</div>
               </Command.Item>
-              <div className="px-3 pt-1 pb-2 text-[11px] text-[#a1a1aa] leading-snug">
+              <div className="px-3 pt-1 pb-2 text-[11px] text-text-secondary leading-snug">
                 Global: ⌘K palette • ⌘N quick task • ⌘⇧N capture file • 1-5 switch views • ? cheatsheet • ESC close
               </div>
-              <div className="px-3 pb-1 text-[11px] text-[#a1a1aa] leading-snug">
+              <div className="px-3 pb-1 text-[11px] text-text-secondary leading-snug">
                 Inside palette: ↑↓ navigate • Enter run • Type to live fuzzy-search tasks/notes + power actions
               </div>
             </Command.Group>
 
-            <div className="px-3 py-2 text-[11px] text-[#71717a] flex items-center justify-between border-t border-white/10 mt-2 pt-3">
+            <div className="px-3 py-2 text-[11px] text-text-muted flex items-center justify-between border-t border-border-glass mt-2 pt-3">
               <div>Type a task or note name to jump there quickly</div>
-              <div className="text-[#c084fc] flex items-center gap-1">Badazz Tasks <ArrowRight className="h-3 w-3" /></div>
+              <div className="text-neon-purple flex items-center gap-1">Badazz Tasks <ArrowRight className="h-3 w-3" /></div>
             </div>
 
             {/* PWA Install — persistent access for home screen + offline native feel (Agent 27 polish) */}
-            <Command.Group heading="PWA & Install" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-[#71717a] uppercase mt-2">
+            <Command.Group heading="PWA & Install" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
               <Command.Item 
                 onSelect={() => runCommand(handlePWAInstall)}
-                className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-white/5"
+                className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
               >
-                <Download className="h-4 w-4 text-[#00ff9f]" />
+                <Download className="h-4 w-4 text-neon-green" />
                 <div>Install / Add to Home Screen</div>
-                <div className="ml-auto text-xs text-[#00ff9f] font-mono">PWA</div>
+                <div className="ml-auto text-xs text-neon-green font-mono">PWA</div>
               </Command.Item>
-              <div className="px-3 pt-1 pb-2 text-[11px] text-[#a1a1aa] leading-snug">
+              <div className="px-3 pt-1 pb-2 text-[11px] text-text-secondary leading-snug">
                 Works offline, home icon, full screen. Use on phones for premium native task app feel.
               </div>
             </Command.Group>

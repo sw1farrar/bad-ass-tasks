@@ -147,6 +147,61 @@ export function getOutdentParentId(itemId: string, items: ListItem[]): string | 
   return parent?.parentItemId ?? null;
 }
 
+export type OutdentListItemUpdate = {
+  parentItemId: string | null;
+  sortOrder: number;
+  /** Renormalized sort orders for every sibling at the target parent (including the moved item). */
+  siblingSortOrders: Map<string, number>;
+};
+
+/**
+ * Outdent while preserving flat-list position: the item becomes a sibling of its
+ * parent, inserted immediately after the parent — never appended to the list tail.
+ */
+export function computeOutdentUpdate(
+  items: ListItem[],
+  itemId: string,
+): OutdentListItemUpdate | null {
+  const item = items.find((i) => i.id === itemId);
+  if (!item?.parentItemId) return null;
+
+  const newParentId = getOutdentParentId(itemId, items);
+  if (newParentId === undefined) return null;
+
+  const parentId = item.parentItemId;
+  const siblings = items
+    .filter(
+      (i) =>
+        i.listId === item.listId &&
+        (i.parentItemId ?? null) === (newParentId ?? null) &&
+        i.id !== itemId,
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const parentIndex = siblings.findIndex((s) => s.id === parentId);
+  if (parentIndex < 0) return null;
+
+  const reordered = [...siblings];
+  reordered.splice(parentIndex + 1, 0, {
+    ...item,
+    parentItemId: newParentId ?? undefined,
+  });
+
+  const siblingSortOrders = new Map<string, number>();
+  reordered.forEach((sibling, index) => {
+    siblingSortOrders.set(sibling.id, index * 1000);
+  });
+
+  const moved = siblingSortOrders.get(itemId);
+  if (moved === undefined) return null;
+
+  return {
+    parentItemId: newParentId,
+    sortOrder: moved,
+    siblingSortOrders,
+  };
+}
+
 export function nextSortOrderAmongSiblings(
   items: ListItem[],
   listId: string,

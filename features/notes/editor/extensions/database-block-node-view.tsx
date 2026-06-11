@@ -411,33 +411,33 @@ export function DatabaseBlockNodeView({
     <NodeViewWrapper
       as="div"
       className={cn(
-        "database-block-node my-4 rounded-2xl border border-white/10 bg-[#0a0a0f] overflow-hidden",
-        selected && "ring-1 ring-[#c084fc]"
+        "database-block-node my-4 rounded-2xl border border-border-glass bg-bg overflow-hidden",
+        selected && "ring-1 ring-neon-purple"
       )}
       data-view-type={viewType}
     >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/5">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border-glass bg-surface-hover">
         <div className="flex items-center gap-2">
-          <span className="text-[#c084fc]">📊</span>
+          <span className="text-neon-purple">📊</span>
           <span className="font-semibold tracking-tight">{title}</span>
-          <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-[#71717a]">
+          <span className="text-[10px] px-2 py-0.5 rounded bg-surface-hover text-text-muted">
             M3 Preview
           </span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#c084fc]/10 text-[#c084fc]">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-neon-purple/10 text-neon-purple">
             {queryConfig.types.join("+")}
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs text-[#71717a]">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
           {/* View mode toggle — enlarged touch targets for mobile; persists immediately */}
-          <div className="flex rounded bg-black/40 overflow-hidden text-[10px]">
+          <div className="flex rounded overlay-scrim overflow-hidden text-[10px]">
             <button
               onClick={() => {
                 setCurrentViewMode("table");
                 const updated = { ...queryConfig, viewMode: "table" };
                 updateAttributes({ queryConfig: JSON.stringify(updated) });
               }}
-              className={cn("px-3 py-1.5 touch-manipulation min-h-[44px]", currentViewMode === "table" ? "bg-[#c084fc] text-black" : "hover:bg-white/10 active:bg-white/10")}
+              className={cn("px-3 py-1.5 touch-manipulation min-h-[44px]", currentViewMode === "table" ? "bg-neon-purple text-accent-on" : "hover:bg-surface-hover active:bg-surface-hover")}
               aria-pressed={currentViewMode === "table"}
             >
               Table
@@ -448,7 +448,7 @@ export function DatabaseBlockNodeView({
                 const updated = { ...queryConfig, viewMode: "board" };
                 updateAttributes({ queryConfig: JSON.stringify(updated) });
               }}
-              className={cn("px-3 py-1.5 touch-manipulation min-h-[44px]", currentViewMode === "board" ? "bg-[#c084fc] text-black" : "hover:bg-white/10 active:bg-white/10")}
+              className={cn("px-3 py-1.5 touch-manipulation min-h-[44px]", currentViewMode === "board" ? "bg-neon-purple text-accent-on" : "hover:bg-surface-hover active:bg-surface-hover")}
               aria-pressed={currentViewMode === "board"}
             >
               Board
@@ -458,7 +458,7 @@ export function DatabaseBlockNodeView({
           {/* M2: Replaced prompt() with clean toggle for inline mini-form Edit View surface */}
           <button
             onClick={() => setShowEditForm(!showEditForm)}
-            className={cn("text-[9px] px-2.5 py-1 rounded border border-white/20 hover:bg-white/10 active:bg-white/10 touch-manipulation min-h-[44px]", showEditForm && "bg-[#c084fc] text-black border-[#c084fc]")}
+            className={cn("text-[9px] px-2.5 py-1 rounded border border-border-glass hover:bg-surface-hover active:bg-surface-hover touch-manipulation min-h-[44px]", showEditForm && "bg-neon-purple text-accent-on border-neon-purple")}
             title="Edit title, types, and basic filters (auto-persists)"
             aria-label="Edit database view configuration"
             aria-expanded={showEditForm}
@@ -470,7 +470,7 @@ export function DatabaseBlockNodeView({
           {Array.isArray(queryConfig.views) && queryConfig.views.length > 0 && (
             <select
               onChange={(e) => { const v = e.target.value; if (v) { loadSavedView(v); e.target.value = ""; } }}
-              className="text-[9px] px-1.5 py-0.5 rounded border border-white/20 bg-black/40 min-h-[28px]"
+              className="text-[9px] px-1.5 py-0.5 rounded border border-border-glass overlay-scrim min-h-[28px]"
               defaultValue=""
               aria-label="Load saved view"
             >
@@ -489,7 +489,7 @@ export function DatabaseBlockNodeView({
                 description: "Full Saved Views UI + loading will come in a future narrow pass"
               });
             }}
-            className="text-[9px] px-2.5 py-1 rounded border border-white/20 hover:bg-white/10 active:bg-white/10 touch-manipulation min-h-[44px]"
+            className="text-[9px] px-2.5 py-1 rounded border border-border-glass hover:bg-surface-hover active:bg-surface-hover touch-manipulation min-h-[44px]"
             title="Save current view configuration (stub)"
             aria-label="Save current database view (placeholder)"
           >
@@ -497,7 +497,7 @@ export function DatabaseBlockNodeView({
           </button>
 
           {/* Filter search — wider hit area + mobile friendly */}
-          <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded min-w-[160px]">
+          <div className="flex items-center gap-1.5 overlay-scrim px-2 py-1 rounded min-w-[160px]">
             <Search className="h-3.5 w-3.5 shrink-0" />
             <input
               type="text"
@@ -510,7 +510,7 @@ export function DatabaseBlockNodeView({
                 updateAttributes({ queryConfig: JSON.stringify(updated) });
               }}
               placeholder="Filter..."
-              className="bg-transparent border-none outline-none w-full text-[11px] placeholder:text-[#71717a]/60 touch-manipulation py-1 min-h-[32px]"
+              className="bg-transparent border-none outline-none w-full text-[11px] placeholder:text-text-muted/60 touch-manipulation py-1 min-h-[32px]"
               aria-label="Filter database items by title. Updates board columns and counts live."
             />
           </div>
@@ -524,10 +524,10 @@ export function DatabaseBlockNodeView({
          This makes "Save current view" mostly for advanced/manual snapshot use only.
          Preserves all existing hybrid/demo/live guards and M3 badge below. */}
       {showEditForm && (
-        <div className="px-4 py-2.5 border-b border-white/10 bg-black/40 text-[11px]">
+        <div className="px-4 py-2.5 border-b border-border-glass overlay-scrim text-[11px]">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <div className="flex items-center gap-1.5 min-h-[44px]">
-              <span className="text-[#71717a]">Title:</span>
+              <span className="text-text-muted">Title:</span>
               <input
                 type="text"
                 value={title}
@@ -536,12 +536,12 @@ export function DatabaseBlockNodeView({
                   const updated = { ...queryConfig, title: newTitle };
                   updateAttributes({ queryConfig: JSON.stringify(updated), title: newTitle });
                 }}
-                className="bg-black/60 border border-white/20 rounded px-1.5 py-0.5 text-xs w-36 focus:outline-none focus:border-[#c084fc] touch-manipulation"
+                className="overlay-scrim border border-border-glass rounded px-1.5 py-0.5 text-xs w-36 focus:outline-none focus:border-neon-purple touch-manipulation"
                 aria-label="Database title"
               />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[#71717a]">Include:</span>
+              <span className="text-text-muted">Include:</span>
               <label className="flex items-center gap-1 cursor-pointer touch-manipulation min-h-[44px] py-1">
                 <input type="checkbox" checked={showTasks} onChange={(e) => {
                   let newTypes = e.target.checked 
@@ -549,7 +549,7 @@ export function DatabaseBlockNodeView({
                     : queryConfig.types.filter((t: string) => t !== "tasks");
                   const updated = { ...queryConfig, types: newTypes.length ? newTypes : ["tasks", "notes"] };
                   updateAttributes({ queryConfig: JSON.stringify(updated) });
-                }} className="accent-[#c084fc]" /> <span>tasks</span>
+                }} className="accent-neon-purple" /> <span>tasks</span>
               </label>
               <label className="flex items-center gap-1 cursor-pointer touch-manipulation min-h-[44px] py-1">
                 <input type="checkbox" checked={showNotes} onChange={(e) => {
@@ -558,11 +558,11 @@ export function DatabaseBlockNodeView({
                     : queryConfig.types.filter((t: string) => t !== "notes");
                   const updated = { ...queryConfig, types: newTypes.length ? newTypes : ["tasks", "notes"] };
                   updateAttributes({ queryConfig: JSON.stringify(updated) });
-                }} className="accent-[#c084fc]" /> <span>notes</span>
+                }} className="accent-neon-purple" /> <span>notes</span>
               </label>
             </div>
             <div className="flex items-center gap-1.5 min-h-[44px]">
-              <span className="text-[#71717a]">Status filter:</span>
+              <span className="text-text-muted">Status filter:</span>
               <select
                 value={queryConfig.filters?.status || ""}
                 onChange={(e) => {
@@ -572,7 +572,7 @@ export function DatabaseBlockNodeView({
                   const updated = { ...queryConfig, filters: newFilters };
                   updateAttributes({ queryConfig: JSON.stringify(updated) });
                 }}
-                className="bg-black/60 border border-white/20 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-[#c084fc] touch-manipulation"
+                className="overlay-scrim border border-border-glass rounded px-1 py-0.5 text-xs focus:outline-none focus:border-neon-purple touch-manipulation"
                 aria-label="Basic status filter (affects board columns + live counts)"
               >
                 <option value="">Any (open)</option>
@@ -585,7 +585,7 @@ export function DatabaseBlockNodeView({
                Every change immediately calls updateAttributes → auto-persists to the block's attrs.
                All prior hybrid/demo/live/M3 badge/footer preserved. */}
             <div className="flex items-center gap-1.5 min-h-[44px]">
-              <span className="text-[#71717a]">Priority filter:</span>
+              <span className="text-text-muted">Priority filter:</span>
               <select
                 value={queryConfig.filters?.priority || ""}
                 onChange={(e) => {
@@ -595,7 +595,7 @@ export function DatabaseBlockNodeView({
                   const updated = { ...queryConfig, filters: newFilters };
                   updateAttributes({ queryConfig: JSON.stringify(updated) });
                 }}
-                className="bg-black/60 border border-white/20 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-[#c084fc] touch-manipulation"
+                className="overlay-scrim border border-border-glass rounded px-1 py-0.5 text-xs focus:outline-none focus:border-neon-purple touch-manipulation"
                 aria-label="Priority filter (affects board columns + live counts)"
               >
                 <option value="">Any</option>
@@ -606,18 +606,18 @@ export function DatabaseBlockNodeView({
             </div>
             <button 
               onClick={() => setShowEditForm(false)} 
-              className="ml-auto text-[10px] px-2 py-0.5 rounded border border-white/20 hover:bg-white/10 active:bg-white/10 touch-manipulation min-h-[44px]"
+              className="ml-auto text-[10px] px-2 py-0.5 rounded border border-border-glass hover:bg-surface-hover active:bg-surface-hover touch-manipulation min-h-[44px]"
             >
               Done
             </button>
           </div>
           {/* M2 minimal named saved views (a): tiny input+Save INSIDE Edit View form. Appends to queryConfig.views[] */}
-          <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-white/10 text-[10px]">
-            <span className="text-[#71717a]">Name this view:</span>
-            <input type="text" value={saveViewName} onChange={(e) => setSaveViewName(e.target.value)} placeholder="name" className="bg-black/60 border border-white/20 rounded px-1.5 py-0.5 text-xs w-24 focus:outline-none focus:border-[#c084fc]" />
-            <button onClick={handleSaveNamedView} disabled={!saveViewName.trim()} className="px-2 py-0.5 rounded border border-white/20 hover:bg-white/10 active:bg-white/10 disabled:opacity-50">Save</button>
+          <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-border-glass text-[10px]">
+            <span className="text-text-muted">Name this view:</span>
+            <input type="text" value={saveViewName} onChange={(e) => setSaveViewName(e.target.value)} placeholder="name" className="overlay-scrim border border-border-glass rounded px-1.5 py-0.5 text-xs w-24 focus:outline-none focus:border-neon-purple" />
+            <button onClick={handleSaveNamedView} disabled={!saveViewName.trim()} className="px-2 py-0.5 rounded border border-border-glass hover:bg-surface-hover active:bg-surface-hover disabled:opacity-50">Save</button>
           </div>
-          <div className="text-[9px] text-[#71717a]/60 mt-1">Changes auto-save. "Save current view" (below) now for advanced use only.</div>
+          <div className="text-[9px] text-text-muted/60 mt-1">Changes auto-save. "Save current view" (below) now for advanced use only.</div>
         </div>
       )}
 
@@ -626,16 +626,16 @@ export function DatabaseBlockNodeView({
         {showTasks && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-[#ff3366] text-xs font-medium tracking-widest">
+              <div className="flex items-center gap-2 text-[var(--priority-p0)] text-xs font-medium tracking-widest">
                 <CheckSquare className="h-4 w-4" /> OPEN TASKS
               </div>
               {/* M2: Better count badge for visibility and polish */}
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-[#71717a] tabular-nums">{filteredTasks.length} shown</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-hover text-text-muted tabular-nums">{filteredTasks.length} shown</span>
             </div>
 
             {/* Scrollable table container for mobile usability */}
-            <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20 overflow-x-auto">
-              <div className="grid grid-cols-12 gap-2 px-3 py-1.5 text-[10px] font-mono text-[#71717a] border-b border-white/10 bg-white/5 min-w-[420px]">
+            <div className="border border-border-glass rounded-xl overflow-hidden bg-surface-elevated overflow-x-auto">
+              <div className="grid grid-cols-12 gap-2 px-3 py-1.5 text-[10px] font-mono text-text-muted border-b border-border-glass bg-surface-hover min-w-[420px]">
                 <div className="col-span-1">Status</div>
                 <div className="col-span-8">Title</div>
                 <div className="col-span-3 text-right">Priority</div>
@@ -643,7 +643,7 @@ export function DatabaseBlockNodeView({
 
               {filteredTasks.length === 0 ? (
                 /* M2: Improved empty state with context-aware messaging for better UX */
-                <div className="px-3 py-3 text-[#71717a] text-xs min-w-[420px]">
+                <div className="px-3 py-3 text-text-muted text-xs min-w-[420px]">
                   {searchQuery ? "No tasks match your search + filters." : "No open tasks match current filters."}
                 </div>
               ) : (
@@ -651,29 +651,29 @@ export function DatabaseBlockNodeView({
                   <div
                     key={task.id}
                     onClick={() => onOpenTask?.(task.id)}
-                    className="grid grid-cols-12 gap-2 px-3 py-2.5 hover:bg-white/5 active:bg-white/10 cursor-pointer items-center border-b border-white/5 last:border-b-0 text-sm group touch-manipulation"
+                    className="grid grid-cols-12 gap-2 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-hover cursor-pointer items-center border-b border-border-glass/60 last:border-b-0 text-sm group touch-manipulation"
                   >
                     <div className="col-span-1">
                       {/* Enlarged tappable status for mobile + keyboard */}
                       <button
                         onClick={(e) => handleTaskStatusClick(e, task.id)}
                         className={cn(
-                          "w-5 h-5 rounded border flex items-center justify-center cursor-pointer touch-manipulation focus-visible:ring-1 focus-visible:ring-[#c084fc]",
-                          task.status === "doing" ? "bg-[#c084fc] border-[#c084fc]" : "border-white/30"
+                          "w-5 h-5 rounded border flex items-center justify-center cursor-pointer touch-manipulation focus-visible:ring-1 focus-visible:ring-neon-purple",
+                          task.status === "doing" ? "bg-neon-purple border-neon-purple" : "border-border-glass"
                         )}
                         aria-label={`Toggle status for ${task.title || "task"}`}
                         title="Toggle task status"
                       >
-                        {task.status === "doing" && <CheckSquare className="h-3 w-3 text-black" />}
+                        {task.status === "doing" && <CheckSquare className="h-3 w-3 text-accent-on" />}
                       </button>
                     </div>
                     <div className="col-span-7 sm:col-span-8 truncate font-medium">{task.title || "Untitled"}</div>
-                    <div className="col-span-2 sm:col-span-3 text-right text-[10px] text-[#71717a] opacity-70 group-hover:opacity-100">
+                    <div className="col-span-2 sm:col-span-3 text-right text-[10px] text-text-muted opacity-70 group-hover:opacity-100">
                       {task.priority || "P2"}
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleQuickLink({ id: task.id, type: "task" as const }); }}
-                      className="col-span-2 sm:col-span-1 text-[10px] px-2 py-1 rounded bg-white/10 hover:bg-[#c084fc]/30 active:bg-[#c084fc]/40 opacity-70 md:opacity-0 md:group-hover:opacity-90 transition touch-manipulation min-h-[32px]"
+                      className="col-span-2 sm:col-span-1 text-[10px] px-2 py-1 rounded bg-surface-hover hover:bg-neon-purple/30 active:bg-neon-purple/40 opacity-70 md:opacity-0 md:group-hover:opacity-90 transition touch-manipulation min-h-[32px]"
                       aria-label={`Quick link task ${task.title || ''}`}
                     >
                       Link
@@ -689,23 +689,23 @@ export function DatabaseBlockNodeView({
         {showNotes && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-[#00ff9f] text-xs font-medium tracking-widest">
+              <div className="flex items-center gap-2 text-neon-green text-xs font-medium tracking-widest">
                 <FileText className="h-4 w-4" /> NOTES
               </div>
               {/* M2: Consistent count badge polish */}
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-[#71717a] tabular-nums">{filteredNotes.length} shown</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-hover text-text-muted tabular-nums">{filteredNotes.length} shown</span>
             </div>
 
             {/* Scrollable + touch friendly notes table */}
-            <div className="border border-white/10 rounded-xl overflow-hidden bg-black/20 overflow-x-auto">
-              <div className="grid grid-cols-12 gap-2 px-3 py-1.5 text-[10px] font-mono text-[#71717a] border-b border-white/10 bg-white/5 min-w-[360px]">
+            <div className="border border-border-glass rounded-xl overflow-hidden bg-surface-elevated overflow-x-auto">
+              <div className="grid grid-cols-12 gap-2 px-3 py-1.5 text-[10px] font-mono text-text-muted border-b border-border-glass bg-surface-hover min-w-[360px]">
                 <div className="col-span-1"></div>
                 <div className="col-span-11">Title</div>
               </div>
 
               {filteredNotes.length === 0 ? (
                 /* M2: Improved empty state for notes */
-                <div className="px-3 py-3 text-[#71717a] text-xs min-w-[360px]">
+                <div className="px-3 py-3 text-text-muted text-xs min-w-[360px]">
                   {searchQuery ? "No notes match your search." : "No notes to display."}
                 </div>
               ) : (
@@ -713,13 +713,13 @@ export function DatabaseBlockNodeView({
                   <div
                     key={note.id}
                     onClick={() => onOpenNote?.(note.id)}
-                    className="grid grid-cols-12 gap-2 px-3 py-2.5 hover:bg-white/5 active:bg-white/10 cursor-pointer items-center border-b border-white/5 last:border-b-0 text-sm group touch-manipulation"
+                    className="grid grid-cols-12 gap-2 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-hover cursor-pointer items-center border-b border-border-glass/60 last:border-b-0 text-sm group touch-manipulation"
                   >
                     <div className="col-span-1"><FileText className="h-3.5 w-3.5 opacity-60" /></div>
                     <div className="col-span-8 sm:col-span-10 truncate font-medium">{note.title || "Untitled Note"}</div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleQuickLink({ id: note.id, type: "note" as const }); }}
-                      className="col-span-3 sm:col-span-1 text-[10px] px-2 py-1 rounded bg-white/10 hover:bg-[#00ff9f]/30 active:bg-[#00ff9f]/40 opacity-70 md:opacity-0 md:group-hover:opacity-90 transition touch-manipulation min-h-[32px]"
+                      className="col-span-3 sm:col-span-1 text-[10px] px-2 py-1 rounded bg-surface-hover hover:bg-neon-green/30 active:bg-neon-green/40 opacity-70 md:opacity-0 md:group-hover:opacity-90 transition touch-manipulation min-h-[32px]"
                       aria-label={`Quick link note ${note.title || ''}`}
                     >
                       Link
@@ -774,14 +774,14 @@ export function DatabaseBlockNodeView({
                   aria-label={`${status.toUpperCase()} column, ${statusTasks.length} tasks${searchQuery ? ' (filtered)' : ''}. Arrow keys move focus between cards. Drop targets highlight on drag.`}
                   data-kanban-column={status}
                   className={cn(
-                    "bg-black/30 rounded-xl p-2 border border-white/10 min-h-[120px] transition-all",
-                    dragOverColumn === status && "ring-2 ring-[#c084fc]/70 bg-[#c084fc]/[0.04] border-[#c084fc]/40 focus-within:ring-1 focus-within:ring-[#c084fc]/50"
+                    "bg-surface-elevated rounded-xl p-2 border border-border-glass min-h-[120px] transition-all",
+                    dragOverColumn === status && "ring-2 ring-neon-purple/70 bg-neon-purple/[0.04] border-neon-purple/40 focus-within:ring-1 focus-within:ring-neon-purple/50"
                   )}
                 >
                   {/* M2: Polished board column count badge + improved empty state. role=status + aria-live for live column counts on filter/search changes (a11y win, no behavior change) */}
-                  <div className="text-[10px] font-mono tracking-widest text-[#71717a] mb-2 px-1 flex items-center justify-between">
+                  <div className="text-[10px] font-mono tracking-widest text-text-muted mb-2 px-1 flex items-center justify-between">
                     <span>{status.toUpperCase()}</span>
-                    <span role="status" aria-live="polite" aria-label={`${status} column count`} className="px-1.5 py-0.5 rounded-full bg-white/10 tabular-nums">{statusTasks.length}</span>
+                    <span role="status" aria-live="polite" aria-label={`${status} column count`} className="px-1.5 py-0.5 rounded-full bg-surface-hover tabular-nums">{statusTasks.length}</span>
                   </div>
                   {statusTasks.map((task: any) => (
                     <div
@@ -806,22 +806,22 @@ export function DatabaseBlockNodeView({
                       data-kanban-card="true"
                       aria-grabbed={draggingTaskId === task.id}
                       className={cn(
-                        "bg-white/5 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-[#c084fc] focus-visible:ring-offset-1 active:bg-white/15 rounded-lg p-2.5 mb-1.5 text-xs cursor-grab active:cursor-grabbing touch-manipulation transition-colors outline-none select-none min-h-[52px]",
+                        "bg-surface-hover hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-neon-purple focus-visible:ring-offset-1 active:bg-bg-tertiary rounded-lg p-2.5 mb-1.5 text-xs cursor-grab active:cursor-grabbing touch-manipulation transition-colors outline-none select-none min-h-[52px]",
                         // M2 INTRA VISUAL FEEDBACK (native only, zero perf hit outside drag):
                         // - dim source while dragging
                         // - ring + directional border cue on the card that would receive the insert
                         draggingTaskId === task.id && "opacity-40",
-                        dragOverCardId === task.id && "ring-2 ring-[#c084fc] ring-offset-1 ring-offset-[#0a0a0f]",
+                        dragOverCardId === task.id && "ring-2 ring-neon-purple ring-offset-1 ring-offset-bg",
                         dragOverCardId === task.id && insertBeforeCard && "border-t-2 border-t-[#c084fc]",
                         dragOverCardId === task.id && !insertBeforeCard && "border-b-2 border-b-[#c084fc]"
                       )}
                       title="Drag handle: use mouse/touch to drag card for reorder within column or across. Keyboard: arrow keys to focus cards, Enter to open. Visible focus rings + aria-grabbed on active drag."
                     >
                       {/* Explicit drag handle affordance (unicode grip, zero import; sized area inside card for mobile touch discoverability + keyboard context) */}
-                      <span aria-hidden="true" className="float-left mr-1.5 text-[#71717a]/40 select-none font-mono text-[11px] leading-none pt-[3px]">⋮⋮</span>
+                      <span aria-hidden="true" className="float-left mr-1.5 text-text-muted/40 select-none font-mono text-[11px] leading-none pt-[3px]">⋮⋮</span>
                       <div className="font-medium truncate">{task.title || "Untitled"}</div>
                       <div className="flex items-center justify-between mt-0.5">
-                        <div className="text-[10px] text-[#71717a]">{task.priority || "P2"}</div>
+                        <div className="text-[10px] text-text-muted">{task.priority || "P2"}</div>
                         {/* M2: Polished interactive status pill on board cards — clickable for simple status change (already partial, now with color states + better a11y) */}
                         {onToggleStatus && (
                           <button
@@ -831,9 +831,9 @@ export function DatabaseBlockNodeView({
                             }}
                             className={cn(
                               "text-[10px] px-2 py-1 rounded border transition-colors touch-manipulation min-h-[44px] min-w-[44px]",
-                              task.status === "doing" ? "bg-[#c084fc] border-[#c084fc] text-black" :
+                              task.status === "doing" ? "bg-neon-purple border-neon-purple text-accent-on" :
                               task.status === "done" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" :
-                              "bg-white/10 border-white/20 hover:bg-[#c084fc]/30 active:bg-[#c084fc]/40"
+                              "bg-surface-hover border-border-glass hover:bg-neon-purple/30 active:bg-neon-purple/40"
                             )}
                             aria-label={`Cycle status for ${task.title || 'task'}`}
                             title="Click to change status (M2 interactive board)"
@@ -846,7 +846,7 @@ export function DatabaseBlockNodeView({
                   ))}
                   {statusTasks.length === 0 && (
                     /* M2: Better empty state in board columns — now also drop target */
-                    <div className="text-[10px] text-[#71717a]/60 px-1 py-2 italic">No tasks — drop here</div>
+                    <div className="text-[10px] text-text-muted/60 px-1 py-2 italic">No tasks — drop here</div>
                   )}
                 </div>
               );
@@ -858,10 +858,10 @@ export function DatabaseBlockNodeView({
         )}
 
         {/* View mode indicator + persistence note */}
-        <div className="text-[9px] text-[#71717a]/60 flex items-center justify-between">
+        <div className="text-[9px] text-text-muted/60 flex items-center justify-between">
           <div>
             View: {currentViewMode} • Config: {queryConfig.types.join("+")}
-            {searchQuery && <span className="ml-2 text-[#c084fc]">• filtered</span>}
+            {searchQuery && <span className="ml-2 text-neon-purple">• filtered</span>}
           </div>
           <button
             onClick={() => {
@@ -875,7 +875,7 @@ export function DatabaseBlockNodeView({
               };
               updateAttributes({ queryConfig: JSON.stringify(newConfig), title });
             }}
-            className="text-[#c084fc] hover:underline active:text-[#e0a8ff] touch-manipulation px-1 py-0.5 -mx-1 rounded focus-visible:ring-1 focus-visible:ring-[#c084fc]"
+            className="text-neon-purple hover:underline active:text-neon-purple-tint touch-manipulation px-1 py-0.5 -mx-1 rounded focus-visible:ring-1 focus-visible:ring-neon-purple"
             aria-label="Save current database view and filters (advanced)"
           >
             Save current view
@@ -883,7 +883,7 @@ export function DatabaseBlockNodeView({
         </div>
       </div>
 
-      <div className="px-4 py-2 text-[10px] text-[#71717a]/60 border-t border-white/10 bg-black/30">
+      <div className="px-4 py-2 text-[10px] text-text-muted/60 border-t border-border-glass bg-surface-elevated">
         Real interactive database blocks with persistent queries, full Board view, and server sync coming next.
       </div>
 

@@ -31,18 +31,18 @@ export function CreateWorkspaceGate({ userEmail, onCreate, isCreating = false }:
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#0a0a0f] p-4">
+    <div className="create-workspace-gate fixed inset-0 z-[200] flex items-center justify-center bg-bg p-4">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(192,132,252,0.14),transparent)]" />
 
-      <div className="relative w-full max-w-md rounded-3xl border border-white/10 bg-[#111114]/95 shadow-2xl overflow-hidden">
-        <div className="px-8 pt-8 pb-6 text-center border-b border-white/[0.06] bg-gradient-to-b from-[#c084fc]/10 to-transparent">
-          <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-            <Check className="h-6 w-6 text-[#0a0a0f]" />
+      <div className="create-workspace-gate__panel relative w-full max-w-md rounded-3xl border border-border-glass modal-panel bg-bg-secondary/95 shadow-2xl overflow-hidden">
+        <div className="create-workspace-gate__header px-8 pt-8 pb-6 text-center border-b border-border-subtle bg-gradient-to-b from-neon-purple/10 to-transparent">
+          <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
+            <Check className="h-6 w-6 text-accent-on" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-[#f4f4f5] mb-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-text-primary mb-2">
             Create your workspace
           </h1>
-          <p className="text-sm text-[#a1a1aa] leading-relaxed">
+          <p className="text-sm text-text-secondary leading-relaxed">
             {userEmail
               ? `You're signed in as ${userEmail}. Name your workspace to get started.`
               : "Name your workspace to get started."}
@@ -51,7 +51,7 @@ export function CreateWorkspaceGate({ userEmail, onCreate, isCreating = false }:
 
         <form onSubmit={handleSubmit} className="p-8 space-y-4">
           {error && (
-            <div className="rounded-xl border border-[#ff9500]/40 bg-[#111114] px-3 py-2 text-xs text-[#ff9500]">
+            <div className="rounded-xl border border-[var(--priority-p1)]/40 bg-bg-secondary px-3 py-2 text-xs text-[var(--priority-p1)]">
               {error}
             </div>
           )}
@@ -59,7 +59,7 @@ export function CreateWorkspaceGate({ userEmail, onCreate, isCreating = false }:
           <div>
             <label
               htmlFor="create-workspace-name"
-              className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5"
+              className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5"
             >
               Workspace name
             </label>

@@ -47,7 +47,7 @@ function ActionSheetRow({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left active:bg-white/8 disabled:opacity-50 touch-manipulation"
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left active:bg-surface-hover disabled:opacity-50 touch-manipulation"
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/90">
         {icon}
@@ -142,7 +142,7 @@ export function PreviewMobileActions({ file, className }: PreviewMobileActionsPr
   }, [isImage, runSaveToFiles]);
 
   const chromeButtonClass =
-    "relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95 touch-manipulation disabled:opacity-60";
+    "relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-glass bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95 touch-manipulation disabled:opacity-60";
 
   const actionSheet = (
     <AnimatePresence>
@@ -166,7 +166,7 @@ export function PreviewMobileActions({ file, className }: PreviewMobileActionsPr
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={SHEET_SPRING}
-            className="relative z-10 mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-hidden rounded-2xl border border-white/10 bg-[#18181b]/95 shadow-2xl backdrop-blur-xl"
+            className="relative z-10 mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-hidden rounded-2xl border border-border-glass bg-bg-tertiary/95 shadow-2xl backdrop-blur-xl"
             role="dialog"
             aria-modal="true"
             aria-label={sheet === "save" ? "Save options" : "Share options"}
@@ -225,11 +225,11 @@ export function PreviewMobileActions({ file, className }: PreviewMobileActionsPr
                 </>
               )}
             </div>
-            <div className="border-t border-white/10 px-3 py-2">
+            <div className="border-t border-border-glass px-3 py-2">
               <button
                 type="button"
                 onClick={closeSheet}
-                className="w-full rounded-xl py-3 text-sm font-medium text-white/70 active:bg-white/8"
+                className="w-full rounded-xl py-3 text-sm font-medium text-white/70 active:bg-surface-hover"
               >
                 Cancel
               </button>

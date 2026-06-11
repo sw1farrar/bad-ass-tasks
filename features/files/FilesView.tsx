@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, Loader2, Plus, Search } from "lucide-react";
 import { NotesView } from "@/features/notes/NotesView";
 import type { Note, FileRecordType } from "@/types";
-import { apiFetch } from "@/lib/api/apiFetch";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { cn } from "@/lib/utils";
 import {
@@ -12,20 +11,33 @@ import {
   filterByAllTags,
   filterFiledNotes,
   filterPendingReview,
+  isPendingReview,
   sortFiledNotes,
 } from "@/lib/files/fileFilters";
-import { searchFilesInWorkspace } from "@/lib/files/searchFilesInWorkspace";
+import type { FilesSearchScope } from "@/lib/files/searchFilesInWorkspace";
+import { useTaskStore } from "@/store/useTaskStore";
+import { useFilesSearch } from "./hooks/useFilesSearch";
 import { TagRail, type FilesBrowseFilter } from "./components/TagRail";
+import { TagMultiSelect } from "./components/TagMultiSelect";
 import { FileStream } from "./components/FileStream";
 import { ReviewPanel } from "./components/ReviewPanel";
 import {
   ApproveFileModal,
   type ApproveFileResult,
 } from "./components/ApproveFileModal";
+import {
+  CaptureFileModal,
+  type CaptureFileInput,
+} from "./components/CaptureFileModal";
 import { useNoteAttachmentCounts } from "@/features/notes/hooks";
+import { patchNoteAttachmentCount } from "@/features/notes/hooks/useNoteAttachmentCounts";
+import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
+import { prefetchNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import "./files-workspace.css";
 
-type FilesViewProps = React.ComponentProps<typeof NotesView> & {
+type FilesViewProps = Omit<React.ComponentProps<typeof NotesView>, "workspaceId"> & {
+  workspaceId: string;
   onApproveFile: (
     id: string,
     input: { title: string; tags: string[]; memo: string; recordType: FileRecordType },
@@ -33,6 +45,9 @@ type FilesViewProps = React.ComponentProps<typeof NotesView> & {
   /** Open Review drawer once (e.g. from Home). */
   openReviewOnMount?: boolean;
   onOpenReviewConsumed?: () => void;
+  /** Open the Review approve modal for this note once (e.g. Home workspace tile). */
+  openReviewNoteIdOnMount?: string | null;
+  onOpenReviewNoteConsumed?: () => void;
   /** Open the capture modal instead of instant blank file. */
   onOpenCapture?: () => void;
 };
@@ -44,6 +59,8 @@ export function FilesView({
   onCreateNote,
   openReviewOnMount,
   onOpenReviewConsumed,
+  openReviewNoteIdOnMount,
+  onOpenReviewNoteConsumed,
   onOpenCapture,
   ...notesProps
 }: FilesViewProps) {
@@ -62,17 +79,54 @@ export function FilesView({
 
   const [filter, setFilter] = useState<FilesBrowseFilter>({ kind: "all" });
   const filterChosenByUser = useRef(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
+  const [reviewPaused, setReviewPaused] = useState(false);
+  const [fileEditorNote, setFileEditorNote] = useState<Note | null>(null);
+  const hydrateNoteDetail = useTaskStore((s) => s.hydrateNoteDetail);
 
-  const { counts: attachmentCounts } = useNoteAttachmentCounts(workspaceId);
+  const searchScope: FilesSearchScope = filter.kind === "review" ? "review" : "filed";
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    resultIds: searchResultIds,
+    isRemoteSearching,
+    clearSearch,
+  } = useFilesSearch({ notes, workspaceId, scope: searchScope });
+
+  const tasksById = useMemo(
+    () => new Map(notesProps.tasks.map((t) => [t.id, t])),
+    [notesProps.tasks],
+  );
+
+  const {
+    counts: attachmentCounts,
+    loading: attachmentCountsLoading,
+    setNoteCount,
+  } = useNoteAttachmentCounts(workspaceId);
 
   const selectedFile = useMemo(
     () => (selectedNoteId ? notes.find((n) => n.id === selectedNoteId) : null),
     [notes, selectedNoteId],
   );
+
+  useEffect(() => {
+    if (!selectedNoteId) return;
+    void hydrateNoteDetail(selectedNoteId);
+  }, [selectedNoteId, hydrateNoteDetail]);
+
+  useEffect(() => {
+    if (!selectedNoteId) return;
+    if ((attachmentCounts[selectedNoteId] ?? 0) > 0) {
+      prefetchNoteAttachments(selectedNoteId);
+    }
+  }, [selectedNoteId, attachmentCounts]);
+
+  useEffect(() => {
+    if (!approveTarget) return;
+    const fresh = notes.find((n) => n.id === approveTarget.id);
+    if (fresh) setApproveTarget(fresh);
+  }, [notes, approveTarget?.id]);
 
   useEffect(() => {
     if (openReviewOnMount) {
@@ -83,6 +137,26 @@ export function FilesView({
   }, [openReviewOnMount, onOpenReviewConsumed]);
 
   useEffect(() => {
+    if (!openReviewNoteIdOnMount) return;
+    const file = notes.find((n) => n.id === openReviewNoteIdOnMount);
+    if (!file) {
+      if (notes.length > 0) onOpenReviewNoteConsumed?.();
+      return;
+    }
+    if (!isPendingReview(file)) {
+      onOpenReviewNoteConsumed?.();
+      return;
+    }
+    setFilter({ kind: "review" });
+    filterChosenByUser.current = true;
+    setFileEditorNote(null);
+    setReviewPaused(false);
+    setApproveTarget(file);
+    onSelectNote(openReviewNoteIdOnMount);
+    onOpenReviewNoteConsumed?.();
+  }, [openReviewNoteIdOnMount, notes, onSelectNote, onOpenReviewNoteConsumed]);
+
+  useEffect(() => {
     if (filterChosenByUser.current || openReviewOnMount) return;
     if (pendingFiles.length > 0) {
       setFilter({ kind: "review" });
@@ -90,17 +164,44 @@ export function FilesView({
     }
   }, [pendingFiles.length, openReviewOnMount]);
 
-  const handleFilterChange = useCallback((next: FilesBrowseFilter) => {
-    filterChosenByUser.current = true;
-    setFilter(next);
-    setSearchQuery("");
-    setSearchResultIds(null);
-  }, []);
+  const handleFilterChange = useCallback(
+    (next: FilesBrowseFilter) => {
+      filterChosenByUser.current = true;
+      setFilter(next);
+      clearSearch();
+    },
+    [clearSearch],
+  );
+
+  const handleTagFilterChange = useCallback(
+    (nextTags: string[]) => {
+      filterChosenByUser.current = true;
+      clearSearch();
+      if (nextTags.length === 0) {
+        setFilter({ kind: "all" });
+        return;
+      }
+      setFilter({ kind: "tags", tags: nextTags });
+    },
+    [clearSearch],
+  );
+
+  const selectedFilterTags = filter.kind === "tags" ? filter.tags : [];
 
   const streamedFiles = useMemo(() => {
     if (searchResultIds) {
       const byId = new Map(notes.map((n) => [n.id, n]));
-      return searchResultIds.map((id) => byId.get(id)).filter(Boolean) as Note[];
+      let results = searchResultIds.map((id) => byId.get(id)).filter(Boolean) as Note[];
+
+      if (filter.kind === "untagged") {
+        results = results.filter(
+          (n) => (n.tags ?? []).filter((t) => t !== "from-email").length === 0,
+        );
+      } else if (filter.kind === "tags") {
+        results = filterByAllTags(results, filter.tags);
+      }
+
+      return results;
     }
 
     if (filter.kind === "review") return pendingFiles;
@@ -116,43 +217,69 @@ export function FilesView({
     return list;
   }, [searchResultIds, filter, pendingFiles, filedFiles, notes]);
 
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q || !workspaceId) {
-      setSearchResultIds(null);
-      setSearching(false);
-      return;
-    }
-
-    const handle = window.setTimeout(() => {
-      setSearching(true);
-      void apiFetch(
-        `/api/workspace/files/search?workspaceId=${encodeURIComponent(workspaceId)}&q=${encodeURIComponent(q)}&includePending=${filter.kind === "review"}`,
-      )
-        .then(async (res) => {
-          if (!res.ok) throw new Error("search failed");
-          const json = (await res.json()) as { results?: Array<{ id: string }> };
-          setSearchResultIds((json.results ?? []).map((r) => r.id));
-        })
-        .catch(() => {
-          const scope = filter.kind === "review" ? "review" : "filed";
-          const ids = searchFilesInWorkspace(notes, q, { scope }).map((n) => n.id);
-          setSearchResultIds(ids);
-        })
-        .finally(() => setSearching(false));
-    }, 300);
-
-    return () => window.clearTimeout(handle);
-  }, [searchQuery, workspaceId, notes, filter.kind]);
+  const resolveNoteById = useCallback(
+    (id: string) => notes.find((n) => n.id === id) ?? null,
+    [notes],
+  );
 
   const openReview = useCallback(
     (id: string) => {
-      const file = notes.find((n) => n.id === id);
+      const file = resolveNoteById(id);
       if (!file) return;
+      setFileEditorNote(null);
+      setReviewPaused(false);
       setApproveTarget(file);
       onSelectNote(id);
     },
-    [notes, onSelectNote],
+    [resolveNoteById, onSelectNote],
+  );
+
+  const openFileEditor = useCallback(
+    (id: string) => {
+      void hydrateNoteDetail(id).then((file) => {
+        if (!file) return;
+        setFileEditorNote(file);
+        onSelectNote(id);
+      });
+    },
+    [hydrateNoteDetail, onSelectNote],
+  );
+
+  const openReviewEditor = useCallback(() => {
+    const targetId = approveTarget?.id;
+    if (!targetId) return;
+    const fresh = resolveNoteById(targetId);
+    if (!fresh) return;
+    setReviewPaused(true);
+    setFileEditorNote(fresh);
+  }, [approveTarget?.id, resolveNoteById]);
+
+  const handleFileEditorClose = useCallback(() => {
+    const preservedId = fileEditorNote?.id ?? null;
+    setFileEditorNote(null);
+    setReviewPaused(false);
+    if (preservedId) onSelectNote(preservedId);
+  }, [fileEditorNote, onSelectNote]);
+
+  const handleSaveFileEdit = useCallback(
+    async (noteId: string, input: CaptureFileInput) => {
+      await notesProps.onUpdateNote(noteId, {
+        title: input.title,
+        content: input.content,
+        tags: input.tags,
+        memo: input.memo || null,
+        recordType: input.recordType,
+      });
+
+      if (input.attachments.length > 0 && isSupabaseConfigured() && workspaceId) {
+        const uploaded = await uploadFilesToNote(noteId, input.attachments);
+        if (uploaded > 0) {
+          const prior = attachmentCounts[noteId] ?? 0;
+          patchNoteAttachmentCount(workspaceId, noteId, prior + uploaded);
+        }
+      }
+    },
+    [notesProps, workspaceId, attachmentCounts],
   );
 
   const handleApprove = useCallback(
@@ -174,17 +301,22 @@ export function FilesView({
       await onApproveFile(currentId, input);
 
       if (result === "next" && nextFile) {
-        setApproveTarget(nextFile);
-        onSelectNote(nextFile.id);
+        setFileEditorNote(null);
+        setReviewPaused(false);
+        const freshNext = resolveNoteById(nextFile.id) ?? nextFile;
+        setApproveTarget(freshNext);
+        onSelectNote(freshNext.id);
         return;
       }
 
+      setFileEditorNote(null);
+      setReviewPaused(false);
       setApproveTarget(null);
       if (filter.kind === "review" && pendingFiles.length <= 1) {
         setFilter({ kind: "all" });
       }
     },
-    [approveTarget, onApproveFile, pendingFiles, filter.kind, onSelectNote],
+    [approveTarget, onApproveFile, pendingFiles, filter.kind, onSelectNote, resolveNoteById],
   );
 
   const handleNewFile = useCallback(() => {
@@ -204,16 +336,20 @@ export function FilesView({
     filter.kind === "review" ? (
       <ReviewPanel
         files={streamedFiles}
+        tasks={tasksById}
         selectedId={selectedNoteId}
         onSelect={(id) => notesProps.onSelectNote(id)}
         onReview={openReview}
+        onOpenEditor={openFileEditor}
         attachmentCounts={attachmentCounts}
       />
     ) : (
       <FileStream
         files={streamedFiles}
+        tasks={tasksById}
         selectedId={selectedNoteId}
         onSelect={(id) => notesProps.onSelectNote(id)}
+        onOpenEditor={openFileEditor}
         attachmentCounts={attachmentCounts}
         emptyMessage={
           searchQuery.trim()
@@ -233,44 +369,52 @@ export function FilesView({
       <TagRail
         filter={filter}
         onFilterChange={handleFilterChange}
+        onTagFilterChange={handleTagFilterChange}
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
         onNewFile={handleNewFile}
         isDesktop={isDesktop}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
-        searching={searching}
+        searching={isRemoteSearching}
         listContent={isDesktop ? fileListContent : undefined}
       />
 
       {!isDesktop && (
-        <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-white/10 bg-[#0a0a0a]">
-          <div className="p-3 border-b border-white/10 space-y-2">
+        <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-border-glass bg-bg">
+          <div className="p-3 border-b border-border-glass space-y-2">
             <div className="flex items-center justify-between gap-2 px-1">
-              <div className="text-xs font-semibold uppercase tracking-widest text-[#71717a]">
+              <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">
                 {listTitle}
               </div>
               <button
                 type="button"
                 onClick={() => void handleNewFile()}
-                className="md:hidden flex items-center gap-1 rounded-lg border border-[#c084fc]/30 bg-[#c084fc]/10 px-2.5 py-1.5 text-[11px] font-semibold text-[#e9d5ff]"
+                className="md:hidden flex items-center gap-1 rounded-lg border border-neon-purple/30 bg-neon-purple/10 px-2.5 py-1.5 text-[11px] font-semibold text-neon-purple-tint"
               >
                 <Plus className="h-3.5 w-3.5" />
                 New
               </button>
             </div>
+            {filter.kind !== "review" && (
+              <TagMultiSelect
+                tags={workspaceTags}
+                selected={selectedFilterTags}
+                onChange={handleTagFilterChange}
+              />
+            )}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search files…"
-                className="w-full bg-[#111114] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#c084fc]/40 placeholder:text-[#52525b]"
+                className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint"
                 aria-label="Search files"
               />
-              {searching && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-[#c084fc]" />
+              {isRemoteSearching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-neon-purple" />
               )}
             </div>
           </div>
@@ -283,35 +427,58 @@ export function FilesView({
           <button
             type="button"
             onClick={() => notesProps.onSelectNote(null)}
-            className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm text-[#a1a1aa] hover:bg-white/5 hover:text-white min-h-[40px]"
+            className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[40px]"
             aria-label="Back to file list"
           >
             <ChevronLeft className="h-5 w-5" />
             Files
           </button>
-          <div className="min-w-0 flex-1 text-sm font-medium truncate text-[#f4f4f5]">
+          <div className="min-w-0 flex-1 text-sm font-medium truncate text-text-primary">
             {selectedFile?.title || "Untitled file"}
           </div>
         </div>
       )}
 
-      <div className="files-detail-column flex-1 min-w-0 min-h-0">
+      <div className="files-detail-column flex flex-1 flex-col min-w-0 min-h-0 h-full">
         <NotesView
           {...notesProps}
           notes={notes}
           workspaceId={workspaceId}
           onCreateNote={onCreateNote}
           shellMode="detail-only"
+          previewMode
+          onRequestEdit={openFileEditor}
+          attachmentCounts={attachmentCounts}
+          attachmentCountsLoading={attachmentCountsLoading}
+          onAttachmentCountChange={setNoteCount}
         />
       </div>
 
       <ApproveFileModal
         file={approveTarget}
-        isOpen={!!approveTarget}
-        onClose={() => setApproveTarget(null)}
+        isOpen={!!approveTarget && !reviewPaused && !fileEditorNote}
+        onClose={() => {
+          setApproveTarget(null);
+          setReviewPaused(false);
+        }}
         workspaceTags={workspaceTags}
         remainingInQueue={pendingFiles.length}
         onApprove={handleApprove}
+        onEdit={openReviewEditor}
+      />
+
+      <CaptureFileModal
+        key={fileEditorNote?.id ?? "file-editor-closed"}
+        isOpen={!!fileEditorNote}
+        mode="edit"
+        initialNote={fileEditorNote}
+        onClose={handleFileEditorClose}
+        workspaceTags={workspaceTags}
+        isLive={notesProps.isLive}
+        tasks={notesProps.tasks}
+        linkedTaskIds={fileEditorNote?.linkedTaskIds ?? []}
+        onSaveEdit={handleSaveFileEdit}
+        onCreateTaskAndLink={notesProps.onCreateTaskAndLink}
       />
     </div>
   );

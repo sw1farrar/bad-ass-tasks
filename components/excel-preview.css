@@ -62,3 +62,46 @@
 .excel-preview-grid:focus {
   box-shadow: inset 0 0 0 2px rgba(33, 115, 70, 0.18);
 }
+
+/* ══════════════════════════════════════════════════════════════
+   Dark theme — spreadsheet stage stays light (document surface)
+   ══════════════════════════════════════════════════════════════ */
+
+[data-theme="dark"] .excel-preview {
+  background: #f3f3f3 !important;
+}
+
+[data-theme="dark"] .excel-preview-empty-state,
+[data-theme="dark"] .excel-preview-formula-bar,
+[data-theme="dark"] .excel-preview-table,
+[data-theme="dark"] .excel-preview-tabs {
+  background: #ffffff !important;
+}
+
+[data-theme="dark"] .excel-preview-tabs {
+  background: #f3f3f3 !important;
+  border-top-color: #d4d4d4 !important;
+}
+
+[data-theme="dark"] .excel-preview-formula-bar {
+  border-bottom-color: #d4d4d4 !important;
+}
+
+[data-theme="dark"] .excel-preview-corner,
+[data-theme="dark"] .excel-preview-col-header,
+[data-theme="dark"] .excel-preview-row-header {
+  background: #f3f3f3 !important;
+  border-color: #d4d4d4 !important;
+  color: #52525b !important;
+}
+
+[data-theme="dark"] .excel-preview-cell {
+  border-color: #e4e4e7 !important;
+  color: #18181b !important;
+}
+
+[data-theme="dark"] .excel-preview-tabs button[class*="bg-white"],
+[data-theme="dark"] .excel-preview-tab--active {
+  background: #ffffff !important;
+  color: #217346 !important;
+}

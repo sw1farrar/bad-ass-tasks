@@ -22,13 +22,13 @@ export function WorkspaceItemDeepLink({
       onClick={onNavigate}
       className={
         className ??
-        "inline-flex items-center gap-1.5 text-xs text-[#c084fc] hover:text-[#d8b4fe] transition mt-2 group"
+        "inline-flex items-center gap-1.5 text-xs text-neon-purple hover:text-neon-purple-tint transition mt-2 group"
       }
     >
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
       <span>
-        Open in <span className="font-medium text-[#e4e4e7]">{workspaceName}</span>
-        <span className="text-[#71717a]"> · {destination}</span>
+        Open in <span className="font-medium text-text-primary">{workspaceName}</span>
+        <span className="text-text-muted"> · {destination}</span>
       </span>
     </button>
   );

@@ -34,10 +34,10 @@ export function TasksHeader({
   onNaturalAdd,
 }: TasksHeaderProps) {
   return (
-    <div className="flex items-center justify-between mb-3 md:mb-6">
+    <div className="tasks-header flex items-center justify-between mb-3 md:mb-6">
       <div>
         <div className="text-2xl md:text-3xl font-semibold tracking-tight">Tasks</div>
-        <div className="text-[#71717a] text-xs md:text-sm mt-0.5">
+        <div className="text-text-muted text-xs md:text-sm mt-0.5">
           {filteredTaskCount} tasks • {openTaskCount} open
         </div>
       </div>
@@ -47,7 +47,7 @@ export function TasksHeader({
           onClick={() => onViewChange("list")}
           className={cn(
             "px-3 py-1 text-xs md:text-sm md:px-4 md:py-1.5 rounded-full transition",
-            kanbanView === "list" ? "bg-white/10" : "hover:bg-white/5"
+            kanbanView === "list" ? "tasks-header__view-btn tasks-header__view-btn--active bg-surface-hover" : "tasks-header__view-btn hover:bg-surface-hover"
           )}
         >
           List
@@ -56,7 +56,7 @@ export function TasksHeader({
           onClick={() => onViewChange("board")}
           className={cn(
             "px-3 py-1 text-xs md:text-sm md:px-4 md:py-1.5 rounded-full transition",
-            kanbanView === "board" ? "bg-white/10" : "hover:bg-white/5"
+            kanbanView === "board" ? "tasks-header__view-btn tasks-header__view-btn--active bg-surface-hover" : "tasks-header__view-btn hover:bg-surface-hover"
           )}
         >
           Board

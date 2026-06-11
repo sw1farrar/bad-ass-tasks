@@ -1,8 +1,8 @@
 import type { ListItem, WorkspaceList } from "@/types";
 import {
+  computeOutdentUpdate,
   flattenListItems,
   getIndentParentId,
-  getOutdentParentId,
   nextSortOrderAmongSiblings,
   sortOrderForInsertAfter,
 } from "@/lib/lists/listItemTree";
@@ -427,30 +427,35 @@ export function createListSliceActions(get: Get, set: Set) {
       const current = allItems.find((i) => i.id === id);
       if (!current?.parentItemId) return false;
 
-      const listItems = allItems.filter((i) => i.listId === current.listId);
-      const newParentId = getOutdentParentId(id, listItems);
-      if (newParentId === undefined) return false;
+      const update = computeOutdentUpdate(allItems, id);
+      if (!update) return false;
 
       const now = new Date().toISOString();
-      const sortOrder = nextSortOrderAmongSiblings(allItems, current.listId, newParentId);
       set((state) => ({
-        listItems: state.listItems.map((i) =>
-          i.id === id
-            ? {
-                ...i,
-                parentItemId: newParentId ?? undefined,
-                sortOrder,
-                updatedAt: now,
-              }
-            : i,
-        ),
+        listItems: state.listItems.map((i) => {
+          const sortOrder = update.siblingSortOrders.get(i.id);
+          if (sortOrder === undefined) return i;
+          if (i.id === id) {
+            return {
+              ...i,
+              parentItemId: update.parentItemId ?? undefined,
+              sortOrder,
+              updatedAt: now,
+            };
+          }
+          return { ...i, sortOrder, updatedAt: now };
+        }),
       }));
 
       if (shouldPersistLists(current.workspaceId)) {
-        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
-          parentItemId: newParentId,
-          sortOrder,
-        });
+        for (const [itemId, sortOrder] of update.siblingSortOrders) {
+          const item = allItems.find((i) => i.id === itemId);
+          void updateListItemSupabase(normalizeListEntityId(itemId), current.workspaceId, {
+            ...(itemId === id
+              ? { parentItemId: update.parentItemId, sortOrder }
+              : { sortOrder }),
+          });
+        }
       }
       return true;
     },

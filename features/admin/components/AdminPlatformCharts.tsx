@@ -125,12 +125,12 @@ export function AdminEngagementHero({
           >
             <defs>
               <linearGradient id={`${uid}-area`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#c084fc" stopOpacity="0.45" />
-                <stop offset="100%" stopColor="#c084fc" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--neon-purple)" stopOpacity="0.45" />
+                <stop offset="100%" stopColor="var(--neon-purple)" stopOpacity="0" />
               </linearGradient>
               <linearGradient id={`${uid}-line`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#a855f7" />
-                <stop offset="100%" stopColor="#c084fc" />
+                <stop offset="0%" stopColor="var(--neon-purple-dark)" />
+                <stop offset="100%" stopColor="var(--neon-purple)" />
               </linearGradient>
             </defs>
             {areaPath ? <path d={areaPath} fill={`url(#${uid}-area)`} /> : null}
@@ -149,7 +149,7 @@ export function AdminEngagementHero({
                 cx={point.x}
                 cy={point.y}
                 r={values[index] > 0 ? 2.5 : 0}
-                fill="#e9d5ff"
+                fill="var(--accent-purple-text)"
               />
             ))}
           </svg>
@@ -189,22 +189,22 @@ export function AdminActivityTrendChart({ analytics }: { analytics: PlatformAnal
       >
         <defs>
           <linearGradient id={`${uid}-events-area`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#c084fc" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#c084fc" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--neon-purple)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="var(--neon-purple)" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={buildAreaPath(eventPoints, CHART_HEIGHT)} fill={`url(#${uid}-events-area)`} />
         <path
           d={buildSmoothPath(eventPoints)}
           fill="none"
-          stroke="#c084fc"
+          stroke="var(--neon-purple)"
           strokeWidth="2.25"
           strokeLinecap="round"
         />
         <path
           d={buildSmoothPath(userPoints)}
           fill="none"
-          stroke="#34d399"
+          stroke="var(--success)"
           strokeWidth="2"
           strokeLinecap="round"
           strokeDasharray="4 4"
@@ -279,7 +279,7 @@ export function AdminActivityMixDonut({ analytics }: { analytics: PlatformAnalyt
               cy="60"
               r={radius}
               fill="none"
-              stroke="rgba(255,255,255,0.06)"
+              stroke="var(--border-subtle)"
               strokeWidth="14"
             />
             {segments.map((segment) => (

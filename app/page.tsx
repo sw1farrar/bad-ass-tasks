@@ -39,12 +39,15 @@ import {
   type CaptureFileInput,
   type CaptureFileSubmitMode,
 } from "@/features/files/components/CaptureFileModal";
-import { collectWorkspaceTags, filterFiledNotes } from "@/lib/files/fileFilters";
+import { collectWorkspaceTags, filterFiledNotes, hasUserFilingTags, isFiledNote } from "@/lib/files/fileFilters";
 import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
 import "@/features/files/files-workspace.css";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
-import { HomeView, HomeListModal, type HomeListModalTarget } from "@/features/home";
+import { hasOpenOverlay } from "@/lib/dom/hasOpenOverlay";
+import { HomeView } from "@/features/home";
+import { ListDetailModal } from "@/features/lists/components/ListDetailModal";
+import { flattenListItems } from "@/lib/lists/listItemTree";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import {
   AnimatedBottomNavItemContent,
@@ -52,9 +55,10 @@ import {
   WorkspaceSwitchEffects,
 } from "@/components/WorkspaceSwitchEffects";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
 import { FilesNavIndicator } from "@/components/FilesNavIndicator";
-import { filterPendingReview } from "@/lib/files/fileFilters";
+import { filterPendingReview, sortFiledNotes } from "@/lib/files/fileFilters";
 import { countOpenAndOverdueTasks } from "@/features/home/lib/computeWorkspaceTaskStats";
 import { getSearchResultDisplayName, isSharedWorkspace } from "@/lib/assignee";
 import { ListsView } from "@/features/lists";
@@ -217,6 +221,8 @@ export default function BadAssTasks() {
     exitWorkspace,
     filesOpenReview,
     setFilesOpenReview,
+    filesOpenReviewNoteId,
+    setFilesOpenReviewNoteId,
     filesSelectNoteId,
     setFilesSelectNoteId,
     filesCaptureOpen,
@@ -247,15 +253,9 @@ export default function BadAssTasks() {
   const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
   const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
 
-  // Messages panel open by default on desktop (xl sidebar) — only for multi-member workspaces.
+  // Messages panel collapsed by default; close when switching workspace or chat unavailable.
   useEffect(() => {
-    if (!showWorkspaceChat) {
-      setChatOpen(false);
-      return;
-    }
-    if (window.matchMedia("(min-width: 1280px)").matches) {
-      setChatOpen(true);
-    }
+    setChatOpen(false);
   }, [currentWorkspace.id, showWorkspaceChat]);
 
   const workspaceChat = useWorkspaceChat({
@@ -276,7 +276,12 @@ export default function BadAssTasks() {
   const [showProfilePopover, setShowProfilePopover] = useState(false);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
   const [modalTask, setModalTask] = useState<Task | null>(null);
-  const [homeListModal, setHomeListModal] = useState<HomeListModalTarget | null>(null);
+  const [listDetailTarget, setListDetailTarget] = useState<{
+    listId: string;
+    workspaceId: string;
+  } | null>(null);
+  const workspaceLists = useTaskStore((s) => s.workspaceLists);
+  const listItems = useTaskStore((s) => s.listItems);
   const [homeTaskModalContext, setHomeTaskModalContext] = useState<{
     workspaceId: string;
     workspaceName: string;
@@ -315,9 +320,15 @@ export default function BadAssTasks() {
   const [pendingClearNotifications, setPendingClearNotifications] = useState(false);
   const [pendingSignOut, setPendingSignOut] = useState(false);
 
-  const pendingDeleteNoteTitle = pendingDeleteNote
-    ? notes.find((n) => n.id === pendingDeleteNote)?.title || "Untitled Note"
-    : "";
+  const pendingDeleteNoteRecord = pendingDeleteNote
+    ? notes.find((n) => n.id === pendingDeleteNote)
+    : null;
+  const pendingDeleteIsFile = pendingDeleteNoteRecord
+    ? isFiledNote(pendingDeleteNoteRecord)
+    : false;
+  const pendingDeleteNoteTitle =
+    pendingDeleteNoteRecord?.title ||
+    (pendingDeleteIsFile ? "Untitled file" : "Untitled Note");
 
   const handleConfirmRemoveMember = async () => {
     if (!pendingRemoveMember) return;
@@ -418,8 +429,8 @@ export default function BadAssTasks() {
         el.style.fontSize = "";
         return;
       }
-      const maxSize = 33;
-      const minSize = 20;
+      const maxSize = 22;
+      const minSize = 16;
       let size = maxSize;
       el.style.fontSize = `${size}px`;
       while (el.scrollWidth > el.clientWidth && size > minSize) {
@@ -1066,38 +1077,64 @@ export default function BadAssTasks() {
     }
   };
 
-  const navigateToListInWorkspace = (workspaceId: string, listId: string) => {
+  const listDetailList = useMemo(() => {
+    if (!listDetailTarget) return null;
+    return (
+      workspaceLists.find(
+        (l) => l.id === listDetailTarget.listId && l.workspaceId === listDetailTarget.workspaceId,
+      ) ?? null
+    );
+  }, [listDetailTarget, workspaceLists]);
+
+  const listDetailItems = useMemo(() => {
+    if (!listDetailTarget) return [];
+    const items = listItems.filter(
+      (i) => i.listId === listDetailTarget.listId && i.workspaceId === listDetailTarget.workspaceId,
+    );
+    return flattenListItems(items);
+  }, [listDetailTarget, listItems]);
+
+  const closeListDetail = useCallback(() => {
     refreshHomeListAggregatesFromStore();
-    setHomeListModal(null);
-    setView("lists");
-    if (currentWorkspace.id !== workspaceId) {
-      setPendingWorkspaceNav({ kind: "list", workspaceId, listId });
+    setListDetailTarget(null);
+  }, [refreshHomeListAggregatesFromStore]);
+
+  const openListDetail = useCallback(
+    (listId: string, workspaceId: string) => {
+      void hydrateWorkspaceListData(workspaceId);
+      setListDetailTarget({ listId, workspaceId });
+    },
+    [hydrateWorkspaceListData],
+  );
+
+  const handleHomeOpenWorkspaceReview = useCallback(
+    (workspaceId: string) => {
+      const pending = sortFiledNotes(
+        filterPendingReview((notes || []).filter((n) => n.workspaceId === workspaceId)),
+      );
+      const first = pending[0];
+      if (!first) {
+        toast.info("No files in Review for this workspace");
+        return;
+      }
       switchWorkspace(workspaceId);
-      return;
-    }
-    void hydrateWorkspaceListData(workspaceId).then(() => {
-      setHighlightListId(listId);
-    });
-  };
+      setSelectedNoteId(first.id);
+      setFilesOpenReview(true);
+      setFilesOpenReviewNoteId(first.id);
+      setView("notes");
+    },
+    [
+      notes,
+      switchWorkspace,
+      setSelectedNoteId,
+      setFilesOpenReview,
+      setFilesOpenReviewNoteId,
+      setView,
+    ],
+  );
 
   const handleHomeOpenList = (listId: string, workspaceId: string) => {
-    const highlight = (globalListHighlights || []).find(
-      (l) => l.id === listId && l.workspaceId === workspaceId,
-    );
-    const storedList = useTaskStore
-      .getState()
-      .workspaceLists.find((l) => l.id === listId && l.workspaceId === workspaceId);
-    const workspaceName =
-      highlight?.workspaceName ??
-      workspaces.find((w) => w.id === workspaceId)?.name ??
-      "Workspace";
-    setHomeListModal({
-      listId,
-      workspaceId,
-      workspaceName,
-      title: highlight?.title ?? storedList?.title ?? "Untitled list",
-      color: highlight?.color ?? storedList?.color ?? "default",
-    });
+    openListDetail(listId, workspaceId);
   };
 
   const handleHomeCompleteFocusTask = async (item: HomeFocusItem) => {
@@ -1202,11 +1239,11 @@ export default function BadAssTasks() {
             value={taskFilter.search || ""}
             onChange={(e) => setTaskFilter({ search: e.target.value })}
             placeholder="Search tasks"
-            className="tasks-page-search input px-3 py-2.5 rounded-xl text-sm w-full md:max-w-md"
+            className="tasks-page-search input px-3 py-2.5 text-sm w-full md:max-w-md"
           />
           <div className="task-recurring-filters w-full max-md:w-full md:w-auto md:shrink-0 overflow-x-auto md:overflow-visible pb-1">
             <div
-              className="task-recurring-filters__track flex w-full md:w-auto items-center gap-0.5 md:gap-0.5 p-1 md:p-0.5 rounded-full border border-white/10 bg-white/[0.04]"
+              className="task-recurring-filters__track flex w-full md:w-auto items-center gap-0.5 md:gap-0.5 p-1 md:p-0.5 rounded-full border border-border-glass bg-surface-hover"
               role="group"
               aria-label="Filter tasks by status"
             >
@@ -1223,10 +1260,9 @@ export default function BadAssTasks() {
                   aria-pressed={isActive}
                   className={cn(
                     "task-recurring-filter-pill inline-flex items-center justify-center rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                    "flex-1 min-w-0 max-md:flex-1 md:flex-none h-9 max-md:px-1.5 md:h-7 md:px-2.5 min-h-0",
                     isActive
-                      ? "is-active bg-[#c084fc] text-black shadow-[0_0_12px_rgba(192,132,252,0.28)]"
-                      : "text-[#a1a1aa] hover:text-white hover:bg-white/5",
+                      ? "is-active bg-neon-purple text-accent-on shadow-[0_0_12px_rgba(192,132,252,0.28)]"
+                      : "text-text-secondary hover:text-text-primary hover:bg-surface-hover",
                   )}
                 >
                   {label}
@@ -1328,7 +1364,7 @@ export default function BadAssTasks() {
         return;
       }
 
-      if (!typing && !paletteOpen && !showFullTaskModal && !homeListModal && !showAuthModal && !isKeyboardCheatsheetOpen) {
+      if (!typing && !paletteOpen && !showFullTaskModal && !listDetailTarget && !showAuthModal && !isKeyboardCheatsheetOpen) {
         if (e.key === "1") { setView("tasks"); return; }
         if (e.key === "2") { setView("notes"); return; }
         if (e.key === "3") { setView("lists"); return; }
@@ -1352,15 +1388,15 @@ export default function BadAssTasks() {
         if (showFullTaskModal) {
           return;
         }
-        if (homeListModal) {
-          setHomeListModal(null);
+        if (listDetailTarget) {
+          closeListDetail();
           return;
         }
         if (selectedTaskId) {
           selectTask(null);
           return;
         }
-        if (selectedNoteId) {
+        if (selectedNoteId && !hasOpenOverlay()) {
           setSelectedNoteId(null);
           return;
         }
@@ -1399,7 +1435,8 @@ export default function BadAssTasks() {
     isCommandPaletteOpen,
     isKeyboardCheatsheetOpen,
     showFullTaskModal,
-    homeListModal,
+    listDetailTarget,
+    closeListDetail,
     showAuthModal,
     setView,
     filesCaptureOpen,
@@ -1494,9 +1531,7 @@ export default function BadAssTasks() {
         listCount: stats?.listCount ?? 0,
         openListItemsCount: stats?.openListItemsCount ?? 0,
         noteCount: stats?.noteCount ?? 0,
-        pendingReviewCount: filterPendingReview(
-          (notes || []).filter((n) => n.workspaceId === ws.id),
-        ).length,
+        pendingReviewCount: stats?.pendingReviewCount ?? 0,
         taskCount:
           stats?.totalTaskCount ??
           (tasks || []).filter((t) => t.workspaceId === ws.id).length,
@@ -1509,7 +1544,6 @@ export default function BadAssTasks() {
         userDisplayName={homeUserDisplayName}
         workspaces={workspaces}
         switchWorkspace={switchWorkspace}
-        setView={setView}
         globalTodayFocus={globalTodayFocus}
         globalOpenTaskFocus={globalOpenTaskFocus}
         notifications={notifications}
@@ -1532,16 +1566,14 @@ export default function BadAssTasks() {
         onAcceptInvite={handleHomeAcceptInvite}
         onDeclineInvite={handleHomeDeclineInvite}
         onOpenNotification={handleHomeOpenNotification}
-        pendingReviewTotal={filterPendingReview(notes || []).length}
-        onOpenFilesReview={() => {
-          setFilesOpenReview(true);
-          setSelectedNoteId(null);
-          setView("notes");
-        }}
-        onOpenCaptureFile={() => {
-          setFilesCaptureOpen(true);
-          setView("notes");
-        }}
+        pendingReviewTotal={Object.values(globalWorkspaceStats || {}).reduce(
+          (sum, s) => sum + (s.pendingReviewCount ?? 0),
+          0,
+        )}
+        onOpenWorkspaceReview={handleHomeOpenWorkspaceReview}
+        showTaskAssignee={workspaces.some(
+          (ws) => (globalWorkspaceStats?.[ws.id]?.memberCount ?? 1) > 1,
+        )}
       />
     );
   };
@@ -1590,6 +1622,7 @@ export default function BadAssTasks() {
         onOutdentItem={(id) => { void outdentListItem(id); }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
         highlightListId={highlightListId}
+        onOpenDetail={(listId) => openListDetail(listId, currentWorkspace.id)}
       />
       </div>
     );
@@ -1617,7 +1650,6 @@ export default function BadAssTasks() {
         onUpdateTask={noteOps.onUpdateTask}
         onCreateTaskAndEmbed={noteOps.onCreateTaskAndEmbed}
         onCreateTaskAndLink={noteOps.onCreateTaskAndLink}
-        onCreateSubNote={noteOps.onCreateSubNote}
         onLinkNoteToNote={noteOps.onLinkNoteToNote}
         onUnlinkNoteFromNote={noteOps.onUnlinkNoteFromNote}
         onOpenNote={(noteId) => setSelectedNoteId(noteId)}
@@ -1630,6 +1662,10 @@ export default function BadAssTasks() {
         onRemoveBacklink={noteOps.onRemoveLinked}
         onMentionsChanged={undefined}
         onApproveFile={async (id, input) => {
+          if (!hasUserFilingTags(input.tags)) {
+            toast.error("Add a tag before filing");
+            return;
+          }
           await noteOps.onUpdateNote(id, {
             workspaceId: currentWorkspace.id,
             title: input.title,
@@ -1644,6 +1680,8 @@ export default function BadAssTasks() {
 
         openReviewOnMount={filesOpenReview}
         onOpenReviewConsumed={() => setFilesOpenReview(false)}
+        openReviewNoteIdOnMount={filesOpenReviewNoteId}
+        onOpenReviewNoteConsumed={() => setFilesOpenReviewNoteId(null)}
         onOpenCapture={() => setFilesCaptureOpen(true)}
       />
     );
@@ -1721,7 +1759,7 @@ export default function BadAssTasks() {
         onClose={closeInviteDialog}
         title={isMobileViewport ? "Invite by email" : `Invite to ${currentWorkspace.name}`}
         zIndex={220}
-        panelClassName="glass team-invite-modal"
+        panelClassName="glass modal-panel team-invite-modal"
         mobileLayout={isMobileViewport ? "centered" : "sheet"}
         showClose={!isMobileViewport}
         showDragHandle={false}
@@ -1730,7 +1768,7 @@ export default function BadAssTasks() {
         {isMobileViewport ? (
           <div className="team-invite-sheet p-5 space-y-4">
             <div>
-              <label htmlFor="team-invite-email" className="text-xs text-[#a1a1aa] block mb-1.5">
+              <label htmlFor="team-invite-email" className="text-xs text-text-secondary block mb-1.5">
                 Email address
               </label>
               <input
@@ -1741,7 +1779,7 @@ export default function BadAssTasks() {
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="teammate@company.com"
-                className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-base outline-none min-h-[48px]"
+                className="w-full bg-bg-secondary border border-border-glass focus:border-neon-purple rounded-xl px-4 py-3 text-base outline-none min-h-[48px]"
                 disabled={isSendingInvite}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && inviteEmail.trim() && !isSendingInvite) {
@@ -1772,22 +1810,22 @@ export default function BadAssTasks() {
         ) : (
           <div className="p-5 space-y-4">
             <div>
-              <label className="text-xs text-[#a1a1aa] block mb-1.5">Email (optional)</label>
+              <label className="text-xs text-text-secondary block mb-1.5">Email (optional)</label>
               <input
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="teammate@company.com (leave blank for link-only)"
-                className="w-full bg-[#111114] border border-white/20 focus:border-[#c084fc] rounded-xl px-4 py-3 text-sm outline-none min-h-[44px]"
+                className="w-full bg-bg-secondary border border-border-glass focus:border-neon-purple rounded-xl px-4 py-3 text-sm outline-none min-h-[44px]"
                 disabled={isSendingInvite}
               />
             </div>
             <div>
-              <label className="text-xs text-[#a1a1aa] block mb-1.5">Role</label>
+              <label className="text-xs text-text-secondary block mb-1.5">Role</label>
               <select
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
-                className="w-full bg-[#111114] border border-white/20 rounded-xl px-4 py-3 text-sm min-h-[44px]"
+                className="w-full bg-bg-secondary border border-border-glass rounded-xl px-4 py-3 text-sm min-h-[44px]"
                 disabled={isSendingInvite}
               >
                 <option value="member">Member (default)</option>
@@ -1854,21 +1892,21 @@ export default function BadAssTasks() {
         <div className="teams-root">
         <div className="teams-workspace teams-workspace--empty max-w-2xl mx-auto pt-4 md:pt-12 pb-8 md:pb-20">
           <div className="team-empty-hero text-center mb-6 md:mb-10">
-            <div className="mx-auto mb-4 md:mb-6 h-14 w-14 md:h-20 md:w-20 rounded-2xl md:rounded-3xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-              <Users className="h-7 w-7 md:h-10 md:w-10 text-black" />
+            <div className="mx-auto mb-4 md:mb-6 h-14 w-14 md:h-20 md:w-20 rounded-2xl md:rounded-3xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
+              <Users className="h-7 w-7 md:h-10 md:w-10 text-accent-on" />
             </div>
             <div className="text-2xl md:text-4xl font-semibold tracking-tighter mb-2">Team</div>
-            <div className="hidden md:inline-flex max-w-full items-center rounded-lg border border-[#c084fc]/25 bg-[#c084fc]/8 px-3 py-1 text-sm font-semibold tracking-tight text-[#e9d5ff] mb-3 truncate">
+            <div className="hidden md:inline-flex max-w-full items-center rounded-lg border border-neon-purple/25 bg-neon-purple/8 px-3 py-1 text-sm font-semibold tracking-tight text-neon-purple-tint mb-3 truncate">
               {currentWorkspace.name}
             </div>
-            <p className="team-empty-private-notice text-sm text-[#a1a1aa] max-w-md mx-auto leading-relaxed px-3 md:px-0">
+            <p className="team-empty-private-notice text-sm text-text-secondary max-w-md mx-auto leading-relaxed px-3 md:px-0">
               You&apos;re in a private workspace and don&apos;t have teammates yet. Search below to find
               people and invite them.
             </p>
 
             {/* Recipient context — only show for non-owners of this workspace */}
             {currentWorkspace.role && currentWorkspace.role !== 'owner' && (
-              <div className="mt-4 mb-2 text-sm text-[#c084fc] bg-[#c084fc]/10 border border-[#c084fc]/20 rounded-xl px-4 py-2 inline-block">
+              <div className="mt-4 mb-2 text-sm text-neon-purple bg-neon-purple/10 border border-neon-purple/20 rounded-xl px-4 py-2 inline-block">
                 You were invited to this workspace.
               </div>
             )}
@@ -1876,27 +1914,27 @@ export default function BadAssTasks() {
 
           {/* === "Invites sent" — primary focus once any exist (world-class simple feedback) === */}
           {invites.length > 0 && (
-            <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-white/10 mb-4 md:mb-8">
+            <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-border-glass mb-4 md:mb-8">
               <div className="flex items-center justify-between mb-4 md:mb-6">
                 <div className="flex items-center gap-2 md:gap-3 min-w-0">
                   <div className="font-semibold text-base md:text-xl tracking-tight">Invites sent</div>
-                  <div className="px-3 py-0.5 rounded-full bg-[#c084fc]/20 text-sm font-mono text-[#c084fc] border border-[#c084fc]/30">
+                  <div className="px-3 py-0.5 rounded-full bg-neon-purple/20 text-sm font-mono text-neon-purple border border-neon-purple/30">
                     {invites.length}
                   </div>
                 </div>
-                <div className="text-xs text-[#71717a] font-mono">Pending</div>
+                <div className="text-xs text-text-muted font-mono">Pending</div>
               </div>
 
               <div className="space-y-2 md:space-y-3">
                 {invites.map((inv, index) => (
-                  <div key={inv.id} className="team-invite-sent-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition group">
+                  <div key={inv.id} className="team-invite-sent-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition group">
                     <div className="min-w-0">
                       {/* Privacy: never show the recipient's email in the sender's "Invites sent" list.
                           Prefer name + @username (populated when invite came via search). */}
                       <div className="font-medium truncate">
                         {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Pending teammate")}
                       </div>
-                      <div className="text-xs text-[#71717a] font-mono mt-0.5">
+                      <div className="text-xs text-text-muted font-mono mt-0.5">
                         {inv.role} • {new Date(inv.createdAt).toLocaleDateString()}
                       </div>
                     </div>
@@ -1937,9 +1975,9 @@ export default function BadAssTasks() {
           )}
 
           {/* Prominent user search (Facebook-style "find friends") */}
-          <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-white/10 mb-4 md:mb-8">
+          <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-border-glass mb-4 md:mb-8">
             <div className="font-semibold text-base md:text-lg mb-3 md:mb-4 flex items-center gap-2">
-              <Search className="h-5 w-5 text-[#c084fc] shrink-0" /> Find people
+              <Search className="h-5 w-5 text-neon-purple shrink-0" /> Find people
             </div>
 
             <div className="relative">
@@ -1979,7 +2017,7 @@ export default function BadAssTasks() {
                     setIsSearchingTeam(false);
                     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
                   }}
-                  className="team-empty-search-clear absolute right-2 top-1/2 -translate-y-1/2 text-[#71717a] hover:text-white"
+                  className="team-empty-search-clear absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
                   aria-label="Clear search"
                 >
                   <X className="h-4 w-4" />
@@ -1988,7 +2026,7 @@ export default function BadAssTasks() {
             </div>
 
             {isSearchingTeam && (
-              <div className="flex items-center gap-2 text-sm text-[#a1a1aa] mb-3 px-1">
+              <div className="flex items-center gap-2 text-sm text-text-secondary mb-3 px-1">
                 <Loader2 className="h-4 w-4 animate-spin" /> Searching directory...
               </div>
             )}
@@ -1999,19 +2037,19 @@ export default function BadAssTasks() {
                   const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
                   const displayName = getSearchResultDisplayName(result);
                   return (
-                    <div key={result.id || idx} className="team-invite-result-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition">
+                    <div key={result.id || idx} className="team-invite-result-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition">
                       <div className="flex items-center gap-3 min-w-0">
                         {result.avatarUrl ? (
-                          <img src={result.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-white/10" />
+                          <img src={result.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-border-glass" />
                         ) : (
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-[#c084fc]/80 to-[#a855f7]/80 flex items-center justify-center text-black font-bold flex-shrink-0">
+                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-neon-purple/80 to-neon-purple-dark/80 flex items-center justify-center text-accent-on font-bold flex-shrink-0">
                             {initial}
                           </div>
                         )}
                         <div className="min-w-0">
                           <div className="font-medium truncate">{displayName}</div>
-                          {result.username && <div className="text-xs text-[#c084fc] font-mono">@{result.username}</div>}
-                          {result.location && <div className="text-xs text-[#71717a] truncate">≡ƒôì {result.location}</div>}
+                          {result.username && <div className="text-xs text-neon-purple font-mono">@{result.username}</div>}
+                          {result.location && <div className="text-xs text-text-muted truncate">≡ƒôì {result.location}</div>}
                         </div>
                       </div>
                       <button
@@ -2070,23 +2108,23 @@ export default function BadAssTasks() {
 
             {!isSearchingTeam && teamSearchQuery.trim() && teamSearchResults.length === 0 && (
               isMobileViewport ? (
-                <div className="team-search-not-found rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center mb-2">
-                  <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-[#c084fc]/10 border border-[#c084fc]/30 flex items-center justify-center">
-                    <User className="h-5 w-5 text-[#c084fc]" />
+                <div className="team-search-not-found rounded-2xl border border-border-glass bg-surface-overlay px-4 py-6 text-center mb-2">
+                  <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-neon-purple/10 border border-neon-purple/30 flex items-center justify-center">
+                    <User className="h-5 w-5 text-neon-purple" />
                   </div>
-                  <p className="text-base font-semibold tracking-tight text-[#f4f4f5] mb-5">
+                  <p className="text-base font-semibold tracking-tight text-text-primary mb-5">
                     User not found
                   </p>
                   <button
                     type="button"
                     onClick={openEmailInviteSheet}
-                    className="w-full btn btn-primary min-h-[48px] text-sm font-semibold shadow-[0_0_20px_rgba(192,132,252,0.2)]"
+                    className="w-full btn btn-primary min-h-[48px] text-sm font-semibold"
                   >
                     Invite
                   </button>
                 </div>
               ) : (
-                <div className="text-sm text-[#71717a] mb-4 px-1">
+                <div className="text-sm text-text-muted mb-4 px-1">
                   No matches in the directory.
                 </div>
               )
@@ -2119,27 +2157,29 @@ export default function BadAssTasks() {
     return (
       <div className="teams-root">
       <div className="teams-workspace flex flex-col gap-3 md:gap-8 pb-8 md:pb-12">
-        <WorkspaceViewHeader
-          variant="inline"
-          title="Team"
-          workspaceName={currentWorkspace.name}
-          icon={<Users className="h-6 w-6" />}
-          meta={`${members.length} member${members.length === 1 ? "" : "s"}${onlineUsers.length > 0 ? ` · ${onlineUsers.length} online` : ""}`}
-          hideWorkspaceLabelOnMobile
-          hideWorkspaceNameOnMobile
-          hideMetaOnMobile
-          className="mb-0 md:mb-2"
-          actions={
-            canManage && isLive && !isDemoWs ? (
-              <button
-                onClick={() => setShowInviteDialog(true)}
-                className="btn btn-primary text-sm flex items-center gap-2 min-h-[40px] md:min-h-[44px]"
-              >
-                <Plus className="h-4 w-4" /> Invite
-              </button>
-            ) : undefined
-          }
-        />
+        <div className="teams-workspace-header">
+          <WorkspaceViewHeader
+            variant="inline"
+            title="Team"
+            workspaceName={currentWorkspace.name}
+            icon={<Users className="h-6 w-6" />}
+            meta={`${members.length} member${members.length === 1 ? "" : "s"}${onlineUsers.length > 0 ? ` · ${onlineUsers.length} online` : ""}`}
+            hideWorkspaceLabelOnMobile
+            hideWorkspaceNameOnMobile
+            hideMetaOnMobile
+            className="mb-0"
+            actions={
+              canManage && isLive && !isDemoWs ? (
+                <button
+                  onClick={() => setShowInviteDialog(true)}
+                  className="teams-invite-btn btn btn-primary text-sm flex items-center gap-2 min-h-[40px] md:min-h-[44px]"
+                >
+                  <Plus className="h-4 w-4" /> Invite
+                </button>
+              ) : undefined
+            }
+          />
+        </div>
 
         <TeamMemberDirectory
           members={members}
@@ -2155,7 +2195,7 @@ export default function BadAssTasks() {
                   <select
                     value={m.role}
                     onChange={(e) => handleRoleChange(m.userId, e.target.value as WorkspaceRole)}
-                    className="bg-[#111114] border border-white/20 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#c084fc]"
+                    className="bg-bg-secondary border border-border-glass rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-neon-purple"
                     disabled={!isLive}
                   >
                     <option value="member">Member</option>
@@ -2199,7 +2239,7 @@ export default function BadAssTasks() {
                     }
                     setPendingLeaveWorkspace(true);
                   }}
-                  className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
+                  className="px-3 py-1 text-xs rounded-xl border border-border-glass hover:bg-surface-hover text-text-secondary disabled:opacity-50"
                   disabled={!isLive}
                   title="Leave this workspace (self-service exit)"
                 >
@@ -2224,21 +2264,21 @@ export default function BadAssTasks() {
 
         {/* Pending Invites (owner/admin only) */}
         {canManage && isLive && !isDemoWs && (
-          <div className="team-pending-panel glass rounded-2xl border border-white/10 overflow-hidden">
-            <div className="team-pending-header px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+          <div className="team-pending-panel glass rounded-2xl border border-border-glass overflow-hidden">
+            <div className="team-pending-header px-5 py-3 border-b border-border-glass flex items-center justify-between bg-surface-hover">
               <div className="font-medium text-sm md:text-base">Pending invites ({invites.length})</div>
             </div>
             {invites.length === 0 ? (
-              <div className="p-4 md:p-6 text-sm text-[#71717a]">None</div>
+              <div className="p-4 md:p-6 text-sm text-text-muted">None</div>
             ) : (
-              <div className="divide-y divide-white/10 text-sm">
+              <div className="divide-y divide-border-glass text-sm">
                 {invites.map((inv) => (
                   <div key={inv.id} className="team-pending-row flex items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">
                         {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
                       </div>
-                      <div className="text-[11px] text-[#71717a] font-mono">{formatRoleLabel(inv.role)}</div>
+                      <div className="text-[11px] text-text-muted font-mono">{formatRoleLabel(inv.role)}</div>
                     </div>
                     <div className="team-pending-row__actions flex items-center gap-2">
                       <button
@@ -2315,10 +2355,10 @@ export default function BadAssTasks() {
   // Hold UI until auth bootstrap or sign-out finishes — prevents flash of app chrome or stale data.
   if (showSessionGate) {
     return (
-      <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0a0a0f] text-[#f4f4f5]">
+      <div className="fixed inset-0 z-[150] flex items-center justify-center bg-bg text-text-primary">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-6 w-6 animate-spin text-[#c084fc]" aria-hidden="true" />
-          <p className="text-sm text-[#71717a]">{isSigningOut ? "Signing out…" : "Loading…"}</p>
+          <Loader2 className="h-6 w-6 animate-spin text-neon-purple" aria-hidden="true" />
+          <p className="text-sm text-text-muted">{isSigningOut ? "Signing out…" : "Loading…"}</p>
         </div>
       </div>
     );
@@ -2356,10 +2396,10 @@ export default function BadAssTasks() {
 
   if (showBootstrapGate) {
     return (
-      <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0a0a0f] text-[#f4f4f5]">
+      <div className="fixed inset-0 z-[150] flex items-center justify-center bg-bg text-text-primary">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-6 w-6 animate-spin text-[#c084fc]" aria-hidden="true" />
-          <p className="text-sm text-[#71717a]">Loading your workspaces…</p>
+          <Loader2 className="h-6 w-6 animate-spin text-neon-purple" aria-hidden="true" />
+          <p className="text-sm text-text-muted">Loading your workspaces…</p>
         </div>
       </div>
     );
@@ -2376,14 +2416,14 @@ export default function BadAssTasks() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0f] text-[#f4f4f5]">
+    <div className="flex h-screen flex-col overflow-hidden bg-bg text-text-primary">
       {/* Top Bar — mobile: row 1 brand + actions, row 2 edge-to-edge workspace */}
-      <div className="top-bar relative md:h-16 md:flex md:items-center border-b border-white/10 z-50 bg-[#0a0a0f]/95 backdrop-blur-xl">
+      <div className="top-bar relative md:min-h-16 md:flex md:items-center border-b border-border-glass z-50 bg-bg">
         <div className="top-bar-layout w-full md:px-5 md:flex md:items-center md:justify-between md:gap-4">
           <div className="top-bar-leading md:flex md:items-center md:gap-4 md:min-w-0 md:flex-1">
             <div className="top-bar-brand flex items-center gap-2 min-w-0 overflow-hidden">
-              <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center flex-shrink-0">
-                <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
+              <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center flex-shrink-0">
+                <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-accent-on" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none truncate">Badazz Tasks</div>
@@ -2402,7 +2442,7 @@ export default function BadAssTasks() {
                   setNewWorkspaceName("");
                 }
               }}
-              className="group relative flex items-center gap-2 text-base md:text-sm px-4 py-3 md:px-4 md:py-2 rounded-none md:rounded-xl hover:bg-white/5 border-0 border-t md:border border-white/10 workspace-switcher w-full md:w-[28rem] max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between min-h-[56px] md:min-h-[44px] max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
+              className="group relative flex items-center gap-2 text-base px-4 py-3 md:px-4 md:py-2 rounded-none md:rounded-xl hover:bg-surface-hover border-0 border-t md:border border-border-glass workspace-switcher w-full md:w-[28rem] max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
               aria-expanded={showWorkspaceMenu}
             >
               <WorkspaceSwitchEffects
@@ -2413,16 +2453,16 @@ export default function BadAssTasks() {
               <span
                 className={cn(
                   "workspace-chevron relative z-[1] flex shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ease-out",
-                  "h-8 w-8 md:h-7 md:w-7 max-md:col-start-1",
+                  "max-md:col-start-1",
                   showWorkspaceMenu
-                    ? "bg-[#c084fc]/15 border-[#c084fc]/40 text-[#c084fc] shadow-[0_0_14px_rgba(192,132,252,0.22)]"
-                    : "bg-white/[0.04] border-white/10 text-[#71717a] group-hover:bg-[#c084fc]/10 group-hover:border-[#c084fc]/25 group-hover:text-[#c084fc]"
+                    ? "bg-neon-purple/15 border-neon-purple/40 text-neon-purple shadow-[0_0_14px_rgba(192,132,252,0.22)]"
+                    : "bg-surface-hover border-border-glass text-text-muted group-hover:bg-neon-purple/10 group-hover:border-neon-purple/25 group-hover:text-neon-purple"
                 )}
                 aria-hidden
               >
                 <ChevronDown
                   className={cn(
-                    "h-4 w-4 md:h-3.5 md:w-3.5 transition-transform duration-200 ease-out",
+                    "transition-transform duration-200 ease-out",
                     showWorkspaceMenu && "rotate-180"
                   )}
                   strokeWidth={2.25}
@@ -2434,21 +2474,21 @@ export default function BadAssTasks() {
                     ref={workspaceNameRef}
                     workspaceId={currentWorkspace.id}
                     name={currentWorkspace.name}
-                    className="workspace-name-label block w-full whitespace-nowrap text-center text-[33px] font-semibold leading-tight"
+                    className="workspace-name-label workspace-header-name block w-full whitespace-nowrap text-center leading-tight"
                   />
                 </span>
-                <span className="hidden md:block truncate text-left text-sm font-normal leading-tight">
+                <span className="workspace-header-name hidden md:block truncate text-left leading-tight">
                   {currentWorkspace.name}
                 </span>
                 {!isSingleOwnerWorkspace && (
-                  <span className="hidden md:inline text-[9px] px-1 py-px rounded bg-white/5 text-[#a1a1aa] font-mono tracking-widest shrink-0">{formatRoleLabel(currentWorkspace.role)}</span>
+                  <span className="hidden md:inline text-[9px] px-1 py-px rounded bg-surface-hover text-text-secondary font-mono tracking-widest shrink-0">{formatRoleLabel(currentWorkspace.role)}</span>
                 )}
               </span>
             </button>
 
             <AnimatePresence>
               {showWorkspaceMenu && (
-                <div className="absolute top-full left-0 right-0 md:right-auto mt-1 md:mt-0 md:top-12 top-bar-menu-panel glass rounded-2xl py-1 w-full md:w-[28rem] shadow-xl z-50 border border-white/10">
+                <div className="workspace-menu-panel absolute top-full left-0 right-0 md:right-auto mt-2 top-bar-menu-panel glass rounded-2xl py-2 w-full md:w-[28rem] shadow-xl z-50 border border-border-glass">
                   {workspaces.map((ws) => {
                     const accessLabel = workspaceAccessLabel(
                       ws.id,
@@ -2461,29 +2501,34 @@ export default function BadAssTasks() {
                     <button 
                       key={ws.id}
                       onClick={() => { switchWorkspace(ws.id); setShowWorkspaceMenu(false); }}
-                      className={cn("w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 flex justify-between items-center gap-2", ws.id === currentWorkspace.id && "text-[#c084fc]")}
+                      className={cn(
+                        "workspace-menu-item w-full text-left px-4 py-3 md:py-3 hover:bg-surface-hover flex justify-between items-center gap-3",
+                        ws.id === currentWorkspace.id && "workspace-menu-item--active text-neon-purple",
+                      )}
                     >
-                      <span className="flex items-center gap-1.5 min-w-0 flex-1">
-                        <span className="truncate">{ws.name}</span>
+                      <span className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="workspace-menu-item__name truncate">{ws.name}</span>
                         <span
                           className={cn(
                             "md:hidden text-[9px] px-1.5 py-px rounded shrink-0 font-semibold uppercase tracking-wide",
                             accessLabel === "Private"
-                              ? "bg-white/5 text-[#71717a]"
-                              : "bg-white/5 text-[#a1a1aa]",
+                              ? "bg-surface-hover text-text-muted"
+                              : "bg-surface-hover text-text-secondary",
                           )}
                         >
                           {accessLabel}
                         </span>
-                        <span className="hidden md:inline text-[10px] px-1.5 py-px rounded bg-white/5 text-[#71717a] font-mono tracking-widest shrink-0">
+                        <span className="hidden md:inline text-[10px] px-1.5 py-px rounded bg-surface-hover text-text-muted font-mono tracking-widest shrink-0">
                           {accessLabel}
                         </span>
                       </span>
-                      {ws.id === currentWorkspace.id && <Check className="h-3.5 w-3.5 shrink-0" />}
+                      {ws.id === currentWorkspace.id && (
+                        <Check className="h-4 w-4 md:h-5 md:w-5 shrink-0" aria-hidden />
+                      )}
                     </button>
                     );
                   })}
-                  <div className="border-t border-white/10 my-1" />
+                  <div className="border-t border-border-glass my-1" />
                   
                   {/* Production workspace creation (real DB via RPC when LIVE; role=owner on create). Inline for zero-friction multi-ws. */}
                   {!isCreatingWorkspace ? (
@@ -2492,7 +2537,7 @@ export default function BadAssTasks() {
                         setIsCreatingWorkspace(true);
                         setNewWorkspaceName("");
                       }}
-                      className="w-full text-left px-4 py-2 text-xs text-[#c084fc] hover:bg-white/5 flex items-center gap-2"
+                      className="w-full text-left px-4 py-2 text-xs text-neon-purple hover:bg-surface-hover flex items-center gap-2"
                     >
                       <Plus className="h-3.5 w-3.5" /> Create new workspace
                     </button>
@@ -2512,7 +2557,7 @@ export default function BadAssTasks() {
                           }
                         }}
                         placeholder="Workspace name (e.g. Client X)"
-                        className="w-full bg-[#0a0a0f] border border-white/20 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#c084fc]/60 mb-2"
+                        className="w-full bg-bg border border-border-glass rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-neon-purple/60 mb-2"
                         autoFocus
                         disabled={isCreatingLoading}
                       />
@@ -2530,12 +2575,12 @@ export default function BadAssTasks() {
                             setNewWorkspaceName("");
                           }}
                           disabled={isCreatingLoading}
-                          className="flex-1 text-xs py-1.5 rounded-lg border border-white/15 hover:bg-white/5"
+                          className="flex-1 text-xs py-1.5 rounded-lg border border-border-glass hover:bg-surface-hover"
                         >
                           Cancel
                         </button>
                       </div>
-                      <div className="text-[10px] text-[#71717a] mt-1.5 px-1">
+                      <div className="text-[10px] text-text-muted mt-1.5 px-1">
                         {isSupabaseConfigured() ? "Saved to your Supabase account" : "Demo only (local)"}
                       </div>
                     </div>
@@ -2559,13 +2604,13 @@ export default function BadAssTasks() {
                   refreshUnreadCount?.().catch(() => {});
                 }
               }}
-              className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-white/10 border border-white/10 relative transition"
+              className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-surface-hover border border-border-glass relative transition"
               title="Notifications"
               aria-label="Notifications"
             >
               <Bell className="h-4 w-4" />
               {unreadNotifCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[#ff3366] text-[10px] font-mono text-white flex items-center justify-center ring-1 ring-[#0a0a0f]">
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--priority-p0)] text-[10px] font-mono text-accent-on flex items-center justify-center ring-1 ring-bg">
                   {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
                 </span>
               )}
@@ -2575,7 +2620,7 @@ export default function BadAssTasks() {
                 <>
                 <motion.div
                   key="notifications-backdrop"
-                  className="fixed inset-0 z-[255] bg-black/50 md:bg-black/30"
+                  className="fixed inset-0 z-[255] overlay-scrim md:bg-surface-elevated"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -2589,10 +2634,10 @@ export default function BadAssTasks() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="notifications-panel md:!absolute md:!right-0 md:!top-12 md:!left-auto md:!w-80 md:max-w-[min(20rem,calc(100vw-2rem))] md:glass-strong md:rounded-2xl md:border md:border-white/10 md:shadow-2xl z-[260] overflow-hidden bg-[#111114]"
+                  className="notifications-panel md:!absolute md:!right-0 md:!top-12 md:!left-auto md:!w-80 md:max-w-[min(20rem,calc(100vw-2rem))] md:glass-strong md:rounded-2xl md:border md:border-border-glass md:shadow-2xl z-[260] overflow-hidden bg-bg-secondary"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="notifications-panel__header px-4 py-3 border-b border-white/10 flex items-center justify-between bg-[#0a0a0f]">
+                  <div className="notifications-panel__header px-4 py-3 border-b border-border-glass flex items-center justify-between bg-bg">
                     <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
                       <Bell className="h-4 w-4" /> Notifications
                     </div>
@@ -2600,7 +2645,7 @@ export default function BadAssTasks() {
                       {unreadNotifCount > 0 && (
                         <button
                           onClick={() => markAllNotifsRead?.()}
-                          className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[#c084fc]"
+                          className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-neon-purple"
                         >
                           Mark all read
                         </button>
@@ -2608,7 +2653,7 @@ export default function BadAssTasks() {
                       {notifications.length > 0 && (
                         <button
                           onClick={() => setPendingClearNotifications(true)}
-                          className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-red-400 hover:text-red-500"
+                          className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-red-400 hover:text-red-500"
                         >
                           Clear all
                         </button>
@@ -2616,7 +2661,7 @@ export default function BadAssTasks() {
                       <button
                         type="button"
                         onClick={() => setShowNotifications(false)}
-                        className="text-xs font-semibold px-2.5 py-1 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-white/10 transition shrink-0"
+                        className="text-xs font-semibold px-2.5 py-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition shrink-0"
                       >
                         Close
                       </button>
@@ -2624,9 +2669,9 @@ export default function BadAssTasks() {
                   </div>
                   <div className="notifications-panel__list max-h-[320px] overflow-auto p-1 text-sm">
                     {isLoadingNotifications ? (
-                      <div className="p-4 text-center text-[#71717a] text-xs">LoadingΓÇª</div>
+                      <div className="p-4 text-center text-text-muted text-xs">LoadingΓÇª</div>
                     ) : notifications.length === 0 ? (
-                      <div className="p-6 text-center text-[#71717a] text-xs">All clear. No notifications yet.<br />@mentions, comments &amp; invites will appear here.</div>
+                      <div className="p-6 text-center text-text-muted text-xs">All clear. No notifications yet.<br />@mentions, comments &amp; invites will appear here.</div>
                     ) : (
                       notifications.slice(0, 20).map((n: Notification) => (
                         <div
@@ -2637,11 +2682,11 @@ export default function BadAssTasks() {
                             setShowNotifications(false);
                           }}
                           className={cn(
-                            "px-3 py-2.5 rounded-xl m-1 cursor-pointer border border-white/10 bg-[#0f0f12] hover:bg-[#1a1a1f] flex gap-2 transition-colors",
-                            !n.readAt && "bg-[#c084fc]/10 border-[#c084fc]/30"
+                            "px-3 py-2.5 rounded-xl m-1 cursor-pointer border border-border-glass bg-bg-panel hover:bg-bg-tertiary flex gap-2 transition-colors",
+                            !n.readAt && "bg-neon-purple/10 border-neon-purple/30"
                           )}
                         >
-                          <div className="mt-0.5 text-[#c084fc]/80 shrink-0">
+                          <div className="mt-0.5 text-neon-purple/80 shrink-0">
                             {n.type === 'mention' && <Zap className="h-3.5 w-3.5" />}
                             {n.type === 'comment' && <Star className="h-3.5 w-3.5" />}
                             {n.type === 'invite' && <Users className="h-3.5 w-3.5" />}
@@ -2651,16 +2696,16 @@ export default function BadAssTasks() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="font-medium text-xs truncate">{n.title}</div>
-                            <div className="text-[11px] text-[#a1a1aa] line-clamp-2">{n.message}</div>
-                            <div className="text-[9px] text-[#71717a] mt-0.5">{new Date(n.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                            <div className="text-[11px] text-text-secondary line-clamp-2">{n.message}</div>
+                            <div className="text-[9px] text-text-muted mt-0.5">{new Date(n.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                           </div>
-                          {!n.readAt && <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-[#c084fc] shrink-0" />}
+                          {!n.readAt && <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setPendingDeleteNotification(n.id);
                             }}
-                            className="ml-1 p-1 text-[#71717a] hover:text-white rounded hover:bg-white/10"
+                            className="ml-1 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover"
                             aria-label="Remove notification"
                           >
                             <X className="h-3 w-3" />
@@ -2669,7 +2714,7 @@ export default function BadAssTasks() {
                       ))
                     )}
                   </div>
-                  <div className="notifications-panel__footer p-2 border-t border-white/10 bg-[#0a0a0f] text-[10px] text-center text-[#71717a]">
+                  <div className="notifications-panel__footer p-2 border-t border-border-glass bg-bg text-[10px] text-center text-text-muted">
                     Timely • Non-intrusive • Powered by activity logs
                   </div>
                 </motion.div>
@@ -2689,8 +2734,8 @@ export default function BadAssTasks() {
               className={cn(
                 "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-full md:rounded-xl border transition",
                 chatOpen
-                  ? "border-[#c084fc]/50 bg-[#c084fc]/10 text-[#c084fc]"
-                  : "border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40 hover:bg-white/10"
+                  ? "border-neon-purple/50 bg-neon-purple/10 text-neon-purple"
+                  : "border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 hover:bg-surface-hover"
               )}
               title="Messages"
               aria-label={chatOpen ? "Collapse messages" : "Open messages"}
@@ -2699,7 +2744,7 @@ export default function BadAssTasks() {
               <MessageCircle className="h-4 w-4" />
               {workspaceChat.hasUnread && !chatOpen && (
                 <span
-                  className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ff3366] ring-2 ring-[#0a0a0f]"
+                  className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--priority-p0)] ring-2 ring-bg"
                   aria-label="Unread messages"
                 />
               )}
@@ -2709,8 +2754,8 @@ export default function BadAssTasks() {
           {/* Polished Auth + User Area (Phase 1 UX track) */}
           <div ref={profilePopoverRef} className="relative">
           {isAuthLoading ? (
-            <div className="flex items-center gap-2 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs text-[#71717a]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#c084fc]" />
+            <div className="flex items-center gap-2 rounded-full bg-surface-hover border border-border-glass px-3 py-1.5 text-xs text-text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-neon-purple" />
               <span className="hidden md:inline">AuthenticatingΓÇª</span>
             </div>
           ) : user ? (
@@ -2724,12 +2769,12 @@ export default function BadAssTasks() {
                   setShowProfilePopover((open) => !open);
                 }}
                 className={cn(
-                  "group flex items-center justify-center min-h-[44px] min-w-[44px] cursor-pointer active:scale-[0.985] transition-all",
+                  "profile-avatar-trigger group flex items-center justify-center min-h-[44px] min-w-[44px] cursor-pointer active:scale-[0.985] transition-all",
                   "p-0 rounded-full max-md:bg-transparent max-md:border-0",
-                  "md:bg-white/5 md:border md:p-1",
+                  "md:bg-surface-hover md:border md:p-1",
                   showProfilePopover
-                    ? "md:border-[#c084fc]/40 md:bg-[#c084fc]/10 max-md:ring-2 max-md:ring-[#c084fc]/40"
-                    : "md:border-white/10 md:hover:border-[#c084fc]/40"
+                    ? "md:border-neon-purple/40 md:bg-neon-purple/10 max-md:ring-2 max-md:ring-neon-purple/40"
+                    : "md:border-border-glass md:hover:border-neon-purple/40"
                 )}
                 title="Click to edit your profile (name, username, location)"
                 role="button"
@@ -2745,7 +2790,7 @@ export default function BadAssTasks() {
                   if (e.key === "Escape") setShowProfilePopover(false);
                 }}
               >
-                <div className="h-9 w-9 flex-shrink-0 rounded-full bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center text-xs font-bold text-black ring-1 ring-inset ring-white/30 shadow-sm">
+                <div className="profile-avatar-badge h-9 w-9 flex-shrink-0 rounded-full bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center text-xs font-bold text-[var(--on-accent)] ring-1 ring-inset ring-white/30 shadow-sm">
                   {avatarInitials || <User className="h-4 w-4" />}
                 </div>
               </div>
@@ -2758,17 +2803,17 @@ export default function BadAssTasks() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+                  className="profile-popover-panel absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-border-glass shadow-2xl overflow-hidden"
                   role="dialog"
                   aria-label="Your profile"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
-                    <h2 className="font-semibold text-sm tracking-tight text-[#f4f4f5]">Your profile</h2>
+                  <div className="px-4 py-3 border-b border-border-glass flex items-center justify-between gap-2">
+                    <h2 className="font-semibold text-sm tracking-tight text-text-primary">Your profile</h2>
                     <button
                       type="button"
                       onClick={() => setShowProfilePopover(false)}
-                      className="shrink-0 p-1.5 rounded-lg text-[#71717a] hover:text-white hover:bg-white/10 transition"
+                      className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition"
                       aria-label="Close profile editor"
                     >
                       <X className="h-4 w-4" />
@@ -2805,18 +2850,18 @@ export default function BadAssTasks() {
                       <div className="p-4 text-sm space-y-4">
                         <div className="space-y-3">
                           <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                               Signed in as
                             </label>
                             <p
-                              className="px-3 py-2.5 text-sm rounded-xl min-h-[44px] bg-white/5 border border-white/10 text-[#e4e4e7] truncate"
+                              className="profile-popover-email px-3 py-2.5 text-sm rounded-xl min-h-[44px] bg-surface-hover border border-border-glass text-text-primary truncate"
                               title={user.email ?? undefined}
                             >
                               {user.email || "No email on this account"}
                             </p>
                           </div>
                           <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                               Full name
                             </label>
                             <input
@@ -2829,11 +2874,11 @@ export default function BadAssTasks() {
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                               Username / handle
                             </label>
                             <div className="flex items-center gap-1">
-                              <span className="text-[#a1a1aa] px-2">@</span>
+                              <span className="text-text-secondary px-2">@</span>
                               <input
                                 type="text"
                                 value={userVal}
@@ -2847,7 +2892,7 @@ export default function BadAssTasks() {
                             </div>
                           </div>
                           <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                               Where you&apos;re from
                             </label>
                             <input
@@ -2860,6 +2905,11 @@ export default function BadAssTasks() {
                             />
                           </div>
                         </div>
+
+                        <div className="border-t border-border-glass pt-4">
+                          <ThemeToggle compact onThemeChange={() => setShowProfilePopover(false)} />
+                        </div>
+
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -2878,10 +2928,10 @@ export default function BadAssTasks() {
                           </button>
                         </div>
                         {!isLiveWorkspace && (
-                          <p className="text-[10px] text-[#c084fc] text-center">Live connection required to save</p>
+                          <p className="text-[10px] text-neon-purple text-center">Live connection required to save</p>
                         )}
                         {isSiteAdmin && (
-                          <div className="border-t border-white/10 pt-3 md:hidden">
+                          <div className="border-t border-border-glass pt-3 md:hidden">
                             <button
                               type="button"
                               onClick={() => {
@@ -2891,25 +2941,25 @@ export default function BadAssTasks() {
                               className={cn(
                                 "w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium",
                                 currentView === "admin"
-                                  ? "text-[#c084fc] bg-[#c084fc]/10"
-                                  : "text-[#e4e4e7] hover:bg-white/5",
+                                  ? "text-neon-purple bg-neon-purple/10"
+                                  : "text-text-primary hover:bg-surface-hover",
                               )}
                             >
-                              <Shield className="h-4 w-4 text-[#c084fc]" />
+                              <Shield className="h-4 w-4 text-neon-purple" />
                               Admin
                             </button>
                           </div>
                         )}
-                        <div className="border-t border-white/10 pt-3">
+                        <div className="border-t border-border-glass pt-3">
                           <button
                             type="button"
                             onClick={() => {
                               setShowProfilePopover(false);
                               setPendingSignOut(true);
                             }}
-                            className="w-full min-h-[44px] flex items-center justify-center gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition font-medium"
+                            className="profile-popover-sign-out w-full min-h-[44px] flex items-center justify-center gap-2 text-[var(--priority-p0)] hover:opacity-90 hover:bg-red-500/10 rounded-lg transition font-medium"
                           >
-                            <LogOut className="h-4 w-4 text-red-400" />
+                            <LogOut className="h-4 w-4 text-[var(--priority-p0)]" />
                             Log out
                           </button>
                         </div>
@@ -2930,7 +2980,7 @@ export default function BadAssTasks() {
               </button>
               <button
                 onClick={() => setShowAuthModal(true)}
-                className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-white/10 text-[#a1a1aa] hover:text-white hover:border-[#c084fc]/40 transition"
+                className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 transition"
                 aria-label="Sign in"
               >
                 <User className="h-4 w-4" />
@@ -2999,8 +3049,6 @@ export default function BadAssTasks() {
           currentView={currentView as "home" | "tasks" | "notes" | "lists" | "teams" | "settings" | "admin"}
           onNavigate={(view) => setView(view as typeof currentView)}
           workspace={currentWorkspace}
-          showRole={!isSingleOwnerWorkspace}
-          canManage={canManage}
           openTaskCount={currentWorkspaceTaskCounts.openCount}
           overdueTaskCount={currentWorkspaceTaskCounts.overdueCount}
           reviewCount={pendingReviewCount}
@@ -3033,8 +3081,8 @@ export default function BadAssTasks() {
              - Stays visible across pages until action is taken.
           */}
           {user && pendingReceivedInvites.length > 0 && (
-            <div className="mb-6 border border-[#c084fc]/50 bg-[#c084fc]/10 rounded-2xl p-5 flex flex-col gap-4">
-              <div className="text-sm font-medium text-[#c084fc]">
+            <div className="mb-6 border border-neon-purple/50 bg-neon-purple/10 rounded-2xl p-5 flex flex-col gap-4">
+              <div className="text-sm font-medium text-neon-purple">
                 You have pending workspace invitation{pendingReceivedInvites.length > 1 ? 's' : ''}.
               </div>
 
@@ -3045,14 +3093,14 @@ export default function BadAssTasks() {
                   const username = meta.invited_by_username ? ` (@${meta.invited_by_username})` : '';
                   const wsName = meta.workspace_name || 'a workspace';
                   return (
-                    <div key={n.id} className="text-sm text-[#e5e5e7]">
+                    <div key={n.id} className="text-sm text-text-soft">
                       <span className="font-medium">{fullName}</span>{username} invited you to join{' '}
                       <span className="font-semibold">"{wsName}"</span>.
                     </div>
                   );
                 })}
                 {pendingReceivedInvites.length > 2 && (
-                  <div className="text-xs text-[#a1a1aa]">+{pendingReceivedInvites.length - 2} more</div>
+                  <div className="text-xs text-text-secondary">+{pendingReceivedInvites.length - 2} more</div>
                 )}
               </div>
 
@@ -3097,7 +3145,7 @@ export default function BadAssTasks() {
                       await store.fetchNotifications?.().catch(() => {});
                     }
                   }}
-                  className="px-4 py-2 text-sm rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa]"
+                  className="px-4 py-2 text-sm rounded-xl border border-border-glass hover:bg-surface-hover text-text-secondary"
                 >
                   Decline
                 </button>
@@ -3109,13 +3157,13 @@ export default function BadAssTasks() {
           {!isSupabaseConfigured() && (
             <div
               data-landing-capture-hide
-              className="mb-6 rounded-2xl bg-[#111114] border border-[#c084fc]/20 px-5 py-3 text-sm flex items-center gap-3"
+              className="mb-6 rounded-2xl bg-bg-secondary border border-neon-purple/20 px-5 py-3 text-sm flex items-center gap-3"
             >
-              <div className="text-[#c084fc]">⚠</div>
-              <div className="flex-1 text-[#a1a1aa]">
+              <div className="text-neon-purple">⚠</div>
+              <div className="flex-1 text-text-secondary">
                 Demo mode — all data lives in your browser for now.
               </div>
-              <button onClick={() => window.open("docs/MILESTONE-1-SUPABASE-ACTIVATION.md", "_blank")} className="text-xs underline text-[#c084fc] whitespace-nowrap">Connect Supabase</button>
+              <button onClick={() => window.open("docs/MILESTONE-1-SUPABASE-ACTIVATION.md", "_blank")} className="text-xs underline text-neon-purple whitespace-nowrap">Connect Supabase</button>
             </div>
           )}
 
@@ -3125,8 +3173,8 @@ export default function BadAssTasks() {
         {showWorkspaceChat && (
           <motion.aside
             className={cn(
-              "hidden xl:flex flex-col bg-[#0a0a0f] min-h-0 overflow-hidden shrink-0",
-              chatOpen && "border-l border-white/10"
+              "workspace-chat-aside hidden xl:flex flex-col bg-bg min-h-0 overflow-hidden shrink-0",
+              chatOpen && "border-l border-border-glass"
             )}
             initial={false}
             animate={{
@@ -3136,7 +3184,7 @@ export default function BadAssTasks() {
             transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
             aria-hidden={!chatOpen}
           >
-            <div className="w-80 h-full p-4 flex flex-col min-h-0">
+            <div className="workspace-chat-panel-inner w-80 h-full p-4 flex flex-col min-h-0">
               <WorkspaceChatPanel
                 workspaceId={currentWorkspace.id}
                 workspaceName={currentWorkspace.name}
@@ -3153,7 +3201,7 @@ export default function BadAssTasks() {
       {/* Mobile Bottom Navigation — native iOS/Android style, only <md via CSS + md:hidden
           Reuses existing VIEWS + setView from store. No desktop impact. Touch-optimized via globals.css
       */}
-      <nav className="bottom-nav md:hidden border-t border-white/10" aria-label="Primary navigation">
+      <nav className="bottom-nav md:hidden border-t border-border-glass" aria-label="Primary navigation">
         <WorkspaceSwitchEffects
           workspaceId={currentWorkspace.id}
           variant="bottom-nav"
@@ -3281,20 +3329,27 @@ export default function BadAssTasks() {
         />
       )}
 
-      <HomeListModal
-        target={homeListModal}
-        isOpen={!!homeListModal}
-        onClose={() => {
-          refreshHomeListAggregatesFromStore();
-          setHomeListModal(null);
+      <ListDetailModal
+        list={listDetailList}
+        items={listDetailItems}
+        isOpen={!!listDetailTarget && !!listDetailList}
+        onClose={closeListDetail}
+        onUpdateList={(id, updates) => { void updateList(id, updates); }}
+        onDeleteList={(id) => {
+          void deleteList(id);
+          closeListDetail();
         }}
-        onItemsChanged={() => refreshHomeListAggregatesFromStore()}
-        onOpenInWorkspace={
-          homeListModal
-            ? () =>
-                navigateToListInWorkspace(homeListModal.workspaceId, homeListModal.listId)
-            : undefined
+        onTogglePinned={(id) => { void toggleListPinned(id); }}
+        onAddItem={(listId, text, options) =>
+          addListItem(listId, text, options).then((item) => item?.id ?? null)
         }
+        onToggleItem={(id) => { void toggleListItem(id); }}
+        onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
+        onDeleteItem={(id) => { void deleteListItem(id); }}
+        onReorderItems={reorderListItems}
+        onIndentItem={(id) => { void indentListItem(id); }}
+        onOutdentItem={(id) => { void outdentListItem(id); }}
+        onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
       />
 
       {/* Note: rich detail is now inline inside renderNotesView() using TipTapEditor (legacy modal removed) */}
@@ -3306,20 +3361,20 @@ export default function BadAssTasks() {
             className="fixed inset-0 bg-black/80 backdrop-blur-md sheet-backdrop md:bg-black/70" 
             onClick={() => toggleKeyboardCheatsheet(false)} 
           />
-          <div className="relative w-full max-w-[720px] md:max-w-[720px] glass-strong rounded-t-3xl md:rounded-3xl shadow-2xl border border-white/10 overflow-hidden mobile-bottom-sheet">
+          <div className="relative w-full max-w-[720px] md:max-w-[720px] glass-strong modal-panel rounded-t-3xl md:rounded-3xl shadow-2xl border border-border-glass overflow-hidden mobile-bottom-sheet">
             {/* Mobile drag handle (visual + native affordance; CSS hides/positions on desktop) */}
             <div className="sheet-drag-handle md:hidden" aria-hidden="true" />
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border-glass">
               <div className="flex items-center gap-3">
-                <div className="text-[#c084fc]"><Command className="h-5 w-5" /></div>
+                <div className="text-neon-purple"><Command className="h-5 w-5" /></div>
                 <div>
                   <div className="font-semibold tracking-tighter text-xl">Keyboard Shortcuts</div>
-                  <div className="text-xs text-[#71717a]">Master these. Move at the speed of thought.</div>
+                  <div className="text-xs text-text-muted">Master these. Move at the speed of thought.</div>
                 </div>
               </div>
               <button 
                 onClick={() => toggleKeyboardCheatsheet(false)}
-                className="text-[#71717a] hover:text-white px-3 py-1 text-xs font-mono rounded bg-white/5 hover:bg-white/10"
+                className="text-text-muted hover:text-text-primary px-3 py-1 text-xs font-mono rounded bg-surface-hover hover:bg-surface-hover"
               >
                 ESC
               </button>
@@ -3359,12 +3414,12 @@ export default function BadAssTasks() {
                 ]},
               ].map((section) => (
                 <div key={section.cat}>
-                  <div className="uppercase tracking-[2px] text-[10px] font-semibold text-[#c084fc] mb-2.5">{section.cat}</div>
+                  <div className="uppercase tracking-[2px] text-[10px] font-semibold text-neon-purple mb-2.5">{section.cat}</div>
                   <div className="space-y-1.5">
                     {section.items.map((it, idx) => (
-                      <div key={idx} className="flex justify-between items-baseline gap-4 py-0.5 text-[#e4e4e7]">
-                        <div className="font-mono text-xs bg-white/5 px-2 py-px rounded text-[#c084fc] whitespace-nowrap">{it.key}</div>
-                        <div className="text-right text-[#a1a1aa] text-[13px] leading-tight">{it.desc}</div>
+                      <div key={idx} className="flex justify-between items-baseline gap-4 py-0.5 text-text-soft">
+                        <div className="font-mono text-xs bg-surface-hover px-2 py-px rounded text-neon-purple whitespace-nowrap">{it.key}</div>
+                        <div className="text-right text-text-secondary text-[13px] leading-tight">{it.desc}</div>
                       </div>
                     ))}
                   </div>
@@ -3372,9 +3427,9 @@ export default function BadAssTasks() {
               ))}
             </div>
 
-            <div className="px-6 py-3.5 bg-black/30 text-[11px] text-[#71717a] border-t border-white/10 flex items-center justify-between">
+            <div className="px-6 py-3.5 bg-black/30 text-[11px] text-text-muted border-t border-border-glass flex items-center justify-between">
               <div>Pro tip: Open palette with ⌘K and type ΓÇ£workspaceΓÇ¥, ΓÇ£noteΓÇ¥, or a task name to jump instantly.</div>
-              <div className="font-mono text-[#c084fc]">Badazz Tasks</div>
+              <div className="font-mono text-neon-purple">Badazz Tasks</div>
             </div>
           </div>
         </div>
@@ -3391,10 +3446,14 @@ export default function BadAssTasks() {
       <ConfirmationModal
         open={!!pendingDeleteNote}
         onOpenChange={(open) => !open && setPendingDeleteNote(null)}
-        title="Delete this note?"
+        title={pendingDeleteIsFile ? "Delete this file?" : "Delete this note?"}
         highlight={pendingDeleteNoteTitle}
-        description="This note and its content will be permanently deleted. This cannot be undone."
-        confirmText="Delete note"
+        description={
+          pendingDeleteIsFile
+            ? "This file and its content will be permanently removed. Linked tasks will stay in your workspace."
+            : "This note and its content will be permanently removed. Linked tasks will stay in your workspace."
+        }
+        confirmText={pendingDeleteIsFile ? "Delete file" : "Delete note"}
         variant="destructive"
         onConfirm={handleConfirmDeleteNote}
       />

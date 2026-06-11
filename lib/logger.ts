@@ -91,6 +91,20 @@ function generateReportId(): string {
   return 'err_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
 }
 
+/** Browser noise that should not be logged as an application error. */
+export function isBenignBrowserError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    normalized.includes('resizeobserver loop completed with undelivered notifications') ||
+    normalized.includes('resizeobserver loop limit exceeded') ||
+    normalized.includes('non-error promise rejection captured') ||
+    normalized.includes("blocked script execution in 'about:srcdoc'") ||
+    normalized.includes('because the document\'s frame is sandboxed and the \'allow-scripts\' permission is not set')
+  );
+}
+
 // === End Observability internals ===
 
 function formatMessage(level: LogLevel, message: string, context?: LogContext | Error | unknown): string {
@@ -232,6 +246,12 @@ export function initErrorMonitoring() {
 
   // Global error handlers for full coverage (beyond React ErrorBoundary)
   const handleWindowError = (event: ErrorEvent) => {
+    const message = event.error instanceof Error ? event.error.message : event.message;
+    if (isBenignBrowserError(message)) {
+      event.preventDefault();
+      return;
+    }
+
     logger.error('Unhandled window error', event.error || new Error(event.message), {
       filename: event.filename,
       lineno: event.lineno,
@@ -240,7 +260,13 @@ export function initErrorMonitoring() {
   };
   const handleRejection = (event: PromiseRejectionEvent) => {
     const reason = event.reason;
-    logger.error('Unhandled promise rejection', reason instanceof Error ? reason : new Error(String(reason)), {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    if (isBenignBrowserError(message)) {
+      event.preventDefault();
+      return;
+    }
+
+    logger.error('Unhandled promise rejection', reason instanceof Error ? reason : new Error(message), {
       reason: reason,
     });
   };

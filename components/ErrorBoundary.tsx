@@ -131,16 +131,16 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f] p-6">
-          <div className="glass max-w-lg w-full rounded-2xl border border-white/10 p-8 text-center">
+        <div className="min-h-screen flex items-center justify-center bg-bg p-6">
+          <div className="glass modal-panel max-w-lg w-full rounded-2xl border border-border-glass p-8 text-center">
             <div className="mx-auto mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-400">
               <AlertTriangle className="h-8 w-8" />
             </div>
 
-            <h1 className="text-2xl font-semibold tracking-tight text-white mb-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-text-primary mb-2">
               Something went wrong
             </h1>
-            <p className="text-[#a1a1aa] mb-6 text-sm leading-relaxed">
+            <p className="text-text-secondary mb-6 text-sm leading-relaxed">
               The app hit an unexpected error. Your data is safe (saved locally or in Supabase).
               <br />
               A reload usually fixes it.
@@ -150,7 +150,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 onClick={this.handleReload}
                 aria-label="Reload the application to recover from error"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#00ff9f] px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#00ff9f]/90 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-neon-green px-6 py-3 text-sm font-semibold text-accent-on transition hover:bg-neon-green/90 active:scale-[0.985]"
               >
                 <RefreshCw className="h-4 w-4" />
                 Reload page
@@ -159,7 +159,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 onClick={this.handleReset}
                 aria-label="Attempt soft reset without full page reload"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-glass bg-surface-hover px-6 py-3 text-sm font-medium text-text-primary transition hover:bg-surface-hover active:scale-[0.985]"
               >
                 <RotateCcw className="h-4 w-4" />
                 Try reset
@@ -168,7 +168,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 onClick={this.handleReport}
                 aria-label="Copy detailed error report to clipboard and reload"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-glass bg-surface-hover px-6 py-3 text-sm font-medium text-text-primary transition hover:bg-surface-hover active:scale-[0.985]"
               >
                 <Bug className="h-4 w-4" />
                 Report issue
@@ -177,7 +177,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 onClick={this.handleGoHome}
                 aria-label="Navigate to home page"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-3 text-sm font-medium text-white transition hover:bg-white/10 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-glass bg-surface-hover px-3 py-3 text-sm font-medium text-text-primary transition hover:bg-surface-hover active:scale-[0.985]"
               >
                 <Home className="h-4 w-4" />
                 Home
@@ -186,17 +186,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
             {/* Agent 33: Show buffer context (production value even in prod for support) */}
             {logger.getErrorBuffer && logger.getErrorBuffer().length > 0 && (
-              <p className="mt-3 text-[10px] text-[#71717a]">
+              <p className="mt-3 text-[10px] text-text-muted">
                 {logger.getErrorBuffer().length} recent error{logger.getErrorBuffer().length > 1 ? "s" : ""} buffered for diagnostics.
               </p>
             )}
 
             {process.env.NODE_ENV !== "production" && this.state.error && (
-              <details className="mt-6 text-left text-xs text-[#71717a] border-t border-white/10 pt-4" aria-label="Technical error details for developers">
-                <summary className="cursor-pointer hover:text-[#a1a1aa] select-none focus:outline-none focus:ring-1 focus:ring-white/30 rounded">
+              <details className="mt-6 text-left text-xs text-text-muted border-t border-border-glass pt-4" aria-label="Technical error details for developers">
+                <summary className="cursor-pointer hover:text-text-secondary select-none focus:outline-none focus:ring-1 focus:ring-white/30 rounded">
                   Technical details (dev only) — {this.state.error.name || "Error"}
                 </summary>
-                <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all rounded bg-black/40 p-3 font-mono text-[10px] text-red-400/80" role="log" aria-live="polite">
+                <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all rounded overlay-scrim p-3 font-mono text-[10px] text-red-400/80" role="log" aria-live="polite">
                   {this.state.error.message}
                   {"\n\n"}
                   {this.state.error.stack}
@@ -205,7 +205,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </details>
             )}
 
-            <p className="mt-6 text-[10px] text-[#52525b]">
+            <p className="mt-6 text-[10px] text-text-faint">
               Badazz Tasks • Your data is safe. Open DevTools console or use __BADAZZ_GET_ERRORS() for full buffer. Check Supabase/network if persistent.
             </p>
           </div>

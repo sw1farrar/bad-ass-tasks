@@ -506,7 +506,7 @@ export const PdfAnnotationPreview = React.forwardRef<
           <button
             type="button"
             onClick={mobileChrome.onClose}
-            className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+            className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-glass bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
             aria-label="Close preview"
           >
             <X className="h-[18px] w-[18px]" />
@@ -529,7 +529,7 @@ export const PdfAnnotationPreview = React.forwardRef<
             title="Zoom out"
             onClick={() => setZoomScale((prev) => clampZoom(prev - ZOOM_STEP))}
             className={cn(
-              "flex items-center justify-center rounded-lg text-[#52525b] active:bg-black/8",
+              "flex items-center justify-center rounded-lg text-text-faint active:bg-black/8",
               mobilePreview ? "h-10 w-10" : "h-7 w-7 hover:bg-black/5",
             )}
             aria-label="Zoom out"
@@ -541,7 +541,7 @@ export const PdfAnnotationPreview = React.forwardRef<
             title="Reset zoom"
             onClick={() => setZoomScale(1)}
             className={cn(
-              "min-w-[52px] text-center font-medium text-[#52525b]",
+              "min-w-[52px] text-center font-medium text-text-faint",
               mobilePreview ? "px-1 text-[12px]" : "text-[11px]",
             )}
             aria-label="Reset zoom"
@@ -553,7 +553,7 @@ export const PdfAnnotationPreview = React.forwardRef<
             title="Zoom in"
             onClick={() => setZoomScale((prev) => clampZoom(prev + ZOOM_STEP))}
             className={cn(
-              "flex items-center justify-center rounded-lg text-[#52525b] active:bg-black/8",
+              "flex items-center justify-center rounded-lg text-text-faint active:bg-black/8",
               mobilePreview ? "h-10 w-10" : "h-7 w-7 hover:bg-black/5",
             )}
             aria-label="Zoom in"
@@ -565,7 +565,7 @@ export const PdfAnnotationPreview = React.forwardRef<
               type="button"
               title="Fit width"
               onClick={() => setZoomScale(1)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525b] hover:bg-black/5"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-text-faint hover:bg-black/5"
               aria-label="Fit width"
             >
               <Maximize2 className="h-4 w-4" />
@@ -580,7 +580,7 @@ export const PdfAnnotationPreview = React.forwardRef<
             disabled={currentPage <= 1}
             onClick={() => scrollToPage(Math.max(1, currentPage - 1))}
             className={cn(
-              "flex items-center justify-center rounded-lg text-[#52525b] disabled:opacity-35",
+              "flex items-center justify-center rounded-lg text-text-faint disabled:opacity-35",
               mobilePreview ? "h-10 w-10 active:bg-black/8" : "h-7 w-7 hover:bg-black/5",
             )}
             aria-label="Previous page"
@@ -589,7 +589,7 @@ export const PdfAnnotationPreview = React.forwardRef<
           </button>
           <span
             className={cn(
-              "text-center font-medium text-[#52525b]",
+              "text-center font-medium text-text-faint",
               mobilePreview ? "min-w-[64px] text-[12px]" : "min-w-[72px] text-[11px]",
             )}
           >
@@ -601,7 +601,7 @@ export const PdfAnnotationPreview = React.forwardRef<
             disabled={currentPage >= pages.length}
             onClick={() => scrollToPage(Math.min(pages.length, currentPage + 1))}
             className={cn(
-              "flex items-center justify-center rounded-lg text-[#52525b] disabled:opacity-35",
+              "flex items-center justify-center rounded-lg text-text-faint disabled:opacity-35",
               mobilePreview ? "h-10 w-10 active:bg-black/8" : "h-7 w-7 hover:bg-black/5",
             )}
             aria-label="Next page"
@@ -615,7 +615,7 @@ export const PdfAnnotationPreview = React.forwardRef<
             <div className="h-5 w-px bg-black/10" />
 
             <Highlighter className="h-4 w-4 text-[#7c3aed]" />
-            <span className="hidden text-[10px] text-[#a1a1aa] sm:inline">Drag to highlight</span>
+            <span className="hidden text-[10px] text-text-secondary sm:inline">Drag to highlight</span>
             <div className="flex items-center gap-1.5">
               {PDF_HIGHLIGHT_COLORS.map((c) => (
                 <button
@@ -642,7 +642,7 @@ export const PdfAnnotationPreview = React.forwardRef<
               title="Undo highlight (Ctrl+Z)"
               disabled={!undoAvailable}
               onClick={undoHighlight}
-              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[#52525b] hover:bg-black/5 disabled:opacity-35"
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-text-faint hover:bg-black/5 disabled:opacity-35"
               aria-label="Undo highlight"
             >
               <Undo2 className="h-4 w-4" />
@@ -653,7 +653,7 @@ export const PdfAnnotationPreview = React.forwardRef<
               title="Clear all highlights"
               disabled={!annotations.length}
               onClick={clearHighlights}
-              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[#52525b] hover:bg-black/5 disabled:opacity-35"
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-text-faint hover:bg-black/5 disabled:opacity-35"
               aria-label="Clear all highlights"
             >
               <Trash2 className="h-4 w-4" />
@@ -662,7 +662,7 @@ export const PdfAnnotationPreview = React.forwardRef<
 
             {saving && <span className="ml-auto text-[10px] text-[#7c3aed]">Saving…</span>}
             {!saving && isDirty && attachmentId && (
-              <span className="ml-auto text-[10px] text-[#a1a1aa]">Unsaved changes</span>
+              <span className="ml-auto text-[10px] text-text-secondary">Unsaved changes</span>
             )}
           </>
         )}
@@ -680,14 +680,14 @@ export const PdfAnnotationPreview = React.forwardRef<
         onTouchCancel={handlePinchTouchEnd}
       >
         {(loading || renderFitWidth === null) && (
-          <div className="flex min-h-[280px] items-center justify-center text-[#71717a]">
+          <div className="flex min-h-[280px] items-center justify-center text-text-muted">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             Loading PDF…
           </div>
         )}
 
         {error && !loading && (
-          <div className="flex min-h-[280px] items-center justify-center p-8 text-center text-sm text-[#71717a]">
+          <div className="flex min-h-[280px] items-center justify-center p-8 text-center text-sm text-text-muted">
             {error}
           </div>
         )}
@@ -773,7 +773,7 @@ export const PdfAnnotationPreview = React.forwardRef<
                 </div>
               </div>
               {!mobilePreview && (
-                <span className="absolute bottom-0 left-0 text-[10px] text-[#71717a]">
+                <span className="absolute bottom-0 left-0 text-[10px] text-text-muted">
                   Page {page.pageNumber}
                 </span>
               )}

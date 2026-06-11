@@ -65,7 +65,7 @@ export function ConfirmationModal({
   return createPortal(
     <div className="fixed inset-0 z-[850] flex items-end md:items-center justify-center p-0 md:p-4">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[3px]"
+        className="absolute inset-0 overlay-scrim backdrop-blur-[3px]"
         onClick={close}
         aria-hidden
       />
@@ -76,7 +76,7 @@ export function ConfirmationModal({
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-desc"
         className={cn(
-          'relative w-full md:max-w-md bg-[#0f0f12] border border-white/10 shadow-2xl',
+          'confirmation-modal relative w-full md:max-w-md bg-bg-panel border border-border-glass modal-panel shadow-2xl',
           'rounded-t-2xl md:rounded-2xl',
           'pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0',
           'animate-in fade-in slide-in-from-bottom-4 md:zoom-in-95 duration-200'
@@ -84,31 +84,31 @@ export function ConfirmationModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-center pt-2.5 md:hidden">
-          <div className="h-1 w-10 rounded-full bg-white/20" aria-hidden />
+          <div className="confirmation-modal__drag-handle h-1 w-10 rounded-full" aria-hidden />
         </div>
 
         <div className="flex items-start gap-3 p-5 pb-4">
           {variant === 'destructive' && (
-            <div className="mt-0.5 rounded-xl bg-[#ff3366]/10 p-2 shrink-0">
-              <AlertTriangle className="h-5 w-5 text-[#ff3366]" />
+            <div className="confirmation-modal__icon mt-0.5 rounded-xl bg-[var(--priority-p0)]/10 p-2 shrink-0">
+              <AlertTriangle className="h-5 w-5 text-[var(--priority-p0)]" />
             </div>
           )}
           <div className="flex-1 min-w-0">
             <h3
               id="confirm-dialog-title"
-              className="text-base sm:text-lg font-semibold text-white tracking-tight"
+              className="text-base sm:text-lg font-semibold text-text-primary tracking-tight"
             >
               {title}
             </h3>
             {(description || highlight) && (
               <div id="confirm-dialog-desc" className="mt-2 space-y-1.5">
                 {highlight && (
-                  <p className="text-sm font-medium text-[#f4f4f5] truncate">
+                  <p className="text-sm font-medium text-text-primary truncate">
                     &ldquo;{highlight}&rdquo;
                   </p>
                 )}
                 {description && (
-                  <p className="text-sm text-[#a1a1aa] leading-relaxed">{description}</p>
+                  <p className="text-sm text-text-secondary leading-relaxed">{description}</p>
                 )}
               </div>
             )}
@@ -117,7 +117,7 @@ export function ConfirmationModal({
             type="button"
             onClick={close}
             disabled={isLoading}
-            className="text-[#71717a] hover:text-white min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-white/10 transition shrink-0 disabled:opacity-50"
+            className="text-text-muted hover:text-text-primary min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-surface-hover transition shrink-0 disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -129,7 +129,7 @@ export function ConfirmationModal({
             type="button"
             onClick={close}
             disabled={isLoading}
-            className="flex-1 min-h-[44px] rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-[#e4e4e7] hover:bg-white/5 disabled:opacity-50 transition"
+            className="confirmation-modal__cancel flex-1 min-h-[44px] rounded-xl border border-border-glass px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 transition"
           >
             {cancelText}
           </button>
@@ -138,10 +138,10 @@ export function ConfirmationModal({
             onClick={handleConfirm}
             disabled={isLoading}
             className={cn(
-              'flex-1 min-h-[44px] rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition',
+              'confirmation-modal__confirm flex-1 min-h-[44px] rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition',
               variant === 'destructive'
-                ? 'bg-[#ff3366] hover:bg-[#e62958] text-white'
-                : 'bg-[#c084fc] hover:bg-[#a855f7] text-black'
+                ? 'confirmation-modal__confirm--destructive border-transparent bg-[var(--priority-p0)] hover:bg-[var(--priority-p0)]/90 text-accent-on'
+                : 'confirmation-modal__confirm--default border-transparent bg-neon-purple hover:bg-neon-purple-dark text-accent-on'
             )}
           >
             {isLoading ? 'Processing…' : confirmText}

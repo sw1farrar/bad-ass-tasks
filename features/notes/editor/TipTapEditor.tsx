@@ -122,6 +122,14 @@ interface TipTapEditorProps {
   belowToolbar?: React.ReactNode;
   /** Compact icon-only toolbar for mobile drawer */
   compactToolbar?: boolean;
+  /** Read-only preview — hides toolbar and disables editing */
+  readOnly?: boolean;
+  /** Title/meta rendered above toolbar inside sticky preview chrome (Files desktop preview). */
+  previewHeader?: React.ReactNode;
+  /** Pin header, toolbar, and belowToolbar; only the editor body scrolls (Files desktop preview). */
+  stickyPreviewChrome?: boolean;
+  /** Rendered below editor content inside the files preview scroll region (e.g. linked tasks). */
+  belowScrollContent?: React.ReactNode;
   // Future-proof callbacks for advanced slash/linking features (non-breaking; parent wires store actions)
   onCreateTaskFromSlash?: (suggestedTitle?: string) => void;
   onCreateNoteFromSlash?: (suggestedTitle?: string) => void;
@@ -191,6 +199,10 @@ export function TipTapEditor({
   minHeight = "240px",
   belowToolbar,
   compactToolbar,
+  readOnly = false,
+  previewHeader,
+  stickyPreviewChrome = false,
+  belowScrollContent,
   onCreateTaskFromSlash,
   onCreateNoteFromSlash,
   onInsertEmbed,
@@ -348,7 +360,7 @@ export function TipTapEditor({
         autolink: true,
         linkOnPaste: true,
         HTMLAttributes: {
-          class: "text-[#c084fc] underline underline-offset-2 hover:text-[#d8b4fe] transition-colors",
+          class: "text-neon-purple underline underline-offset-2 hover:text-neon-purple-tint transition-colors",
           rel: "noopener noreferrer",
           target: "_blank",
         },
@@ -384,8 +396,10 @@ export function TipTapEditor({
         onUpdateNote,
       }),
     ],
+    editable: !readOnly,
     content: prepareInitialContent(content),
     onUpdate: ({ editor }) => {
+      if (readOnly) return;
       // Emit clean stringified TipTap JSON for rich JSONB persistence.
       // Hybrid layer (noteContentToJson) detects & stores full doc in DB.
       // jsonToNoteContent + UI previews always extract readable plain text fallback.
@@ -537,12 +551,25 @@ export function TipTapEditor({
 
     // Only set if different AND we didn't just emit this exact string
     if (currentInEditor !== incoming && incoming !== lastEmittedContentRef.current) {
-      // Note: we intentionally do NOT emit an update here to avoid feedback loops.
-      // The content we are applying came from outside (store) and matches what we last saved.
-      editor.commands.setContent(prepareInitialContent(incoming));
-      lastEmittedContentRef.current = incoming;
+      // Defer setContent so TipTap's React node views don't call flushSync during render.
+      queueMicrotask(() => {
+        if (!editor || editor.isDestroyed) return;
+        if (editor.isFocused) return;
+        const latestInEditor = JSON.stringify(editor.getJSON());
+        if (latestInEditor !== incoming && incoming !== lastEmittedContentRef.current) {
+          // Note: we intentionally do NOT emit an update here to avoid feedback loops.
+          // The content we are applying came from outside (store) and matches what we last saved.
+          editor.commands.setContent(prepareInitialContent(incoming));
+          lastEmittedContentRef.current = incoming;
+        }
+      });
     }
   }, [content, editor, noteId]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
 
   // ========== BIDIRECTIONAL LINK PICKER STATE (Agent 24) ==========
   // In-editor floating glass picker for /link & /note-link — delightful, sample-driven for demo, zero deps.
@@ -1443,7 +1470,7 @@ export function TipTapEditor({
   useEffect(() => {
     const resolvePortalTarget = () => {
       const panel = editorBodyRef.current?.closest(
-        ".notes-editor-panel, .notes-drawer-body",
+        ".notes-files-preview-body, .notes-editor-panel, .notes-drawer-body",
       );
       setCollapsePortalTarget(panel instanceof HTMLElement ? panel : null);
     };
@@ -1508,12 +1535,12 @@ export function TipTapEditor({
     return (
       <div
         className={cn(
-          "glass rounded-2xl border border-white/10 p-4",
+          "glass rounded-2xl border border-border-glass p-4",
           className
         )}
         style={{ minHeight }}
       >
-        <div className="text-[#71717a] text-sm animate-pulse">Loading editor…</div>
+        <div className="text-text-muted text-sm animate-pulse">Loading editor…</div>
       </div>
     );
   }
@@ -1536,9 +1563,9 @@ export function TipTapEditor({
       className={cn(
         "flex shrink-0 items-center justify-center rounded-md transition-all active:scale-95",
         "hover:bg-black/5 border border-transparent touch-manipulation",
-        isCompactToolbar ? "h-6 w-6 min-h-6 min-w-6 rounded-sm" : "h-8 w-8 rounded-lg",
+        isCompactToolbar ? "h-6 w-6 min-h-6 min-w-6 rounded-sm" : "h-9 w-9 rounded-lg",
         isActive
-          ? "bg-[#7c3aed]/15 text-[#7c3aed] border-[#7c3aed]/30"
+          ? "bg-neon-purple-dark/15 text-neon-purple-dark border-neon-purple-dark/30"
           : "text-[var(--note-canvas-text-muted,#71717a)] hover:text-[var(--note-canvas-text,#18181b)] hover:bg-black/5"
       )}
     >
@@ -1546,148 +1573,29 @@ export function TipTapEditor({
     </button>
   );
 
-  const toolbarIconClass = isCompactToolbar ? "h-3 w-3" : "h-4 w-4";
+  const toolbarIconClass = isCompactToolbar ? "h-3 w-3" : "h-[18px] w-[18px]";
   const toolbarDividerClass = cn(
     "bg-[var(--note-canvas-border,rgba(24,24,27,0.12))] shrink-0",
-    isCompactToolbar ? "w-px h-3 mx-0" : "w-px h-5 mx-1",
+    isCompactToolbar ? "w-px h-3 mx-0" : "w-px h-6 mx-0.5",
   );
+  const toolbarGroupClass =
+    "notes-editor-toolbar__group flex items-center gap-0.5 rounded-lg bg-black/[0.04] p-0.5 border border-black/[0.06]";
   const compactToolbarRowClass =
     "notes-editor-toolbar__row flex items-center flex-nowrap w-full";
 
-  return (
-    <div
-      className={cn(
-        "notes-rich-editor w-full flex flex-col bg-transparent",
-        className
-      )}
-    >
-      <input
-        ref={imageUploadInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        aria-hidden
-        onChange={async (e) => {
-          if (e.target.files?.length) {
-            await handleImageFiles(e.target.files);
-          }
-          e.target.value = "";
-        }}
-      />
-      {/* Formatting toolbar — two compact rows on mobile */}
-      {isCompactToolbar ? (
-        <div className="notes-editor-toolbar notes-editor-toolbar--compact border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] flex flex-col gap-0 px-0.5 py-0.5">
-          <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--primary justify-between gap-0")}>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBold().run()}
-              isActive={editor.isActive("bold")}
-              title="Bold (⌘B)"
-            >
-              <Bold className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleItalic().run()}
-              isActive={editor.isActive("italic")}
-              title="Italic (⌘I)"
-            >
-              <Italic className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleStrike().run()}
-              isActive={editor.isActive("strike")}
-              title="Strikethrough"
-            >
-              <span className="text-[9px] font-bold leading-none line-through">S</span>
-            </ToolbarButton>
-            <div className={toolbarDividerClass} />
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-              isActive={editor.isActive("heading", { level: 1 })}
-              title="Heading 1"
-            >
-              <Heading1 className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-              isActive={editor.isActive("heading", { level: 2 })}
-              title="Heading 2"
-            >
-              <Heading2 className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-              isActive={editor.isActive("heading", { level: 3 })}
-              title="Heading 3"
-            >
-              <Heading3 className={toolbarIconClass} />
-            </ToolbarButton>
-          </div>
-          <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--secondary justify-between gap-0")}>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBulletList().run()}
-              isActive={editor.isActive("bulletList")}
-              title="Bullet List"
-            >
-              <List className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              isActive={editor.isActive("orderedList")}
-              title="Numbered List"
-            >
-              <ListOrdered className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBlockquote().run()}
-              isActive={editor.isActive("blockquote")}
-              title="Blockquote"
-            >
-              <Quote className={toolbarIconClass} />
-            </ToolbarButton>
-            <div className={toolbarDividerClass} />
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-              isActive={editor.isActive("codeBlock")}
-              title="Code Block"
-            >
-              <Code className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() =>
-                editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-              }
-              isActive={editor.isActive("table")}
-              title="Insert table"
-            >
-              <Table2 className={toolbarIconClass} />
-            </ToolbarButton>
-            <div className={toolbarDividerClass} />
-            <ToolbarButton
-              onClick={() => editor.chain().focus().undo().run()}
-              isActive={false}
-              title="Undo (⌘Z)"
-            >
-              <Undo2 className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().redo().run()}
-              isActive={false}
-              title="Redo (⌘⇧Z)"
-            >
-              <Redo2 className={toolbarIconClass} />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => imageUploadInputRef.current?.click()}
-              isActive={false}
-              title="Upload image (paste or drag & drop also work)"
-            >
-              <ImageIcon className={toolbarIconClass} />
-            </ToolbarButton>
-          </div>
-        </div>
-      ) : (
-        <div className="notes-editor-toolbar flex items-center gap-1 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] px-3 py-2 flex-wrap">
+  const showToolbar = !readOnly || stickyPreviewChrome;
+  const toolbarDisabled = readOnly && stickyPreviewChrome;
+
+  const toolbarMarkup = showToolbar ? (
+    isCompactToolbar ? (
+      <div
+        className={cn(
+          "notes-editor-toolbar notes-editor-toolbar--compact border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] flex flex-col gap-0 px-0.5 py-0.5",
+          toolbarDisabled && "notes-editor-toolbar--readonly pointer-events-none select-none opacity-80",
+        )}
+        aria-hidden={toolbarDisabled || undefined}
+      >
+        <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--primary justify-between gap-0")}>
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             isActive={editor.isActive("bold")}
@@ -1707,7 +1615,7 @@ export function TipTapEditor({
             isActive={editor.isActive("strike")}
             title="Strikethrough"
           >
-            <span className="text-xs font-bold line-through">S</span>
+            <span className="text-[9px] font-bold leading-none line-through">S</span>
           </ToolbarButton>
           <div className={toolbarDividerClass} />
           <ToolbarButton
@@ -1731,7 +1639,8 @@ export function TipTapEditor({
           >
             <Heading3 className={toolbarIconClass} />
           </ToolbarButton>
-          <div className={toolbarDividerClass} />
+        </div>
+        <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--secondary justify-between gap-0")}>
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             isActive={editor.isActive("bulletList")}
@@ -1793,11 +1702,143 @@ export function TipTapEditor({
             <ImageIcon className={toolbarIconClass} />
           </ToolbarButton>
         </div>
-      )}
+      </div>
+    ) : (
+      <div
+        className={cn(
+          "notes-editor-toolbar notes-editor-toolbar--full flex items-center gap-2 border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] px-4 py-2.5 flex-wrap",
+          toolbarDisabled && "notes-editor-toolbar--readonly pointer-events-none select-none opacity-80",
+        )}
+        aria-hidden={toolbarDisabled || undefined}
+      >
+        <div className={toolbarGroupClass}>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            isActive={editor.isActive("bold")}
+            title="Bold (⌘B)"
+          >
+            <Bold className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            isActive={editor.isActive("italic")}
+            title="Italic (⌘I)"
+          >
+            <Italic className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+            isActive={editor.isActive("strike")}
+            title="Strikethrough"
+          >
+            <span className="text-sm font-bold line-through">S</span>
+          </ToolbarButton>
+        </div>
+        <div className={toolbarGroupClass}>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            isActive={editor.isActive("heading", { level: 1 })}
+            title="Heading 1"
+          >
+            <Heading1 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            isActive={editor.isActive("heading", { level: 2 })}
+            title="Heading 2"
+          >
+            <Heading2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            isActive={editor.isActive("heading", { level: 3 })}
+            title="Heading 3"
+          >
+            <Heading3 className={toolbarIconClass} />
+          </ToolbarButton>
+        </div>
+        <div className={toolbarGroupClass}>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            isActive={editor.isActive("bulletList")}
+            title="Bullet List"
+          >
+            <List className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            isActive={editor.isActive("orderedList")}
+            title="Numbered List"
+          >
+            <ListOrdered className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            isActive={editor.isActive("blockquote")}
+            title="Blockquote"
+          >
+            <Quote className={toolbarIconClass} />
+          </ToolbarButton>
+        </div>
+        <div className={toolbarGroupClass}>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            isActive={editor.isActive("codeBlock")}
+            title="Code Block"
+          >
+            <Code className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() =>
+              editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+            }
+            isActive={editor.isActive("table")}
+            title="Insert table"
+          >
+            <Table2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => imageUploadInputRef.current?.click()}
+            isActive={false}
+            title="Upload image (paste or drag & drop also work)"
+          >
+            <ImageIcon className={toolbarIconClass} />
+          </ToolbarButton>
+        </div>
+        <div className={toolbarGroupClass}>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().undo().run()}
+            isActive={false}
+            title="Undo (⌘Z)"
+          >
+            <Undo2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().redo().run()}
+            isActive={false}
+            title="Redo (⌘⇧Z)"
+          >
+            <Redo2 className={toolbarIconClass} />
+          </ToolbarButton>
+        </div>
+      </div>
+    )
+  ) : null;
 
+  const chromeBlock = stickyPreviewChrome ? (
+    <div className="notes-files-preview-chrome">
+      {previewHeader}
+      {toolbarMarkup}
       {belowToolbar}
+    </div>
+  ) : (
+    <>
+      {toolbarMarkup}
+      {belowToolbar}
+    </>
+  );
 
-      {/* Editable Area (Placeholder extension provides native hint inside editor) */}
+  const editorBody = (
       <div
         className={cn(
           "bg-[var(--note-canvas-bg,#f8f8f6)] relative",
@@ -1805,7 +1846,9 @@ export function TipTapEditor({
           needsCollapse && contentExpanded && (isCompactToolbar ? "pb-16" : "pb-20"),
         )}
         style={{ minHeight: isContentCollapsed ? undefined : minHeight }}
-        onClick={() => editor.chain().focus().run()}
+        onClick={() => {
+          if (!readOnly) editor.chain().focus().run();
+        }}
       >
         <div
           ref={editorBodyRef}
@@ -1831,7 +1874,7 @@ export function TipTapEditor({
                     e.stopPropagation();
                     setContentExpanded(true);
                   }}
-                  className="inline-flex items-center gap-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-white px-3 py-1.5 text-xs font-medium text-[var(--note-canvas-text-secondary,#52525b)] shadow-sm transition-colors hover:border-[#7c3aed]/35 hover:text-[#7c3aed] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/50"
+                  className="inline-flex items-center gap-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-white px-3 py-1.5 text-xs font-medium text-[var(--note-canvas-text-secondary,#52525b)] shadow-sm transition-colors hover:border-neon-purple-dark/35 hover:text-neon-purple-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/50"
                 >
                   Read more
                   <ChevronDown className="h-3.5 w-3.5" aria-hidden />
@@ -1875,7 +1918,7 @@ export function TipTapEditor({
         {showSlashMenu && filteredSlashCommands.length > 0 && slashPosition && (
           <div
             ref={slashMenuRef}
-            className="absolute z-50 w-72 glass rounded-xl border border-white/15 shadow-2xl overflow-hidden py-1 text-sm"
+            className="absolute z-50 w-72 glass rounded-xl border border-border-glass shadow-2xl overflow-hidden py-1 text-sm"
             style={{
               top: `${slashPosition.top}px`,
               left: `${slashPosition.left}px`,
@@ -1883,7 +1926,7 @@ export function TipTapEditor({
               overflowY: "auto",
             }}
           >
-            <div className="px-3 py-1.5 text-[10px] font-mono tracking-[1.5px] text-[#71717a] border-b border-white/10 flex items-center gap-2">
+            <div className="px-3 py-1.5 text-[10px] font-mono tracking-[1.5px] text-text-muted border-b border-border-glass flex items-center gap-2">
               <Zap className="h-3 w-3" /> SLASH COMMANDS • {filteredSlashCommands.length} matches — categorized for speed
             </div>
             {(() => {
@@ -1899,7 +1942,7 @@ export function TipTapEditor({
               return categoryOrder.filter(c => groups[c]).flatMap(cat => {
                 const cmdsInCat = groups[cat];
                 const header = (
-                  <div key={`${cat}-header`} className="px-3 py-1 text-[9px] uppercase tracking-[1px] text-[#c084fc]/70 bg-white/5 font-mono border-y border-white/10">
+                  <div key={`${cat}-header`} className="px-3 py-1 text-[9px] uppercase tracking-[1px] text-neon-purple/70 bg-surface-hover font-mono border-y border-border-glass">
                     {cat}
                   </div>
                 );
@@ -1916,22 +1959,22 @@ export function TipTapEditor({
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
                         isSelected
-                          ? "bg-[#c084fc]/15 text-[#f4f4f5] border-l-2 border-[#c084fc]"
-                          : "hover:bg-white/5 text-[#a1a1aa] hover:text-[#f4f4f5]"
+                          ? "bg-neon-purple/15 text-text-primary border-l-2 border-neon-purple"
+                          : "hover:bg-surface-hover text-text-secondary hover:text-text-primary"
                       )}
                     >
                       <div className={cn(
                         "flex h-7 w-7 items-center justify-center rounded-md shrink-0",
-                        isSelected ? "bg-[#c084fc]/20 text-[#c084fc]" : "bg-white/5 text-[#71717a]"
+                        isSelected ? "bg-neon-purple/20 text-neon-purple" : "bg-surface-hover text-text-muted"
                       )}>
                         <Icon className="h-4 w-4" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-[13px] tracking-tight">{cmd.title}</div>
-                        <div className="text-[11px] text-[#71717a] truncate">{cmd.description}</div>
+                        <div className="text-[11px] text-text-muted truncate">{cmd.description}</div>
                       </div>
                       {isSelected && (
-                        <div className="text-[10px] text-[#c084fc] font-mono">⏎</div>
+                        <div className="text-[10px] text-neon-purple font-mono">⏎</div>
                       )}
                     </button>
                   );
@@ -1939,7 +1982,7 @@ export function TipTapEditor({
                 return [header, ...items];
               });
             })()}
-            <div className="px-3 py-1 text-[9px] text-[#71717a]/70 border-t border-white/10 font-mono tracking-widest">
+            <div className="px-3 py-1 text-[9px] text-text-muted/70 border-t border-border-glass font-mono tracking-widest">
               ↑↓ navigate • ⏎ / Tab select • 1-9 quick pick • ⎋ close • type to filter • categories for discoverability
             </div>
           </div>
@@ -1948,7 +1991,7 @@ export function TipTapEditor({
         {showSlashMenu && filteredSlashCommands.length === 0 && slashPosition && (
           <div
             ref={slashMenuRef}
-            className="absolute z-50 w-64 glass rounded-xl border border-white/15 p-3 text-xs text-[#71717a]"
+            className="absolute z-50 w-64 glass rounded-xl border border-border-glass p-3 text-xs text-text-muted"
             style={{ top: `${slashPosition.top}px`, left: `${slashPosition.left}px` }}
           >
             No commands match “{slashQuery}”. Try /heading, /task, /embed…
@@ -1959,13 +2002,13 @@ export function TipTapEditor({
         {showLinkPicker && linkPickerPosition && (
           <div
             ref={linkPickerRef}
-            className="absolute z-[60] w-64 glass rounded-xl border border-white/15 shadow-2xl overflow-hidden py-1 text-sm"
+            className="absolute z-[60] w-64 glass rounded-xl border border-border-glass shadow-2xl overflow-hidden py-1 text-sm"
             style={{
               top: `${linkPickerPosition.top}px`,
               left: `${linkPickerPosition.left}px`,
             }}
           >
-            <div className="px-3 py-1.5 text-[10px] font-mono tracking-[1.5px] text-[#71717a] border-b border-white/10 flex items-center gap-2">
+            <div className="px-3 py-1.5 text-[10px] font-mono tracking-[1.5px] text-text-muted border-b border-border-glass flex items-center gap-2">
               <Share2 className="h-3 w-3" /> BIDIR LINK PICKER • choose to insert neon mention
             </div>
             <input
@@ -1973,7 +2016,7 @@ export function TipTapEditor({
               placeholder="Filter notes & tasks..."
               value={linkPickerSearch}
               onChange={(e) => setLinkPickerSearch(e.target.value)}
-              className="mx-3 my-1 w-[calc(100%-24px)] text-xs bg-[#111114] border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-[#c084fc]/40"
+              className="mx-3 my-1 w-[calc(100%-24px)] text-xs bg-bg-secondary border border-border-glass rounded px-2 py-1 focus:outline-none focus:border-neon-purple/40"
               onClick={(e) => e.stopPropagation()}
             />
             {/* Grouped and filtered linkables */}
@@ -1987,7 +2030,7 @@ export function TipTapEditor({
 
               const renderGroup = (title: string, items: any[]) => items.length > 0 ? (
                 <>
-                  <div className="px-3 pt-2 pb-1 text-[9px] font-mono uppercase tracking-widest text-[#71717a]">{title}</div>
+                  <div className="px-3 pt-2 pb-1 text-[9px] font-mono uppercase tracking-widest text-text-muted">{title}</div>
                   {items.map((item, idx) => (
                     <button
                       key={item.id}
@@ -2000,13 +2043,13 @@ export function TipTapEditor({
                           insertMentionFromPicker(item);
                         }
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 text-[#a1a1aa] hover:text-[#f4f4f5] border-l-2 border-transparent hover:border-[#c084fc]/50 transition"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover text-text-secondary hover:text-text-primary border-l-2 border-transparent hover:border-neon-purple/50 transition"
                     >
-                      <div className="flex h-6 w-6 items-center justify-center rounded bg-white/5 text-[#c084fc] text-xs shrink-0">
+                      <div className="flex h-6 w-6 items-center justify-center rounded bg-surface-hover text-neon-purple text-xs shrink-0">
                         {item.type === "task" ? "✅" : item.type === "note" ? "📝" : "🔗"}
                       </div>
                       <span className="font-medium text-[13px] truncate flex-1">{item.label}</span>
-                      <span className="text-[9px] text-[#71717a] font-mono uppercase tracking-widest">{item.type}</span>
+                      <span className="text-[9px] text-text-muted font-mono uppercase tracking-widest">{item.type}</span>
                     </button>
                   ))}
                 </>
@@ -2020,7 +2063,7 @@ export function TipTapEditor({
                 </>
               );
             })()}
-            <div className="px-3 py-1 text-[9px] text-[#71717a]/70 border-t border-white/10 font-mono tracking-widest">
+            <div className="px-3 py-1 text-[9px] text-text-muted/70 border-t border-border-glass font-mono tracking-widest">
               Click to insert typed @mention pill • supports task/note • foundation for real backlinks
             </div>
           </div>
@@ -2039,13 +2082,13 @@ export function TipTapEditor({
         {showSyncedBlockPicker && syncedBlockPickerPosition && (
           <div
             ref={syncedBlockPickerRef}
-            className="absolute z-[60] w-72 glass rounded-xl border border-white/15 shadow-2xl overflow-hidden py-1 text-sm"
+            className="absolute z-[60] w-72 glass rounded-xl border border-border-glass shadow-2xl overflow-hidden py-1 text-sm"
             style={{
               top: `${syncedBlockPickerPosition.top}px`,
               left: `${syncedBlockPickerPosition.left}px`,
             }}
           >
-            <div className="px-3 py-1.5 text-[10px] font-mono tracking-[1.5px] text-[#71717a] border-b border-white/10 flex items-center gap-2">
+            <div className="px-3 py-1.5 text-[10px] font-mono tracking-[1.5px] text-text-muted border-b border-border-glass flex items-center gap-2">
               <FileText className="h-3 w-3" /> SYNCED BLOCK • pick another note for live reference
             </div>
             <input
@@ -2053,7 +2096,7 @@ export function TipTapEditor({
               placeholder="Filter other notes..."
               value={syncedBlockPickerSearch}
               onChange={(e) => setSyncedBlockPickerSearch(e.target.value)}
-              className="mx-3 my-1 w-[calc(100%-24px)] text-xs bg-[#111114] border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-[#c084fc]/40"
+              className="mx-3 my-1 w-[calc(100%-24px)] text-xs bg-bg-secondary border border-border-glass rounded px-2 py-1 focus:outline-none focus:border-neon-purple/40"
               onClick={(e) => e.stopPropagation()}
             />
             {/* The actual minimal scrollable note list */}
@@ -2066,7 +2109,7 @@ export function TipTapEditor({
 
                 if (filtered.length === 0) {
                   return (
-                    <div className="px-3 py-4 text-[12px] text-[#71717a]">
+                    <div className="px-3 py-4 text-[12px] text-text-muted">
                       No matching notes. {syncedBlockNoteCandidates.length === 0 ? "Create additional notes to enable cross-note syncing." : "Try a different filter."}
                     </div>
                   );
@@ -2077,23 +2120,57 @@ export function TipTapEditor({
                     key={note.id}
                     type="button"
                     onClick={() => insertSyncedBlockFromPicker(note)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 text-[#a1a1aa] hover:text-[#f4f4f5] border-l-2 border-transparent hover:border-[#c084fc]/50 transition active:bg-white/10"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover text-text-secondary hover:text-text-primary border-l-2 border-transparent hover:border-neon-purple/50 transition active:bg-surface-hover"
                   >
-                    <div className="flex h-6 w-6 items-center justify-center rounded bg-white/5 text-[#c084fc] text-xs shrink-0">
+                    <div className="flex h-6 w-6 items-center justify-center rounded bg-surface-hover text-neon-purple text-xs shrink-0">
                       📝
                     </div>
                     <span className="font-medium text-[13px] truncate flex-1">{note.title}</span>
-                    <span className="text-[9px] text-[#71717a] font-mono uppercase tracking-widest">NOTE</span>
+                    <span className="text-[9px] text-text-muted font-mono uppercase tracking-widest">NOTE</span>
                   </button>
                 ));
               })()}
             </div>
-            <div className="px-3 py-1 text-[9px] text-[#71717a]/70 border-t border-white/10 font-mono tracking-widest">
+            <div className="px-3 py-1 text-[9px] text-text-muted/70 border-t border-border-glass font-mono tracking-widest">
               Click a note → inserts SyncedBlock with targetNoteId + title (live mirror)
             </div>
           </div>
         )}
       </div>
+  );
+
+  return (
+    <div
+      className={cn(
+        "notes-rich-editor w-full flex flex-col bg-transparent",
+        stickyPreviewChrome && "notes-rich-editor--files-preview flex-1 min-h-0",
+        className,
+      )}
+    >
+      <input
+        ref={imageUploadInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        aria-hidden
+        onChange={async (e) => {
+          if (e.target.files?.length) {
+            await handleImageFiles(e.target.files);
+          }
+          e.target.value = "";
+        }}
+      />
+      {chromeBlock}
+
+      {stickyPreviewChrome ? (
+        <div className="notes-files-preview-body flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          {editorBody}
+          {belowScrollContent}
+        </div>
+      ) : (
+        editorBody
+      )}
 
       {/* (Version History + all related code fully removed for lighter app + DB) */
 
@@ -2119,7 +2196,7 @@ export function TipTapEditor({
                 setContentExpanded(false);
                 editorBodyRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
               }}
-              className="note-read-less-btn pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-white/95 px-3 py-1.5 text-xs font-medium text-[var(--note-canvas-text-secondary,#52525b)] shadow-[0_4px_20px_rgba(0,0,0,0.12)] backdrop-blur-sm transition-colors hover:border-[#7c3aed]/35 hover:text-[#7c3aed] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/50"
+              className="note-read-less-btn pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-white/95 px-3 py-1.5 text-xs font-medium text-[var(--note-canvas-text-secondary,#52525b)] shadow-[0_4px_20px_rgba(0,0,0,0.12)] backdrop-blur-sm transition-colors hover:border-neon-purple-dark/35 hover:text-neon-purple-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/50"
             >
               Read less
               <ChevronUp className="h-3.5 w-3.5" aria-hidden />

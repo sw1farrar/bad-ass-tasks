@@ -134,18 +134,18 @@ export function ImagePreviewModal({
                   <button
                     type="button"
                     onClick={close}
-                    className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+                    className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-glass bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
                     aria-label="Close preview"
                   >
                     <X className="h-[18px] w-[18px]" />
                   </button>
                 </div>
               ) : (
-                <div className="ml-auto flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-md">
+                <div className="ml-auto flex items-center gap-1.5 rounded-full border border-border-glass bg-black/40 p-1 backdrop-blur-md">
                   <button
                     type="button"
                     onClick={reset}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-surface-hover hover:text-text-primary"
                     title="Reset view"
                     aria-label="Reset zoom and position"
                   >
@@ -154,7 +154,7 @@ export function ImagePreviewModal({
                   <button
                     type="button"
                     onClick={() => zoomOut()}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-surface-hover hover:text-text-primary"
                     title="Zoom out"
                     aria-label="Zoom out"
                   >
@@ -166,7 +166,7 @@ export function ImagePreviewModal({
                   <button
                     type="button"
                     onClick={() => zoomIn()}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-surface-hover hover:text-text-primary"
                     title="Zoom in"
                     aria-label="Zoom in"
                   >
@@ -175,7 +175,7 @@ export function ImagePreviewModal({
                   <button
                     type="button"
                     onClick={handleDownload}
-                    className="ml-1 flex h-9 items-center gap-2 rounded-full px-3 text-sm text-white/80 hover:bg-white/10 hover:text-white"
+                    className="ml-1 flex h-9 items-center gap-2 rounded-full px-3 text-sm text-white/80 hover:bg-surface-hover hover:text-text-primary"
                     title="Download"
                     aria-label="Download image"
                   >
@@ -184,7 +184,7 @@ export function ImagePreviewModal({
                   <button
                     type="button"
                     onClick={close}
-                    className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                    className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-surface-hover hover:text-text-primary"
                     title="Close"
                     aria-label="Close preview"
                   >
@@ -219,7 +219,7 @@ export function ImagePreviewModal({
                     "object-contain select-none",
                     isMobile
                       ? "max-h-[100dvh] max-w-[100vw]"
-                      : "max-h-[86vh] max-w-[min(94vw,1400px)] rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/15",
+                      : "max-h-[86vh] max-w-[min(94vw,1400px)] rounded-2xl border border-border-glass modal-panel shadow-[0_24px_80px_rgba(0,0,0,0.65)]",
                   )}
                   style={transformStyle}
                   onClick={() => handleTap()}
@@ -230,7 +230,7 @@ export function ImagePreviewModal({
             {/* Mobile zoom pill — only when zoomed */}
             {isMobile && scale > 1.05 && (
               <div className="pointer-events-none absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-20 -translate-x-1/2">
-                <span className="rounded-full border border-white/10 bg-black/50 px-3 py-1 font-mono text-[11px] text-white/70 backdrop-blur-md">
+                <span className="rounded-full border border-border-glass bg-black/50 px-3 py-1 font-mono text-[11px] text-white/70 backdrop-blur-md">
                   {Math.round(scale * 100)}%
                 </span>
               </div>

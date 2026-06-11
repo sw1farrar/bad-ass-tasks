@@ -17,8 +17,19 @@ const EMPTY: NoteLinkedTaskStats = {
   hasOverdue: false,
 };
 
+function resolveTask(
+  id: string,
+  tasks: Task[] | Map<string, Task>,
+): Task | undefined {
+  if (tasks instanceof Map) return tasks.get(id);
+  return tasks.find((t) => t.id === id);
+}
+
 /** Resolve linked-task counts for a note (open + overdue among non-done links). */
-export function getNoteLinkedTaskStats(note: Note, tasks: Task[]): NoteLinkedTaskStats {
+export function getNoteLinkedTaskStats(
+  note: Note,
+  tasks: Task[] | Map<string, Task>,
+): NoteLinkedTaskStats {
   const linkedIds = note.linkedTaskIds || [];
   if (linkedIds.length === 0) return EMPTY;
 
@@ -26,7 +37,7 @@ export function getNoteLinkedTaskStats(note: Note, tasks: Task[]): NoteLinkedTas
   let overdue = 0;
 
   for (const id of linkedIds) {
-    const task = tasks.find((t) => t.id === id);
+    const task = resolveTask(id, tasks);
     if (!task || task.status === "done") continue;
     open += 1;
     if (task.dueDate && isDueDatePast(task.dueDate)) {

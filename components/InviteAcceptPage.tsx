@@ -248,15 +248,15 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
 
   const usernameStatusClass =
     usernameStatus === "available"
-      ? "text-[#34d399]"
+      ? "text-neon-green"
       : usernameStatus === "checking"
-        ? "text-[#a1a1aa]"
+        ? "text-text-secondary"
         : usernameStatus === "idle"
-          ? "text-[#71717a]"
-          : "text-[#ff9500]";
+          ? "text-text-muted"
+          : "text-[var(--priority-p1)]";
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-[#f4f4f5] overflow-y-auto">
+    <div className="invite-accept-page min-h-screen bg-bg text-text-primary overflow-y-auto">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(192,132,252,0.12),transparent)]" />
 
       <header className="relative max-w-lg mx-auto px-6 pt-8 pb-2 flex items-center justify-between">
@@ -266,40 +266,40 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
       <main className="relative max-w-lg mx-auto px-6 py-10">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 gap-3">
-            <Loader2 className="h-6 w-6 animate-spin text-[#c084fc]" />
-            <p className="text-sm text-[#71717a]">Loading invitation…</p>
+            <Loader2 className="h-6 w-6 animate-spin text-neon-purple" />
+            <p className="text-sm text-text-muted">Loading invitation…</p>
           </div>
         ) : error && !invite ? (
-          <div className="rounded-2xl border border-white/[0.08] bg-[#111114] p-8 text-center">
+          <div className="rounded-2xl border border-border-glass bg-bg-secondary p-8 text-center">
             <h1 className="text-xl font-semibold mb-2">Invitation unavailable</h1>
-            <p className="text-sm text-[#a1a1aa]">{error}</p>
+            <p className="text-sm text-text-secondary">{error}</p>
           </div>
         ) : invite ? (
-          <div className="rounded-2xl border border-white/[0.08] bg-[#111114]/90 shadow-2xl overflow-hidden">
-            <div className="px-8 pt-8 pb-6 text-center border-b border-white/[0.06] bg-gradient-to-b from-[#c084fc]/10 to-transparent">
-              <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-                <Users className="h-6 w-6 text-[#0a0a0f]" />
+          <div className="invite-accept-page__card rounded-2xl border border-border-glass bg-bg-secondary/90 shadow-2xl overflow-hidden">
+            <div className="invite-accept-page__header px-8 pt-8 pb-6 text-center border-b border-border-subtle bg-gradient-to-b from-neon-purple/10 to-transparent">
+              <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
+                <Users className="h-6 w-6 text-accent-on" />
               </div>
-              <p className="text-sm text-[#c084fc] mb-2">You&apos;re invited</p>
+              <p className="text-sm text-neon-purple mb-2">You&apos;re invited</p>
               <h1 className="text-2xl font-semibold tracking-tight mb-2">
                 Join {invite.workspaceName}
               </h1>
-              <p className="text-sm text-[#a1a1aa] leading-relaxed">
-                <span className="text-[#f4f4f5] font-medium">{invite.inviterName}</span> invited you as{" "}
-                <span className="text-[#f4f4f5]">{formatRoleLabel(invite.role)}</span>.
+              <p className="text-sm text-text-secondary leading-relaxed">
+                <span className="text-text-primary font-medium">{invite.inviterName}</span> invited you as{" "}
+                <span className="text-text-primary">{formatRoleLabel(invite.role)}</span>.
               </p>
             </div>
 
             <div className="p-8">
               {!invite.isValid ? (
-                <p className="text-sm text-[#ff9500] text-center">{invite.invalidReason}</p>
+                <p className="text-sm text-[var(--priority-p1)] text-center">{invite.invalidReason}</p>
               ) : isSignedIn ? (
                 <div className="space-y-4">
-                  <p className="text-sm text-[#a1a1aa] text-center">
+                  <p className="text-sm text-text-secondary text-center">
                     You&apos;re signed in. Accept the invitation to open this workspace.
                   </p>
                   {error && (
-                    <div className="rounded-xl border border-[#ff9500]/40 bg-[#111114] px-3 py-2 text-xs text-[#ff9500]">
+                    <div className="rounded-xl border border-[var(--priority-p1)]/40 bg-bg-secondary px-3 py-2 text-xs text-[var(--priority-p1)]">
                       {error}
                     </div>
                   )}
@@ -324,18 +324,18 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                 </div>
               ) : (
                 <form onSubmit={handleJoinWithPassword} className="space-y-4">
-                  <p className="text-sm text-[#a1a1aa] text-center mb-2">
+                  <p className="text-sm text-text-secondary text-center mb-2">
                     Set up your profile and password to create your account and join the workspace.
                   </p>
 
                   {error && (
-                    <div className="rounded-xl border border-[#ff9500]/40 bg-[#111114] px-3 py-2 text-xs text-[#ff9500]">
+                    <div className="rounded-xl border border-[var(--priority-p1)]/40 bg-bg-secondary px-3 py-2 text-xs text-[var(--priority-p1)]">
                       {error}
                     </div>
                   )}
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                    <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                       Full name
                     </label>
                     <input
@@ -353,11 +353,11 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                    <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                       Username
                     </label>
                     <div className="flex items-center gap-1">
-                      <span className="text-[#a1a1aa] px-2">@</span>
+                      <span className="text-text-secondary px-2">@</span>
                       <input
                         type="text"
                         value={username}
@@ -379,7 +379,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                    <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                       Where you&apos;re from
                     </label>
                     <input
@@ -397,7 +397,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                    <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                       Email
                     </label>
                     <input
@@ -416,7 +416,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                    <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                       Password
                     </label>
                     <input
@@ -435,7 +435,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-[#71717a] mb-1.5">
+                    <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
                       Confirm password
                     </label>
                     <input
@@ -476,7 +476,7 @@ export function InviteAcceptPage({ inviteId }: InviteAcceptPageProps) {
           </div>
         ) : null}
 
-        <p className="text-center text-xs text-[#52525b] mt-8">Get shit done. Beautifully.</p>
+        <p className="text-center text-xs text-text-faint mt-8">Get shit done. Beautifully.</p>
       </main>
     </div>
   );

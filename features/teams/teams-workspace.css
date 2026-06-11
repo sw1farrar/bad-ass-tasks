@@ -332,5 +332,187 @@
 }
 
 .teams-root .team-empty-search-clear:active {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--accent-purple-muted);
+}
+
+/* Collaboration chips & action pills — theme tokens (light overrides in light-theme.css) */
+.teams-root .team-collab-action-btn {
+  border-color: var(--border-glass);
+  background: var(--surface-overlay);
+}
+
+.teams-root .team-collab-action-btn:hover {
+  border-color: var(--accent-purple-border);
+  background: var(--accent-purple-muted);
+}
+
+.teams-root .team-collab-chip {
+  border-color: var(--border-glass);
+  background: var(--surface-overlay);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Teams workspace — dark theme refinements
+   ══════════════════════════════════════════════════════════════ */
+
+[data-theme="dark"] .teams-root .teams-workspace-header h1,
+[data-theme="dark"] .teams-root .workspace-view-header h1 {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .teams-root .workspace-view-header .border-neon-purple\/25.bg-neon-purple\/8,
+[data-theme="dark"] .teams-root .team-empty-hero .border-neon-purple\/25.bg-neon-purple\/8 {
+  background: var(--accent-purple-muted) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .teams-root .glass,
+[data-theme="dark"] .teams-root .team-empty-card {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
+[data-theme="dark"] .teams-root .team-directory-header,
+[data-theme="dark"] .teams-root .team-pending-header,
+[data-theme="dark"] .teams-root .teams-admin-header,
+[data-theme="dark"] .teams-root .team-collab-section-header {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .teams-root .team-collab-your-work {
+  border-color: var(--accent-purple-border) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
+[data-theme="dark"] .teams-root .team-collab-action-btn {
+  background: var(--surface-overlay) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] .teams-root .team-collab-action-btn:hover {
+  background: var(--accent-purple-muted) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .teams-root .team-collab-chip {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .teams-root .team-collab-stat {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .teams-root .bg-surface-hover.rounded-xl,
+[data-theme="dark"] .teams-root .bg-surface-hover.rounded-2xl,
+[data-theme="dark"] .teams-root .teams-admin-body .bg-surface-hover,
+[data-theme="dark"] .teams-root .team-invite-sent-row.bg-surface-hover,
+[data-theme="dark"] .teams-root .team-invite-result-row.bg-surface-hover {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .teams-root .team-directory-member:hover,
+[data-theme="dark"] .teams-root .team-activity-item:hover,
+[data-theme="dark"] .teams-root .team-pending-row:hover,
+[data-theme="dark"] .teams-root .team-invite-sent-row:hover,
+[data-theme="dark"] .teams-root .team-invite-result-row:hover {
+  background: var(--surface-hover) !important;
+}
+
+[data-theme="dark"] .teams-root .team-directory-role-badge.bg-neon-purple\/10 {
+  background: var(--accent-purple-muted) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .teams-root .team-directory-member .border-bg {
+  border-color: var(--bg-card) !important;
+}
+
+[data-theme="dark"] .teams-root .team-directory-member__actions select,
+[data-theme="dark"] .teams-root .team-role-select {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-tabs .teams-admin-tab--active {
+  background: var(--neon-purple-dark) !important;
+  border-color: var(--neon-purple-dark) !important;
+  color: var(--on-accent) !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-tabs .teams-admin-tab:not(.teams-admin-tab--active) {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-tabs .teams-admin-tab:not(.teams-admin-tab--active):hover {
+  background: var(--surface-hover) !important;
+  border-color: var(--accent-purple-border) !important;
+  color: var(--neon-purple) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-badge--note {
+  background: rgba(96, 165, 250, 0.14) !important;
+  color: var(--chart-blue) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-badge--task {
+  background: var(--success-subtle) !important;
+  color: var(--success) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-body .text-emerald-400 {
+  color: var(--success) !important;
+}
+
+[data-theme="dark"] .teams-root .teams-admin-footer {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .teams-root .bg-gradient-to-br.from-neon-purple .text-accent-on,
+[data-theme="dark"] .teams-root .bg-gradient-to-br.from-neon-purple .text-black {
+  color: var(--on-accent) !important;
+}
+
+[data-theme="dark"] .teams-root .team-search-not-found {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
+[data-theme="dark"] .teams-root .team-empty-private-notice {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .teams-root .team-invite-modal.modal-panel,
+[data-theme="dark"] .teams-root .team-invite-sheet input[type="email"] {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .teams-root .team-invite-sheet input[type="email"]:focus {
+  border-color: var(--neon-purple) !important;
+  box-shadow: 0 0 0 3px var(--accent-purple-glow) !important;
+}
+
+[data-theme="dark"] .teams-root .text-red-400:hover {
+  color: var(--priority-p0) !important;
+}
+
+[data-theme="dark"] .teams-root .hover\:bg-red-500\/10:hover {
+  background: var(--danger-subtle) !important;
 }

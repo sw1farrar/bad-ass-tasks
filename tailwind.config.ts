@@ -12,27 +12,43 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Badazz Tasks neon palette
         neon: {
-          purple: "#c084fc",
-          "purple-dark": "#a855f7",
-          pink: "#ff00aa",
-          "pink-dark": "#cc0088",
+          purple: "var(--neon-purple)",
+          "purple-dark": "var(--neon-purple-dark)",
+          "purple-tint": "var(--neon-purple-tint)",
+          pink: "var(--neon-pink)",
+          "pink-dark": "var(--neon-pink-dark)",
+          green: "var(--neon-green)",
         },
         bg: {
-          DEFAULT: "#0a0a0f",
-          secondary: "#111114",
-          tertiary: "#1a1a20",
-          card: "#141418",
+          DEFAULT: "var(--bg)",
+          secondary: "var(--bg-secondary)",
+          tertiary: "var(--bg-tertiary)",
+          card: "var(--bg-card)",
+          elevated: "var(--bg-elevated)",
+          panel: "var(--bg-panel)",
         },
         border: {
-          DEFAULT: "#24242a",
-          subtle: "#1f1f24",
+          DEFAULT: "var(--border)",
+          subtle: "var(--border-subtle)",
+          glass: "var(--border-glass)",
         },
         text: {
-          primary: "#f4f4f5",
-          secondary: "#a1a1aa",
-          muted: "#71717a",
+          primary: "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          muted: "var(--text-muted)",
+          faint: "var(--text-faint)",
+          soft: "var(--text-soft)",
+        },
+        surface: {
+          hover: "var(--surface-hover)",
+          elevated: "var(--surface-elevated)",
+          overlay: "var(--surface-overlay)",
+          "overlay-hover": "var(--surface-overlay-hover)",
+          "overlay-strong": "var(--surface-overlay-strong)",
+        },
+        accent: {
+          on: "var(--on-accent)",
         },
       },
       fontFamily: {

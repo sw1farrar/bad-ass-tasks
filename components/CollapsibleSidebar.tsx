@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Check,
   ChevronDown,
@@ -63,7 +64,7 @@ function SidebarTooltip({
       {children}
       <span
         role="tooltip"
-        className="sidebar-tooltip pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-[#18181b] px-2.5 py-1.5 text-xs font-medium text-[#f4f4f5] opacity-0 shadow-lg transition-opacity duration-150 group-hover/item:opacity-100"
+        className="sidebar-tooltip pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-lg border border-border-glass bg-bg-tertiary px-2.5 py-1.5 text-xs font-medium text-text-primary opacity-0 shadow-lg transition-opacity duration-150 group-hover/item:opacity-100"
       >
         {label}
       </span>
@@ -75,8 +76,6 @@ interface CollapsibleSidebarProps {
   currentView: AppViewId;
   onNavigate: (view: AppViewId) => void;
   workspace: Workspace;
-  showRole: boolean;
-  canManage: boolean;
   openTaskCount: number;
   overdueTaskCount: number;
   reviewCount: number;
@@ -87,8 +86,6 @@ export function CollapsibleSidebar({
   currentView,
   onNavigate,
   workspace,
-  showRole,
-  canManage,
   openTaskCount,
   overdueTaskCount,
   reviewCount,
@@ -98,6 +95,7 @@ export function CollapsibleSidebar({
   const [hoverExpanded, setHoverExpanded] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,10 +103,19 @@ export function CollapsibleSidebar({
     setHydrated(true);
   }, []);
 
+  const updateMenuAnchor = useCallback(() => {
+    if (!menuRef.current) return;
+    setMenuAnchor(menuRef.current.getBoundingClientRect());
+  }, []);
+
   useEffect(() => {
     if (!menuOpen) return;
     const onDoc = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      const portal = document.getElementById("sidebar-layout-menu-portal");
+      if (portal?.contains(target)) return;
+      setMenuOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -118,6 +125,20 @@ export function CollapsibleSidebar({
     displayMode === "icons-only" ||
     (displayMode === "hover-expand" && !hoverExpanded);
   const showTooltips = isCollapsed;
+
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuAnchor(null);
+      return;
+    }
+    updateMenuAnchor();
+    window.addEventListener("resize", updateMenuAnchor);
+    window.addEventListener("scroll", updateMenuAnchor, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuAnchor);
+      window.removeEventListener("scroll", updateMenuAnchor, true);
+    };
+  }, [menuOpen, isCollapsed, updateMenuAnchor]);
 
   const selectMode = useCallback((mode: SidebarDisplayMode) => {
     setDisplayMode(mode);
@@ -141,7 +162,8 @@ export function CollapsibleSidebar({
   return (
     <aside
       className={cn(
-        "sidebar hidden lg:flex flex-col shrink-0 overflow-hidden border-r border-white/10 transition-[width] duration-300 ease-in-out",
+        "sidebar hidden lg:flex flex-col shrink-0 border-r border-border-glass transition-[width] duration-300 ease-in-out",
+        menuOpen ? "overflow-visible" : "overflow-hidden",
         isCollapsed ? "sidebar--collapsed w-[4.25rem]" : "w-64",
         !hydrated && "w-64",
       )}
@@ -183,14 +205,10 @@ export function CollapsibleSidebar({
         </div>
 
         {!isCollapsed ? (
-          <SidebarWorkspaceIndicator
-            workspace={workspace}
-            showRole={showRole}
-            canManage={canManage}
-          />
+          <SidebarWorkspaceIndicator workspace={workspace} />
         ) : (
           <div
-            className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-[#c084fc]"
+            className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-xl border border-border-glass bg-surface-hover text-xs font-bold text-neon-purple"
             title={workspace.name}
             aria-label={`Workspace: ${workspace.name}`}
           >
@@ -249,7 +267,7 @@ export function CollapsibleSidebar({
         </div>
 
         {isSiteAdmin && (
-          <div className={cn("px-1 mt-4 pt-4 border-t border-white/10", isCollapsed && "px-0")}>
+          <div className={cn("px-1 mt-4 pt-4 border-t border-border-glass", isCollapsed && "px-0")}>
             <SidebarTooltip label="Admin" show={showTooltips}>
               <div
                 role="button"
@@ -266,10 +284,10 @@ export function CollapsibleSidebar({
                 className={cn(
                   "sidebar-item border border-transparent",
                   isCollapsed && "sidebar-item--compact justify-center px-0",
-                  currentView === "admin" && "active border-[#c084fc]/30 bg-[#c084fc]/10",
+                  currentView === "admin" && "active border-neon-purple/30 bg-neon-purple/10",
                 )}
               >
-                <Shield className="h-4 w-4 text-[#c084fc]" />
+                <Shield className="h-4 w-4 text-neon-purple" />
                 {!isCollapsed && <span>Admin</span>}
               </div>
             </SidebarTooltip>
@@ -278,7 +296,7 @@ export function CollapsibleSidebar({
 
         <div className={cn("mt-auto space-y-2 px-1 pb-4", isCollapsed && "px-0")}>
           {!isCollapsed && (
-            <div className="px-3 text-[10px] text-[#71717a]">
+            <div className="px-3 text-[10px] text-text-muted">
               <div className="mb-1">Badazz Tasks</div>
               <div>Real-time sync active.</div>
             </div>
@@ -290,9 +308,9 @@ export function CollapsibleSidebar({
                 type="button"
                 onClick={() => setMenuOpen((v) => !v)}
                 className={cn(
-                  "sidebar-item w-full border border-white/10 bg-white/[0.03] hover:bg-white/[0.06]",
+                  "sidebar-item w-full border border-border-glass bg-surface-overlay hover:bg-surface-overlay-hover",
                   isCollapsed && "sidebar-item--compact justify-center px-0",
-                  menuOpen && "bg-white/[0.06] border-[#c084fc]/30",
+                  menuOpen && "bg-surface-overlay-hover border-neon-purple/30",
                 )}
                 aria-expanded={menuOpen}
                 aria-haspopup="listbox"
@@ -301,17 +319,17 @@ export function CollapsibleSidebar({
                 <ModeIcon
                   className={cn(
                     "h-4 w-4 shrink-0",
-                    displayMode === "expanded" ? "text-[#a1a1aa]" : "text-[#c084fc]",
+                    displayMode === "expanded" ? "text-text-secondary" : "text-neon-purple",
                   )}
                 />
                 {!isCollapsed && (
                   <>
-                    <span className="flex-1 text-left text-xs text-[#a1a1aa] truncate">
+                    <span className="flex-1 text-left text-xs text-text-secondary truncate">
                       {activeOption.label}
                     </span>
                     <ChevronDown
                       className={cn(
-                        "h-3.5 w-3.5 shrink-0 text-[#71717a] transition",
+                        "h-3.5 w-3.5 shrink-0 text-text-muted transition",
                         menuOpen && "rotate-180",
                       )}
                     />
@@ -320,56 +338,68 @@ export function CollapsibleSidebar({
               </button>
             </SidebarTooltip>
 
-            {menuOpen && (
-              <div
-                className={cn(
-                  "absolute z-50 rounded-xl border border-white/10 bg-[#141416] py-1 shadow-xl",
-                  isCollapsed
-                    ? "left-full bottom-0 ml-2 w-56"
-                    : "left-0 right-0 bottom-full mb-1",
-                )}
-                role="listbox"
-                aria-label="Sidebar layout options"
-              >
-                {SIDEBAR_DISPLAY_OPTIONS.map((option) => {
-                  const OptionIcon = modeIcon(option.mode);
-                  const selected = displayMode === option.mode;
-                  return (
-                    <button
-                      key={option.mode}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => selectMode(option.mode)}
-                      className={cn(
-                        "w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-white/5",
-                        selected && "bg-[#c084fc]/10",
-                      )}
-                    >
-                      <OptionIcon
+            {menuOpen &&
+              menuAnchor &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  id="sidebar-layout-menu-portal"
+                  className="fixed z-[300] rounded-xl border border-border-glass bg-bg-card py-1 shadow-xl w-56"
+                  style={
+                    isCollapsed
+                      ? {
+                          left: menuAnchor.right + 8,
+                          bottom: window.innerHeight - menuAnchor.bottom,
+                        }
+                      : {
+                          left: menuAnchor.left,
+                          bottom: window.innerHeight - menuAnchor.top + 4,
+                          width: menuAnchor.width,
+                        }
+                  }
+                  role="listbox"
+                  aria-label="Sidebar layout options"
+                >
+                  {SIDEBAR_DISPLAY_OPTIONS.map((option) => {
+                    const OptionIcon = modeIcon(option.mode);
+                    const selected = displayMode === option.mode;
+                    return (
+                      <button
+                        key={option.mode}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => selectMode(option.mode)}
                         className={cn(
-                          "h-4 w-4 shrink-0 mt-0.5",
-                          selected ? "text-[#c084fc]" : "text-[#71717a]",
+                          "w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-surface-hover",
+                          selected && "bg-neon-purple/10",
                         )}
-                      />
-                      <span className="min-w-0">
-                        <span
+                      >
+                        <OptionIcon
                           className={cn(
-                            "block text-xs font-medium",
-                            selected ? "text-[#e9d5ff]" : "text-[#f4f4f5]",
+                            "h-4 w-4 shrink-0 mt-0.5",
+                            selected ? "text-neon-purple" : "text-text-muted",
                           )}
-                        >
-                          {option.label}
+                        />
+                        <span className="min-w-0">
+                          <span
+                            className={cn(
+                              "block text-xs font-medium",
+                              selected ? "text-neon-purple-tint" : "text-text-primary",
+                            )}
+                          >
+                            {option.label}
+                          </span>
+                          <span className="block text-[10px] text-text-muted mt-0.5 leading-snug">
+                            {option.description}
+                          </span>
                         </span>
-                        <span className="block text-[10px] text-[#71717a] mt-0.5 leading-snug">
-                          {option.description}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body,
+              )}
           </div>
         </div>
       </div>

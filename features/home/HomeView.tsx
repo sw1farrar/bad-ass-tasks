@@ -5,21 +5,20 @@ import {
   Bell,
   Check,
   Inbox,
-  FolderOpen,
   ListChecks,
   Lock,
   MessageCircle,
   Zap,
 } from "lucide-react";
-import { getListColorStyle } from "@/store/listSlice";
+import { getListColorStyleForTheme } from "@/lib/lists/listColorStyles";
+import { useTaskStore } from "@/store/useTaskStore";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
-import { cn, formatDueDate, triggerHaptic } from "@/lib/utils";
+import { cn, triggerHaptic } from "@/lib/utils";
 import { buildAttentionItems, type HomeFocusItem } from "./lib/buildAttentionItems";
 import { isHomeAllCaughtUp } from "./lib/isHomeAllCaughtUp";
 import { sortUpcomingFocusItems } from "./lib/buildUpcomingFocus";
-import { HomeDueTaskRow } from "./components/HomeDueTaskRow";
-import { TaskRow } from "@/features/tasks/components/TaskRow";
+import { TasksTable } from "@/features/tasks/components/TasksTable";
 import { WorkspaceOpenTasksGraphic } from "./components/WorkspaceOpenTasksGraphic";
 import "@/features/lists/lists-workspace.css";
 import "./home-workspace.css";
@@ -65,7 +64,6 @@ interface HomeViewProps {
   userDisplayName: string;
   workspaces: Array<{ id: string; name: string; role?: string }>;
   switchWorkspace: (workspaceId: string) => void;
-  setView: (view: "tasks" | "notes" | "lists" | "teams") => void;
   listPreviews?: HomeListPreview[];
   onOpenList?: (listId: string, workspaceId: string) => void;
   globalTodayFocus?: HomeFocusItem[];
@@ -80,8 +78,9 @@ interface HomeViewProps {
   onDeclineInvite: (inviteId: string) => void | Promise<void>;
   onOpenNotification: (notification: Notification) => void;
   pendingReviewTotal?: number;
-  onOpenFilesReview?: () => void;
-  onOpenCaptureFile?: () => void;
+  onOpenWorkspaceReview?: (workspaceId: string) => void;
+  /** Match Tasks page: show assignee column when any relevant workspace is shared. */
+  showTaskAssignee?: boolean;
 }
 
 function getGreeting(): string {
@@ -95,7 +94,6 @@ export function HomeView({
   userDisplayName,
   workspaces,
   switchWorkspace,
-  setView,
   globalTodayFocus = [],
   globalOpenTaskFocus = [],
   notifications = [],
@@ -109,9 +107,10 @@ export function HomeView({
   onDeclineInvite,
   onOpenNotification,
   pendingReviewTotal = 0,
-  onOpenFilesReview,
-  onOpenCaptureFile,
+  onOpenWorkspaceReview,
+  showTaskAssignee = false,
 }: HomeViewProps) {
+  const theme = useTaskStore((s) => s.theme);
   const pulseById = new Map(workspacePulse.map((p) => [p.id, p]));
   const upcomingFocus = useMemo(
     () =>
@@ -125,6 +124,27 @@ export function HomeView({
     () => globalOpenTaskFocus.filter((f) => f.task.status !== "done"),
     [globalOpenTaskFocus],
   );
+
+  const dueAttentionTasks = useMemo(
+    () => dueAttentionFocus.slice(0, 8).map((item) => item.task),
+    [dueAttentionFocus],
+  );
+
+  const dueTaskWorkspaceNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of dueAttentionFocus) {
+      map.set(item.task.id, item.workspaceName);
+    }
+    return map;
+  }, [dueAttentionFocus]);
+
+  const focusItemByTaskId = useMemo(() => {
+    const map = new Map<string, HomeFocusItem>();
+    for (const item of dueAttentionFocus) {
+      map.set(item.task.id, item);
+    }
+    return map;
+  }, [dueAttentionFocus]);
 
   const dueTotal = upcomingFocus.length;
   const overdueTotal = workspacePulse.reduce((sum, p) => sum + (p.overdue ?? 0), 0);
@@ -178,70 +198,22 @@ export function HomeView({
   });
 
   return (
-    <div className="home-root">
-      <div className="home-workspace max-w-5xl mx-auto pt-2 md:pt-4">
+    <div className="home-root min-h-0">
+      <div className="home-workspace max-w-5xl mx-auto pt-2 md:pt-6 px-0 md:px-1">
       <div className="mb-8">
         <div className="text-3xl md:text-4xl font-semibold tracking-tight">
           {getGreeting()}
           {userDisplayName ? `, ${userDisplayName}` : ""}
         </div>
-        <p className="text-[#a1a1aa] mt-2 text-sm max-w-2xl">{summary}</p>
+        <p className="text-text-secondary mt-2 text-sm max-w-2xl">{summary}</p>
       </div>
-
-      {onOpenCaptureFile && (
-        <div className="mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic("light");
-              onOpenCaptureFile();
-            }}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl border border-[#c084fc]/30 bg-[#c084fc]/10 px-4 py-2.5 text-sm font-semibold text-[#e9d5ff] hover:bg-[#c084fc]/15 min-h-[44px]"
-          >
-            <FolderOpen className="h-4 w-4" />
-            Capture file
-          </button>
-        </div>
-      )}
-
-      {pendingReviewTotal > 0 && onOpenFilesReview && (
-        <div className="mb-8">
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic("light");
-              onOpenFilesReview();
-            }}
-            className="w-full glass rounded-2xl px-4 py-4 border border-[#ff3366]/30 bg-[#ff3366]/[0.05] hover:bg-[#ff3366]/[0.08] transition text-left"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="h-10 w-10 rounded-xl bg-[#ff3366]/15 border border-[#ff3366]/25 flex items-center justify-center shrink-0">
-                  <Inbox className="h-5 w-5 text-[#ff3366]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold text-sm text-[#f4f4f5]">
-                    {pendingReviewTotal} file{pendingReviewTotal === 1 ? "" : "s"} in Review
-                  </div>
-                  <div className="text-[11px] text-[#71717a] mt-0.5">
-                    Tag, approve, and file incoming records
-                  </div>
-                </div>
-              </div>
-              <span className="shrink-0 text-xs font-semibold text-[#e9d5ff] px-3 py-1.5 rounded-lg bg-[#c084fc]/15 border border-[#c084fc]/30">
-                Open Review
-              </span>
-            </div>
-          </button>
-        </div>
-      )}
 
       {attentionItems.length > 0 && (
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-3">
-            <Zap className="h-4 w-4 text-[#c084fc]" />
-            <div className="text-sm text-[#e5e5e7] font-medium">Needs attention</div>
-            <span className="text-[10px] text-[#71717a]">invites &amp; notifications</span>
+            <Zap className="h-4 w-4 text-neon-purple" />
+            <div className="text-sm text-text-primary font-medium">Needs attention</div>
+            <span className="text-[10px] text-text-muted">invites &amp; notifications</span>
           </div>
           <div className="space-y-2">
             {attentionItems.map((item) => (
@@ -249,8 +221,8 @@ export function HomeView({
                 key={item.id}
                 className={`glass rounded-xl px-4 py-3 border transition ${
                   item.urgency === "high"
-                    ? "border-[#ff3366]/30 bg-[#ff3366]/[0.04]"
-                    : "border-white/10"
+                    ? "border-[var(--priority-p0)]/30 bg-[var(--priority-p0)]/[0.04]"
+                    : "border-border-glass"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -266,7 +238,7 @@ export function HomeView({
                     }}
                   >
                     <div className="font-medium text-sm truncate">{item.title}</div>
-                    <div className="text-[11px] text-[#71717a] mt-0.5 truncate">{item.subtitle}</div>
+                    <div className="text-[11px] text-text-muted mt-0.5 truncate">{item.subtitle}</div>
                   </button>
 
                   {item.kind === "invite" && (
@@ -274,14 +246,14 @@ export function HomeView({
                       <button
                         type="button"
                         onClick={() => onAcceptInvite(item.inviteId)}
-                        className="px-2.5 py-1 text-[10px] rounded-lg bg-[#c084fc] text-black font-medium"
+                        className="px-2.5 py-1 text-[10px] rounded-lg bg-neon-purple text-[var(--on-accent)] font-medium"
                       >
                         Accept
                       </button>
                       <button
                         type="button"
                         onClick={() => onDeclineInvite(item.inviteId)}
-                        className="px-2.5 py-1 text-[10px] rounded-lg border border-white/15 text-[#a1a1aa]"
+                        className="px-2.5 py-1 text-[10px] rounded-lg border border-border-glass text-text-secondary"
                       >
                         Decline
                       </button>
@@ -292,7 +264,7 @@ export function HomeView({
                     <button
                       type="button"
                       onClick={() => onCompleteFocusTask(item.focusItem)}
-                      className="shrink-0 h-7 w-7 rounded-full border border-white/15 flex items-center justify-center text-[#71717a] hover:text-[#c084fc] hover:border-[#c084fc]/40 transition"
+                      className="shrink-0 h-7 w-7 rounded-full border border-border-glass flex items-center justify-center text-text-muted hover:text-neon-purple hover:border-neon-purple/40 transition"
                       aria-label="Complete task"
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -300,7 +272,7 @@ export function HomeView({
                   )}
 
                   {item.kind === "notification" && (
-                    <Bell className="h-4 w-4 text-[#71717a] shrink-0 mt-0.5" />
+                    <Bell className="h-4 w-4 text-text-muted shrink-0 mt-0.5" />
                   )}
                 </div>
               </div>
@@ -310,13 +282,13 @@ export function HomeView({
       )}
 
       {showAllCaughtUp && (
-        <div className="mb-8 glass rounded-2xl px-6 py-4 border border-white/10 text-center">
-          <div className="text-lg font-medium text-[#f4f4f5]">You&apos;re all caught up</div>
+        <div className="mb-8 glass rounded-2xl px-6 py-4 border border-border-glass text-center">
+          <div className="text-lg font-medium text-text-primary">You&apos;re all caught up</div>
         </div>
       )}
 
-      <div className="mb-8">
-        <div className="text-sm text-[#71717a] mb-3 font-medium">Workspaces</div>
+      <div className="home-workspaces-section mb-8">
+        <div className="text-sm text-text-muted mb-3.5 font-medium">Workspaces</div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {workspaces.map((ws) => {
             const pulse = pulseById.get(ws.id);
@@ -356,19 +328,22 @@ export function HomeView({
                     activateWorkspace();
                   }
                 }}
-                aria-label={`Activate ${ws.name} workspace`}
-                className={cn(
-                  "glass rounded-2xl p-4 border transition relative cursor-pointer text-left",
-                  "hover:border-[#c084fc]/35 hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/50",
+                aria-label={
                   isCurrent
-                    ? "border-[#c084fc]/40 ring-1 ring-[#c084fc]/20"
-                    : "border-white/10",
+                    ? `${ws.name} — current workspace`
+                    : `Activate ${ws.name} workspace`
+                }
+                aria-current={isCurrent ? "true" : undefined}
+                className={cn(
+                  "home-ws-card glass rounded-2xl p-4 md:p-5 border border-border-glass transition relative cursor-pointer text-left",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/40",
+                  isCurrent && "home-ws-card--current",
                 )}
               >
                 <div className="absolute top-3 right-3 hidden md:flex items-center gap-1 z-10">
                   {unread > 0 && (
                     <span
-                      className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#c084fc] text-black text-[9px] font-bold"
+                      className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-neon-purple text-[var(--on-accent)] text-[9px] font-bold"
                       title={`${unread} unread notification${unread === 1 ? "" : "s"} in this workspace`}
                       aria-label={`${unread} unread notifications`}
                     >
@@ -378,7 +353,7 @@ export function HomeView({
                   )}
                   {unreadChat && (
                     <span
-                      className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#ff3366] text-white text-[9px] font-bold"
+                      className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[var(--priority-p0)] text-accent-on text-[9px] font-bold"
                       title="Unread team messages in this workspace"
                       aria-label="Unread team messages"
                     >
@@ -386,7 +361,7 @@ export function HomeView({
                     </span>
                   )}
                   {!isPrivateWorkspace && ws.role && (
-                    <span className="text-[8px] uppercase tracking-wider px-1.5 py-px rounded bg-white/5 text-[#71717a] font-semibold">
+                    <span className="text-[8px] uppercase tracking-wider px-1.5 py-px rounded bg-surface-hover text-text-muted font-semibold">
                       {formatRoleLabel(ws.role)}
                     </span>
                   )}
@@ -399,7 +374,7 @@ export function HomeView({
                   <div className="flex items-center gap-1 shrink-0 pt-0.5">
                     {isPrivateWorkspace && (
                       <span
-                        className="inline-flex items-center justify-center shrink-0 h-5 w-5 rounded border border-white/10 bg-white/[0.04] text-[#a1a1aa]"
+                        className="inline-flex items-center justify-center shrink-0 h-5 w-5 rounded border border-border-glass bg-surface-overlay text-text-secondary"
                         title="Private workspace"
                         aria-label="Private workspace"
                       >
@@ -408,7 +383,7 @@ export function HomeView({
                     )}
                     {unread > 0 && (
                       <span
-                        className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#c084fc] text-black text-[9px] font-bold"
+                        className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-neon-purple text-[var(--on-accent)] text-[9px] font-bold"
                         title={`${unread} unread notification${unread === 1 ? "" : "s"} in this workspace`}
                         aria-label={`${unread} unread notifications`}
                       >
@@ -418,7 +393,7 @@ export function HomeView({
                     )}
                     {unreadChat && (
                       <span
-                        className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[#ff3366] text-white text-[9px] font-bold"
+                        className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-[var(--priority-p0)] text-accent-on text-[9px] font-bold"
                         title="Unread team messages in this workspace"
                         aria-label="Unread team messages"
                       >
@@ -437,20 +412,15 @@ export function HomeView({
                     <div className="hidden md:block font-semibold leading-snug break-words pr-1">
                       {ws.name}
                     </div>
-                    <div className="text-[11px] text-[#71717a] max-md:mt-0 md:mt-2 tabular-nums leading-snug">
+                    <div className="text-[11px] text-text-muted max-md:mt-0 md:mt-2 tabular-nums leading-snug">
                       {inventoryLabel}
                     </div>
-                    {(overdue > 0 || due > 0 || assignedToYou > 0 || pendingReview > 0) && (
+                    {(overdue > 0 || due > 0 || assignedToYou > 0) && (
                       <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] mt-1.5">
-                        {pendingReview > 0 && (
-                          <span className="text-[#ff3366]">
-                            {pendingReview} in Review
-                          </span>
-                        )}
                         {assignedToYou > 0 && (
                           <span
                             className={cn(
-                              "text-[#c084fc]",
+                              "text-neon-purple",
                               isPrivateWorkspace && "max-md:hidden",
                             )}
                           >
@@ -458,11 +428,11 @@ export function HomeView({
                           </span>
                         )}
                         {due > 0 && (
-                          <span className={overdue > 0 ? "text-[#ff3366]" : "text-[#a1a1aa]"}>
+                          <span className="text-neon-purple">
                             {due} due
                           </span>
                         )}
-                        {overdue > 0 && <span className="text-[#ff3366]">{overdue} overdue</span>}
+                        {overdue > 0 && <span className="text-neon-purple">{overdue} overdue</span>}
                       </div>
                     )}
                   </div>
@@ -478,7 +448,7 @@ export function HomeView({
                     {breakdown.slice(0, 3).map((item) => (
                       <span
                         key={item.label}
-                        className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/[0.03] text-[#a1a1aa]"
+                        className="text-[10px] px-1.5 py-0.5 rounded-md border border-border-glass bg-surface-overlay text-text-secondary"
                         title={`${item.label}: ${item.count} open task${item.count === 1 ? "" : "s"}`}
                       >
                         {item.label}: {item.count}
@@ -486,33 +456,35 @@ export function HomeView({
                     ))}
                   </div>
                 )}
-                  {isCurrent && (
-                    <div className="hidden md:block text-[10px] text-[#c084fc] mt-2 font-medium">Current workspace</div>
-                  )}
-                <div className="hidden md:flex gap-2 mt-3 pt-3 border-t border-white/5">
-                  {(
-                    [
-                      { label: "Tasks", view: "tasks" as const },
-                      { label: "Files", view: "notes" as const },
-                      { label: "Lists", view: "lists" as const },
-                      { label: "Team", view: "teams" as const },
-                    ] as const
-                  ).map((shortcut) => (
-                    <button
-                      key={shortcut.label}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        triggerHaptic("light");
-                        switchWorkspace(ws.id);
-                        setView(shortcut.view);
-                      }}
-                      className="text-[10px] text-[#a1a1aa] hover:text-[#c084fc] transition"
-                    >
-                      {shortcut.label}
-                    </button>
-                  ))}
-                </div>
+                {pendingReview > 0 && onOpenWorkspaceReview && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerHaptic("light");
+                      onOpenWorkspaceReview(ws.id);
+                    }}
+                    className="home-ws-review-btn mt-3 w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition min-h-[44px]"
+                    aria-label={`Review ${pendingReview} file${pendingReview === 1 ? "" : "s"} in ${ws.name}`}
+                  >
+                    <span className="flex items-center gap-2.5 min-w-0">
+                      <span className="home-ws-review-btn__icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border">
+                        <Inbox className="h-4 w-4" aria-hidden />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-text-primary leading-tight">
+                          Review {pendingReview} file{pendingReview === 1 ? "" : "s"}
+                        </span>
+                        <span className="block text-[10px] text-text-muted mt-0.5 leading-snug">
+                          Tag, approve &amp; file
+                        </span>
+                      </span>
+                    </span>
+                    <span className="nav-count-badge shrink-0" aria-hidden>
+                      {pendingReview > 99 ? "99+" : pendingReview}
+                    </span>
+                  </button>
+                )}
               </div>
             );
           })}
@@ -520,64 +492,53 @@ export function HomeView({
       </div>
 
       {dueAttentionFocus.length > 0 && (
-        <div className="mb-8">
-          <div className="mb-3">
-            <div className="text-sm text-[#e5e5e7] font-medium">Overdue &amp; upcoming</div>
-            <div className="text-[10px] text-[#71717a] mt-0.5">
-              Past due, today &amp; tomorrow · by priority
+        <div className="home-due-section mb-8">
+          <div className="home-due-section__card glass rounded-2xl border border-border-glass overflow-hidden">
+            <div className="home-due-section__header px-4 md:px-5 pt-4 md:pt-5 pb-3 border-b border-border-glass/60">
+              <div className="text-sm text-text-primary font-semibold tracking-tight">Overdue &amp; upcoming</div>
+              <div className="text-xs text-text-secondary mt-1">
+                All workspaces · past due, today &amp; tomorrow · by priority
+              </div>
             </div>
-          </div>
-          <div className="home-due-tasks max-md:space-y-1 md:space-y-2">
-            {dueAttentionFocus.slice(0, 8).map((item) => {
-              const due = formatDueDate(item.task.dueDate ?? undefined);
-              const isDone = item.task.status === "done";
-              const loading = !!taskLoadingStates[item.task.id];
-
-              return (
-                <React.Fragment key={`${item.workspaceId}-${item.task.id}`}>
-                  <div className="md:hidden">
-                    <TaskRow
-                      rowId={`home-task-row-${item.task.id}`}
-                      task={item.task}
-                      isDone={isDone}
-                      isOpLoading={loading}
-                      due={due}
-                      workspaceName={item.workspaceName}
-                      showAssignee={false}
-                      commentWorkspaceId={item.workspaceId}
-                      onOpen={() => onOpenFocusTask(item)}
-                      onComplete={() => onCompleteFocusTask(item)}
-                      onSwipeComplete={() => onCompleteFocusTask(item)}
-                    />
-                  </div>
-                  <div className="hidden md:block">
-                    <HomeDueTaskRow
-                      task={item.task}
-                      workspaceName={item.workspaceName}
-                      isOpLoading={loading}
-                      onOpen={() => onOpenFocusTask(item)}
-                      onComplete={() => onCompleteFocusTask(item)}
-                    />
-                  </div>
-                </React.Fragment>
-              );
-            })}
+            <div className="home-due-tasks tasks-root">
+              <TasksTable
+              tasks={dueAttentionTasks}
+              taskLoadingStates={taskLoadingStates}
+              showQuickAdd={false}
+              showAssignee={showTaskAssignee}
+              rowIdPrefix="home-task-row"
+              emptyMessage="No overdue or upcoming tasks."
+              getWorkspaceName={(task) => dueTaskWorkspaceNames.get(task.id)}
+              onOpenTask={(task) => {
+                const item = focusItemByTaskId.get(task.id);
+                if (item) void onOpenFocusTask(item);
+              }}
+              onComplete={(id) => {
+                const item = focusItemByTaskId.get(id);
+                if (item) void onCompleteFocusTask(item);
+              }}
+              onSwipeComplete={(id) => {
+                const item = focusItemByTaskId.get(id);
+                if (item) void onCompleteFocusTask(item);
+              }}
+            />
+            </div>
           </div>
         </div>
       )}
 
       {listPreviews.length > 0 && (
-        <div className="mb-8">
+        <div className="home-lists-section mb-8">
           <div className="flex items-center gap-2 mb-3">
-            <ListChecks className="h-4 w-4 text-[#c084fc]" />
-            <div className="text-sm text-[#e5e5e7] font-medium">Open across workspaces</div>
-            <span className="text-[10px] text-[#71717a]">
+            <ListChecks className="h-4 w-4 text-neon-purple" />
+            <div className="text-sm text-text-primary font-medium">Open across workspaces</div>
+            <span className="text-[10px] text-text-muted">
               {listsOpenTotal} left
             </span>
           </div>
           <div className="lists-home-preview">
             {listPreviews.slice(0, 6).map((list) => {
-              const colorStyle = getListColorStyle(list.color);
+              const colorStyle = getListColorStyleForTheme(list.color, theme);
               const doneCount = list.totalCount - list.openCount;
               const progress = list.totalCount > 0 ? (doneCount / list.totalCount) * 100 : 0;
               return (
@@ -586,40 +547,47 @@ export function HomeView({
                   type="button"
                   onClick={() => onOpenList?.(list.id, list.workspaceId)}
                   className="list-home-chip"
+                  data-list-color={list.color}
                   style={{
                     background: colorStyle.bg,
                     borderColor: colorStyle.border,
+                    ["--list-chip-bg" as string]: colorStyle.bg,
+                    ["--list-chip-border" as string]: colorStyle.border,
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <span className="font-medium text-sm text-[#f4f4f5] truncate block">{list.title}</span>
-                      <span className="text-[10px] text-[#71717a] truncate block mt-0.5">
+                      <span className="font-medium text-sm text-text-primary truncate block">{list.title}</span>
+                      <span className="text-[10px] text-text-muted truncate block mt-0.5">
                         {list.workspaceName}
                       </span>
                     </div>
                     {list.pinned && (
-                      <span className="text-[9px] uppercase tracking-wider text-[#c084fc] shrink-0">Pinned</span>
+                      <span className="text-[9px] uppercase tracking-wider text-neon-purple shrink-0">Pinned</span>
                     )}
                   </div>
                   {list.totalCount > 0 && (
                     <>
-                      <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
+                      <div className="mt-2 h-1 rounded-full bg-surface-hover overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-[#c084fc]/80 transition-all"
+                          className="h-full rounded-full bg-neon-purple/80 transition-all"
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-                      <div className="text-[10px] text-[#71717a] mt-1.5">
-                        {list.openCount === 0 ? "All done" : `${list.openCount} left`}
+                      <div className="list-home-chip__meta text-[10px] text-text-muted mt-1.5">
+                        {list.openCount === 0 ? (
+                          <span className="list-home-chip__done">All done</span>
+                        ) : (
+                          <span className="list-home-chip__count">{list.openCount} left</span>
+                        )}
                         {list.preview.length > 0 && list.openCount > 0 && (
-                          <span className="text-[#a1a1aa]"> · {list.preview[0]}</span>
+                          <span className="text-text-secondary"> · {list.preview[0]}</span>
                         )}
                       </div>
                     </>
                   )}
                   {list.totalCount === 0 && (
-                    <div className="text-[10px] text-[#52525b] mt-1">Empty — tap to add items</div>
+                    <div className="text-[10px] text-text-faint mt-1">Empty — tap to add items</div>
                   )}
                 </button>
               );

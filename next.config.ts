@@ -1,12 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Enable React 19 features + Turbopack for dev (already in script)
+  serverExternalPackages: ["word-extractor"],
   experimental: {
     // Optimize for beautiful animations and large state
     optimizePackageImports: ["lucide-react", "framer-motion", "@dnd-kit/core"],
   },
   transpilePackages: [
+    "docx-preview",
     "@supabase/supabase-js",
     "@supabase/postgrest-js",
     "@supabase/realtime-js",

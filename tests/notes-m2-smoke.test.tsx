@@ -351,43 +351,6 @@ describe('Hierarchy drag/sortOrder normalization functions', () => {
     });
   });
 
-  it('createSubNote sets parent link only (recency sort; no sortOrder writes)', async () => {
-    const updateNote = vi.fn().mockResolvedValue(true);
-    const addNote = vi.fn().mockResolvedValue({
-      id: 'newSub42',
-      title: 'New under root1',
-      content: '',
-      createdAt: '',
-      updatedAt: '',
-      tags: [],
-      linkedTaskIds: [],
-      workspaceId: 'w1',
-    });
-    const notes = makeNotes();
-
-    const ops = useNoteOperations({
-      notes,
-      tasks: [],
-      selectedNoteId: null,
-      addNote,
-      updateNote,
-      deleteNote: async () => true,
-      updateTask: async () => true,
-      addTask: async () => null,
-      openTask: () => {},
-      setPendingDeleteNote: () => {},
-    } as any);
-
-    const newId = await ops.onCreateSubNote('root1', 'New under root1');
-
-    expect(addNote).toHaveBeenCalledWith('New under root1');
-    expect(newId).toBe('newSub42');
-    const updatesForNew = updateNote.mock.calls.filter((c) => c[0] === 'newSub42');
-    expect(updatesForNew).toHaveLength(1);
-    expect(updatesForNew[0][1]).toEqual({ parentNoteId: 'root1' });
-    expect(updatesForNew[0][1].sortOrder).toBeUndefined();
-  });
-
   it('defensive String() + existence + cycle guards prevent bad inputs without throwing or corrupting orders', () => {
     const updateNote = vi.fn().mockResolvedValue(true);
     const notes = makeNotes();
@@ -1222,7 +1185,6 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
     expect(() => {
       ops.onReparentNote(null as any, undefined as any);
       ops.onReparentNote('c1', '');
-      ops.onCreateSubNote('', 'bad');
     }).not.toThrow();
 
     // Cycle + existence guards still active post-coercion; no bad writes occurred
@@ -1267,9 +1229,8 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
     });
   });
 
-  it('createSubNote + cross reparent on multi-parent dirty data: end-position calc + full sibling renorms always emit clean integers; untouched parent groups unaffected', async () => {
+  it('cross reparent on multi-parent dirty data: end-position calc + full sibling renorms always emit clean integers', async () => {
     const updateNote = vi.fn().mockResolvedValue(true);
-    const addNote = vi.fn().mockResolvedValue('new42');
     const notes = [
       { id: 'rootA', parentNoteId: null, sortOrder: 0, title: 'RA', content: '', createdAt: '', updatedAt: '', tags: [], linkedTaskIds: [], workspaceId: '' },
       { id: 'ra1', parentNoteId: 'rootA', sortOrder: 11, title: 'ra1', content: '', createdAt: '', updatedAt: '', tags: [], linkedTaskIds: [], workspaceId: '' },
@@ -1281,7 +1242,7 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
       notes,
       tasks: [],
       selectedNoteId: null,
-      addNote,
+      addNote: async () => null,
       updateNote,
       deleteNote: async () => true,
       updateTask: async () => true,
@@ -1290,12 +1251,10 @@ describe('M2 Gap Closers (stable sortOrder, intra-column kanban, synced contract
       setPendingDeleteNote: () => {},
     } as any);
 
-    await ops.onCreateSubNote('rootA', 'new under A');
-    ops.onReparentNote('rb1', 'rootA'); // cross from B to A (now has the new too)
+    ops.onReparentNote('rb1', 'rootA');
 
     const assigned = updateNote.mock.calls.map((c) => c[1]?.sortOrder).filter((o) => typeof o === 'number');
     assigned.forEach((o) => expect(Number.isInteger(o)).toBe(true));
-    // Verify only touched groups got renorm writes; pattern 0/1000/...
     expect(assigned.filter((o) => o % 1000 === 0).length).toBe(assigned.length);
   });
 });

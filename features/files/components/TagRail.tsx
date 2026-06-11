@@ -14,6 +14,7 @@ export type FilesBrowseFilter =
 interface TagRailProps {
   filter: FilesBrowseFilter;
   onFilterChange: (filter: FilesBrowseFilter) => void;
+  onTagFilterChange: (tags: string[]) => void;
   tags: string[];
   reviewCount: number;
   onNewFile: () => void;
@@ -28,16 +29,17 @@ interface TagRailProps {
 
 function modeButtonClass(active: boolean) {
   return cn(
-    "flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition min-h-[44px]",
+    "files-mode-button flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition min-h-[44px]",
     active
-      ? "bg-[#c084fc]/15 text-[#e9d5ff] border border-[#c084fc]/30"
-      : "text-[#a1a1aa] hover:bg-white/5 hover:text-white border border-white/10 bg-[#111114]",
+      ? "files-mode-button--active bg-neon-purple/15 text-neon-purple-tint border border-neon-purple/30"
+      : "text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-border-glass bg-bg-secondary",
   );
 }
 
 export function TagRail({
   filter,
   onFilterChange,
+  onTagFilterChange,
   tags,
   reviewCount,
   onNewFile,
@@ -49,22 +51,15 @@ export function TagRail({
   listContent,
 }: TagRailProps) {
   const selectedTags = filter.kind === "tags" ? filter.tags : [];
-
-  const handleTagsChange = (nextTags: string[]) => {
-    if (nextTags.length === 0) {
-      onFilterChange({ kind: "all" });
-      return;
-    }
-    onFilterChange({ kind: "tags", tags: nextTags });
-  };
+  const tagFilterDisabled = filter.kind === "review";
 
   if (isDesktop) {
     return (
       <aside
-        className="files-browse-panel w-80 xl:w-[22rem] shrink-0 border-r border-white/10 bg-[#0a0a0f] flex flex-col min-h-0"
+        className="files-browse-panel w-80 xl:w-[22rem] shrink-0 border-r border-border-glass bg-bg flex flex-col min-h-0 gap-3"
         aria-label="Files browse"
       >
-        <div className="shrink-0 p-4 border-b border-white/10 space-y-3">
+        <div className="files-browse-toolbar files-action-bar shrink-0 p-4 border-b border-border-glass space-y-3">
           <button
             type="button"
             onClick={onNewFile}
@@ -72,7 +67,7 @@ export function TagRail({
             className="w-full btn btn-primary py-2.5 text-sm flex items-center justify-center gap-2"
           >
             <Plus className="h-4 w-4" />
-            Capture file
+            Add File
           </button>
 
           <div className="flex gap-2">
@@ -84,7 +79,7 @@ export function TagRail({
               <Inbox className="h-4 w-4 shrink-0" />
               <span>Review</span>
               {reviewCount > 0 && (
-                <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#ff3366] text-[10px] font-bold text-white flex items-center justify-center">
+                <span className="nav-count-badge">
                   {reviewCount > 99 ? "99+" : reviewCount}
                 </span>
               )}
@@ -103,42 +98,42 @@ export function TagRail({
           <TagMultiSelect
             tags={tags}
             selected={selectedTags}
-            onChange={handleTagsChange}
-            disabled={filter.kind === "review"}
+            onChange={onTagFilterChange}
+            disabled={tagFilterDisabled}
           />
 
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />
             <input
               type="search"
               value={searchQuery}
               onChange={(e) => onSearchQueryChange?.(e.target.value)}
               placeholder="Search files…"
-              className="w-full bg-[#111114] border border-white/10 rounded-xl pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:border-[#c084fc]/40 placeholder:text-[#52525b]"
+              className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint"
               aria-label="Search files"
             />
             {searching && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-[#c084fc]" />
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-neon-purple" />
             )}
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col">{listContent}</div>
+        <div className="files-browse-list-shell flex-1 min-h-0 flex flex-col">{listContent}</div>
       </aside>
     );
   }
 
   const itemClass = (active: boolean) =>
     cn(
-      "w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition text-left",
+      "files-mode-button w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition text-left",
       active
-        ? "bg-[#c084fc]/15 text-[#e9d5ff] border border-[#c084fc]/30"
-        : "text-[#a1a1aa] hover:bg-white/5 hover:text-white border border-transparent",
+        ? "files-mode-button--active bg-neon-purple/15 text-neon-purple-tint border border-neon-purple/30"
+        : "text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-transparent",
     );
 
   return (
-    <aside className="files-tag-rail w-52 sm:w-56 shrink-0 border-r border-white/10 bg-[#0a0a0f] flex flex-col min-h-0">
-      <div className="files-tag-rail__new-file p-3 border-b border-white/10">
+    <aside className="files-tag-rail w-52 sm:w-56 shrink-0 border-r border-border-glass bg-bg flex flex-col min-h-0">
+      <div className="files-tag-rail__new-file p-3 border-b border-border-glass">
         <button
           type="button"
           onClick={onNewFile}
@@ -159,7 +154,7 @@ export function TagRail({
           <Inbox className="h-4 w-4 shrink-0" />
           <span className="flex-1">Review</span>
           {reviewCount > 0 && (
-            <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#ff3366] text-[10px] font-bold text-white flex items-center justify-center">
+            <span className="nav-count-badge">
               {reviewCount > 99 ? "99+" : reviewCount}
             </span>
           )}

@@ -25,7 +25,7 @@ interface TaskListProps {
 export function TaskList({ filteredTasks, renderTaskRow }: TaskListProps) {
   if (filteredTasks.length === 0) {
     return (
-      <div className="text-center py-8 md:py-16 text-[#71717a] text-sm">
+      <div className="text-center py-8 md:py-16 text-text-muted text-sm">
         No tasks match your filters.
       </div>
     );

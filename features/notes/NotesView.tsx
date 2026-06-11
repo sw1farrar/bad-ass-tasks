@@ -7,7 +7,7 @@
 // Fixed 2026-05-29.
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Star, ChevronRight, ChevronDown, Paperclip, Loader2 } from "lucide-react";
+import { Star, ChevronRight, ChevronDown, Paperclip, Loader2, Trash2 } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
 import {
@@ -28,7 +28,7 @@ import {
   useNoteAttachmentCounts,
 } from "./hooks";
 import { cn } from "@/lib/utils";
-import { ConfirmationModal } from "@/components/ConfirmationModal";
+
 import {
   ensureAncestryExpanded,
   ensureMobileTreeContext,
@@ -40,6 +40,7 @@ import {
   sortNotesByOpenTaskUrgency,
 } from "./lib/noteLinkedTaskStats";
 import { buildNoteSubtreeCounts } from "./lib/noteSubtreeCount";
+import { resolveNoteEditorContent } from "@/lib/notes/resolveNoteEditorContent";
 import "./notes-workspace.css";
 
 interface NotesViewProps {
@@ -62,7 +63,6 @@ interface NotesViewProps {
   // Database Blocks (M2 parallel work)
   onOpenNote?: (noteId: string) => void;
 
-  onCreateSubNote?: (parentNoteId: string, title?: string) => Promise<string | null>; // Milestone 2 hierarchy
   /** Current workspace id — used for attachment counts even when notes[] is still empty */
   workspaceId?: string;
   isLive: boolean;
@@ -87,6 +87,14 @@ interface NotesViewProps {
   requestTitleSnapshot?: () => void;
   /** When detail-only, parent shell (Files view) owns list + tag rail. */
   shellMode?: "full" | "detail-only";
+  /** Read-only file preview (Files browse column). Editing opens the capture modal. */
+  previewMode?: boolean;
+  /** Opens the full file editor modal (e.g. from mobile preview). */
+  onRequestEdit?: (noteId: string) => void;
+  /** Parent-provided counts (e.g. Files view) to avoid a duplicate workspace fetch */
+  attachmentCounts?: Record<string, number>;
+  attachmentCountsLoading?: boolean;
+  onAttachmentCountChange?: (noteId: string, count: number) => void;
 }
 
 export function NotesView({
@@ -105,7 +113,6 @@ export function NotesView({
   onToggleTaskStatus,
   onToggleTaskComplete,
   onUpdateTask,
-  onCreateSubNote,
   onOpenNote,
   workspaceId: workspaceIdProp,
   isLive,
@@ -119,8 +126,14 @@ export function NotesView({
   requestSnapshot: _requestSnapshot,
   requestTitleSnapshot: _requestTitleSnapshot,
   shellMode = "full",
+  previewMode = false,
+  onRequestEdit,
+  attachmentCounts: attachmentCountsProp,
+  attachmentCountsLoading: attachmentCountsLoadingProp,
+  onAttachmentCountChange,
 }: NotesViewProps) {
   const detailOnly = shellMode === "detail-only";
+  const isPreview = previewMode && detailOnly;
   const [isCreating, setIsCreating] = useState(false);
   const [showOpenTasksOnly, setShowOpenTasksOnly] = useState(false);
 
@@ -128,7 +141,6 @@ export function NotesView({
   // NoteHeader receives autoFocusTitle={true} for that id and will focus+select the title input,
   // then call onTitleAutoFocusDone so we can clear the flag. This gives "create → start typing title" UX.
   const [pendingAutoFocusTitleId, setPendingAutoFocusTitleId] = useState<string | null>(null);
-  const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null);
   const [mobileDraft, setMobileDraft] = useState<{ title: string; content: string } | null>(null);
   const [isSavingMobileNote, setIsSavingMobileNote] = useState(false);
   const openedNoteSnapshotRef = useRef<{
@@ -160,16 +172,17 @@ export function NotesView({
   const { searchQuery, setSearchQuery, filteredNotes, isSearching } = useNoteSearch(notes);
 
   const workspaceId = workspaceIdProp || notes[0]?.workspaceId;
-  const {
-    counts: attachmentCounts,
-    loading: attachmentCountsLoading,
-    setNoteCount,
-    refresh: refreshAttachmentCounts,
-  } = useNoteAttachmentCounts(workspaceId);
+  const internalAttachmentCounts = useNoteAttachmentCounts(workspaceId);
+  const attachmentCounts = attachmentCountsProp ?? internalAttachmentCounts.counts;
+  const attachmentCountsLoading =
+    attachmentCountsLoadingProp ?? internalAttachmentCounts.loading;
+  const setNoteCount = onAttachmentCountChange ?? internalAttachmentCounts.setNoteCount;
+  const refreshAttachmentCounts = internalAttachmentCounts.refresh;
 
   useEffect(() => {
+    if (attachmentCountsProp) return;
     if (isLive) refreshAttachmentCounts();
-  }, [isLive, notes.length, refreshAttachmentCounts]);
+  }, [isLive, notes.length, refreshAttachmentCounts, attachmentCountsProp]);
 
   const displayNotes = useMemo(() => {
     if (!showOpenTasksOnly) return filteredNotes;
@@ -362,8 +375,11 @@ export function NotesView({
   // this note, start reading from the top" behavior in world-class apps.
   React.useEffect(() => {
     if (!selectedNoteId) return;
-    if (detailScrollRef.current) {
-      detailScrollRef.current.scrollTo({ top: 0, behavior: "auto" });
+    const root = detailScrollRef.current;
+    if (root) {
+      const scrollTarget =
+        root.querySelector<HTMLElement>(".notes-files-preview-body") ?? root;
+      scrollTarget.scrollTo({ top: 0, behavior: "auto" });
     }
     const drawerBody = document.querySelector(".notes-drawer-body");
     drawerBody?.scrollTo({ top: 0, behavior: "auto" });
@@ -421,10 +437,10 @@ export function NotesView({
     // Parents feel primary, children secondary, grandchildren tertiary.
     // This + the thread lines + indentation makes the tree instantly scannable.
     const titleColor = depth === 0 
-      ? "text-[#f4f4f5]" 
+      ? "text-text-primary" 
       : depth === 1 
-        ? "text-[#e5e5e7]" 
-        : "text-[#d4d4d8]";
+        ? "text-text-primary" 
+        : "text-text-soft";
 
     const metaOpacity = depth === 0 ? "opacity-100" : depth === 1 ? "opacity-90" : "opacity-75";
 
@@ -438,14 +454,14 @@ export function NotesView({
     // - Below the title: a clean meta/controls bar that splits left (timestamp + links) / right (count+chevron + delete).
     // This makes long titles feel luxurious and uses every pixel.
     const bodyClass = cn(
-      "group note-tree-body cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c084fc]/70 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a0a0f]",
+      "group note-tree-body cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/70 focus-visible:ring-offset-1 focus-visible:ring-offset-bg",
       depth > 0
-        ? `px-3 py-2 border-none rounded-lg ${isSelected ? "bg-white/6 ring-1 ring-[#c084fc]/20" : "bg-transparent"}`
+        ? `px-3 py-2 border-none rounded-lg ${isSelected ? "bg-surface-hover ring-1 ring-neon-purple/20" : "bg-transparent"}`
         : suppressOwnBorder
-          ? `px-3 py-2.5 sm:py-2 rounded-none border-none ${isSelected ? "bg-white/6 ring-1 ring-[#c084fc]/20" : "bg-transparent"}`
+          ? `px-3 py-2.5 sm:py-2 rounded-none border-none ${isSelected ? "bg-surface-hover ring-1 ring-neon-purple/20" : "bg-transparent"}`
           : "px-3 py-2.5 sm:py-2 rounded-xl border " + (isSelected
-            ? "bg-white/6 border-white/10 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] ring-1 ring-[#c084fc]/20"
-            : "hover:bg-white/4 border-transparent active:bg-white/5"),
+            ? "bg-surface-hover border-border-glass shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] ring-1 ring-neon-purple/20"
+            : "hover:bg-surface-overlay border-transparent active:bg-surface-hover"),
       familyRowClass,
     );
 
@@ -492,10 +508,10 @@ export function NotesView({
                 onToggleChildren?.(note.id);
               }}
               className={cn(
-                "note-tree-subtree-toggle ml-auto flex shrink-0 items-center rounded-md transition-all focus-visible:ring-1 focus-visible:ring-[#c084fc]/50",
+                "note-tree-subtree-toggle ml-auto flex shrink-0 items-center rounded-md transition-all focus-visible:ring-1 focus-visible:ring-neon-purple/50",
                 isMobile
                   ? "note-tree-subtree-toggle--mobile gap-1 px-2 py-1 text-[11px] font-medium"
-                  : "gap-0.5 px-1.5 py-0.5 text-[10px] tabular-nums text-[#71717a]/70 hover:text-[#c084fc] hover:bg-white/10 active:bg-white/15",
+                  : "gap-0.5 px-1.5 py-0.5 text-[10px] tabular-nums text-text-muted/70 hover:text-neon-purple hover:bg-surface-hover active:bg-bg-tertiary",
               )}
               aria-label={
                 isOpen
@@ -539,7 +555,7 @@ export function NotesView({
 
         {/* META BAR — timestamp and links only */}
         <div className="flex w-full min-w-0 items-center gap-2 text-[10px] -ml-3 -mr-3 pl-3 pr-3 py-0.5 -my-0.5">
-          <div className={`flex items-center gap-2 text-[#71717a] tabular-nums min-w-0 ${metaOpacity}`}>
+          <div className={`flex items-center gap-2 text-text-muted tabular-nums min-w-0 ${metaOpacity}`}>
             {new Date(note.updatedAt || note.createdAt).toLocaleString([], {
               month: "short",
               day: "numeric",
@@ -550,7 +566,7 @@ export function NotesView({
             <NoteLinkedTaskBadge stats={linkedTaskStats} compact />
             {attachmentCount > 0 && (
               <span
-                className="inline-flex items-center gap-0.5 text-[#c084fc]/85"
+                className="inline-flex items-center gap-0.5 text-neon-purple/85"
                 title={`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
               >
                 <Paperclip className="h-3 w-3 shrink-0" aria-hidden />
@@ -561,7 +577,7 @@ export function NotesView({
             )}
             {getBacklinkCount(notes, note.id) > 0 && (
               <span
-                className="text-[#00ff9f]/80 hover:text-[#00ff9f] cursor-pointer transition-colors"
+                className="text-neon-green/80 hover:text-neon-green cursor-pointer transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   const backlinkers = getBacklinkNotes(notes, note.id);
@@ -819,12 +835,61 @@ export function NotesView({
   const renderNoteDetail = (compact?: boolean) => {
     if (!selectedNote) return null;
 
-    const selectedDepth = getNoteDepth(selectedNote.id);
-    const canCreateSub = !!onCreateSubNote && selectedDepth < 2;
     const draftNote =
       compact && mobileDraft
         ? { ...selectedNote, title: mobileDraft.title, content: mobileDraft.content }
         : selectedNote;
+
+    const filesDesktopPreview = isPreview && !compact;
+    const editorContent = resolveNoteEditorContent(draftNote);
+    const previewHeader = filesDesktopPreview ? (
+      <>
+        <div className="notes-preview-header-row">
+          <h1 className="notes-preview-title">{draftNote.title || "Untitled"}</h1>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleDeleteNote(selectedNote.id);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className="notes-preview-delete-btn"
+            aria-label="Delete this file"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            Delete
+          </button>
+        </div>
+        {(draftNote.memo ||
+          (draftNote.tags ?? []).filter((t) => t !== "from-email").length > 0 ||
+          draftNote.recordType) && (
+          <div className="notes-preview-meta">
+            {draftNote.recordType && (
+              <span className="notes-preview-meta__chip notes-preview-meta__chip--record-type">
+                {draftNote.recordType}
+              </span>
+            )}
+            {(draftNote.tags ?? [])
+              .filter((t) => t !== "from-email")
+              .map((tag) => (
+                <span key={tag} className="notes-preview-meta__chip">
+                  {tag}
+                </span>
+              ))}
+            {draftNote.memo && (
+              <span className="notes-preview-meta__chip normal-case tracking-normal">
+                {draftNote.memo}
+              </span>
+            )}
+          </div>
+        )}
+      </>
+    ) : undefined;
+
+    const openPreviewEditor =
+      filesDesktopPreview && onRequestEdit && selectedNote
+        ? () => onRequestEdit(selectedNote.id)
+        : undefined;
 
     return (
       <div
@@ -833,135 +898,188 @@ export function NotesView({
           "notes-editor-scroll",
           compact
             ? "notes-editor-scroll--drawer notes-drawer-content"
-            : "flex-1 overflow-y-auto min-h-0",
+            : filesDesktopPreview
+              ? "flex flex-1 flex-col min-h-0 overflow-hidden"
+              : "flex-1 overflow-y-auto min-h-0",
+          filesDesktopPreview && "notes-editor-scroll--files-preview notes-files-preview-editable",
         )}
+        onDoubleClick={openPreviewEditor}
+        title={openPreviewEditor ? "Double-click to edit this file" : undefined}
       >
         <div
           className={cn(
-            "note-content-card w-full overflow-x-hidden flex flex-col",
-            compact ? "rounded-none border-0 mb-0" : "rounded-xl border mb-4",
+            "note-content-card w-full flex flex-col",
+            compact ? "rounded-none border-0 mb-0 overflow-x-hidden" : filesDesktopPreview ? "flex-1 min-h-0 rounded-xl border mb-0" : "rounded-xl border mb-4 overflow-x-hidden",
+            filesDesktopPreview && "note-content-card--files-preview files-preview-hero",
           )}
         >
-          <NoteHeader
-            selectedNote={draftNote}
-            onTitleChange={(value) => {
-              if (compact) {
-                setMobileDraft((prev) => (prev ? { ...prev, title: value } : prev));
-                return;
-              }
-              onUpdateNote(selectedNote.id, { title: value });
-            }}
-            onDelete={() => handleDeleteNote(selectedNote.id)}
-            linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
-            backlinkCount={getBacklinkCount(notes, selectedNote.id)}
-            onCreateSubNote={
-              canCreateSub
-                ? () => {
-                    onCreateSubNote(selectedNote.id).then((newId) => {
-                      if (newId) {
-                        onSelectNote(newId);
-                        setPendingAutoFocusTitleId(newId);
-                      }
-                    });
-                  }
-                : undefined
-            }
-            autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
-            onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
-            compact={compact}
-            drawer={compact}
-          />
+          {!filesDesktopPreview && (
+            <NoteHeader
+              selectedNote={draftNote}
+              onTitleChange={(value) => {
+                if (compact) {
+                  setMobileDraft((prev) => (prev ? { ...prev, title: value } : prev));
+                  return;
+                }
+                onUpdateNote(selectedNote.id, { title: value });
+              }}
+              onDelete={() => handleDeleteNote(selectedNote.id)}
+              linkedTaskStats={getNoteLinkedTaskStats(selectedNote, tasks)}
+              backlinkCount={getBacklinkCount(notes, selectedNote.id)}
+              autoFocusTitle={pendingAutoFocusTitleId === selectedNote.id}
+              onTitleAutoFocusDone={() => setPendingAutoFocusTitleId(null)}
+              compact={compact}
+              drawer={compact}
+            />
+          )}
           <TipTapEditor
             key={selectedNote.id}
             noteId={selectedNote.id}
             className="!rounded-none !border-0 bg-transparent"
-            content={draftNote.content}
-            onChange={(newContent) => {
-              if (compact) {
-                setMobileDraft((prev) =>
-                  prev && newContent !== prev.content ? { ...prev, content: newContent } : prev,
-                );
-                return;
-              }
-              if (newContent === selectedNote.content) return;
-              onUpdateNote(selectedNote.id, { content: newContent });
-            }}
-            tasks={tasks}
-            onOpenTask={onOpenTask}
-            onCreateTaskAndEmbed={onCreateTaskAndEmbed}
-            onToggleStatus={onToggleTaskStatus}
-            onUpdateTask={onUpdateTask}
-            onLinkNoteToNote={onLinkNoteToNote}
+            content={editorContent}
+            onChange={
+              isPreview
+                ? undefined
+                : (newContent) => {
+                    if (compact) {
+                      setMobileDraft((prev) =>
+                        prev && newContent !== prev.content ? { ...prev, content: newContent } : prev,
+                      );
+                      return;
+                    }
+                    if (newContent === selectedNote.content) return;
+                    onUpdateNote(selectedNote.id, { content: newContent });
+                  }
+            }
+            readOnly={isPreview && !compact}
+            previewHeader={previewHeader}
+            stickyPreviewChrome={filesDesktopPreview}
+            tasks={isPreview ? [] : tasks}
+            onOpenTask={isPreview ? undefined : onOpenTask}
+            onCreateTaskAndEmbed={isPreview ? undefined : onCreateTaskAndEmbed}
+            onToggleStatus={isPreview ? undefined : onToggleTaskStatus}
+            onUpdateTask={isPreview ? undefined : onUpdateTask}
+            onLinkNoteToNote={isPreview ? undefined : onLinkNoteToNote}
             onOpenNote={onOpenNote}
             notes={notes}
-            linkedItems={(selectedNote.linkedTaskIds || [])
-              .map((taskId) => {
-                const t = tasks.find((tt) => tt.id === taskId);
-                return t ? { id: t.id, title: t.title, type: "task" as const } : null;
-              })
-              .filter(Boolean) as Array<{ id: string; title: string; type: "task" | "note" }>}
-            linkableItems={[
-              ...notes
-                .filter((n) => n.id !== selectedNote.id)
-                .map((n) => ({ id: n.id, title: n.title || "Untitled Note", type: "note" as const })),
-              ...tasks.map((t) => ({ id: t.id, title: t.title, type: "task" as const })),
-            ]}
-            backlinks={computedBacklinks}
-            onMentionLinked={
-              onMentionLinked ||
-              ((item) => {
-                if (item.type === "task") {
-                  onLinkTaskToNote?.(selectedNote.id, item.id);
-                } else if (item.type === "note") {
-                  onLinkNoteToNote?.(selectedNote.id, item.id);
-                }
-              })
+            linkedItems={
+              isPreview
+                ? []
+                : ((selectedNote.linkedTaskIds || [])
+                    .map((taskId) => {
+                      const t = tasks.find((tt) => tt.id === taskId);
+                      return t ? { id: t.id, title: t.title, type: "task" as const } : null;
+                    })
+                    .filter(Boolean) as Array<{ id: string; title: string; type: "task" | "note" }>)
             }
-            onMentionsChanged={onMentionsChangedProp || onMentionsChanged}
-            onRemoveLinked={onRemoveLinked}
-            onRemoveBacklink={onRemoveBacklink}
+            linkableItems={
+              isPreview
+                ? []
+                : [
+                    ...notes
+                      .filter((n) => n.id !== selectedNote.id)
+                      .map((n) => ({
+                        id: n.id,
+                        title: n.title || "Untitled Note",
+                        type: "note" as const,
+                      })),
+                    ...tasks.map((t) => ({ id: t.id, title: t.title, type: "task" as const })),
+                  ]
+            }
+            backlinks={isPreview ? [] : computedBacklinks}
+            onMentionLinked={
+              isPreview
+                ? undefined
+                : onMentionLinked ||
+                  ((item) => {
+                    if (item.type === "task") {
+                      onLinkTaskToNote?.(selectedNote.id, item.id);
+                    } else if (item.type === "note") {
+                      onLinkNoteToNote?.(selectedNote.id, item.id);
+                    }
+                  })
+            }
+            onMentionsChanged={isPreview ? undefined : onMentionsChangedProp || onMentionsChanged}
+            onRemoveLinked={isPreview ? undefined : onRemoveLinked}
+            onRemoveBacklink={isPreview ? undefined : onRemoveBacklink}
             compactToolbar={compact}
             belowToolbar={
               isLive ? (
                 <NoteAttachmentsPanel
                   embedded
                   compact={compact}
+                  previewCompact={filesDesktopPreview}
                   selectedNote={selectedNote}
                   countHint={attachmentCounts[selectedNote.id]}
                   countsReady={!attachmentCountsLoading}
                   onCountChange={setNoteCount}
+                  readOnly={isPreview}
+                />
+              ) : undefined
+            }
+            belowScrollContent={
+              filesDesktopPreview ? (
+                <LinkedTasksPanel
+                  selectedNote={selectedNote}
+                  tasks={tasks}
+                  onLinkTaskToNote={onLinkTaskToNote}
+                  onUnlinkTaskFromNote={onUnlinkTaskFromNote}
+                  onOpenTask={onOpenTask}
+                  onToggleTaskComplete={onToggleTaskComplete}
+                  previewMode
                 />
               ) : undefined
             }
           />
         </div>
 
-        <LinkedTasksPanel
-          selectedNote={selectedNote}
-          tasks={tasks}
-          onLinkTaskToNote={onLinkTaskToNote}
-          onUnlinkTaskFromNote={onUnlinkTaskFromNote}
-          onOpenTask={onOpenTask}
-          onToggleTaskComplete={onToggleTaskComplete}
-          onCreateTaskAndLink={onCreateTaskAndLink}
-          compact={compact}
-        />
+        {!filesDesktopPreview && !isPreview ? (
+          <LinkedTasksPanel
+            selectedNote={selectedNote}
+            tasks={tasks}
+            onLinkTaskToNote={onLinkTaskToNote}
+            onUnlinkTaskFromNote={onUnlinkTaskFromNote}
+            onOpenTask={onOpenTask}
+            onToggleTaskComplete={onToggleTaskComplete}
+            onCreateTaskAndLink={onCreateTaskAndLink}
+            compact={compact}
+          />
+        ) : null}
+
+        {isPreview && !compact && !filesDesktopPreview && (
+          <div className="notes-preview-hint flex flex-col items-center gap-2">
+            <p>
+              {isMobile
+                ? "Tap Edit to change this file"
+                : "Double-click the preview or a file in the list to edit"}
+            </p>
+            {isMobile && onRequestEdit && selectedNote && (
+              <button
+                type="button"
+                onClick={() => onRequestEdit(selectedNote.id)}
+                className="btn btn-primary px-4 py-2 text-sm"
+              >
+                Edit file
+              </button>
+            )}
+          </div>
+        )}
 
         {compact && (
           <div className="notes-drawer-delete px-0 pt-2 pb-4">
             <button
               type="button"
-              onClick={() => setPendingDeleteNoteId(selectedNote.id)}
+              onClick={() => void handleDeleteNote(selectedNote.id)}
               className={cn(
                 "w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight",
-                "text-white bg-gradient-to-r from-[#9f1239] via-[#be123c] to-[#e11d48]",
-                "border border-[#fb7185]/35 shadow-[0_8px_24px_rgba(190,18,57,0.28)]",
-                "hover:from-[#881337] hover:via-[#9f1239] hover:to-[#be123c]",
+                "text-accent-on bg-gradient-to-r from-[var(--priority-p0)] via-[var(--priority-p0)] to-[var(--priority-p0)]",
+                "border border-[var(--priority-p0)]/35 shadow-[0_8px_24px_rgba(190,18,57,0.28)]",
+                "hover:from-[#881337] hover:via-[#9f1239] hover:to-[var(--priority-p0)]",
                 "active:scale-[0.98] transition",
               )}
-              aria-label="Delete note"
+              aria-label={isPreview ? "Delete file" : "Delete note"}
             >
-              Delete note
+              {isPreview ? "Delete file" : "Delete note"}
             </button>
           </div>
         )}
@@ -972,7 +1090,7 @@ export function NotesView({
   return (
     <div className={cn("flex h-full min-h-0 overflow-hidden notes-root", mobileLayoutClass)}>
       {!detailOnly && (
-      <div className="notes-sidebar w-56 sm:w-64 md:w-72 border-r border-white/10 flex flex-col bg-[#0a0a0f] flex-shrink-0 overflow-hidden overflow-x-hidden min-h-0">
+      <div className="notes-sidebar w-56 sm:w-64 md:w-72 border-r border-border-glass flex flex-col bg-bg flex-shrink-0 overflow-hidden overflow-x-hidden min-h-0">
         <NotesSidebarHeader
           showOpenTasksOnly={showOpenTasksOnly}
           onToggleOpenTasksOnly={() => setShowOpenTasksOnly((prev) => !prev)}
@@ -983,24 +1101,24 @@ export function NotesView({
         />
 
         {/* Search — clean, no icon, full modern treatment */}
-        <div className="notes-sidebar-search px-3 py-2 border-b border-white/10">
+        <div className="notes-sidebar-search px-3 py-2 border-b border-border-glass">
           <input
             type="text"
             placeholder="Search notes..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#111114] border border-white/10 rounded-xl pl-3 pr-3 py-2 text-sm focus:outline-none focus:border-[#c084fc]/40 focus:ring-1 focus:ring-[#c084fc]/20 placeholder:text-[#52525b] transition-all touch-manipulation"
+            className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-3 pr-3 py-2 text-sm focus:outline-none focus:border-neon-purple/40 focus:ring-1 focus:ring-neon-purple/20 placeholder:text-text-faint transition-all touch-manipulation"
             aria-label="Search notes"
           />
         </div>
 
         {isLive && attachmentCountsLoading && displayNotes.length > 0 && (
           <div
-            className="flex items-center gap-1.5 border-b border-white/5 px-3 py-1.5 text-[10px] text-[#71717a]"
+            className="flex items-center gap-1.5 border-b border-border-glass/60 px-3 py-1.5 text-[10px] text-text-muted"
             role="status"
             aria-live="polite"
           >
-            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#c084fc]/70" aria-hidden />
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-neon-purple/70" aria-hidden />
             <span>Loading attachment indicators for {displayNotes.length} note{displayNotes.length === 1 ? "" : "s"}…</span>
           </div>
         )}
@@ -1015,7 +1133,7 @@ export function NotesView({
           data-notes-tree
         >
           {displayNotes.length === 0 && (
-            <div className="px-4 py-8 text-center text-[#71717a] text-sm">
+            <div className="px-4 py-8 text-center text-text-muted text-sm">
               {showOpenTasksOnly
                 ? searchQuery
                   ? "No notes with open tasks match your search."
@@ -1079,25 +1197,29 @@ export function NotesView({
         ) : (
           <div className="flex-1 flex items-center justify-center text-center p-12">
             <div>
-              <div className="text-[#c084fc] mb-4">
+              <div className="text-neon-purple mb-4">
                 <Star className="h-10 w-10 mx-auto" />
               </div>
               <div className="text-xl font-semibold tracking-tight mb-2">
                 {detailOnly ? "No file selected" : "No note selected"}
               </div>
-              <div className="text-[#71717a] max-w-xs mx-auto">
+              <div className="text-text-muted max-w-xs mx-auto">
                 {detailOnly
-                  ? "Select a file from the list or open Review to approve incoming records."
+                  ? isPreview
+                    ? "Select a file from the list to preview it. Double-click to edit."
+                    : "Select a file from the list or open Review to approve incoming records."
                   : "Select a note from the list or create a new one to start writing with the full TipTap editor."}
               </div>
-              <button
-                onClick={handleCreateNote}
-                disabled={isCreating}
-                className="mt-6 btn btn-primary px-5 py-2 text-sm"
-              >
-                {isCreating ? "Creating..." : "Create new note"}
-              </button>
-              <div className="mt-3 text-[10px] text-[#71717a] font-mono">
+              {!detailOnly && (
+                <button
+                  onClick={handleCreateNote}
+                  disabled={isCreating}
+                  className="mt-6 btn btn-primary px-5 py-2 text-sm"
+                >
+                  {isCreating ? "Creating..." : "Create new note"}
+                </button>
+              )}
+              <div className="mt-3 text-[10px] text-text-muted font-mono">
                 Tip: Use ⌘K for quick actions anywhere
               </div>
             </div>
@@ -1116,21 +1238,7 @@ export function NotesView({
         </NoteMobileDrawer>
       )}
 
-      <ConfirmationModal
-        open={!!pendingDeleteNoteId}
-        onOpenChange={(open) => !open && setPendingDeleteNoteId(null)}
-        title="Delete this note?"
-        highlight={selectedNote?.title || "Untitled Note"}
-        description="This note and its content will be permanently removed. Linked tasks will stay in your workspace."
-        confirmText="Delete note"
-        variant="destructive"
-        onConfirm={async () => {
-          if (!pendingDeleteNoteId) return;
-          await handleDeleteNote(pendingDeleteNoteId);
-          setPendingDeleteNoteId(null);
-          onSelectNote(null);
-        }}
-      />
+
     </div>
   );
 }

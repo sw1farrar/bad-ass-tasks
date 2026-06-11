@@ -81,14 +81,14 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
       case "P0": return "text-red-400 bg-red-500/10 border-red-500/30";
       case "P1": return "text-orange-400 bg-orange-500/10 border-orange-500/30";
       case "P2": return "text-yellow-400 bg-yellow-500/10 border-yellow-500/30";
-      default: return "text-[#71717a] bg-white/5 border-white/20";
+      default: return "text-text-muted bg-surface-hover border-border-glass";
     }
   };
 
   const getStatusColor = (s?: string) => {
     if (s === "done") return "text-emerald-400";
-    if (s === "doing") return "text-[#c084fc]";
-    return "text-[#71717a]";
+    if (s === "doing") return "text-neon-purple";
+    return "text-text-muted";
   };
 
   return (
@@ -99,16 +99,16 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
         isDeleted 
           ? "bg-red-950/30 border-red-500/40 opacity-70" 
           : isDone 
-            ? "bg-[#0a0a0f]/70 border-emerald-500/30 opacity-80" 
-            : "bg-[#0a0a0f] border-white/10 hover:border-white/20 hover:bg-[#111114]",
-        selected && !isDone && !isDeleted && "border-[#c084fc] shadow-[0_0_0_1px_#c084fc]"
+            ? "bg-bg/70 border-emerald-500/30 opacity-80" 
+            : "bg-bg border-border-glass hover:border-border-glass hover:bg-bg-secondary",
+        selected && !isDone && !isDeleted && "border-neon-purple shadow-[0_0_0_1px_#c084fc]"
       )}
       data-task-id={taskId}
       onClick={handleClick}
     >
       <div className="flex items-start gap-3 p-4">
         {/* Icon */}
-        <div className={cn("mt-0.5", isDone ? "text-emerald-400" : "text-[#c084fc]")}>
+        <div className={cn("mt-0.5", isDone ? "text-emerald-400" : "text-neon-purple")}>
           {isDone ? <CheckSquare className="h-5 w-5" /> : <CheckSquare className="h-5 w-5" />}
         </div>
 
@@ -116,7 +116,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
         <div className="flex-1 min-w-0">
           <div 
             className={cn(
-              "font-semibold text-[15px] leading-tight tracking-[-0.2px] text-[#f4f4f5] group/title",
+              "font-semibold text-[15px] leading-tight tracking-[-0.2px] text-text-primary group/title",
               isDone && "line-through opacity-60"
             )}
             onDoubleClick={(e) => {
@@ -150,7 +150,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
                     setEditingTitle(title || "");
                   }
                 }}
-                className="bg-transparent border border-[#c084fc]/50 rounded px-1 py-0.5 w-full text-inherit focus:outline-none focus:border-[#c084fc]"
+                className="bg-transparent border border-neon-purple/50 rounded px-1 py-0.5 w-full text-inherit focus:outline-none focus:border-neon-purple"
                 autoFocus
                 onClick={(e) => e.stopPropagation()}
               />
@@ -164,7 +164,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
                       setIsEditingTitle(true);
                       setEditingTitle(title || "");
                     }}
-                    className="ml-1 opacity-0 group-hover/title:opacity-50 hover:opacity-100 text-[#c084fc] text-[10px] cursor-pointer"
+                    className="ml-1 opacity-0 group-hover/title:opacity-50 hover:opacity-100 text-neon-purple text-[10px] cursor-pointer"
                   >
                     ✎
                   </span>
@@ -205,7 +205,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
 
             {/* Due date - now editable */}
             <div 
-              className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#71717a] hover:border-white/30 cursor-pointer"
+              className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-border-glass text-text-muted hover:border-border-glass cursor-pointer"
               onClick={async (e) => {
                 e.stopPropagation();
                 if (!taskId || !onUpdateTask) return;
@@ -236,14 +236,14 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
 
             {/* Linked notes count */}
             {linkedNoteCount > 0 && (
-              <div className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#c084fc] text-[10px]">
+              <div className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-border-glass text-neon-purple text-[10px]">
                 📝 {linkedNoteCount}
               </div>
             )}
 
             {assignee && (
               <div
-                className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-white/10 text-[#71717a] text-[10px]"
+                className="flex items-center gap-1 rounded-md px-2 py-0.5 border border-border-glass text-text-muted text-[10px]"
                 title={`Assigned to ${assignee}`}
               >
                 👤 {assignee}
@@ -251,7 +251,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
             )}
 
             {taskId && (
-              <div className="ml-auto text-[10px] font-mono text-[#71717a] opacity-60">
+              <div className="ml-auto text-[10px] font-mono text-text-muted opacity-60">
                 #{taskId.slice(0, 8)}
               </div>
             )}
@@ -260,7 +260,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
       </div>
 
       {/* Footer hint */}
-      <div className="border-t border-white/10 bg-[#111114]/60 px-4 py-2 text-[10px] text-[#71717a] flex items-center gap-2">
+      <div className="border-t border-border-glass bg-bg-secondary/60 px-4 py-2 text-[10px] text-text-muted flex items-center gap-2">
         {isDeleted ? (
           <>
             <span className="text-red-400 font-semibold">⚠ Task deleted/archived</span>
@@ -279,7 +279,7 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
         ) : (
           <>
             <span>Embedded Task</span>
-            <span className="text-[#c084fc]">(click card to open • click status to toggle • dbl-click title)</span>
+            <span className="text-neon-purple">(click card to open • click status to toggle • dbl-click title)</span>
           </>
         )}
       </div>

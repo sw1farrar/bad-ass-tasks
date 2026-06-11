@@ -25,15 +25,15 @@ export function TaskAssigneePicker({
 
   return (
     <div>
-      <div className={cn("text-[#71717a] flex items-center gap-2", compact ? "mb-1.5 text-xs" : "mb-2")}>
+      <div className={cn("text-text-muted flex items-center gap-2", compact ? "mb-1.5 text-xs" : "mb-2")}>
         <User className="h-4 w-4" /> {compact ? "Assignee" : "Responsible"}
       </div>
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         className={cn(
-          "w-full bg-[#111114] border border-white/10 rounded-xl px-3 text-sm focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30",
-          compact ? "py-2" : "py-2.5"
+          "input w-full px-3 text-sm focus:outline-none focus:border-neon-purple/50 focus:ring-1 focus:ring-neon-purple/30",
+          compact ? "py-2" : "py-2.5",
         )}
         aria-label="Assign task to a workspace member"
       >
@@ -45,7 +45,7 @@ export function TaskAssigneePicker({
         ))}
       </select>
       {!compact && (
-        <p className="text-[10px] text-[#71717a] mt-1.5">
+        <p className="text-[10px] text-text-muted mt-1.5">
           Who should own this task in your shared workspace.
         </p>
       )}

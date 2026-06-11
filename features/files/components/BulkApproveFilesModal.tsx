@@ -37,12 +37,15 @@ export function BulkApproveFilesModal({
 
   if (!isOpen || files.length === 0) return null;
 
+  const tags = parseTagsInput(tagsInput);
+  const canFile = tags.length > 0;
+
   const handleApprove = async () => {
+    if (!canFile) return;
     setSaving(true);
     try {
-      const tags = parseTagsInput(tagsInput);
       await onApprove({
-        tags: tags.length > 0 ? tags : ["uncategorized"],
+        tags,
         memo: memo.trim(),
       });
       onClose();
@@ -55,12 +58,12 @@ export function BulkApproveFilesModal({
     <div className="fixed inset-0 z-[280] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="absolute inset-0 overlay-scrim backdrop-blur-sm"
         onClick={onClose}
         aria-label="Close"
       />
       <div
-        className="relative w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[#0f0f12] shadow-2xl p-5"
+        className="relative w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border border-border-glass modal-panel bg-bg-panel shadow-2xl p-5"
         role="dialog"
         aria-labelledby="bulk-approve-title"
       >
@@ -71,45 +74,54 @@ export function BulkApproveFilesModal({
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-white/10 text-[#71717a]"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-surface-hover text-text-muted"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <p className="text-xs text-[#71717a] mb-4 leading-relaxed">
-          Shared tags and memo apply to every selected file. Titles and types stay as-is.
+        <p className="text-xs text-text-muted mb-4 leading-relaxed">
+          The same tags and memo are applied to every selected file. Titles and types stay as-is.
         </p>
 
-        <ul className="mb-4 max-h-32 overflow-y-auto rounded-xl border border-white/10 divide-y divide-white/5">
+        <ul className="mb-4 max-h-32 overflow-y-auto rounded-xl border border-border-glass divide-y divide-border-glass/60">
           {files.map((file) => (
-            <li key={file.id} className="px-3 py-2 text-sm text-[#e5e5e7] truncate">
+            <li key={file.id} className="px-3 py-2 text-sm text-text-primary truncate">
               {file.title || "Untitled"}
             </li>
           ))}
         </ul>
 
         <div className="space-y-3">
-          <label className="block text-xs text-[#a1a1aa]">
-            Tags (comma-separated)
+          <label className="block text-xs text-text-secondary">
+            Tags (comma-separated) <span className="text-neon-purple">(required)</span>
             <input
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               placeholder="receipt, acme, 2026"
               className="mt-1 w-full input px-3 py-2 rounded-xl text-sm"
             />
+            {!canFile && (
+              <span className="mt-1.5 block text-xs text-[var(--priority-p2)]">
+                Add at least one tag before filing.
+              </span>
+            )}
           </label>
 
-          <label className="block text-xs text-[#a1a1aa]">
-            Memo
+          <label className="block text-xs text-text-secondary">
+            Memo <span className="text-text-faint">(optional)</span>
             <textarea
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
               rows={2}
               className="mt-1 w-full input px-3 py-2 rounded-xl text-sm resize-none"
-              placeholder="Shared triage note"
+              placeholder="e.g. Q1 expenses — same line on every file"
+              aria-describedby="bulk-memo-hint"
             />
+            <span id="bulk-memo-hint" className="mt-1 block text-[10px] text-text-faint leading-snug">
+              Shown under each file&apos;s title in the list and included when you search files.
+            </span>
           </label>
         </div>
 
@@ -120,8 +132,8 @@ export function BulkApproveFilesModal({
           <button
             type="button"
             onClick={() => void handleApprove()}
-            disabled={saving}
-            className={cn("btn btn-primary flex-1 py-2.5 text-sm", saving && "opacity-60")}
+            disabled={saving || !canFile}
+            className={cn("btn btn-primary flex-1 py-2.5 text-sm", (saving || !canFile) && "opacity-60")}
           >
             {saving ? "Filing…" : `Approve ${files.length}`}
           </button>

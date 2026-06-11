@@ -19,7 +19,7 @@ import {
 } from "@/lib/notes/sanitizeInboundEmailHtml";
 import { EMAIL_PIPELINE_VERSION } from "@/lib/notes/emailPipeline";
 import { extractNoteSearchText } from "@/lib/notes/extractNoteSearchText";
-import { buildEmailSrcdoc } from "@/lib/notes/emailDocument";
+import { buildEmailShadowContent, buildEmailSrcdoc } from "@/lib/notes/emailDocument";
 
 describe("emailHtmlToTipTap", () => {
   it("strips script tags from inbound HTML", () => {
@@ -215,6 +215,28 @@ describe("emailHtmlToTipTap", () => {
     );
     expect(srcdoc).not.toContain("<script");
     expect(srcdoc).toContain("<p>Hi</p>");
+    expect(srcdoc).toContain("Content-Security-Policy");
+    expect(srcdoc).toContain("script-src 'none'");
+  });
+
+  it("buildEmailShadowContent returns sanitized shadow markup without script tags", () => {
+    const { bodyHtml, css } = buildEmailShadowContent(
+      '<p>Hi</p><script>alert("xss")</script>',
+      ".title { color: red; }",
+    );
+    expect(bodyHtml).toContain("<p>Hi</p>");
+    expect(bodyHtml.toLowerCase()).not.toContain("<script");
+    expect(css).toContain(".email-message-root");
+    expect(css).toContain("color: red");
+  });
+
+  it("buildEmailSrcdoc strips MSO conditional scripts and inline handlers", () => {
+    const srcdoc = buildEmailSrcdoc(
+      '<!--[if mso]><script>track()</script><![endif]--><img src="x" onerror="alert(1)" alt="x">',
+      "</style><script>evil()</script>",
+    );
+    expect(srcdoc.toLowerCase()).not.toContain("<script");
+    expect(srcdoc).not.toContain("onerror=");
   });
 
   it("inlineEmailStyles applies class rules to elements", () => {

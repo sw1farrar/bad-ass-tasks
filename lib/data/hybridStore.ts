@@ -17,6 +17,12 @@ import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
 import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem } from "@/types";
 import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
+import {
+  NOTE_LIST_SELECT,
+  mapNoteListRow,
+  type NoteListRow,
+} from "@/lib/files/noteListProjection";
+import { hasUserFilingTags } from "@/lib/files/fileFilters";
 import { FILE_REVIEW_FILED, FILE_REVIEW_PENDING, inferRecordTypeFromTags } from "@/lib/files/fileTypes";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
@@ -484,6 +490,7 @@ function mapNoteRow(row: NoteRow): Note {
     workspaceId: row.workspace_id,
     title: row.title,
     content: richOrPlainContent,
+    bodyHydrated: true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tags: row.tags ?? [],
@@ -1660,7 +1667,7 @@ export async function moveTask(id: string, newStatus: TaskStatus, workspaceId?: 
 // Notes CRUD (mirrors task pattern exactly for consistency)
 // ------------------------------------------------------------------
 
-/** Fetch all notes for a workspace (non-archived by default for Phase 1) */
+/** Fetch all active notes for a workspace as lightweight list projections (no heavy bodies). */
 export async function getNotes(workspaceId: string): Promise<Note[]> {
   if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
 
@@ -1680,7 +1687,7 @@ export async function getNotes(workspaceId: string): Promise<Note[]> {
   try {
     const { data, error } = await supabase
       .from("notes")
-      .select("*")
+      .select(NOTE_LIST_SELECT)
       .eq("workspace_id", workspaceId)
       .eq("is_archived", false) // Phase 1: surface only active notes
       .order("updated_at", { ascending: false });
@@ -1690,10 +1697,159 @@ export async function getNotes(workspaceId: string): Promise<Note[]> {
       return [];
     }
 
-    return (data ?? []).map(mapNoteRow);
+    return (data ?? []).map((row) => mapNoteListRow(row as NoteListRow));
   } catch (err) {
     logHybridError("getNotes", err);
     return [];
+  }
+}
+
+/** Fetch a single note with full body (content, rawHtml, snapshots) for preview/edit. */
+export async function getNoteById(noteId: string): Promise<Note | null> {
+  if (!isSupabaseLive()) return null;
+  if (!noteId || noteId.length < 5) return null;
+  if (!isCurrentlyOnline()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("notes")
+      .select("*")
+      .eq("id", noteId)
+      .maybeSingle();
+
+    if (error) {
+      logHybridError("getNoteById", error);
+      return null;
+    }
+    if (!data) return null;
+    return mapNoteRow(data as NoteRow);
+  } catch (err) {
+    logHybridError("getNoteById", err);
+    return null;
+  }
+}
+
+export interface FileListPageOptions {
+  /** ISO filed_at cursor — returns rows strictly older than this value. */
+  cursor?: string | null;
+  limit?: number;
+  reviewStatus?: FileReviewStatus;
+}
+
+export interface FileListPageResult {
+  notes: Note[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/** Cursor-paginated filed archive (list projections only). */
+export async function getFileListPage(
+  workspaceId: string,
+  options: FileListPageOptions = {},
+): Promise<FileListPageResult> {
+  const empty: FileListPageResult = { notes: [], nextCursor: null, hasMore: false };
+  if (!isSupabaseLive()) return empty;
+  if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) return empty;
+  if (!isCurrentlyOnline()) return empty;
+
+  const supabase = getClient();
+  if (!supabase) return empty;
+
+  const limit = Math.min(Math.max(options.limit ?? 80, 1), 200);
+  const reviewStatus = options.reviewStatus ?? FILE_REVIEW_FILED;
+
+  try {
+    let query = supabase
+      .from("notes")
+      .select(NOTE_LIST_SELECT)
+      .eq("workspace_id", workspaceId)
+      .eq("is_archived", false)
+      .eq("review_status", reviewStatus)
+      .order("filed_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false })
+      .limit(limit + 1);
+
+    if (options.cursor) {
+      query = query.lt("filed_at", options.cursor);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      logHybridError("getFileListPage", error);
+      return empty;
+    }
+
+    const rows = (data ?? []) as NoteListRow[];
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const notes = pageRows.map(mapNoteListRow);
+    const last = pageRows[pageRows.length - 1];
+    const nextCursor = hasMore && last?.filed_at ? last.filed_at : null;
+
+    return { notes, nextCursor, hasMore };
+  } catch (err) {
+    logHybridError("getFileListPage", err);
+    return empty;
+  }
+}
+
+/** Full notes for export/admin — includes heavy columns. */
+async function getNotesFull(workspaceId: string): Promise<Note[]> {
+  if (!isSupabaseLive()) return [];
+  if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) return [];
+  if (!isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("notes")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("is_archived", false)
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      logHybridError("getNotesFull", error);
+      return [];
+    }
+    return (data ?? []).map(mapNoteRow);
+  } catch (err) {
+    logHybridError("getNotesFull", err);
+    return [];
+  }
+}
+
+/** Count files in the review queue for a workspace — used by Home workspace tiles. */
+export async function getPendingReviewCount(workspaceId: string): Promise<number> {
+  if (!isSupabaseLive()) return 0;
+  if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) return 0;
+  if (!isCurrentlyOnline()) return 0;
+
+  const supabase = getClient();
+  if (!supabase) return 0;
+
+  try {
+    const { count, error } = await supabase
+      .from("notes")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("is_archived", false)
+      .eq("review_status", FILE_REVIEW_PENDING);
+
+    if (error) {
+      logHybridError("getPendingReviewCount", error);
+      return 0;
+    }
+
+    return count ?? 0;
+  } catch (err) {
+    logHybridError("getPendingReviewCount", err);
+    return 0;
   }
 }
 
@@ -2064,6 +2220,10 @@ export async function approveFileRecord(
     reviewedBy?: string | null;
   },
 ): Promise<boolean> {
+  if (!hasUserFilingTags(input.tags)) {
+    logHybridError("approveFileRecord", new Error("At least one tag is required to file a record"));
+    return false;
+  }
   const now = new Date().toISOString();
   return updateNote(id, {
     workspaceId: input.workspaceId,
@@ -2095,14 +2255,14 @@ export async function searchWorkspaceFiles(
 
   if (filesWorkflowAvailable) {
     try {
-      const { data, error } = await (supabase as any).rpc("search_workspace_files", {
+      const { data, error } = await (supabase as any).rpc("search_workspace_files_slim", {
         p_workspace_id: workspaceId,
         p_query: trimmed,
         p_include_pending: options?.includePending ?? false,
         p_limit: options?.limit ?? 100,
       });
       if (!error && Array.isArray(data)) {
-        return data.map((row: NoteRow) => mapNoteRow(row));
+        return (data as Array<{ id: string }>).map((row) => ({ id: row.id } as Note));
       }
       if (error && !isFilesWorkflowColumnMissing(error)) {
         logHybridError("searchWorkspaceFiles", error);
@@ -2127,6 +2287,16 @@ export async function searchWorkspaceFiles(
       .toLowerCase();
     return hay.includes(q);
   });
+}
+
+/** Server-side file search returning ids only (for API routes). */
+export async function searchWorkspaceFileIds(
+  workspaceId: string,
+  query: string,
+  options?: { includePending?: boolean; limit?: number },
+): Promise<string[]> {
+  const hits = await searchWorkspaceFiles(workspaceId, query, options);
+  return hits.map((n) => n.id);
 }
 
 /**
@@ -4039,7 +4209,7 @@ export async function exportWorkspaceData(workspaceId: string, workspaceMeta: { 
   if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return null;
   const [tasks, notes, members, activity] = await Promise.all([
     getTasks(workspaceId),
-    getNotes(workspaceId),
+    getNotesFull(workspaceId),
     getWorkspaceMembers(workspaceId),
     getRecentActivity(workspaceId, 500),
   ]);

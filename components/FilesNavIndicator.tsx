@@ -22,7 +22,7 @@ export function FilesNavIndicator({
   if (variant === "bottom") {
     return (
       <span
-        className={cn("files-nav-badge files-nav-badge--bottom", className)}
+        className={cn("nav-count-badge nav-count-badge--bottom", className)}
         aria-label={ariaLabel}
         title={ariaLabel}
       >
@@ -33,7 +33,7 @@ export function FilesNavIndicator({
 
   return (
     <span
-      className={cn("files-nav-badge files-nav-badge--sidebar", className)}
+      className={cn("nav-count-badge nav-count-badge--sidebar", className)}
       aria-label={ariaLabel}
       title={ariaLabel}
     >

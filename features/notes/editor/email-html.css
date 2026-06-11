@@ -7,7 +7,7 @@
   overflow: visible;
 }
 
-.email-html-iframe {
+.email-html-render {
   display: block;
   width: 100%;
   min-height: 1rem;
@@ -29,4 +29,13 @@
 .email-html-block__chrome {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   padding-bottom: 0.35rem;
+}
+
+/* File edit modal — let tall inbound emails expand (parent scrolls, not clip) */
+.capture-file-editor-shell .email-html-block {
+  overflow: visible;
+}
+
+.capture-file-editor-shell .email-html-render {
+  max-width: 100%;
 }

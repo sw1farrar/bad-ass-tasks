@@ -20,6 +20,8 @@ interface LinkedTasksPanelProps {
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>;
   /** Mobile drawer layout */
   compact?: boolean;
+  /** File preview: TaskRow list with complete toggle only (no link/unlink/create). */
+  previewMode?: boolean;
 }
 
 /**
@@ -36,6 +38,7 @@ export function LinkedTasksPanel({
   onToggleTaskComplete,
   onCreateTaskAndLink,
   compact = false,
+  previewMode = false,
 }: LinkedTasksPanelProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -83,30 +86,51 @@ export function LinkedTasksPanel({
   };
 
   const canAdd = !!newTaskTitle.trim();
+  const useTaskRows = compact || previewMode;
+
+  if (previewMode && linkedTasks.length === 0) {
+    return null;
+  }
 
   return (
     <div
       className={cn(
-        "linked-tasks-panel border-t border-white/10 bg-[#0a0a0f]/50",
-        compact ? "px-0 py-3" : "px-4 md:px-6 py-3",
+        "linked-tasks-panel border-t",
+        previewMode
+          ? "linked-tasks-panel--preview border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)] px-4 md:px-6 py-4"
+          : "border-border-glass bg-bg/50",
+        compact ? "px-0 py-3" : !previewMode && "px-4 md:px-6 py-3",
       )}
+      onDoubleClick={previewMode ? (e) => e.stopPropagation() : undefined}
     >
       <div className={cn("flex items-center mb-2", compact ? "mb-1.5" : "justify-between")}>
-        <div className="text-xs font-medium text-[#71717a] flex items-center gap-2">
+        <div
+          className={cn(
+            "text-xs font-medium flex items-center gap-2",
+            previewMode
+              ? "text-[var(--note-canvas-text-secondary,#52525b)]"
+              : "text-text-muted",
+          )}
+        >
           <LinkIcon className="h-3.5 w-3.5" />
           LINKED TASKS
         </div>
         {!compact && (
-          <div className="text-[10px] text-[#c084fc] font-mono">
+          <div
+            className={cn(
+              "text-[10px] font-mono",
+              previewMode ? "text-neon-purple-dark" : "text-neon-purple",
+            )}
+          >
             {linkedTaskIds.length} linked
           </div>
         )}
       </div>
 
-      <div className={cn("mb-3", compact ? "space-y-0 mb-2" : "space-y-1")}>
+      <div className={cn(useTaskRows ? "space-y-0 mb-0" : "mb-3 space-y-1", compact && "mb-2")}>
         {linkedTasks.length === 0 ? (
-          <div className="text-[11px] text-[#71717a] italic py-1">No tasks linked yet</div>
-        ) : compact ? (
+          <div className="text-[11px] text-text-muted italic py-1">No tasks linked yet</div>
+        ) : useTaskRows ? (
           linkedTasks.map((task) => {
             const due = formatDueDate(task.dueDate ?? undefined);
             const isDone = task.status === "done";
@@ -137,7 +161,7 @@ export function LinkedTasksPanel({
                 key={task.id}
                 className={cn(
                   "flex items-center gap-2 text-sm group rounded-lg px-2 py-2 transition-colors",
-                  isDone ? "bg-white/[0.03] opacity-80" : "bg-white/5 hover:bg-white/[0.07]",
+                  isDone ? "bg-surface-overlay opacity-80" : "bg-surface-hover hover:bg-bg-tertiary",
                 )}
               >
                 <button
@@ -147,8 +171,8 @@ export function LinkedTasksPanel({
                   className={cn(
                     "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 disabled:opacity-60",
                     isDone
-                      ? "bg-[#00ff9f] border-[#c084fc] text-black"
-                      : "border-[#3a3a42] hover:border-[#c084fc] group-hover:border-[#c084fc]/70",
+                      ? "bg-neon-green border-neon-purple text-accent-on"
+                      : "border-border hover:border-neon-purple group-hover:border-neon-purple/70",
                   )}
                   aria-label={
                     isDone
@@ -175,9 +199,9 @@ export function LinkedTasksPanel({
                 >
                   <div
                     className={cn(
-                      "font-medium text-[#f4f4f5] truncate",
+                      "font-medium text-text-primary truncate",
                       isDone && "line-through opacity-60",
-                      onOpenTask && "hover:text-[#c084fc] transition-colors",
+                      onOpenTask && "hover:text-neon-purple transition-colors",
                     )}
                   >
                     {task.title}
@@ -186,7 +210,7 @@ export function LinkedTasksPanel({
                     {task.assignee ? (
                       <TaskAssigneeBadge label={task.assignee} />
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] text-[#71717a]">
+                      <span className="inline-flex items-center gap-1 rounded-md border border-border-glass bg-surface-overlay px-2 py-0.5 text-[10px] text-text-muted">
                         Unassigned
                       </span>
                     )}
@@ -195,13 +219,13 @@ export function LinkedTasksPanel({
                         className={cn(
                           "inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border whitespace-nowrap",
                           due.variant === "overdue" &&
-                            "text-[#ff3366] border-[#ff3366]/30 bg-[#ff3366]/10",
+                            "text-[var(--priority-p0)] border-[var(--priority-p0)]/30 bg-[var(--priority-p0)]/10",
                           due.variant === "today" &&
-                            "text-[#c084fc] border-[#c084fc]/30 bg-[#c084fc]/10",
+                            "text-neon-purple border-neon-purple/30 bg-neon-purple/10",
                           due.variant === "soon" &&
-                            "text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10",
+                            "text-[var(--priority-p2)] border-[var(--priority-p2)]/30 bg-[var(--priority-p2)]/10",
                           due.variant === "default" &&
-                            "text-[#a1a1aa] border-white/10 bg-white/5",
+                            "text-text-secondary border-border-glass bg-surface-hover",
                         )}
                       >
                         <Calendar className="h-2.5 w-2.5" />
@@ -210,7 +234,7 @@ export function LinkedTasksPanel({
                     )}
                     {recurringLabel && (
                       <span
-                        className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-[#c084fc]/30 bg-[#c084fc]/10 text-[#c084fc] whitespace-nowrap max-w-[100px]"
+                        className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-neon-purple/30 bg-neon-purple/10 text-neon-purple whitespace-nowrap max-w-[100px]"
                         title={recurringLabel}
                       >
                         <Repeat className="h-2.5 w-2.5 shrink-0" />
@@ -223,7 +247,7 @@ export function LinkedTasksPanel({
                 <button
                   type="button"
                   onClick={() => setPendingUnlink(task)}
-                  className="opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 p-2 hover:text-[#ff3366] focus-visible:text-[#ff3366] rounded hover:bg-white/10 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
+                  className="opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 p-2 hover:text-[var(--priority-p0)] focus-visible:text-[var(--priority-p0)] rounded hover:bg-surface-hover touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
                   title="Unlink task"
                   aria-label={`Unlink task ${task.title}`}
                 >
@@ -235,9 +259,10 @@ export function LinkedTasksPanel({
         )}
       </div>
 
+      {!previewMode && (
       <div className={cn("flex flex-col", compact ? "gap-2" : "gap-2")}>
         <select
-          className="w-full text-sm bg-[#111114] border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30 touch-manipulation"
+          className="w-full text-sm bg-bg-secondary border border-border-glass rounded-lg px-3 py-2 focus:outline-none focus:border-neon-purple/50 focus:ring-1 focus:ring-neon-purple/30 touch-manipulation"
           onChange={async (e) => {
             const taskId = e.target.value;
             if (taskId) {
@@ -293,7 +318,7 @@ export function LinkedTasksPanel({
                 onChange={(e) => setNewTaskTitle(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Create new task for this note..."
-                className="flex-1 text-sm bg-[#111114] border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:border-[#c084fc]/50 focus:ring-1 focus:ring-[#c084fc]/30 placeholder:text-[#52525b] touch-manipulation"
+                className="flex-1 text-sm bg-bg-secondary border border-border-glass rounded-lg px-3 py-2 focus:outline-none focus:border-neon-purple/50 focus:ring-1 focus:ring-neon-purple/30 placeholder:text-text-faint touch-manipulation"
                 disabled={isCreating || !onCreateTaskAndLink}
               />
               <button
@@ -306,12 +331,13 @@ export function LinkedTasksPanel({
                 Add
               </button>
             </div>
-            <div className="text-[10px] text-[#52525b] px-1">
+            <div className="text-[10px] text-text-faint px-1">
               Press Enter to create instantly
             </div>
           </>
         )}
       </div>
+      )}
 
       <ConfirmationModal
         open={!!pendingUnlink}

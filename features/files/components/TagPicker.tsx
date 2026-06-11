@@ -85,13 +85,13 @@ export function TagPicker({
         <ul className="flex flex-wrap gap-1.5" aria-label="Selected tags">
           {normalizedSelected.map((tag) => (
             <li key={tag}>
-              <span className="inline-flex items-center gap-1 rounded-full border border-[#c084fc]/35 bg-[#c084fc]/10 px-2.5 py-1 text-xs text-[#e9d5ff]">
+              <span className="inline-flex items-center gap-1 rounded-full border border-neon-purple/35 bg-neon-purple/10 px-2.5 py-1 text-xs text-neon-purple-tint">
                 {tag}
                 {!disabled && (
                   <button
                     type="button"
                     onClick={() => removeTag(tag)}
-                    className="rounded-full p-0.5 hover:bg-white/10"
+                    className="rounded-full p-0.5 hover:bg-surface-hover"
                     aria-label={`Remove tag ${tag}`}
                   >
                     <X className="h-3 w-3" />
@@ -104,7 +104,7 @@ export function TagPicker({
       )}
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#52525b] pointer-events-none" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint pointer-events-none" />
         <input
           ref={inputRef}
           id={id}
@@ -135,7 +135,7 @@ export function TagPicker({
 
         {open && !disabled && (suggestions.length > 0 || canCreate) && (
           <ul
-            className="absolute left-0 right-0 z-40 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-[#141416] py-1 shadow-xl"
+            className="absolute left-0 right-0 z-40 mt-1 max-h-48 overflow-y-auto rounded-xl border border-border-glass bg-bg-card py-1 shadow-xl"
             role="listbox"
           >
             {suggestions.map((tag) => (
@@ -147,9 +147,9 @@ export function TagPicker({
                     addTag(tag);
                     setOpen(true);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-[#e4e4e7] hover:bg-white/5"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-text-primary hover:bg-surface-hover"
                 >
-                  <Tag className="h-3.5 w-3.5 shrink-0 text-[#71717a]" />
+                  <Tag className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                   {tag}
                 </button>
               </li>
@@ -160,7 +160,7 @@ export function TagPicker({
                   type="button"
                   role="option"
                   onClick={() => addTag(q)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-[#c084fc] hover:bg-[#c084fc]/10 border-t border-white/10"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-neon-purple hover:bg-neon-purple/10 border-t border-border-glass"
                 >
                   <Plus className="h-3.5 w-3.5 shrink-0" />
                   Add tag &ldquo;{q}&rdquo;

@@ -15,17 +15,13 @@ const STROKE = 4.5;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-/** Deeper crimson for overdue — crisp on small rings (no hot-pink cast). */
-const OVERDUE_RED = "#be123c";
-const OVERDUE_RED_DEEP = "#9f1239";
-
 type ArcSegment = {
   key: string;
   length: number;
   dashOffset: number;
 };
 
-/** Full ring = 100% of open tasks; red slice = overdue share, purple = the rest. */
+/** Full ring = 100% of open tasks; deeper purple slice = overdue share, lighter purple = the rest. */
 function buildOpenRingSegments(openTasks: number, overdue: number): ArcSegment[] {
   if (openTasks <= 0) return [];
 
@@ -97,16 +93,16 @@ export function WorkspaceOpenTasksGraphic({
             </feMerge>
           </filter>
           <linearGradient id={`ws-ring-clear-${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#34d399" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#6ee7b7" stopOpacity="0.75" />
+            <stop offset="0%" stopColor="var(--success)" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="var(--neon-green)" stopOpacity="0.75" />
           </linearGradient>
           <linearGradient id={`ws-ring-open-${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#d8b4fe" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#c084fc" stopOpacity="0.85" />
+            <stop offset="0%" stopColor="var(--neon-purple-tint)" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="var(--neon-purple)" stopOpacity="0.85" />
           </linearGradient>
           <linearGradient id={`ws-ring-overdue-${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor={OVERDUE_RED} stopOpacity="1" />
-            <stop offset="100%" stopColor={OVERDUE_RED_DEEP} stopOpacity="1" />
+            <stop offset="0%" stopColor="var(--neon-purple)" stopOpacity="1" />
+            <stop offset="100%" stopColor="#6d28d9" stopOpacity="1" />
           </linearGradient>
         </defs>
 
@@ -116,7 +112,7 @@ export function WorkspaceOpenTasksGraphic({
               cx={SIZE / 2}
               cy={SIZE / 2}
               r={RADIUS}
-              fill="rgba(52, 211, 153, 0.08)"
+              fill="var(--success-subtle)"
             />
             <circle
               cx={SIZE / 2}
@@ -135,7 +131,7 @@ export function WorkspaceOpenTasksGraphic({
               cx={SIZE / 2}
               cy={SIZE / 2}
               r={RADIUS}
-              fill={hasOverdue ? "rgba(159, 18, 57, 0.07)" : "rgba(192, 132, 252, 0.06)"}
+              fill="var(--accent-purple-muted)"
             />
             {segments.map((seg) => (
               <circle
@@ -162,21 +158,16 @@ export function WorkspaceOpenTasksGraphic({
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
         {isAllClear ? (
-          <Check className="h-4 w-4 text-[#34d399]" strokeWidth={2.5} aria-hidden />
+          <Check className="h-4 w-4 text-neon-green" strokeWidth={2.5} aria-hidden />
         ) : (
           <>
-            <span
-              className={cn(
-                "text-base font-semibold leading-none tabular-nums",
-                hasOverdue ? "text-[#be123c]" : "text-[#f4f4f5]",
-              )}
-            >
+            <span className="text-base font-semibold leading-none tabular-nums text-neon-purple">
               {openTasks > 99 ? "99+" : openTasks}
             </span>
             <span
               className={cn(
                 "text-[7px] uppercase tracking-wider mt-0.5 leading-none",
-                hasOverdue ? "text-[#9f1239]" : "text-[#71717a]",
+                hasOverdue ? "text-neon-purple" : "text-text-muted",
               )}
             >
               {hasOverdue

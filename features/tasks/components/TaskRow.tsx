@@ -88,7 +88,7 @@ export function TaskRow({
       key={task.id}
       className={cn(
         "swipe-container relative rounded-xl overflow-hidden mb-1 transition-colors duration-500",
-        isHighlighted && "ring-2 ring-[#c084fc]/50 bg-[#c084fc]/10",
+        isHighlighted && "task-row--highlighted ring-2 ring-neon-purple/50 bg-neon-purple/10",
       )}
       draggable={allowHtmlDrag && !isDone}
       onDragStart={(e) => {
@@ -125,7 +125,7 @@ export function TaskRow({
         }}
         whileTap={{ scale: 0.995 }}
         className={cn(
-          "task-row group flex items-center gap-2 md:gap-3 px-0 md:px-5 py-2 md:py-2.5 rounded-xl border border-transparent cursor-grab active:cursor-grabbing focus:outline-none focus:ring-1 focus:ring-[#c084fc]/50 bg-[var(--bg-card)] relative z-10",
+          "task-row group flex items-center gap-2 md:gap-3 px-0 md:px-5 py-2 md:py-2.5 rounded-xl border border-transparent cursor-grab active:cursor-grabbing focus:outline-none focus:ring-1 focus:ring-neon-purple/50 bg-[var(--bg-card)] relative z-10",
           isDone && "completed"
         )}
         role="button"
@@ -149,8 +149,8 @@ export function TaskRow({
             "task-complete-btn flex shrink-0 items-center justify-center rounded-full border p-0 transition-all active:scale-90 disabled:opacity-60",
             "h-10 w-10 md:h-6 md:w-6",
             isDone
-              ? "bg-[#00ff9f] border-[#c084fc] text-black"
-              : "border-[#3a3a42] hover:border-[#c084fc] group-hover:border-[#c084fc]/70"
+              ? "bg-neon-green border-neon-purple text-accent-on"
+              : "border-border hover:border-neon-purple group-hover:border-neon-purple/70"
           )}
           aria-label={
             isDone
@@ -184,7 +184,7 @@ export function TaskRow({
                   <TaskCommentIndicator count={commentState.count} unread={commentState.unread} />
                 )}
                 {onlineEditorsCount > 0 && (
-                  <span className="text-[9px] text-[#00ff9f] shrink-0 font-mono">✎{onlineEditorsCount}</span>
+                  <span className="text-[9px] text-neon-green shrink-0 font-mono">✎{onlineEditorsCount}</span>
                 )}
               </div>
             )}
@@ -192,7 +192,10 @@ export function TaskRow({
           {(workspaceName || (showAssignee && task.assignee) || due) && (
             <div className="flex items-center justify-between gap-2 w-full min-w-0 text-[11px] leading-none">
               {workspaceName ? (
-                <span className="min-w-0 flex-1 truncate text-left text-[#71717a] font-medium">
+                <span
+                  className="tasks-table-workspace inline-flex min-w-0 max-w-full flex-1 items-center rounded-md border border-neon-purple/25 bg-neon-purple/8 px-1.5 py-0.5 text-[10px] font-medium text-neon-purple-tint truncate text-left"
+                  title={workspaceName}
+                >
                   {workspaceName}
                 </span>
               ) : showAssignee && task.assignee ? (
@@ -218,7 +221,7 @@ export function TaskRow({
           )}
           {task.recurringRule && (
             <div
-              className="text-[10px] text-[#c084fc] flex items-center gap-1 min-w-0 leading-none"
+              className="text-[10px] text-neon-purple flex items-center gap-1 min-w-0 leading-none"
               title={getRecurringLabel(task.recurringRule)}
             >
               <Repeat className="h-2.5 w-2.5 shrink-0" aria-hidden />
@@ -243,7 +246,7 @@ export function TaskRow({
             )}
             {task.recurringRule && (
               <span
-                className="recurring-badge text-[10px] px-1.5 py-px rounded bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 font-medium flex items-center gap-0.5"
+                className="recurring-badge text-[10px] px-1.5 py-px rounded bg-neon-purple/10 text-neon-purple border border-neon-purple/30 font-medium flex items-center gap-0.5"
                 title={getRecurringLabel(task.recurringRule)}
                 aria-label={`Recurring: ${getRecurringLabel(task.recurringRule)}`}
               >
@@ -252,11 +255,11 @@ export function TaskRow({
               </span>
             )}
             {onlineEditorsCount > 0 && (
-              <span className="text-[9px] text-[#00ff9f] ml-1 font-mono">✎{onlineEditorsCount}</span>
+              <span className="text-[9px] text-neon-green ml-1 font-mono">✎{onlineEditorsCount}</span>
             )}
           </div>
           {task.description && (
-            <div className="text-xs text-[#71717a] mt-0.5 line-clamp-1">{task.description}</div>
+            <div className="text-xs text-text-muted mt-0.5 line-clamp-1">{task.description}</div>
           )}
         </div>
 

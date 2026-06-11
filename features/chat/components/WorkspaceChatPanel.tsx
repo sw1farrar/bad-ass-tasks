@@ -9,6 +9,7 @@ import type { WorkspaceMember } from "@/types";
 import { useWorkspaceChat, type WorkspaceChatController } from "../hooks/useWorkspaceChat";
 import { ChatComposer } from "./ChatComposer";
 import { ChatMessageItem } from "./ChatMessageItem";
+import "../chat-workspace.css";
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
@@ -67,18 +68,18 @@ function WorkspaceChatPanelInner({
   return (
     <div className={cn("flex flex-col h-full min-h-0", className)}>
       {showHeader && (
-        <div className="shrink-0 pb-3 border-b border-white/10 mb-3 flex items-start justify-between gap-2">
+        <div className="chat-panel-header shrink-0 pb-3 border-b border-border-glass mb-3 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-semibold text-sm tracking-tight">Messages</div>
             {workspaceName && (
-              <div className="text-[11px] text-[#71717a] truncate">{workspaceName}</div>
+              <div className="chat-panel-workspace-name text-[11px] text-text-muted truncate">{workspaceName}</div>
             )}
           </div>
           {onCollapse && (
             <button
               type="button"
               onClick={onCollapse}
-              className="shrink-0 p-1.5 rounded-lg border border-white/10 text-[#71717a] hover:text-white hover:border-[#c084fc]/40 hover:bg-white/5 transition"
+              className="chat-panel-collapse-btn shrink-0 p-1.5 rounded-lg border border-border-glass text-text-muted hover:text-text-primary hover:border-neon-purple/40 hover:bg-surface-hover transition"
               aria-label="Collapse messages"
               title="Collapse"
             >
@@ -91,14 +92,14 @@ function WorkspaceChatPanelInner({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="flex-1 min-h-0 overflow-y-auto pr-1 -mr-1 space-y-3"
+        className="chat-message-list flex-1 min-h-0 overflow-y-auto pr-1 -mr-1 space-y-3"
       >
         {isLoading ? (
-          <div className="flex justify-center py-8 text-[#71717a]">
+          <div className="flex justify-center py-8 text-text-muted">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : messages.length === 0 ? (
-          <p className="text-xs text-[#71717a] text-center py-8 px-2">
+          <p className="text-xs text-text-muted text-center py-8 px-2">
             Say hello to your team.
           </p>
         ) : (
@@ -113,7 +114,7 @@ function WorkspaceChatPanelInner({
               <React.Fragment key={msg.id}>
                 {showDay && (
                   <div className="flex justify-center">
-                    <span className="text-[10px] text-[#71717a] px-2 py-0.5 rounded-full bg-white/5">
+                    <span className="chat-day-divider text-[10px] text-text-muted px-2 py-0.5 rounded-full bg-surface-hover">
                       {day}
                     </span>
                   </div>

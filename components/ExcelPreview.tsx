@@ -160,7 +160,7 @@ export function ExcelPreview({ url, compact = false }: ExcelPreviewProps) {
     return (
       <div
         className={cn(
-          "flex h-full items-center justify-center text-[#71717a]",
+          "flex h-full items-center justify-center text-text-muted",
           compact ? "min-h-[50dvh]" : "min-h-[280px]",
         )}
       >
@@ -174,7 +174,7 @@ export function ExcelPreview({ url, compact = false }: ExcelPreviewProps) {
     return (
       <div
         className={cn(
-          "flex h-full items-center justify-center bg-white p-8 text-center text-sm text-[#71717a]",
+          "excel-preview-empty-state flex h-full items-center justify-center p-8 text-center text-sm text-text-muted",
           compact ? "min-h-[50dvh]" : "min-h-[280px]",
         )}
       >
@@ -189,7 +189,7 @@ export function ExcelPreview({ url, compact = false }: ExcelPreviewProps) {
     <div className={cn("excel-preview flex h-full min-h-0 flex-col bg-[#f3f3f3]", compact && "excel-preview--compact")}>
       <div
         className={cn(
-          "flex shrink-0 items-center gap-2 border-b border-[#d4d4d4] bg-white",
+          "excel-preview-formula-bar flex shrink-0 items-center gap-2 border-b border-[#d4d4d4]",
           compact ? "px-2 py-1.5" : "px-3 py-2",
         )}
         onClick={(e) => e.stopPropagation()}
@@ -300,8 +300,8 @@ export function ExcelPreview({ url, compact = false }: ExcelPreviewProps) {
                 "shrink-0 rounded-t font-medium transition-colors touch-manipulation",
                 compact ? "px-2.5 py-2 text-[11px]" : "px-3 py-1.5 text-xs",
                 index === activeSheetIndex
-                  ? "bg-white text-[#217346] shadow-sm"
-                  : "text-[#52525b] hover:bg-white/70",
+                  ? "excel-preview-tab--active bg-white text-[#217346] shadow-sm"
+                  : "text-text-faint hover:bg-white/70",
               )}
             >
               {sheet.name}

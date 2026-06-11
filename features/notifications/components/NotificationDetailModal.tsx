@@ -99,43 +99,43 @@ export function NotificationDetailModal({
       title={notification.title}
       zIndex={300}
       mobileLayout="centered"
-      backdropClassName="bg-black/[0.9] backdrop-blur-md"
-      panelClassName="bg-[#111114] border-white/10"
+      backdropClassName="overlay-scrim backdrop-blur-md"
+      panelClassName="notification-detail-modal bg-bg-secondary border-border-glass"
       showDragHandle={false}
       enableDragDismiss={false}
     >
       <div className="p-5 text-sm">
-        <div className="flex items-center gap-3 mb-4 text-[#c084fc]">
+        <div className="flex items-center gap-3 mb-4 text-neon-purple">
           <NotificationTypeIcon type={notification.type} />
-          <span className="text-xs uppercase tracking-widest text-[#71717a]">Notification</span>
+          <span className="text-xs uppercase tracking-widest text-text-muted">Notification</span>
         </div>
 
-        <div className="text-[#e5e5e7] whitespace-pre-wrap mb-4 leading-relaxed">
+        <div className="text-text-primary whitespace-pre-wrap mb-4 leading-relaxed">
           {notification.message}
         </div>
 
         {hasMetadata && (
-          <div className="mb-4 rounded-xl bg-black/30 border border-white/5 p-3 text-[11px] text-[#a1a1aa]">
+          <div className="mb-4 rounded-xl bg-surface-elevated border border-border-glass/60 p-3 text-[11px] text-text-secondary">
             <div className="font-mono text-[10px] mb-1 opacity-60">DETAILS</div>
             {metadata.workspace_name && (
               <div>
-                Workspace: <span className="text-white">{metadata.workspace_name}</span>
+                Workspace: <span className="text-text-primary">{metadata.workspace_name}</span>
               </div>
             )}
             {metadata.invited_by_name && (
               <div>
-                From: <span className="text-white">{metadata.invited_by_name}</span>
+                From: <span className="text-text-primary">{metadata.invited_by_name}</span>
               </div>
             )}
             {metadata.role && (
               <div>
-                Role: <span className="text-white">{formatRoleLabel(String(metadata.role))}</span>
+                Role: <span className="text-text-primary">{formatRoleLabel(String(metadata.role))}</span>
               </div>
             )}
           </div>
         )}
 
-        <div className="text-[10px] text-[#71717a] mb-5">
+        <div className="text-[10px] text-text-muted mb-5">
           {new Date(notification.createdAt).toLocaleString()}
         </div>
 
@@ -143,7 +143,7 @@ export function NotificationDetailModal({
           <button
             type="button"
             onClick={handleDismiss}
-            className="flex-1 min-h-[44px] rounded-xl border border-white/15 text-sm font-medium hover:bg-white/5 transition"
+            className="flex-1 min-h-[44px] rounded-xl border border-border-glass text-sm font-medium hover:bg-surface-hover transition"
           >
             Dismiss
           </button>

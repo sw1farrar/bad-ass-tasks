@@ -64,6 +64,8 @@ export interface Note {
   reviewedBy?: string | null;
   searchDocument?: string | null;
   isArchived?: boolean;
+  /** False when only list metadata is loaded; true after full body fetch. */
+  bodyHydrated?: boolean;
 }
 
 /** Google Keep–style checklist list (workspace-scoped). */
@@ -111,6 +113,8 @@ export interface WorkspaceTaskStats {
   listCount?: number;
   openListItemsCount?: number;
   noteCount?: number;
+  /** Files awaiting review in this workspace (Home tiles — workspace-independent). */
+  pendingReviewCount?: number;
   memberCount?: number;
   /** True when workspace has 2+ members and chat has unread messages/reactions. */
   unreadChat?: boolean;

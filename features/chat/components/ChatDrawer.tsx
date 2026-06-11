@@ -42,7 +42,7 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
       {open && (
         <div className="fixed inset-0 z-[200] xl:hidden flex flex-col">
           <motion.div
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm sheet-backdrop"
+            className="absolute inset-0 overlay-scrim backdrop-blur-sm sheet-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -51,7 +51,7 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
             aria-hidden
           />
           <motion.div
-            className="relative flex flex-col h-[100dvh] bg-[#0a0a0f] border-t border-white/10 rounded-t-3xl overflow-hidden mobile-bottom-sheet"
+            className="chat-drawer-sheet relative flex flex-col h-[100dvh] bg-bg border-t border-border-glass rounded-t-3xl overflow-hidden mobile-bottom-sheet"
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -63,14 +63,14 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
           >
             <div className="sheet-drag-handle shrink-0" aria-hidden="true" />
             <div
-              className="flex items-center justify-between px-4 py-2 border-b border-white/10 shrink-0"
+              className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0"
               style={{ paddingTop: "max(0.25rem, env(safe-area-inset-top, 0px))" }}
             >
               <div className="font-semibold">Messages</div>
               <button
                 type="button"
                 onClick={handleClose}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 text-[#71717a] hover:text-white active:scale-95 transition"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-surface-hover text-text-muted hover:text-text-primary active:scale-95 transition"
                 aria-label="Close chat"
               >
                 <X className="h-5 w-5" />

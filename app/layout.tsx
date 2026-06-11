@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./dark-theme.css";
+import "./light-theme.css";
 import "@/features/notes/editor/notes-editor.css";
 import "@/features/notes/editor/email-html.css";
 import "@/components/file-preview.css";
 import "@/components/excel-preview.css";
-import { Toaster } from "sonner";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ThemeScript } from "@/components/ThemeScript";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { AppToaster } from "@/components/AppToaster";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -39,7 +43,10 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 5,
   viewportFit: "cover",
-  themeColor: "#0a0a0f",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f0f12" },
+  ],
 };
 
 export default function RootLayout({
@@ -48,31 +55,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrains.variable} dark`}>
-      <body className="min-h-screen bg-[#0a0a0f] text-[#f4f4f5] antialiased">
-        {/* Root ErrorBoundary: catches render-time crashes anywhere with graceful neon-themed fallback.
-            No data loss (local + Supabase persistence). Strengthens overall app quality & resilience. */}
+    <html lang="en" className={`${inter.variable} ${jetbrains.variable} dark`} data-theme="dark" suppressHydrationWarning>
+      <head>
+        <ThemeScript />
+      </head>
+      <body className="min-h-screen bg-bg text-text-primary antialiased">
         <ErrorBoundary>
-          {children}
+          <ThemeProvider>{children}</ThemeProvider>
         </ErrorBoundary>
-        <Toaster
-          position="bottom-right"
-          theme="dark"
-          closeButton={false}
-          richColors={false}
-          duration={4000}
-          className="bat-sonner-toaster"
-          toastOptions={{
-            classNames: {
-              toast: "bat-toast",
-              title: "bat-toast__title",
-              description: "bat-toast__description",
-              success: "bat-toast--success",
-              error: "bat-toast--error",
-              actionButton: "bat-toast__action",
-            },
-          }}
-        />
+        <AppToaster />
       </body>
     </html>
   );

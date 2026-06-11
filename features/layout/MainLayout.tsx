@@ -63,13 +63,13 @@ export function MainLayout(props: MainLayoutProps) {
   ] as const;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0f] text-[#f4f4f5]">
+    <div className="flex h-screen flex-col overflow-hidden bg-bg text-text-primary">
       {/* Top Bar — basic logo moved into layout (incremental step) */}
-      <div className="top-bar relative h-16 border-b border-white/10 flex items-center px-5 justify-between z-50 bg-[#0a0a0f]/95 backdrop-blur-xl">
+      <div className="top-bar relative h-16 border-b border-border-glass flex items-center px-5 justify-between z-50 bg-bg/95 backdrop-blur-xl">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 shrink-0 min-w-0">
-            <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center flex-shrink-0">
-              <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-black" />
+            <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center flex-shrink-0">
+              <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-accent-on" />
             </div>
             <div className="min-w-0 hidden sm:block">
               <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none whitespace-nowrap">Badazz Tasks</div>
@@ -84,8 +84,8 @@ export function MainLayout(props: MainLayoutProps) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar navigation (first real piece moved into layout) */}
-        <div className="w-56 border-r border-white/10 bg-[#0a0a0f] p-3 hidden md:block overflow-y-auto">
-          <div className="text-[10px] uppercase tracking-widest text-[#71717a] px-2 mb-2">Views</div>
+        <div className="w-56 border-r border-border-glass bg-bg p-3 hidden md:block overflow-y-auto">
+          <div className="text-[10px] uppercase tracking-widest text-text-muted px-2 mb-2">Views</div>
           {VIEWS.map((v) => {
             const Icon = v.icon;
             const isActive = currentView === v.id;
@@ -95,7 +95,7 @@ export function MainLayout(props: MainLayoutProps) {
                 onClick={() => onViewChange(v.id)}
                 className={cn(
                   "sidebar-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm mb-0.5 transition-colors",
-                  isActive && "active bg-white/5"
+                  isActive && "active bg-surface-hover"
                 )}
               >
                 <Icon className="h-4 w-4" />

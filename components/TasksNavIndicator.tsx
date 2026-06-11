@@ -29,8 +29,8 @@ export function TasksNavIndicator({
     return (
       <span
         className={cn(
-          "tasks-nav-badge tasks-nav-badge--bottom",
-          hasOverdue && "tasks-nav-badge--overdue",
+          "nav-count-badge nav-count-badge--bottom",
+          hasOverdue && "nav-count-badge--overdue",
           className,
         )}
         aria-label={ariaLabel}
@@ -44,15 +44,15 @@ export function TasksNavIndicator({
   return (
     <span
       className={cn(
-        "tasks-nav-badge tasks-nav-badge--sidebar",
-        hasOverdue && "tasks-nav-badge--overdue",
+        "nav-count-badge nav-count-badge--sidebar",
+        hasOverdue && "nav-count-badge--overdue",
         className,
       )}
       aria-label={ariaLabel}
       title={ariaLabel}
     >
       {hasOverdue && (
-        <span className="tasks-nav-badge__pulse" aria-hidden />
+        <span className="nav-count-badge__pulse" aria-hidden />
       )}
       {display}
     </span>

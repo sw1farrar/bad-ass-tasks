@@ -62,17 +62,17 @@ export default function GlobalError({
 
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#0a0a0f] text-[#f4f4f5] antialiased">
-        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f] p-6">
-          <div className="glass max-w-lg w-full rounded-2xl border border-white/10 p-8 text-center">
+      <body className="min-h-screen bg-bg text-text-primary antialiased">
+        <div className="min-h-screen flex items-center justify-center bg-bg p-6">
+          <div className="glass modal-panel max-w-lg w-full rounded-2xl border border-border-glass p-8 text-center">
             <div className="mx-auto mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-400">
               <AlertTriangle className="h-8 w-8" />
             </div>
 
-            <h1 className="text-2xl font-semibold tracking-tight text-white mb-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-text-primary mb-2">
               Critical error
             </h1>
-            <p className="text-[#a1a1aa] mb-6 text-sm leading-relaxed">
+            <p className="text-text-secondary mb-6 text-sm leading-relaxed">
               The app encountered a serious error during loading or an async operation.
               Your tasks and notes are safe (local + Supabase).
               <br />
@@ -82,7 +82,7 @@ export default function GlobalError({
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={reset} // Next.js reset attempts to re-render the segment
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#00ff9f] px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#00ff9f]/90 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-neon-green px-6 py-3 text-sm font-semibold text-accent-on transition hover:bg-neon-green/90 active:scale-[0.985]"
               >
                 <RefreshCw className="h-4 w-4" />
                 Try again
@@ -90,7 +90,7 @@ export default function GlobalError({
 
               <button
                 onClick={handleReload}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-glass bg-surface-hover px-6 py-3 text-sm font-medium text-text-primary transition hover:bg-surface-hover active:scale-[0.985]"
               >
                 <RefreshCw className="h-4 w-4" />
                 Full reload
@@ -98,7 +98,7 @@ export default function GlobalError({
 
               <button
                 onClick={handleReport}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10 active:scale-[0.985]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-glass bg-surface-hover px-6 py-3 text-sm font-medium text-text-primary transition hover:bg-surface-hover active:scale-[0.985]"
               >
                 <Bug className="h-4 w-4" />
                 Report issue
@@ -106,11 +106,11 @@ export default function GlobalError({
             </div>
 
             {process.env.NODE_ENV !== 'production' && error && (
-              <details className="mt-6 text-left text-xs text-[#71717a] border-t border-white/10 pt-4">
-                <summary className="cursor-pointer hover:text-[#a1a1aa] select-none">
+              <details className="mt-6 text-left text-xs text-text-muted border-t border-border-glass pt-4">
+                <summary className="cursor-pointer hover:text-text-secondary select-none">
                   Technical details (dev only) — digest: {error.digest || 'n/a'}
                 </summary>
-                <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all rounded bg-black/40 p-3 font-mono text-[10px] text-red-400/80">
+                <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all rounded overlay-scrim p-3 font-mono text-[10px] text-red-400/80">
                   {error.message}
                   {'\n\n'}
                   {error.stack}
@@ -118,7 +118,7 @@ export default function GlobalError({
               </details>
             )}
 
-            <p className="mt-6 text-[10px] text-[#52525b]">
+            <p className="mt-6 text-[10px] text-text-faint">
               Badazz Tasks • Check Supabase config, network, or console for clues.
             </p>
           </div>

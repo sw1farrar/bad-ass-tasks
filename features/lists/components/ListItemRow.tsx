@@ -83,7 +83,7 @@ export function ListItemRow({
       {sortable && !readOnly && (
         <button
           type="button"
-          className="list-item-drag shrink-0 text-[#52525b] opacity-40 md:opacity-0 md:group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none"
+          className="list-item-drag shrink-0 text-text-faint opacity-40 md:opacity-0 md:group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none"
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
@@ -133,7 +133,7 @@ export function ListItemRow({
             type="button"
             onClick={() => onOutdent?.(item.id)}
             className={cn(
-              "list-item-indent-btn shrink-0 text-[#52525b] hover:text-[#c084fc] transition",
+              "list-item-indent-btn shrink-0 text-text-faint hover:text-neon-purple transition",
               "opacity-50 md:opacity-0 md:group-hover:opacity-100",
             )}
             aria-label="Outdent item"
@@ -145,7 +145,7 @@ export function ListItemRow({
             type="button"
             onClick={() => onIndent?.(item.id)}
             className={cn(
-              "list-item-indent-btn shrink-0 text-[#52525b] hover:text-[#c084fc] transition",
+              "list-item-indent-btn shrink-0 text-text-faint hover:text-neon-purple transition",
               "opacity-50 md:opacity-0 md:group-hover:opacity-100",
             )}
             aria-label="Indent item"
@@ -156,7 +156,7 @@ export function ListItemRow({
           <button
             type="button"
             onClick={() => onDelete(item.id)}
-            className="list-item-delete shrink-0 opacity-50 md:opacity-0 md:group-hover:opacity-100 text-[#52525b] hover:text-[#ff3366] transition"
+            className="list-item-delete shrink-0 opacity-50 md:opacity-0 md:group-hover:opacity-100 text-text-faint hover:text-[var(--priority-p0)] transition"
             aria-label="Remove item"
           >
             <X className="h-3.5 w-3.5" />

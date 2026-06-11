@@ -9,7 +9,12 @@ import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import type { ListItem, WorkspaceList } from "@/types";
-import { getListColorStyle, LIST_COLORS, type ListColorId } from "@/store/listSlice";
+import {
+  getListColorStyleForTheme,
+  getListColorsForTheme,
+} from "@/lib/lists/listColorStyles";
+import type { ListColorId } from "@/store/listSlice";
+import { useTaskStore } from "@/store/useTaskStore";
 import { ListCardBody } from "./ListCard";
 
 interface ListDetailModalProps {
@@ -53,7 +58,10 @@ export function ListDetailModal({
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const isMobile = useIsMobileViewport();
-  const colorStyle = list ? getListColorStyle(list.color) : null;
+  const theme = useTaskStore((s) => s.theme);
+  const listColors = getListColorsForTheme(theme);
+  const activeColorRing = theme === "light" ? "#7c3aed" : "#f4f4f5";
+  const colorStyle = list ? getListColorStyleForTheme(list.color, theme) : null;
 
   useEffect(() => {
     setMounted(true);
@@ -96,7 +104,7 @@ export function ListDetailModal({
             key="list-detail-backdrop"
             className={cn(
               "absolute inset-0",
-              isMobile ? "sheet-backdrop" : "bg-black/70 backdrop-blur-sm",
+              isMobile ? "sheet-backdrop" : "overlay-scrim backdrop-blur-sm",
             )}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -112,16 +120,19 @@ export function ListDetailModal({
             aria-modal="true"
             aria-labelledby="list-detail-title"
             className={cn(
-              "list-detail-modal glass relative flex w-full flex-col overflow-hidden border shadow-2xl",
+              "list-detail-modal glass modal-panel relative flex w-full flex-col overflow-hidden border shadow-2xl",
               isMobile
                 ? "list-detail-sheet list-detail-sheet--mobile max-h-[min(88dvh,720px)] rounded-2xl"
                 : "list-detail-panel max-h-[min(85vh,720px)] max-w-2xl rounded-2xl",
             )}
+            data-list-color={list.color}
             style={{
               background: colorStyle.bg,
               borderColor: colorStyle.border,
               ["--list-bg" as string]: colorStyle.bg,
               ["--list-border" as string]: colorStyle.border,
+              ["--list-chip-bg" as string]: colorStyle.bg,
+              ["--list-chip-border" as string]: colorStyle.border,
             }}
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -129,7 +140,7 @@ export function ListDetailModal({
             transition={PANEL_SPRING}
             onClick={(e) => e.stopPropagation()}
           >
-            <header className="list-detail-header flex shrink-0 items-start gap-2 border-b border-white/10 px-4 py-3.5">
+            <header className="list-detail-header flex shrink-0 items-start gap-2 border-b border-border-glass px-4 py-3.5">
               <div className="min-w-0 flex-1">
                 {list.pinned && <div className="list-card-pinned-badge mb-1">Pinned</div>}
                 <input
@@ -140,12 +151,12 @@ export function ListDetailModal({
                     const trimmed = e.target.value.trim();
                     onUpdateList(list.id, { title: trimmed || "Untitled list" });
                   }}
-                  className="w-full bg-transparent text-lg font-semibold text-white outline-none placeholder:text-[#71717a]"
+                  className="w-full bg-transparent text-lg font-semibold text-text-primary outline-none placeholder:text-text-muted"
                   placeholder="Title"
                   aria-label="List title"
                 />
                 {items.length > 0 && (
-                  <div className="mt-1 text-[11px] text-[#71717a]">
+                  <div className="mt-1 text-[11px] text-text-muted">
                     {items.filter((i) => !i.completed).length} open
                     {items.some((i) => i.completed)
                       ? ` · ${items.filter((i) => i.completed).length} done`
@@ -160,7 +171,7 @@ export function ListDetailModal({
                     setMenuOpen((v) => !v);
                     setColorOpen(false);
                   }}
-                  className="rounded-lg p-2 text-[#a1a1aa] transition hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2 text-text-secondary transition hover:bg-surface-hover hover:text-text-primary"
                   aria-label="List options"
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -168,16 +179,16 @@ export function ListDetailModal({
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="rounded-lg p-2 text-[#a1a1aa] transition hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2 text-text-secondary transition hover:bg-surface-hover hover:text-text-primary"
                   aria-label="Close list"
                 >
                   <X className="h-4 w-4" />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded-xl border border-white/10 bg-[#141418] py-1 text-xs shadow-xl">
+                  <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded-xl border border-border-glass bg-bg-card py-1 text-xs shadow-xl">
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/5"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover"
                       onClick={() => {
                         onTogglePinned(list.id);
                         setMenuOpen(false);
@@ -188,7 +199,7 @@ export function ListDetailModal({
                     </button>
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-white/5"
+                      className="w-full px-3 py-2 text-left hover:bg-surface-hover"
                       onClick={() => setColorOpen((v) => !v)}
                     >
                       Change color
@@ -196,7 +207,7 @@ export function ListDetailModal({
                     {items.some((i) => i.completed) && (
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-[#a1a1aa] hover:bg-white/5"
+                        className="w-full px-3 py-2 text-left text-text-secondary hover:bg-surface-hover"
                         onClick={() => {
                           onClearCompleted(list.id);
                           setMenuOpen(false);
@@ -207,7 +218,7 @@ export function ListDetailModal({
                     )}
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#ff3366] hover:bg-white/5"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--priority-p0)] hover:bg-surface-hover"
                       onClick={() => {
                         onDeleteList(list.id);
                         setMenuOpen(false);
@@ -219,8 +230,8 @@ export function ListDetailModal({
                   </div>
                 )}
                 {colorOpen && (
-                  <div className="absolute right-0 top-full z-30 mt-1 flex gap-1.5 rounded-xl border border-white/10 bg-[#141418] p-2 shadow-xl">
-                    {LIST_COLORS.map((c) => (
+                  <div className="absolute right-0 top-full z-30 mt-1 flex gap-1.5 rounded-xl border border-border-glass bg-bg-card p-2 shadow-xl">
+                    {listColors.map((c) => (
                       <button
                         key={c.id}
                         type="button"
@@ -228,7 +239,7 @@ export function ListDetailModal({
                         className={cn("list-color-dot", list.color === c.id && "is-active")}
                         style={{
                           background: c.bg,
-                          borderColor: list.color === c.id ? "#f4f4f5" : c.border,
+                          borderColor: list.color === c.id ? activeColorRing : c.border,
                         }}
                         onClick={() => {
                           onUpdateList(list.id, { color: c.id as ListColorId });

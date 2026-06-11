@@ -70,16 +70,16 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
   if (user) {
     return (
-      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="fixed inset-0 z-[200] flex items-center justify-center overlay-scrim backdrop-blur-sm p-4" onClick={onClose}>
         <div
-          className="glass w-full max-w-md rounded-3xl p-8 relative text-center"
+          className="glass modal-panel w-full max-w-md rounded-3xl p-8 relative text-center"
           onClick={(e) => e.stopPropagation()}
         >
-          <button onClick={onClose} aria-label="Close sign in modal" className="absolute top-5 right-5 text-[#71717a] hover:text-white">
+          <button onClick={onClose} aria-label="Close sign in modal" className="absolute top-5 right-5 text-text-muted hover:text-text-primary">
             <X className="h-5 w-5" />
           </button>
           <h2 className="text-2xl font-semibold tracking-tight mb-2">You&apos;re already signed in</h2>
-          <p className="text-[#a1a1aa]">{user.email}</p>
+          <p className="text-text-secondary">{user.email}</p>
         </div>
       </div>
     );
@@ -394,7 +394,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[200] flex items-end md:items-center justify-center overlay-scrim backdrop-blur-sm p-4"
       onClick={onClose}
       style={{
         paddingTop: "max(1rem, env(safe-area-inset-top))",
@@ -402,11 +402,11 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
       }}
     >
       <div
-        className="glass w-full max-w-md md:max-w-lg rounded-t-3xl md:rounded-3xl p-6 md:p-8 relative max-h-[85dvh] md:max-h-[80vh] overflow-auto"
+        className="auth-modal-panel glass modal-panel w-full max-w-md md:max-w-lg rounded-t-3xl md:rounded-3xl p-6 md:p-8 relative max-h-[85dvh] md:max-h-[80vh] overflow-auto"
         onClick={(e) => e.stopPropagation()}
         style={{ paddingTop: "max(1.5rem, env(safe-area-inset-top))" }}
       >
-        <button onClick={onClose} aria-label="Close sign in modal" className="absolute top-5 right-5 text-[#71717a] hover:text-white">
+        <button onClick={onClose} aria-label="Close sign in modal" className="absolute top-5 right-5 text-text-muted hover:text-text-primary">
           <X className="h-5 w-5" />
         </button>
 
@@ -418,37 +418,37 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 mode === "reset-verify" ? "reset-request" : mode === "signup-verify" ? "signup" : "signin",
               )
             }
-            className="absolute top-5 left-5 text-[#71717a] hover:text-white flex items-center gap-1 text-xs"
+            className="absolute top-5 left-5 text-text-muted hover:text-text-primary flex items-center gap-1 text-xs"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Back
           </button>
         )}
 
         <div className="text-center mb-6">
-          <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
+          <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
             {mode === "reset-verify" || mode === "signup-verify" ? (
-              <KeyRound className="h-6 w-6 text-black" />
+              <KeyRound className="h-6 w-6 text-accent-on" />
             ) : (
-              <Mail className="h-6 w-6 text-black" />
+              <Mail className="h-6 w-6 text-accent-on" />
             )}
           </div>
           <h2 className="text-3xl font-semibold tracking-tighter">{title}</h2>
-          <p className="text-[#a1a1aa] mt-2 text-sm">{subtitle}</p>
+          <p className="text-text-secondary mt-2 text-sm">{subtitle}</p>
         </div>
 
         {(mode === "signin" || mode === "signup") && (
-          <div className="flex rounded-xl bg-white/5 p-1 mb-6">
+          <div className="flex rounded-xl bg-surface-hover p-1 mb-6">
             <button
               type="button"
               onClick={() => switchMode("signin")}
-              className={`flex-1 py-2 text-sm rounded-lg transition ${mode === "signin" ? "bg-white/10 font-medium" : "text-[#a1a1aa]"}`}
+              className={`flex-1 py-2 text-sm rounded-lg transition ${mode === "signin" ? "bg-surface-hover font-medium" : "text-text-secondary"}`}
             >
               Sign In
             </button>
             <button
               type="button"
               onClick={() => switchMode("signup")}
-              className={`flex-1 py-2 text-sm rounded-lg transition ${mode === "signup" ? "bg-white/10 font-medium" : "text-[#a1a1aa]"}`}
+              className={`flex-1 py-2 text-sm rounded-lg transition ${mode === "signup" ? "bg-surface-hover font-medium" : "text-text-secondary"}`}
             >
               Create Account
             </button>
@@ -456,7 +456,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
         )}
 
         {authError && (
-          <div className="mb-4 rounded-xl border border-[#ff9500]/40 bg-[#111114] px-3 py-2 text-xs text-[#ff9500]">
+          <div className="mb-4 rounded-xl border border-[var(--priority-p1)]/40 bg-bg-secondary px-3 py-2 text-xs text-[var(--priority-p1)]">
             {authError}
           </div>
         )}
@@ -467,15 +467,15 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-2xl border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-sm font-medium transition disabled:opacity-60 mb-4"
+              className="auth-google-btn w-full flex items-center justify-center gap-2.5 py-3 rounded-2xl border border-border-glass bg-surface-overlay hover:bg-surface-hover text-sm font-medium transition disabled:opacity-60 mb-4"
             >
               <GoogleIcon />
               Continue with Google
             </button>
             <div className="flex items-center gap-3 mb-4">
-              <div className="flex-1 h-px bg-white/10" />
-              <span className="text-[11px] text-[#71717a] uppercase tracking-wider">or</span>
-              <div className="flex-1 h-px bg-white/10" />
+              <div className="flex-1 h-px bg-surface-hover" />
+              <span className="text-[11px] text-text-muted uppercase tracking-wider">or</span>
+              <div className="flex-1 h-px bg-surface-hover" />
             </div>
           </>
         )}
@@ -513,7 +513,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
               <button
                 type="button"
                 onClick={() => switchMode("reset-request")}
-                className="text-xs text-[#c084fc] hover:text-[#e9d5ff] transition w-full text-right"
+                className="text-xs text-neon-purple hover:text-neon-purple-tint transition w-full text-right"
               >
                 Forgot password?
               </button>
@@ -561,8 +561,8 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
         {mode === "signup-verify" && (
           <form onSubmit={handleSignupVerify} className="space-y-4">
-            <p className="text-xs text-[#71717a] text-center -mt-2 mb-2">
-              Sent to <span className="text-[#a1a1aa]">{email || "your email"}</span>
+            <p className="text-xs text-text-muted text-center -mt-2 mb-2">
+              Sent to <span className="text-text-secondary">{email || "your email"}</span>
             </p>
             <input
               type="text"
@@ -590,7 +590,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
               type="button"
               onClick={handleResendVerification}
               disabled={loading}
-              className="text-xs text-[#a1a1aa] hover:text-white w-full text-center disabled:opacity-60"
+              className="text-xs text-text-secondary hover:text-text-primary w-full text-center disabled:opacity-60"
             >
               Didn&apos;t get it? Resend code
             </button>
@@ -637,19 +637,19 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             <button
               type="button"
               onClick={() => switchMode("reset-request")}
-              className="text-xs text-[#a1a1aa] hover:text-white w-full text-center"
+              className="text-xs text-text-secondary hover:text-text-primary w-full text-center"
             >
               Didn&apos;t get it? Resend code
             </button>
           </form>
         )}
 
-        <p className="text-center text-xs text-[#71717a] mt-6">
+        <p className="text-center text-xs text-text-muted mt-6">
           By continuing you agree to our (future) Terms &amp; Privacy.
         </p>
 
         {!isSupabaseConfigured() && (
-          <div className="mt-4 text-[11px] text-center text-[#ff00aa]">
+          <div className="mt-4 text-[11px] text-center text-neon-pink">
             Currently in demo mode — real auth activates after you add Supabase keys.
           </div>
         )}

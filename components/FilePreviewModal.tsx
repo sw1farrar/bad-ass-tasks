@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Download, FileText, Loader2 } from "lucide-react";
@@ -23,6 +23,11 @@ import {
   isXlsxPreviewable,
   resolvePreviewMimeType,
 } from "@/lib/preview/officeMime";
+import {
+  detectWordDocumentFormat,
+  legacyWordBodyToParagraphs,
+} from "@/lib/preview/legacyWordDocShared";
+import { buildNoteAttachmentPreviewUrl } from "@/lib/notes/attachmentUrls";
 import { cn, triggerHaptic } from "@/lib/utils";
 
 export type FilePreviewTarget = {
@@ -54,7 +59,7 @@ function OfficeLoadingState({ compact = false }: { compact?: boolean }) {
   return (
     <div
       className={cn(
-        "flex items-center justify-center text-[#71717a]",
+        "flex items-center justify-center text-text-muted",
         compact ? "min-h-[50dvh] px-6" : "min-h-[280px] px-8 py-16",
       )}
     >
@@ -68,7 +73,7 @@ function OfficeErrorState({ message, compact = false }: { message: string; compa
   return (
     <div
       className={cn(
-        "flex items-center justify-center bg-white p-8 text-center text-sm text-[#71717a]",
+        "file-preview-stage flex items-center justify-center p-8 text-center text-sm text-text-muted",
         compact ? "min-h-[50dvh]" : "min-h-[280px]",
       )}
     >
@@ -77,52 +82,174 @@ function OfficeErrorState({ message, compact = false }: { message: string; compa
   );
 }
 
-function DocxPreview({ file, compact = false }: { file: FilePreviewTarget; compact?: boolean }) {
+const DOCX_PREVIEW_OPTIONS = {
+  className: "docx-preview",
+  inWrapper: true,
+  breakPages: true,
+  ignoreLastRenderedPageBreak: false,
+  ignoreWidth: false,
+  ignoreHeight: false,
+  ignoreFonts: false,
+  renderHeaders: true,
+  renderFooters: true,
+  renderFootnotes: true,
+  renderEndnotes: true,
+  renderAltChunks: false,
+  experimental: true,
+  useBase64URL: true,
+} as const;
+
+function LegacyDocTextPreview({
+  paragraphs,
+  footnotes,
+  endnotes,
+  compact = false,
+}: {
+  paragraphs: string[];
+  footnotes: string;
+  endnotes: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "legacy-doc-preview-root w-full max-w-full",
+        compact ? "legacy-doc-preview-root--compact min-h-0" : "min-h-[280px]",
+      )}
+    >
+      <p className="legacy-doc-preview-hint">
+        Word document — text preview; layout may differ from Microsoft Word.
+      </p>
+      <article className="legacy-doc-preview-sheet">
+        {paragraphs.map((paragraph, index) => (
+          <p key={index} className="legacy-doc-preview-paragraph">
+            {paragraph}
+          </p>
+        ))}
+        {footnotes ? (
+          <section className="legacy-doc-preview-notes">
+            <h3 className="legacy-doc-preview-notes__title">Footnotes</h3>
+            <div className="legacy-doc-preview-notes__body whitespace-pre-wrap">{footnotes}</div>
+          </section>
+        ) : null}
+        {endnotes ? (
+          <section className="legacy-doc-preview-notes">
+            <h3 className="legacy-doc-preview-notes__title">Endnotes</h3>
+            <div className="legacy-doc-preview-notes__body whitespace-pre-wrap">{endnotes}</div>
+          </section>
+        ) : null}
+      </article>
+    </div>
+  );
+}
+
+type WordTextPreviewContent = {
+  paragraphs: string[];
+  footnotes: string;
+  endnotes: string;
+};
+
+function parseWordTextPreview(data: {
+  ok?: boolean;
+  body?: string;
+  footnotes?: string;
+  endnotes?: string;
+}): WordTextPreviewContent | null {
+  if (!data.ok) return null;
+
+  const bodyParagraphs = legacyWordBodyToParagraphs(data.body ?? "");
+  const footnoteText = (data.footnotes ?? "").trim();
+  const endnoteText = (data.endnotes ?? "").trim();
+
+  if (bodyParagraphs.length === 0 && !footnoteText && !endnoteText) {
+    return null;
+  }
+
+  return {
+    paragraphs: bodyParagraphs,
+    footnotes: footnoteText,
+    endnotes: endnoteText,
+  };
+}
+
+type WordPreviewMode = "loading" | "text" | "docx" | "error";
+
+function WordDocumentPreview({ file, compact = false }: { file: FilePreviewTarget; compact?: boolean }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const styleRef = useRef<HTMLDivElement>(null);
+  const textPreviewRef = useRef<WordTextPreviewContent | null>(null);
+  const [mode, setMode] = useState<WordPreviewMode>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [textPreview, setTextPreview] = useState<WordTextPreviewContent | null>(null);
+  const [docxBuffer, setDocxBuffer] = useState<ArrayBuffer | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      const bodyContainer = bodyRef.current;
-      const styleContainer = styleRef.current;
-      if (!bodyContainer) return;
-
-      setLoading(true);
+      setMode("loading");
       setError(null);
-      bodyContainer.innerHTML = "";
-      if (styleContainer) styleContainer.innerHTML = "";
+      setTextPreview(null);
+      setDocxBuffer(null);
+      textPreviewRef.current = null;
+
+      if (bodyRef.current) bodyRef.current.innerHTML = "";
+      if (styleRef.current) styleRef.current.innerHTML = "";
 
       try {
-        const response = await fetch(file.url, { credentials: "include" });
-        if (!response.ok) throw new Error("fetch_failed");
-        const buffer = await response.arrayBuffer();
-        const { renderAsync } = await import("docx-preview");
+        const previewUrl =
+          file.noteId && file.attachmentId
+            ? buildNoteAttachmentPreviewUrl(file.noteId, file.attachmentId)
+            : null;
+
+        const [fileResponse, textPreviewResult] = await Promise.all([
+          fetch(file.url, { credentials: "include" }),
+          previewUrl
+            ? fetch(previewUrl, { credentials: "include" })
+                .then(async (response) => {
+                  const data = (await response.json()) as {
+                    ok?: boolean;
+                    body?: string;
+                    footnotes?: string;
+                    endnotes?: string;
+                  };
+                  return response.ok ? parseWordTextPreview(data) : null;
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
+        if (!fileResponse.ok) throw new Error("fetch_failed");
+
+        const contentType = fileResponse.headers.get("content-type")?.toLowerCase() ?? "";
+        if (contentType.includes("application/json")) {
+          throw new Error("fetch_failed");
+        }
+
+        const buffer = await fileResponse.arrayBuffer();
+        if (buffer.byteLength < 4) throw new Error("empty_file");
         if (cancelled) return;
 
-        await renderAsync(buffer, bodyContainer, styleContainer ?? undefined, {
-          className: "docx-preview",
-          inWrapper: true,
-          breakPages: true,
-          ignoreLastRenderedPageBreak: false,
-          ignoreWidth: false,
-          ignoreHeight: false,
-          ignoreFonts: false,
-          renderHeaders: true,
-          renderFooters: true,
-          renderFootnotes: true,
-          renderEndnotes: true,
-          renderAltChunks: true,
-          experimental: true,
-          useBase64URL: true,
-        });
+        if (textPreviewResult) {
+          textPreviewRef.current = textPreviewResult;
+          setTextPreview(textPreviewResult);
+        }
+
+        if (detectWordDocumentFormat(buffer) === "docx") {
+          setDocxBuffer(buffer);
+          return;
+        }
+
+        if (textPreviewResult) {
+          setMode("text");
+          return;
+        }
+        throw new Error("preview_unavailable");
       } catch {
-        if (!cancelled) setError("Preview unavailable. Download the file instead.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setMode("error");
+          setError("Preview unavailable. Download the file to open it in Word.");
+        }
       }
     }
 
@@ -133,9 +260,61 @@ function DocxPreview({ file, compact = false }: { file: FilePreviewTarget; compa
       if (bodyRef.current) bodyRef.current.innerHTML = "";
       if (styleRef.current) styleRef.current.innerHTML = "";
     };
-  }, [file.url, file.mimeType, file.fileName]);
+  }, [file.url, file.noteId, file.attachmentId]);
 
-  if (error) return <OfficeErrorState message={error} compact={compact} />;
+  useLayoutEffect(() => {
+    if (!docxBuffer) return;
+
+    const bodyContainer = bodyRef.current;
+    const styleContainer = styleRef.current;
+    if (!bodyContainer) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      bodyContainer.innerHTML = "";
+      if (styleContainer) styleContainer.innerHTML = "";
+
+      try {
+        const { renderAsync } = await import("docx-preview");
+        if (cancelled) return;
+
+        await renderAsync(docxBuffer, bodyContainer, styleContainer ?? undefined, DOCX_PREVIEW_OPTIONS);
+        if (!cancelled) setMode("docx");
+      } catch {
+        if (!cancelled) {
+          setDocxBuffer(null);
+          if (textPreviewRef.current) {
+            setMode("text");
+          } else {
+            setMode("error");
+            setError("Preview unavailable. Download the file to open it in Word.");
+          }
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [docxBuffer]);
+
+  if (mode === "error" && error) {
+    return <OfficeErrorState message={error} compact={compact} />;
+  }
+
+  if (mode === "text" && textPreview) {
+    return (
+      <LegacyDocTextPreview
+        paragraphs={textPreview.paragraphs}
+        footnotes={textPreview.footnotes}
+        endnotes={textPreview.endnotes}
+        compact={compact}
+      />
+    );
+  }
+
+  const docxRendering = mode === "loading" || (docxBuffer != null && mode !== "docx");
 
   return (
     <div
@@ -145,34 +324,25 @@ function DocxPreview({ file, compact = false }: { file: FilePreviewTarget; compa
       )}
     >
       <div ref={styleRef} className="docx-preview-styles" aria-hidden />
-      {loading ? (
+      {docxRendering ? (
         <div className={cn(compact ? "docx-preview-loading-overlay" : "relative")}>
           <OfficeLoadingState compact={compact} />
         </div>
       ) : null}
       <div
         ref={bodyRef}
-        className={cn("docx-preview-body", loading && !compact && "invisible absolute inset-0 overflow-hidden")}
+        className={cn(
+          "docx-preview-body",
+          docxRendering && !compact && "invisible absolute inset-0 overflow-hidden",
+        )}
       />
     </div>
   );
 }
 
-function LegacyDocPreview({ compact = false }: { compact?: boolean }) {
-  return (
-    <OfficeErrorState
-      compact={compact}
-      message="Preview isn't supported for older .doc files. Download the file to open it in Word."
-    />
-  );
-}
-
 function OfficePreview({ file, compact = false }: { file: FilePreviewTarget; compact?: boolean }) {
-  if (isDocxPreviewable(file.mimeType, file.fileName)) {
-    return <DocxPreview file={file} compact={compact} />;
-  }
-  if (isLegacyWordDoc(file.mimeType, file.fileName)) {
-    return <LegacyDocPreview compact={compact} />;
+  if (isWordFile(file.mimeType, file.fileName)) {
+    return <WordDocumentPreview file={file} compact={compact} />;
   }
   if (isXlsxPreviewable(file.mimeType, file.fileName)) {
     return <ExcelPreview url={file.url} compact={compact} />;
@@ -321,7 +491,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                     <button
                       type="button"
                       onClick={close}
-                      className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+                      className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-glass bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
                       aria-label="Close preview"
                     >
                       <X className="h-[18px] w-[18px]" />
@@ -348,7 +518,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                       <button
                         type="button"
                         onClick={handleDownload}
-                        className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 hover:bg-white/10"
+                        className="flex items-center gap-2 rounded-full border border-border-glass bg-black/40 px-3 py-2 text-xs text-white/80 hover:bg-surface-hover"
                       >
                         <Download className="h-4 w-4" />
                         Download
@@ -359,9 +529,9 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                       type="button"
                       onClick={close}
                       className={cn(
-                        "relative z-10 flex items-center justify-center rounded-full text-white/70 hover:bg-white/10",
+                        "relative z-10 flex items-center justify-center rounded-full text-white/70 hover:bg-surface-hover",
                         isMobile
-                          ? "h-11 w-11 shrink-0 border border-white/12 bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
+                          ? "h-11 w-11 shrink-0 border border-border-glass bg-black/55 text-white/90 shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-95"
                           : "h-9 w-9",
                       )}
                       aria-label="Close preview"
@@ -387,7 +557,9 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                       ? "max-h-full max-w-full bg-[#e8e8e6]"
                       : cn(
                           "max-h-full max-w-5xl rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.45)]",
-                          showOffice || showPdf ? "bg-[#e8e8e6]" : "bg-[#18181b]",
+                          showOffice || showPdf
+                            ? "bg-[#e8e8e6] modal-panel modal-panel--light"
+                            : "bg-bg-tertiary modal-panel",
                         ),
                   )}
                   onClick={(e) => e.stopPropagation()}
@@ -440,7 +612,7 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
                       <button
                         type="button"
                         onClick={handleDownload}
-                        className="rounded-xl border border-white/10 px-4 py-2 text-white/80 hover:bg-white/10"
+                        className="rounded-xl border border-border-glass px-4 py-2 text-white/80 hover:bg-surface-hover"
                       >
                         Download file
                       </button>

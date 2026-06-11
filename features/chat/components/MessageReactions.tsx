@@ -45,8 +45,8 @@ export function MessageReactions({
           className={cn(
             "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs border transition",
             s.reactedByMe
-              ? "bg-[#c084fc]/25 border-[#c084fc]/50 text-[#f4f4f5]"
-              : "bg-white/5 border-white/10 text-[#a1a1aa] hover:border-white/20 hover:bg-white/8"
+              ? "bg-neon-purple/25 border-neon-purple/50 text-text-primary"
+              : "bg-surface-hover border-border-glass text-text-secondary hover:border-border-glass hover:bg-surface-hover"
           )}
         >
           <span className="text-[15px] leading-none">{s.emoji}</span>

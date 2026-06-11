@@ -19,6 +19,12 @@ import type { PdfHighlightAnnotation } from "@/lib/pdf/annotations";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import {
+  fetchNoteAttachments,
+  getCachedNoteAttachments,
+  invalidateNoteAttachments,
+  setCachedNoteAttachments,
+} from "@/lib/notes/noteAttachmentListCache";
 
 export type NoteAttachmentRow = {
   id: string;
@@ -73,10 +79,16 @@ const ATTACHMENT_FILE_STYLES: Record<
   generic: { railClass: "bg-[#e4e4e7]", label: "File" },
 };
 
-function AttachmentFileTypeIcon({ kind }: { kind: AttachmentFileKind }) {
+function AttachmentFileTypeIcon({
+  kind,
+  className = "h-5 w-5",
+}: {
+  kind: AttachmentFileKind;
+  className?: string;
+}) {
   if (kind === "word") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
         <path
           d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"
           fill="rgba(255,255,255,0.18)"
@@ -99,7 +111,7 @@ function AttachmentFileTypeIcon({ kind }: { kind: AttachmentFileKind }) {
 
   if (kind === "excel") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
         <rect x="4" y="4" width="16" height="16" rx="2" fill="rgba(255,255,255,0.18)" />
         <path
           d="M7 8h10M7 12h10M7 16h10M11 8v8M15 8v8"
@@ -125,7 +137,7 @@ function AttachmentFileTypeIcon({ kind }: { kind: AttachmentFileKind }) {
 
   if (kind === "pdf") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
         <path
           d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"
           fill="rgba(255,255,255,0.18)"
@@ -146,7 +158,7 @@ function AttachmentFileTypeIcon({ kind }: { kind: AttachmentFileKind }) {
     );
   }
 
-  return <FileText className="h-4 w-4 text-[#52525b]" aria-hidden="true" />;
+  return <FileText className={cn(className, "text-text-faint")} aria-hidden="true" />;
 }
 
 function AttachmentRemoveButton({
@@ -166,7 +178,7 @@ function AttachmentRemoveButton({
           e.stopPropagation();
           onRemove();
         }}
-        className="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-black/12 bg-white/95 text-[#52525b] shadow-sm active:scale-95 touch-manipulation"
+        className="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-border-glass bg-bg-elevated text-text-faint shadow-sm active:scale-95 touch-manipulation"
         aria-label={`Remove ${fileName}`}
       >
         <X className="h-2 w-2" strokeWidth={2.5} aria-hidden />
@@ -181,7 +193,7 @@ function AttachmentRemoveButton({
         e.stopPropagation();
         onRemove();
       }}
-      className="absolute -right-1 -top-1 rounded-full border border-black/10 bg-white p-1 text-[#71717a] opacity-0 shadow-md transition-opacity hover:text-red-500 group-hover:opacity-100"
+      className="absolute -right-1 -top-1 rounded-full border border-black/10 bg-white p-1 text-text-muted opacity-0 shadow-md transition-opacity hover:text-red-500 group-hover:opacity-100"
       aria-label={`Delete ${fileName}`}
     >
       <Trash2 className="h-3 w-3" aria-hidden />
@@ -192,17 +204,21 @@ function AttachmentRemoveButton({
 function AttachmentIconSkeleton({
   wide = false,
   compact = false,
+  previewCompact = false,
 }: {
   wide?: boolean;
   compact?: boolean;
+  previewCompact?: boolean;
 }) {
   return (
     <div
       className={cn(
         "shrink-0 animate-pulse border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-black/[0.06]",
-        compact
-          ? "h-9 w-9 rounded-md"
-          : cn("h-12 rounded-lg", wide ? "w-[7.75rem]" : "w-12"),
+        previewCompact
+          ? "h-10 w-10 rounded-md"
+          : compact
+            ? "h-10 w-10 rounded-md"
+            : cn("h-12 rounded-lg", wide ? "w-[7.75rem]" : "w-12"),
       )}
       aria-hidden
     />
@@ -220,6 +236,10 @@ interface NoteAttachmentsPanelProps {
   /** Workspace attachment counts have finished loading (enables skip when count is 0) */
   countsReady?: boolean;
   onCountChange?: (noteId: string, count: number) => void;
+  /** Preview mode — list attachments without upload or delete */
+  readOnly?: boolean;
+  /** Extra-tight layout for desktop file preview chrome */
+  previewCompact?: boolean;
 }
 
 export function NoteAttachmentsPanel({
@@ -229,6 +249,8 @@ export function NoteAttachmentsPanel({
   countHint,
   countsReady = false,
   onCountChange,
+  readOnly = false,
+  previewCompact = false,
 }: NoteAttachmentsPanelProps) {
   const [attachments, setAttachments] = useState<NoteAttachmentRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -268,34 +290,40 @@ export function NoteAttachmentsPanel({
 
     const noteId = selectedNote.id;
     let cancelled = false;
-
-    // Wait for workspace counts before deciding whether a fetch is needed.
-    if (!countsReady) {
-      setAttachments([]);
-      setLoading(false);
-      return;
-    }
-
     const expectedCount = countHint ?? 0;
-    if (expectedCount === 0) {
+
+    if (countsReady && expectedCount === 0) {
       setAttachments([]);
       setLoading(false);
       return;
     }
 
-    setAttachments([]);
-    setLoading(true);
+    if (!countsReady && expectedCount === 0) {
+      setAttachments([]);
+      setLoading(false);
+      return;
+    }
+
+    const cached = getCachedNoteAttachments(noteId);
+    if (cached) {
+      setAttachments(cached as NoteAttachmentRow[]);
+      setLoading(false);
+    } else {
+      setAttachments([]);
+      setLoading(true);
+    }
 
     void (async () => {
       try {
-        const res = await fetch(`/api/notes/${noteId}/attachments`);
-        const data = await res.json();
-        if (cancelled || !res.ok) return;
-        const list = data.attachments ?? [];
+        const list = (await fetchNoteAttachments(noteId)) as NoteAttachmentRow[];
+        if (cancelled) return;
         setAttachments(list);
-        onCountChange?.(noteId, list.length);
+        const nextCount = list.length;
+        if (nextCount !== (countHint ?? 0)) {
+          onCountChange?.(noteId, nextCount);
+        }
       } catch {
-        // silent
+        if (!cancelled && !cached) setAttachments([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -304,7 +332,7 @@ export function NoteAttachmentsPanel({
     return () => {
       cancelled = true;
     };
-  }, [selectedNote.id, onCountChange, countHint, countsReady]);
+  }, [selectedNote.id, onCountChange, countHint, countsReady, readOnly]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files?.length || uploading) return;
@@ -333,6 +361,7 @@ export function NoteAttachmentsPanel({
       if (added.length) {
         setAttachments((prev) => {
           const next = [...added, ...prev];
+          setCachedNoteAttachments(selectedNote.id, next);
           syncCount(next);
           return next;
         });
@@ -357,6 +386,11 @@ export function NoteAttachmentsPanel({
     }
     setAttachments((prev) => {
       const next = prev.filter((a) => a.id !== id);
+      if (next.length === 0) {
+        invalidateNoteAttachments(selectedNote.id);
+      } else {
+        setCachedNoteAttachments(selectedNote.id, next);
+      }
       syncCount(next);
       return next;
     });
@@ -380,130 +414,141 @@ export function NoteAttachmentsPanel({
 
   if (!isSupabaseConfigured()) return null;
 
+  const knownCount = countHint ?? 0;
+
+  if (readOnly) {
+    if (!countsReady || knownCount === 0) return null;
+    if (!loading && attachments.length === 0) return null;
+  }
+
   if (!embedded && !loading && attachments.length === 0) return null;
 
   const displayCount = loading
-    ? countHint && countHint > 0
-      ? countHint
+    ? knownCount > 0
+      ? knownCount
       : null
     : attachments.length > 0
       ? attachments.length
       : null;
 
   const skeletonCount =
-    loading && (countHint ?? 0) > 0
-      ? Math.min(Math.max(countHint ?? 1, 1), 6)
+    loading && knownCount > 0
+      ? Math.min(Math.max(knownCount, 1), previewCompact ? 3 : 6)
       : 0;
 
-  return (
-    <>
-      <div
-        className={cn(
-          embedded
-            ? cn(
-                "note-attachments-embedded border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)]",
-                compact ? "note-attachments-embedded--compact px-3 py-1" : "px-3 py-2 md:px-4",
-              )
-            : "border-t border-[var(--note-canvas-border,rgba(24,24,27,0.1))] px-4 md:px-6 py-4 space-y-3",
-        )}
-      >
-        <div className={cn("flex items-center justify-between gap-2", compact ? "mb-1" : "mb-2")}>
-          <div
-            className={cn(
-              "flex items-center gap-1 text-[var(--note-canvas-text-muted,#71717a)]",
-              compact
-                ? "text-[9px] uppercase tracking-wide"
-                : "gap-1.5 text-[10px] uppercase tracking-widest",
-            )}
-          >
-            <Paperclip className={cn("text-[#7c3aed]", compact ? "h-2.5 w-2.5" : "h-3 w-3")} />
-            Attachments
-            {loading && (countHint ?? 0) > 0 && (
-              <Loader2
-                className={cn("animate-spin text-[#7c3aed]/70", compact ? "h-2.5 w-2.5" : "h-3 w-3")}
-                aria-hidden
-              />
-            )}
-            {displayCount != null && displayCount > 0 && (
-              <span
-                className={cn(
-                  "rounded-full bg-black/5 font-mono text-[var(--note-canvas-text-secondary,#52525b)]",
-                  compact ? "px-1 py-0 text-[8px]" : "px-1.5 py-0.5 text-[9px]",
-                  loading && "opacity-70",
-                )}
-                title={loading ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}` : undefined}
-              >
-                {displayCount}
-              </span>
-            )}
-          </div>
-          <div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={useNativePhotoPicker ? "image/*" : undefined}
-              className="hidden"
-              aria-hidden
-              onChange={(e) => handleUpload(e.target.files)}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className={cn(
-                "flex items-center justify-center border border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-white text-[var(--note-canvas-text,#18181b)] hover:bg-black/5 disabled:opacity-50 touch-manipulation transition-colors",
-                compact
-                  ? "h-6 w-6 min-h-6 min-w-6 rounded-md p-0"
-                  : "gap-1 rounded-lg px-2 py-1 text-[10px]",
-              )}
-              aria-label={useNativePhotoPicker ? "Attach photo or take picture" : "Attach file"}
-              title={useNativePhotoPicker ? "Photo library or camera" : "Attach file"}
-            >
-              {uploading ? (
-                <Loader2 className={cn("animate-spin", compact ? "h-3 w-3" : "h-3 w-3")} />
-              ) : (
-                <Upload className={cn(compact ? "h-3 w-3" : "h-3 w-3")} />
-              )}
-              {!compact && "Attach"}
-            </button>
-          </div>
-        </div>
+  const tight = previewCompact || compact;
 
-        {loading && skeletonCount > 0 ? (
-          <div className={cn(compact ? "space-y-1" : "space-y-2")} role="status" aria-live="polite" aria-label="Loading attachments">
-            <div className={cn("flex flex-wrap", compact ? "gap-1" : "gap-1.5")}>
-              {Array.from({ length: skeletonCount }).map((_, index) => (
-                <AttachmentIconSkeleton
-                  key={index}
-                  wide={!compact && index % 3 === 1}
-                  compact={compact}
-                />
-              ))}
-            </div>
-            {!compact && (
-              <div className="flex items-center gap-1.5 text-xs text-[#71717a]">
-                <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-                <span>
-                  {displayCount != null && displayCount > 0
-                    ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}…`
-                    : "Loading attachments…"}
-                </span>
-              </div>
-            )}
-          </div>
-        ) : attachments.length === 0 ? (
-          embedded ? null : (
-            <div className="text-xs text-[#71717a] py-1">
-              Email attachments and manual uploads appear here.
-            </div>
-          )
+  const tileGap = previewCompact ? "gap-1.5" : compact ? "gap-1.5" : "gap-2";
+  const iconSizeClass = previewCompact ? "h-5 w-5" : compact ? "h-5 w-5" : "h-5 w-5";
+
+  const labelClass = cn(
+    "flex items-center gap-1.5 text-[var(--note-canvas-text-muted,#71717a)] shrink-0 font-medium",
+    previewCompact
+      ? "text-[10px] uppercase tracking-wide"
+      : compact
+        ? "text-[10px] uppercase tracking-wide"
+        : "gap-1.5 text-[11px] uppercase tracking-widest",
+  );
+
+  const attachmentsLabel = (
+    <div className={labelClass}>
+      <Paperclip
+        className={cn(
+          "text-neon-purple-dark shrink-0",
+          previewCompact ? "h-3.5 w-3.5" : compact ? "h-3.5 w-3.5" : "h-4 w-4",
+        )}
+      />
+      Attachments
+      {!previewCompact && loading && knownCount > 0 && (
+        <Loader2
+          className={cn("animate-spin text-neon-purple-dark/70", compact ? "h-2.5 w-2.5" : "h-3 w-3")}
+          aria-hidden
+        />
+      )}
+      {displayCount != null && displayCount > 0 && !previewCompact && (
+        <span
+          className={cn(
+            "rounded-full bg-black/5 font-mono text-[var(--note-canvas-text-secondary,#52525b)]",
+            compact ? "px-1 py-0 text-[8px]" : "px-1.5 py-0.5 text-[9px]",
+            loading && "opacity-70",
+          )}
+          title={loading ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}` : undefined}
+        >
+          {displayCount}
+        </span>
+      )}
+    </div>
+  );
+
+  const uploadControl = !readOnly ? (
+    <div className={embedded ? "shrink-0" : undefined}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={useNativePhotoPicker ? "image/*" : undefined}
+        className="hidden"
+        aria-hidden
+        onChange={(e) => handleUpload(e.target.files)}
+      />
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className={cn(
+          "flex items-center justify-center border border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-white text-[var(--note-canvas-text,#18181b)] hover:bg-black/5 disabled:opacity-50 touch-manipulation transition-colors",
+          compact
+            ? "h-6 w-6 min-h-6 min-w-6 rounded-md p-0"
+            : "gap-1 rounded-lg px-2 py-1 text-[10px]",
+        )}
+        aria-label={useNativePhotoPicker ? "Attach photo or take picture" : "Attach file"}
+        title={useNativePhotoPicker ? "Photo library or camera" : "Attach file"}
+      >
+        {uploading ? (
+          <Loader2 className={cn("animate-spin", compact ? "h-3 w-3" : "h-3 w-3")} />
         ) : (
-          <div className={cn("flex flex-wrap", compact ? "gap-1" : "gap-1.5")}>
-            {attachments.map((att) => {
+          <Upload className={cn(compact ? "h-3 w-3" : "h-3 w-3")} />
+        )}
+        {!compact && "Attach"}
+      </button>
+    </div>
+  ) : null;
+
+  const tilesWrapClass = embedded ? "contents" : cn("flex flex-wrap min-w-0", tileGap);
+
+  const attachmentTiles =
+    loading && skeletonCount > 0 ? (
+      <div
+        className={tilesWrapClass}
+        role="status"
+        aria-live="polite"
+        aria-label="Loading attachments"
+      >
+        {Array.from({ length: skeletonCount }).map((_, index) => (
+          <AttachmentIconSkeleton
+            key={index}
+            wide={!embedded && !tight && index % 3 === 1}
+            compact={compact}
+            previewCompact={previewCompact}
+          />
+        ))}
+      </div>
+    ) : attachments.length === 0 ? (
+      embedded ? null : (
+        <div className="text-xs text-text-muted py-1">
+          Email attachments and manual uploads appear here.
+        </div>
+      )
+    ) : (
+      <div className={tilesWrapClass}>
+        {attachments.map((att) => {
               const isImage = isImageAttachment(att.mimeType, att.fileName);
-              const thumbSize = compact ? "h-9 w-9" : "h-12 w-12";
-              const thumbRadius = compact ? "rounded-md" : "rounded-lg";
+              const thumbSize = previewCompact
+                ? "h-10 w-10"
+                : compact
+                  ? "h-10 w-10"
+                  : "h-12 w-12";
+              const thumbRadius = previewCompact ? "rounded-md" : compact ? "rounded-md" : "rounded-lg";
 
               if (isImage) {
                 return (
@@ -512,7 +557,7 @@ export function NoteAttachmentsPanel({
                       type="button"
                       onClick={() => openPreview(att)}
                       className={cn(
-                        "relative overflow-hidden border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white hover:border-[#7c3aed]/35 shadow-sm transition-colors",
+                        "relative overflow-hidden border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white hover:border-neon-purple-dark/35 shadow-sm transition-colors",
                         thumbSize,
                         thumbRadius,
                       )}
@@ -524,18 +569,26 @@ export function NoteAttachmentsPanel({
                           src={att.previewUrl}
                           alt={att.fileName}
                           className="h-full w-full object-cover"
+                          decoding="async"
+                          loading="eager"
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[#71717a]">
-                          <ImageIcon className={compact ? "h-4 w-4" : "h-5 w-5"} />
+                        <div className="flex h-full w-full items-center justify-center text-text-muted">
+                          <ImageIcon
+                            className={
+                              previewCompact ? "h-4 w-4" : compact ? "h-4 w-4" : "h-5 w-5"
+                            }
+                          />
                         </div>
                       )}
                     </button>
-                    <AttachmentRemoveButton
-                      compact={compact}
-                      fileName={att.fileName}
-                      onRemove={() => setPendingDelete(att)}
-                    />
+                    {!readOnly && (
+                      <AttachmentRemoveButton
+                        compact={compact}
+                        fileName={att.fileName}
+                        onRemove={() => setPendingDelete(att)}
+                      />
+                    )}
                   </div>
                 );
               }
@@ -547,7 +600,11 @@ export function NoteAttachmentsPanel({
                   key={att.id}
                   className={cn(
                     "group relative flex shrink-0 overflow-hidden border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white shadow-sm",
-                    compact ? "h-9 w-[6.25rem] rounded-md" : "h-12 w-[7.75rem] rounded-lg",
+                    previewCompact
+                      ? "h-10 w-[7.25rem] rounded-md"
+                      : compact
+                        ? "h-10 w-[6.75rem] rounded-md"
+                        : "h-12 w-[7.75rem] rounded-lg",
                   )}
                 >
                   <button
@@ -559,18 +616,23 @@ export function NoteAttachmentsPanel({
                     <div
                       className={cn(
                         "flex shrink-0 items-center justify-center",
-                        compact ? "w-7" : "w-9",
+                        previewCompact ? "w-8" : compact ? "w-8" : "w-9",
                         fileStyle.railClass,
                       )}
                       aria-label={fileStyle.label}
                     >
-                      <AttachmentFileTypeIcon kind={fileKind} />
+                      <AttachmentFileTypeIcon kind={fileKind} className={iconSizeClass} />
                     </div>
-                    <div className={cn("flex min-w-0 flex-1 flex-col justify-center", compact ? "px-1 py-0.5" : "px-1.5 py-1")}>
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-1 flex-col justify-center",
+                        previewCompact ? "px-0.5 py-0" : compact ? "px-1 py-0.5" : "px-1.5 py-1",
+                      )}
+                    >
                       <span
                         className={cn(
                           "truncate font-medium leading-tight text-[var(--note-canvas-text,#18181b)]",
-                          compact ? "text-[9px]" : "text-[10px]",
+                          previewCompact ? "text-[9px]" : compact ? "text-[9px]" : "text-[10px]",
                         )}
                       >
                         {att.fileName}
@@ -578,7 +640,7 @@ export function NoteAttachmentsPanel({
                       <div
                         className={cn(
                           "truncate leading-tight text-[var(--note-canvas-text-muted,#71717a)]",
-                          compact ? "text-[8px]" : "text-[9px]",
+                          previewCompact ? "text-[8px]" : compact ? "text-[8px]" : "text-[9px]",
                         )}
                       >
                         {formatBytes(att.sizeBytes)}
@@ -590,15 +652,77 @@ export function NoteAttachmentsPanel({
                       </div>
                     </div>
                   </button>
-                  <AttachmentRemoveButton
-                    compact={compact}
-                    fileName={att.fileName}
-                    onRemove={() => setPendingDelete(att)}
-                  />
+                  {!readOnly && (
+                    <AttachmentRemoveButton
+                      compact={compact}
+                      fileName={att.fileName}
+                      onRemove={() => setPendingDelete(att)}
+                    />
+                  )}
                 </div>
               );
             })}
+      </div>
+    );
+
+  return (
+    <>
+      <div
+        className={cn(
+          embedded
+            ? cn(
+                "note-attachments-embedded border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)]",
+                previewCompact && "note-attachments-embedded--preview",
+                tight
+                  ? previewCompact
+                    ? "px-3 py-0.5"
+                    : "note-attachments-embedded--compact px-3 py-1"
+                  : "px-3 py-2 md:px-4",
+              )
+            : "border-t border-[var(--note-canvas-border,rgba(24,24,27,0.1))] px-4 md:px-6 py-4 space-y-3",
+        )}
+        onDoubleClick={readOnly ? (e) => e.stopPropagation() : undefined}
+      >
+        {embedded ? (
+          <div
+            className={cn(
+              "note-attachments-inline-row flex flex-wrap items-center min-w-0",
+              tileGap,
+            )}
+          >
+            {attachmentsLabel}
+            {attachmentTiles}
+            {uploadControl}
+            {previewCompact && loading && knownCount > 0 && (
+              <Loader2
+                className="h-3.5 w-3.5 shrink-0 animate-spin text-neon-purple-dark/70"
+                aria-hidden
+              />
+            )}
           </div>
+        ) : (
+          <>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-2",
+                compact ? "mb-1" : "mb-2",
+              )}
+            >
+              {attachmentsLabel}
+              {uploadControl}
+            </div>
+            {attachmentTiles}
+            {!compact && loading && skeletonCount > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-text-muted mt-2">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                <span>
+                  {displayCount != null && displayCount > 0
+                    ? `Loading ${displayCount} attachment${displayCount === 1 ? "" : "s"}…`
+                    : "Loading attachments…"}
+                </span>
+              </div>
+            )}
+          </>
         )}
       </div>
 

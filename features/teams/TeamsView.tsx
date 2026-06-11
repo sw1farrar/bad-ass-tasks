@@ -143,14 +143,14 @@ export function TeamsView(props: TeamsViewProps) {
     return (
       <div className="max-w-2xl mx-auto pt-12 pb-20">
         <div className="text-center mb-10">
-          <div className="mx-auto mb-6 h-20 w-20 rounded-3xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-            <Users className="h-10 w-10 text-black" />
+          <div className="mx-auto mb-6 h-20 w-20 rounded-3xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
+            <Users className="h-10 w-10 text-accent-on" />
           </div>
           <div className="text-4xl font-semibold tracking-tighter mb-3">Team</div>
 
           {/* Recipient context — only show for non-creators of *this* workspace */}
           {currentWorkspace.role && currentWorkspace.role !== "owner" && (
-            <div className="mt-4 mb-2 text-sm text-[#c084fc] bg-[#c084fc]/10 border border-[#c084fc]/20 rounded-xl px-4 py-2 inline-block">
+            <div className="mt-4 mb-2 text-sm text-neon-purple bg-neon-purple/10 border border-neon-purple/20 rounded-xl px-4 py-2 inline-block">
               You were invited to this workspace.
             </div>
           )}
@@ -158,25 +158,25 @@ export function TeamsView(props: TeamsViewProps) {
 
         {/* === "Invites sent" — primary focus once any exist (world-class simple feedback) === */}
         {invites.length > 0 && (
-          <div className="glass rounded-3xl p-8 border border-white/10 mb-8">
+          <div className="glass rounded-3xl p-8 border border-border-glass mb-8">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="font-semibold text-xl tracking-tight">Invites sent</div>
-                <div className="px-3 py-0.5 rounded-full bg-[#c084fc]/20 text-sm font-mono text-[#c084fc] border border-[#c084fc]/30">
+                <div className="px-3 py-0.5 rounded-full bg-neon-purple/20 text-sm font-mono text-neon-purple border border-neon-purple/30">
                   {invites.length}
                 </div>
               </div>
-              <div className="text-xs text-[#71717a] font-mono">Pending</div>
+              <div className="text-xs text-text-muted font-mono">Pending</div>
             </div>
 
             <div className="space-y-3">
               {invites.map((inv, index) => (
-                <div key={inv.id} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition group">
+                <div key={inv.id} className="flex items-center justify-between p-4 rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition group">
                   <div className="min-w-0">
                     <div className="font-medium truncate">
                       {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Pending teammate")}
                     </div>
-                    <div className="text-xs text-[#71717a] font-mono mt-0.5">
+                    <div className="text-xs text-text-muted font-mono mt-0.5">
                       {formatRoleLabel(inv.role)} • {new Date(inv.createdAt).toLocaleDateString()}
                     </div>
                   </div>
@@ -211,9 +211,9 @@ export function TeamsView(props: TeamsViewProps) {
         )}
 
         {/* Prominent user search (Facebook-style "find friends") */}
-        <div className="glass rounded-3xl p-8 border border-white/10 mb-8">
+        <div className="glass rounded-3xl p-8 border border-border-glass mb-8">
           <div className="font-semibold text-lg mb-4 flex items-center gap-2">
-            <Search className="h-5 w-5 text-[#c084fc]" /> Search for teammates
+            <Search className="h-5 w-5 text-neon-purple" /> Search for teammates
           </div>
 
           <div className="relative">
@@ -231,7 +231,7 @@ export function TeamsView(props: TeamsViewProps) {
             {teamSearchQuery && (
               <button
                 onClick={onClearSearch}
-                className="absolute right-4 top-4 text-[#71717a] hover:text-white"
+                className="absolute right-4 top-4 text-text-muted hover:text-text-primary"
                 aria-label="Clear search"
               >
                 <X className="h-5 w-5" />
@@ -243,7 +243,7 @@ export function TeamsView(props: TeamsViewProps) {
           {teamSearchQuery.trim() && (
             <div
               onClick={() => setShowDirectInvite(!showDirectInvite)}
-              className="text-sm text-[#c084fc] hover:underline cursor-pointer mb-4 flex items-center gap-1.5 select-none"
+              className="text-sm text-neon-purple hover:underline cursor-pointer mb-4 flex items-center gap-1.5 select-none"
             >
               Not seeing who you're looking for? <span className="font-medium">Invite by email or create a link</span>
             </div>
@@ -251,7 +251,7 @@ export function TeamsView(props: TeamsViewProps) {
 
           {/* Expanded direct invite form (still controlled from parent state) */}
           {showDirectInvite && (
-            <div className="mb-6 space-y-3 border border-white/10 bg-white/5 rounded-2xl p-5">
+            <div className="mb-6 space-y-3 border border-border-glass bg-surface-hover rounded-2xl p-5">
               <input
                 type="email"
                 value={inviteEmail}
@@ -280,14 +280,14 @@ export function TeamsView(props: TeamsViewProps) {
                 </button>
               </div>
 
-              <div className="text-[11px] text-[#71717a] text-center">
+              <div className="text-[11px] text-text-muted text-center">
                 They’ll receive an email (if provided) or can join via the link.
               </div>
             </div>
           )}
 
           {isSearchingTeam && (
-            <div className="flex items-center gap-2 text-sm text-[#a1a1aa] mb-3 px-1">
+            <div className="flex items-center gap-2 text-sm text-text-secondary mb-3 px-1">
               <Loader2 className="h-4 w-4 animate-spin" /> Searching directory...
             </div>
           )}
@@ -298,19 +298,19 @@ export function TeamsView(props: TeamsViewProps) {
                 const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
                 const displayName = getSearchResultDisplayName(result);
                 return (
-                  <div key={result.id || idx} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition">
+                  <div key={result.id || idx} className="flex items-center justify-between p-4 rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition">
                     <div className="flex items-center gap-3 min-w-0">
                       {result.avatarUrl ? (
-                        <img src={result.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-white/10" />
+                        <img src={result.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-border-glass" />
                       ) : (
-                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-[#c084fc]/80 to-[#a855f7]/80 flex items-center justify-center text-black font-bold flex-shrink-0">
+                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-neon-purple/80 to-neon-purple-dark/80 flex items-center justify-center text-accent-on font-bold flex-shrink-0">
                           {initial}
                         </div>
                       )}
                       <div className="min-w-0">
                         <div className="font-medium truncate">{displayName}</div>
-                        {result.username && <div className="text-xs text-[#c084fc] font-mono">@{result.username}</div>}
-                        {result.location && <div className="text-xs text-[#71717a] truncate">📍 {result.location}</div>}
+                        {result.username && <div className="text-xs text-neon-purple font-mono">@{result.username}</div>}
+                        {result.location && <div className="text-xs text-text-muted truncate">📍 {result.location}</div>}
                       </div>
                     </div>
                     <button
@@ -326,12 +326,12 @@ export function TeamsView(props: TeamsViewProps) {
           )}
 
           {!isSearchingTeam && teamSearchQuery.trim() && teamSearchResults.length === 0 && (
-            <div className="text-sm text-[#71717a] mb-4 px-1">
+            <div className="text-sm text-text-muted mb-4 px-1">
               No matches in the directory.
             </div>
           )}
 
-          <div className="text-[11px] text-[#71717a] mt-4">
+          <div className="text-[11px] text-text-muted mt-4">
             Search name, username or city. Results preview details before you invite.
           </div>
         </div>
@@ -345,7 +345,7 @@ export function TeamsView(props: TeamsViewProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Users className="h-8 w-8 text-[#c084fc]" />
+          <Users className="h-8 w-8 text-neon-purple" />
           <div className="text-2xl font-semibold tracking-tighter">Team</div>
         </div>
         <div className="flex items-center gap-2">
@@ -365,11 +365,11 @@ export function TeamsView(props: TeamsViewProps) {
 
       {/* Presence */}
       {onlineUsers.length > 0 && (
-        <div className="glass rounded-2xl p-4 border border-white/10">
+        <div className="glass rounded-2xl p-4 border border-border-glass">
           <div className="flex flex-wrap gap-2">
             {onlineUsers.map((u) => (
-              <div key={u.userId || u.presenceRef} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00ff9f]/10 text-[#00ff9f] text-xs border border-[#00ff9f]/20">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#00ff9f] animate-pulse" />
+              <div key={u.userId || u.presenceRef} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-neon-green/10 text-neon-green text-xs border border-neon-green/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse" />
                 {u.fullName || (u.username ? `@${u.username}` : "Online")}
               </div>
             ))}
@@ -378,28 +378,28 @@ export function TeamsView(props: TeamsViewProps) {
       )}
 
       {/* Members list */}
-      <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-        <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+      <div className="glass rounded-2xl border border-border-glass overflow-hidden">
+        <div className="px-5 py-3 border-b border-border-glass flex items-center justify-between bg-surface-hover">
           <div className="font-medium">Members ({members.length})</div>
-          {isLoadingMembers && <Loader2 className="h-4 w-4 animate-spin text-[#c084fc]" />}
+          {isLoadingMembers && <Loader2 className="h-4 w-4 animate-spin text-neon-purple" />}
         </div>
 
         {members.length === 0 ? (
-          <div className="p-8 text-center text-[#71717a] text-sm">No members</div>
+          <div className="p-8 text-center text-text-muted text-sm">No members</div>
         ) : (
-          <div className="divide-y divide-white/10 text-sm">
+          <div className="divide-y divide-border-glass text-sm">
             {members.map((m) => {
               const isSelf = m.userId === user?.id;
               const canActOnThis = canManage && !isSelf;
               return (
-                <div key={m.userId} className="px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-colors">
+                <div key={m.userId} className="px-5 py-3.5 flex items-center gap-4 hover:bg-surface-hover transition-colors">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">
                       {m.fullName || (m.username ? `@${m.username}` : "Member")}
                     </div>
                   </div>
 
-                  <div className="text-xs px-2.5 py-1 rounded bg-white/5 border border-white/10 font-mono text-[#a1a1aa]">
+                  <div className="text-xs px-2.5 py-1 rounded bg-surface-hover border border-border-glass font-mono text-text-secondary">
                     {formatRoleLabel(m.role)}
                   </div>
 
@@ -408,7 +408,7 @@ export function TeamsView(props: TeamsViewProps) {
                       <select
                         value={m.role}
                         onChange={(e) => onRoleChange(m.userId, e.target.value as any)}
-                        className="bg-[#111114] border border-white/20 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#c084fc]"
+                        className="bg-bg-secondary border border-border-glass rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-neon-purple"
                         disabled={!isLive}
                       >
                         <option value="member">Member</option>
@@ -432,7 +432,7 @@ export function TeamsView(props: TeamsViewProps) {
                     canSelfLeave ? (
                       <button
                         onClick={onLeaveWorkspace}
-                        className="px-3 py-1 text-xs rounded-xl border border-white/20 hover:bg-white/5 text-[#a1a1aa] disabled:opacity-50"
+                        className="px-3 py-1 text-xs rounded-xl border border-border-glass hover:bg-surface-hover text-text-secondary disabled:opacity-50"
                         disabled={!isLive}
                         title="Leave this workspace (self-service exit)"
                       >
@@ -440,14 +440,14 @@ export function TeamsView(props: TeamsViewProps) {
                       </button>
                     ) : ownerTransferControl ?? (
                       <span
-                        className="text-[10px] text-[#71717a] max-w-[11rem] text-right leading-snug"
+                        className="text-[10px] text-text-muted max-w-[11rem] text-right leading-snug"
                         title="Transfer ownership before you can leave"
                       >
                         Transfer ownership to leave
                       </span>
                     )
                   ) : (
-                    <div className="text-[10px] text-[#71717a] px-2"></div>
+                    <div className="text-[10px] text-text-muted px-2"></div>
                   )}
                 </div>
               );
@@ -458,21 +458,21 @@ export function TeamsView(props: TeamsViewProps) {
 
       {/* Pending Invites (owner/admin only) */}
       {canManage && isLive && !isDemoWs && (
-        <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-          <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-white/5">
+        <div className="glass rounded-2xl border border-border-glass overflow-hidden">
+          <div className="px-5 py-3 border-b border-border-glass flex items-center justify-between bg-surface-hover">
             <div className="font-medium">Pending Invites ({invites.length})</div>
           </div>
           {invites.length === 0 ? (
-            <div className="p-6 text-sm text-[#71717a]">None</div>
+            <div className="p-6 text-sm text-text-muted">None</div>
           ) : (
-            <div className="divide-y divide-white/10 text-sm">
+            <div className="divide-y divide-border-glass text-sm">
               {invites.map((inv) => (
                 <div key={inv.id} className="px-5 py-3 flex items-center gap-3">
                   <div className="flex-1">
                     <div>
                       {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
                     </div>
-                    <div className="text-[11px] text-[#71717a] font-mono">{formatRoleLabel(inv.role)}</div>
+                    <div className="text-[11px] text-text-muted font-mono">{formatRoleLabel(inv.role)}</div>
                   </div>
                   <button
                     onClick={() => onCopyInviteLink(inv.id)}

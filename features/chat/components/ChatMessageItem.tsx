@@ -63,7 +63,7 @@ export function ChatMessageItem({
     <div className={cn("flex gap-2", mine ? "flex-row-reverse" : "flex-row")}>
       {showAvatar && (
         <div
-          className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[#c084fc]/30 to-[#a855f7]/20 border border-white/10 flex items-center justify-center text-[10px] font-semibold text-[#e4e4e7]"
+          className="chat-message-avatar h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-neon-purple/30 to-neon-purple-dark/20 border border-border-glass flex items-center justify-center text-[10px] font-semibold text-text-primary"
           title={author}
         >
           {avatarInitials}
@@ -73,7 +73,7 @@ export function ChatMessageItem({
 
       <div className={cn("relative max-w-[85%] min-w-0", mine && "items-end flex flex-col")}>
         {!mine && (
-          <div className="text-[10px] text-[#71717a] mb-0.5 ml-0.5 truncate">{author}</div>
+          <div className="chat-message-author text-[10px] text-text-muted mb-0.5 ml-0.5 truncate">{author}</div>
         )}
 
         <div
@@ -94,10 +94,10 @@ export function ChatMessageItem({
               setReactionOpen(true);
             }}
             className={cn(
-              "rounded-2xl px-3 py-2 text-sm leading-snug break-words whitespace-pre-wrap select-none touch-manipulation",
+              "chat-message-bubble rounded-2xl px-3 py-2 text-sm leading-snug break-words whitespace-pre-wrap select-none touch-manipulation",
               mine
-                ? "bg-[#c084fc] text-black rounded-br-md"
-                : "bg-white/8 border border-white/10 text-[#f4f4f5] rounded-bl-md"
+                ? "chat-message-bubble--mine bg-neon-purple text-accent-on rounded-br-md"
+                : "chat-message-bubble--theirs bg-surface-hover border border-border-glass text-text-primary rounded-bl-md"
             )}
             style={{
               fontFamily:
@@ -131,7 +131,7 @@ export function ChatMessageItem({
 
         <div
           className={cn(
-            "text-[9px] text-[#71717a] mt-0.5 tabular-nums",
+            "chat-message-timestamp text-[9px] text-text-muted mt-0.5 tabular-nums",
             mine ? "text-right" : "ml-0.5"
           )}
         >

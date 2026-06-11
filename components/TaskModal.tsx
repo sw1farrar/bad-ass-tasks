@@ -149,7 +149,7 @@ function TaskMentionSuggestions({
             key={member.userId}
             type="button"
             onClick={() => onSelect(handle)}
-            className="mention-pill text-xs px-2.5 py-1 rounded-lg bg-[#c084fc]/10 text-[#c084fc] border border-[#c084fc]/30 hover:bg-[#c084fc]/25 min-h-[28px]"
+            className="mention-pill text-xs px-2.5 py-1 rounded-lg bg-neon-purple/10 text-neon-purple border border-neon-purple/30 hover:bg-neon-purple/25 min-h-[28px]"
           >
             {label}
           </button>
@@ -200,7 +200,7 @@ function TaskCommentCard({
   return (
     <div
       className={cn(
-        "glass border border-white/10",
+        "glass border border-border-glass",
         compact ? "rounded-lg px-2 py-1.5 text-sm" : "rounded-xl p-3 text-sm",
       )}
     >
@@ -212,18 +212,18 @@ function TaskCommentCard({
       >
         <div
           className={cn(
-            "flex items-center text-[10px] text-[#a1a1aa] min-w-0",
+            "flex items-center text-[10px] text-text-secondary min-w-0",
             compact ? "flex-1 gap-1 overflow-hidden" : "flex-wrap gap-2",
           )}
         >
-          <span className={cn("font-medium text-[#c084fc]", compact ? "truncate min-w-0" : undefined)}>
+          <span className={cn("font-medium text-neon-purple", compact ? "truncate min-w-0" : undefined)}>
             {getCommentAuthorLabel(comment, members)}
           </span>
           <span className="shrink-0">•</span>
           <span className="shrink-0 tabular-nums whitespace-nowrap">
             {new Date(comment.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
-          {edited && <span className="text-[#71717a] shrink-0">(edited)</span>}
+          {edited && <span className="text-text-muted shrink-0">(edited)</span>}
         </div>
         {canManage && !isEditing && (
           <div className={cn("flex items-center shrink-0", compact ? "gap-0 ml-auto" : "gap-0.5")}>
@@ -232,7 +232,7 @@ function TaskCommentCard({
               onClick={onStartEdit}
               disabled={isBusy}
               className={cn(
-                "rounded-lg flex items-center justify-center text-[#a1a1aa] hover:text-[#c084fc] hover:bg-white/5 disabled:opacity-50",
+                "rounded-lg flex items-center justify-center text-text-secondary hover:text-neon-purple hover:bg-surface-hover disabled:opacity-50",
                 compact ? "h-7 w-7" : "h-8 w-8",
               )}
               aria-label="Edit comment"
@@ -244,7 +244,7 @@ function TaskCommentCard({
               onClick={onDelete}
               disabled={isBusy}
               className={cn(
-                "rounded-lg flex items-center justify-center text-[#a1a1aa] hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50",
+                "rounded-lg flex items-center justify-center text-text-secondary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50",
                 compact ? "h-7 w-7" : "h-8 w-8",
               )}
               aria-label="Delete comment"
@@ -261,7 +261,7 @@ function TaskCommentCard({
             value={editDraft}
             onChange={(e) => onEditDraftChange(e.target.value)}
             className={cn(
-              "w-full bg-[#111114] rounded-xl p-3 text-sm resize-y outline-none border border-white/10",
+              "input w-full p-3 text-sm resize-y outline-none",
               compact ? "min-h-[72px]" : "min-h-[80px]",
             )}
             rows={compact ? 3 : 4}
@@ -291,7 +291,7 @@ function TaskCommentCard({
       ) : (
         <div
           className={cn(
-            "text-[#e4e4e7] whitespace-pre-wrap",
+            "text-text-primary whitespace-pre-wrap",
             compact ? "text-[13px] leading-snug" : "text-sm",
           )}
         >
@@ -322,25 +322,25 @@ function CollapsibleSection({
   }, [defaultOpen]);
 
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden">
+    <div className="rounded-xl border border-border-glass overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-[#a1a1aa] hover:bg-white/5 active:bg-white/[0.07] transition min-h-[44px]"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover active:bg-bg-tertiary transition min-h-[44px]"
         aria-expanded={open}
       >
         <div className="flex items-center gap-2 min-w-0">
           {Icon && <Icon className="h-4 w-4 shrink-0" />}
           <span className="font-medium">{title}</span>
           {badge && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-[#71717a] truncate max-w-[140px]">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-hover text-text-muted truncate max-w-[140px]">
               {badge}
             </span>
           )}
         </div>
-        <ChevronDown className={cn("h-4 w-4 shrink-0 text-[#71717a] transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-text-muted transition-transform", open && "rotate-180")} />
       </button>
-      {open && <div className="px-3 pb-3 pt-1 border-t border-white/10">{children}</div>}
+      {open && <div className="px-3 pb-3 pt-1 border-t border-border-glass">{children}</div>}
     </div>
   );
 }
@@ -508,16 +508,16 @@ function RecurrenceEditor({
       {!compact && (
         <div className="flex items-center gap-2 flex-wrap">
           {currentLabel ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#c084fc]/10 text-[#c084fc] text-xs font-medium border border-[#c084fc]/30">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-neon-purple/10 text-neon-purple text-xs font-medium border border-neon-purple/30">
               <Repeat className="h-3 w-3" /> {currentLabel}
             </span>
           ) : (
-            <span className="text-xs text-[#71717a]">No recurrence</span>
+            <span className="text-xs text-text-muted">No recurrence</span>
           )}
           {localTask.recurringRule && (
             <button
               onClick={clearRecurrence}
-              className="text-[10px] px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[#a1a1aa] transition"
+              className="text-[10px] px-2 py-0.5 rounded bg-surface-hover hover:bg-surface-hover text-text-secondary transition"
             >
               Clear
             </button>
@@ -534,8 +534,8 @@ function RecurrenceEditor({
             className={cn(
               "text-xs px-3 py-1 rounded-full border transition",
               hasRule && freq === f
-                ? "bg-[#c084fc] text-black border-[#c084fc]"
-                : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+                ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
+                : "border-border-glass hover:bg-surface-hover text-text-secondary"
             )}
           >
             {f === "DAILY" ? "Daily" : f === "WEEKLY" ? "Weekly" : f === "MONTHLY" ? "Monthly" : "Yearly"}
@@ -546,8 +546,8 @@ function RecurrenceEditor({
           className={cn(
             "text-xs px-3 py-1 rounded-full border transition",
             !hasRule
-              ? "bg-[#c084fc] text-black border-[#c084fc]"
-              : "border-white/10 hover:bg-white/5 text-[#71717a]"
+              ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
+              : "border-border-glass hover:bg-surface-hover text-text-muted"
           )}
         >
           None
@@ -558,16 +558,16 @@ function RecurrenceEditor({
         <>
       {/* Interval — only when a rule is active (prevents accidental re-apply after clear) */}
       <div className="flex items-center gap-2 text-xs">
-        <span className="text-[#71717a]">Every</span>
+        <span className="text-text-muted">Every</span>
         <input
           type="number"
           min={1}
           max={99}
           value={interval}
           onChange={(e) => setIntervalVal(parseInt(e.target.value))}
-          className="input w-14 px-2 py-1 rounded text-center text-sm"
+          className="input w-14 px-2 py-1 text-center text-sm"
         />
-        <span className="text-[#71717a]">{freq.toLowerCase()}{interval > 1 ? "s" : ""}</span>
+        <span className="text-text-muted">{freq.toLowerCase()}{interval > 1 ? "s" : ""}</span>
       </div>
 
       {/* Weekly day picker */}
@@ -580,8 +580,8 @@ function RecurrenceEditor({
               className={cn(
                 "text-[10px] px-2 py-0.5 rounded-full border transition min-w-[34px]",
                 byDays.includes(day)
-                  ? "bg-[#c084fc] text-black border-[#c084fc]"
-                  : "border-white/10 hover:bg-white/5 text-[#a1a1aa]"
+                  ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
+                  : "border-border-glass hover:bg-surface-hover text-text-secondary"
               )}
             >
               {weekLabels[i]}
@@ -591,17 +591,17 @@ function RecurrenceEditor({
       )}
 
       {/* Production End Conditions UI: Never / After N / On date (drives COUNT or UNTIL) */}
-        <div className="pt-1 space-y-2 border-t border-white/10">
-          <div className="text-[10px] text-[#71717a] flex items-center gap-1.5">
+        <div className="pt-1 space-y-2 border-t border-border-glass">
+          <div className="text-[10px] text-text-muted flex items-center gap-1.5">
             <span>Ends</span>
-            <div className="inline-flex rounded-full border border-white/10 overflow-hidden text-[10px]">
+            <div className="inline-flex rounded-full border border-border-glass overflow-hidden text-[10px]">
               {(["never", "count", "until"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => { setEndMode(m); applyEndCondition(m); }}
                   className={cn(
                     "px-2.5 py-0.5 transition",
-                    endMode === m ? "bg-[#c084fc] text-black" : "hover:bg-white/5 text-[#a1a1aa]"
+                    endMode === m ? "bg-neon-purple text-[var(--on-accent)]" : "hover:bg-surface-hover text-text-secondary"
                   )}
                 >
                   {m === "never" ? "Never" : m === "count" ? "After N" : "On date"}
@@ -618,10 +618,10 @@ function RecurrenceEditor({
                 max={365}
                 value={localCount}
                 onChange={(e) => { const v = parseInt(e.target.value)||1; setLocalCount(v); applyEndCondition("count", v); }}
-                className="input w-16 px-2 py-0.5 rounded text-center text-sm"
+                className="input w-16 px-2 py-0.5 text-center text-sm"
               />
-              <span className="text-[#71717a]">occurrences</span>
-              <button onClick={() => { setEndMode("never"); applyEndCondition("never"); }} className="text-[10px] text-[#a1a1aa] underline">or never</button>
+              <span className="text-text-muted">occurrences</span>
+              <button onClick={() => { setEndMode("never"); applyEndCondition("never"); }} className="text-[10px] text-text-secondary underline">or never</button>
             </div>
           )}
 
@@ -635,12 +635,12 @@ function RecurrenceEditor({
                 }}
                 className="flex-1"
               />
-              <button onClick={() => { setEndMode("never"); applyEndCondition("never"); }} className="text-[10px] text-[#a1a1aa] underline">Never</button>
+              <button onClick={() => { setEndMode("never"); applyEndCondition("never"); }} className="text-[10px] text-text-secondary underline">Never</button>
             </div>
           )}
 
           {endMode === "never" && !compact && (
-            <div className="text-[10px] text-[#a1a1aa] pl-1">Open-ended series (continues forever)</div>
+            <div className="text-[10px] text-text-secondary pl-1">Open-ended series (continues forever)</div>
           )}
         </div>
 
@@ -648,16 +648,16 @@ function RecurrenceEditor({
       )}
 
       {localTask.recurringRule && upcoming.length > 0 && (
-        <div className="text-[10px] text-[#71717a] pt-1">
+        <div className="text-[10px] text-text-muted pt-1">
           Next: {upcoming.join(" • ")}
         </div>
       )}
       {!compact && localTask.recurringRule && (
-        <div className="text-[9px] text-[#71717a] flex items-center gap-2">
+        <div className="text-[9px] text-text-muted flex items-center gap-2">
           <span className="font-mono opacity-70">{localTask.recurringRule}</span>
           <button
             onClick={() => { setRawRule(localTask.recurringRule || ""); setShowRaw(!showRaw); }}
-            className="text-[9px] underline hover:text-[#c084fc]"
+            className="text-[9px] underline hover:text-neon-purple"
             title="Edit raw RRULE (advanced / custom)"
           >
             edit raw
@@ -673,32 +673,32 @@ function RecurrenceEditor({
             placeholder="FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=12"
           />
           <div className="flex gap-2">
-            <button onClick={applyRawRule} className="text-[10px] px-2 py-0.5 bg-[#c084fc]/20 text-[#c084fc] rounded">Apply RRULE</button>
-            <button onClick={() => setShowRaw(false)} className="text-[10px] px-2 py-0.5 bg-white/5 rounded">Cancel</button>
+            <button onClick={applyRawRule} className="text-[10px] px-2 py-0.5 bg-neon-purple/20 text-neon-purple rounded">Apply RRULE</button>
+            <button onClick={() => setShowRaw(false)} className="text-[10px] px-2 py-0.5 bg-surface-hover rounded">Cancel</button>
           </div>
-          <div className="text-[9px] text-[#a1a1aa]">Full RRULE strings supported (engine handles parse/generate + COUNT/UNTIL/exceptions).</div>
+          <div className="text-[9px] text-text-secondary">Full RRULE strings supported (engine handles parse/generate + COUNT/UNTIL/exceptions).</div>
         </div>
       )}
 
       {/* Exceptions / Skipped + quick actions — polished */}
       {localTask.recurringRule && (
-        <div className="pt-2 border-t border-white/10 space-y-2">
+        <div className="pt-2 border-t border-border-glass space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleSkipOccurrence}
-              className="text-[10px] px-2 py-0.5 rounded bg-[#c084fc]/10 hover:bg-[#c084fc]/20 text-[#c084fc] border border-[#c084fc]/30 transition"
+              className="text-[10px] px-2 py-0.5 rounded bg-neon-purple/10 hover:bg-neon-purple/20 text-neon-purple border border-neon-purple/30 transition"
               title="Skip the current overdue occurrence or the next future one"
             >
               {localTask.dueDate && isDueDatePast(localTask.dueDate)
                 ? "Skip this occurrence"
                 : "Skip next occurrence"}
             </button>
-            <span className="text-[9px] text-[#71717a]">{endDesc}</span>
+            <span className="text-[9px] text-text-muted">{endDesc}</span>
           </div>
 
           {localTask.exceptionDates && localTask.exceptionDates.length > 0 && (
             <div>
-              <div className="text-[10px] text-[#a1a1aa] mb-1">Skipped dates (tap to restore):</div>
+              <div className="text-[10px] text-text-secondary mb-1">Skipped dates (tap to restore):</div>
               <div className="flex flex-wrap gap-1">
                 {localTask.exceptionDates.map((exDate, idx) => (
                   <button
@@ -707,7 +707,7 @@ function RecurrenceEditor({
                       const nextEx = (localTask.exceptionDates || []).filter((_, i) => i !== idx);
                       save({ exceptionDates: nextEx.length ? nextEx : undefined });
                     }}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[#a1a1aa] border border-white/10"
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover hover:bg-surface-hover text-text-secondary border border-border-glass"
                     title="Click to un-skip this occurrence"
                   >
                     {exDate.slice(0, 10)} ✕
@@ -1043,7 +1043,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
       >
         <motion.div
           key="task-sheet-backdrop"
-          className={cn("absolute inset-0", isMobile ? "sheet-backdrop" : "bg-black/70")}
+          className={cn("absolute inset-0", isMobile ? "sheet-backdrop" : "overlay-scrim")}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -1054,7 +1054,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
         <motion.div
           key="task-sheet-panel"
           className={cn(
-            "glass w-full overflow-hidden flex flex-col",
+            "task-detail-modal glass modal-panel w-full overflow-hidden flex flex-col",
             isMobile
               ? "task-drawer-sheet mobile-bottom-sheet relative flex flex-col h-[92dvh] max-h-[92dvh] rounded-t-3xl max-w-none"
               : "relative max-w-3xl max-h-[min(88vh,760px)] rounded-2xl"
@@ -1086,7 +1086,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           {/* Header — Cancel reverts; Save and Close keeps edits */}
           <div
             className={cn(
-              "shrink-0 flex items-center border-b border-white/10 w-full",
+              "shrink-0 flex items-center border-b border-border-glass w-full",
               isMobile ? "task-sheet-header px-4 py-3 gap-2" : "px-5 py-3 gap-2",
             )}
           >
@@ -1095,7 +1095,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 type="button"
                 onClick={() => requestDismiss()}
                 disabled={!!taskLoadingStates?.[task.id]}
-                className="text-sm font-medium text-[#a1a1aa] hover:text-white min-h-[44px] px-1 disabled:opacity-50 active:scale-[0.98] transition"
+                className="text-sm font-medium text-text-secondary hover:text-text-primary min-h-[44px] px-1 disabled:opacity-50 active:scale-[0.98] transition"
                 aria-label="Cancel changes"
               >
                 Cancel
@@ -1123,7 +1123,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               workspaceName={workspaceDeepLink.workspaceName}
               destination="Tasks"
               onNavigate={workspaceDeepLink.onNavigate}
-              className="inline-flex items-center gap-1.5 text-xs text-[#c084fc] hover:text-[#d8b4fe] transition w-full text-left group"
+              className="inline-flex items-center gap-1.5 text-xs text-neon-purple hover:text-neon-purple-tint transition w-full text-left group"
             />
           )}
 
@@ -1153,8 +1153,8 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           {activeConflicts && activeConflicts[localTask.id] && (
             <div className="glass px-3 py-2 rounded-xl border border-amber-500/40 text-amber-400 text-xs flex flex-wrap items-center gap-2">
               <span>Conflict with {activeConflicts[localTask.id].remoteUser || "teammate"}</span>
-              <button onClick={() => resolveConflict(localTask.id, false)} className="px-2 py-0.5 bg-white/10 rounded text-[10px]">Theirs</button>
-              <button onClick={() => resolveConflict(localTask.id, true)} className="px-2 py-0.5 bg-white/10 rounded text-[10px]">Mine</button>
+              <button onClick={() => resolveConflict(localTask.id, false)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Theirs</button>
+              <button onClick={() => resolveConflict(localTask.id, true)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Mine</button>
             </div>
           )}
 
@@ -1162,7 +1162,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             value={localTask.description}
             onChange={(e) => save({ description: e.target.value })}
             placeholder="Add notes…"
-            className="w-full min-h-[64px] max-h-[120px] bg-[#111114] rounded-xl p-3 text-sm resize-y outline-none border border-white/10"
+            className="input w-full min-h-[64px] max-h-[120px] p-3 text-sm resize-y outline-none"
             rows={2}
           />
 
@@ -1205,7 +1205,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             <div className="space-y-2 min-w-0">
               <div className="space-y-1.5 max-h-40 overflow-y-auto overflow-x-hidden pr-1">
                 {taskComments.length === 0 ? (
-                  <div className="text-xs text-[#71717a]">No comments yet.</div>
+                  <div className="text-xs text-text-muted">No comments yet.</div>
                 ) : (
                   taskComments.map((c) => (
                     <TaskCommentCard
@@ -1241,7 +1241,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                     }
                   }}
                   placeholder="Add a comment…"
-                  className="input w-full min-w-0 text-sm px-3 py-2 rounded-xl"
+                  className="input w-full min-w-0 text-sm px-3 py-2"
                 />
                 <button
                   type="button"
@@ -1272,7 +1272,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             </div>
           </CollapsibleSection>
 
-          <div className="text-[10px] text-[#71717a] pt-1">
+          <div className="text-[10px] text-text-muted pt-1">
             Created {safeFormatTimestampIso(localTask.createdAt, "MMM d, yyyy", "—")}
             {localTask.status === "done" && localTask.completedAt && (
               <span> · Completed {safeFormatTimestampIso(localTask.completedAt, "MMM d, yyyy", "—")}</span>
@@ -1283,13 +1283,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             type="button"
             onClick={handleDelete}
             disabled={!!taskLoadingStates?.[task.id]}
-            className={cn(
-              "w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight",
-              "text-white bg-gradient-to-r from-[#9f1239] via-[#be123c] to-[#e11d48]",
-              "border border-[#fb7185]/35 shadow-[0_8px_24px_rgba(190,18,57,0.28)]",
-              "hover:from-[#881337] hover:via-[#9f1239] hover:to-[#be123c]",
-              "active:scale-[0.98] transition disabled:opacity-50 disabled:active:scale-100",
-            )}
+            className="task-modal-delete-btn w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
             aria-label="Delete task"
           >
             Delete
@@ -1305,7 +1299,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               onFocus={(e) => e.currentTarget.select()}
               className={cn(
                 "w-full min-w-0 bg-transparent text-2xl font-semibold tracking-tight outline-none",
-                localTask.status === "done" && "line-through text-[#71717a]",
+                localTask.status === "done" && "line-through text-text-muted",
               )}
               aria-label="Task title"
             />
@@ -1320,8 +1314,8 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             {activeConflicts && activeConflicts[localTask.id] && (
               <div className="glass px-3 py-2 rounded-xl border border-amber-500/40 text-amber-400 text-xs flex flex-wrap items-center gap-2">
                 <span>Edited by {activeConflicts[localTask.id].remoteUser || "teammate"}</span>
-                <button onClick={() => resolveConflict(localTask.id, false)} className="px-2 py-0.5 bg-white/10 rounded text-[10px]">Theirs</button>
-                <button onClick={() => resolveConflict(localTask.id, true)} className="px-2 py-0.5 bg-white/10 rounded text-[10px]">Mine</button>
+                <button onClick={() => resolveConflict(localTask.id, false)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Theirs</button>
+                <button onClick={() => resolveConflict(localTask.id, true)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Mine</button>
               </div>
             )}
 
@@ -1329,24 +1323,24 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               value={localTask.description}
               onChange={(e) => save({ description: e.target.value })}
               placeholder="Add notes…"
-              className="w-full min-h-[64px] max-h-[120px] bg-[#111114] rounded-xl p-3 text-sm resize-y outline-none border border-white/10"
+              className="input w-full min-h-[64px] max-h-[120px] p-3 text-sm resize-y outline-none"
               rows={2}
             />
 
-            <div className="pt-3 border-t border-white/10 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-medium text-[#a1a1aa]">
+            <div className="pt-3 border-t border-border-glass space-y-2">
+              <div className="flex items-center gap-2 text-xs font-medium text-text-secondary">
                 <MessageSquare className="h-3.5 w-3.5" />
                 Comments
                 {isLoadingComments ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
-                  <span className="text-[#71717a]">({taskComments.length})</span>
+                  <span className="text-text-muted">({taskComments.length})</span>
                 )}
               </div>
 
               <div className="space-y-2 max-h-44 overflow-auto pr-1">
                 {taskComments.length === 0 ? (
-                  <div className="text-xs text-[#71717a]">No comments yet.</div>
+                  <div className="text-xs text-text-muted">No comments yet.</div>
                 ) : (
                   taskComments.map((c) => (
                     <TaskCommentCard
@@ -1382,7 +1376,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                     }
                   }}
                   placeholder="Write a comment…"
-                  className="input flex-1 text-sm px-3 py-2 rounded-xl min-h-[40px]"
+                  className="input flex-1 text-sm px-3 py-2 min-h-[40px]"
                 />
                 <button
                   onClick={() => {
@@ -1407,13 +1401,13 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             </div>
           </div>
 
-          <div className="lg:w-52 shrink-0 space-y-3 text-sm lg:border-l lg:border-white/10 lg:pl-5">
+          <div className="lg:w-52 shrink-0 space-y-3 text-sm lg:border-l lg:border-border-glass lg:pl-5">
             {workspaceDeepLink && (
               <WorkspaceItemDeepLink
                 workspaceName={workspaceDeepLink.workspaceName}
                 destination="Tasks"
                 onNavigate={workspaceDeepLink.onNavigate}
-                className="inline-flex items-center gap-1.5 text-xs text-[#c084fc] hover:text-[#d8b4fe] transition w-full text-left group"
+                className="inline-flex items-center gap-1.5 text-xs text-neon-purple hover:text-neon-purple-tint transition w-full text-left group"
               />
             )}
 
@@ -1447,7 +1441,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               compact
             />
 
-            <div className="pt-3 border-t border-white/10 text-[11px] text-[#71717a] leading-relaxed">
+            <div className="pt-3 border-t border-border-glass text-[11px] text-text-muted leading-relaxed">
               Created {safeFormatTimestampIso(localTask.createdAt, "MMM d, yyyy", "—")}
               {localTask.status === "done" && localTask.completedAt && (
                 <div>Completed {safeFormatTimestampIso(localTask.completedAt, "MMM d, yyyy", "—")}</div>
@@ -1460,13 +1454,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             type="button"
             onClick={handleDelete}
             disabled={!!taskLoadingStates?.[task.id]}
-            className={cn(
-              "w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight",
-              "text-white bg-gradient-to-r from-[#9f1239] via-[#be123c] to-[#e11d48]",
-              "border border-[#fb7185]/35 shadow-[0_8px_24px_rgba(190,18,57,0.28)]",
-              "hover:from-[#881337] hover:via-[#9f1239] hover:to-[#be123c]",
-              "active:scale-[0.98] transition disabled:opacity-50 disabled:active:scale-100",
-            )}
+            className="task-modal-delete-btn w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
             aria-label="Delete task"
           >
             Delete
@@ -1483,7 +1471,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     {showUnsavedConfirm && (
       <div className="fixed inset-0 z-[250] flex items-end md:items-center justify-center p-0 md:p-4">
         <div
-          className="absolute inset-0 bg-black/60 backdrop-blur-[3px]"
+          className="absolute inset-0 overlay-scrim backdrop-blur-[3px]"
           onClick={() => setShowUnsavedConfirm(false)}
           aria-hidden
         />
@@ -1493,7 +1481,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           aria-labelledby="task-unsaved-title"
           aria-describedby="task-unsaved-desc"
           className={cn(
-            "relative w-full max-w-md bg-[#0f0f12] border border-white/10 shadow-2xl",
+            "confirmation-modal confirmation-modal--unsaved task-unsaved-dialog relative w-full max-w-md bg-bg-panel border border-border-glass modal-panel shadow-2xl",
             "rounded-t-2xl md:rounded-2xl",
             "pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0",
             "animate-in fade-in slide-in-from-bottom-4 md:zoom-in-95 duration-200",
@@ -1501,17 +1489,17 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex justify-center pt-2.5 md:hidden">
-            <div className="h-1 w-10 rounded-full bg-white/20" aria-hidden />
+            <div className="confirmation-modal__drag-handle h-1 w-10 rounded-full" aria-hidden />
           </div>
           <div className="p-5 pb-4">
-            <h3 id="task-unsaved-title" className="text-lg font-semibold text-white tracking-tight">
+            <h3 id="task-unsaved-title" className="text-lg font-semibold text-text-primary tracking-tight">
               Save changes?
             </h3>
             <div id="task-unsaved-desc" className="mt-2 space-y-1.5">
-              <p className="text-sm font-medium text-[#f4f4f5] truncate">
+              <p className="text-sm font-medium text-text-primary truncate">
                 &ldquo;{localTask.title}&rdquo;
               </p>
-              <p className="text-sm text-[#a1a1aa] leading-relaxed">
+              <p className="text-sm text-text-secondary leading-relaxed">
                 You have unsaved changes. Save them before closing, or discard your edits.
               </p>
             </div>
@@ -1520,7 +1508,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             <button
               type="button"
               onClick={() => setShowUnsavedConfirm(false)}
-              className="w-full min-h-[44px] rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-[#e4e4e7] hover:bg-white/5 transition"
+              className="confirmation-modal__cancel w-full min-h-[44px] rounded-xl border border-border-glass px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-surface-hover transition"
             >
               Keep editing
             </button>
@@ -1529,7 +1517,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 type="button"
                 onClick={() => void handleCancel()}
                 disabled={!!taskLoadingStates?.[task.id]}
-                className="flex-1 min-h-[44px] rounded-xl border border-[#fb7185]/35 px-4 py-2.5 text-sm font-semibold text-[#fda4af] hover:bg-[#be123c]/15 disabled:opacity-50 transition"
+                className="confirmation-modal__discard flex-1 min-h-[44px] rounded-xl border border-[var(--priority-p0)]/35 px-4 py-2.5 text-sm font-semibold text-[var(--priority-p0)]/70 hover:bg-[var(--priority-p0)]/15 disabled:opacity-50 transition"
               >
                 Discard changes
               </button>
@@ -1540,7 +1528,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                   handleSheetClose();
                 }}
                 disabled={!!taskLoadingStates?.[task.id]}
-                className="flex-1 min-h-[44px] rounded-xl bg-[#c084fc] hover:bg-[#a855f7] px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50 transition"
+                className="confirmation-modal__save btn btn-primary flex-1 min-h-[44px] px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
               >
                 Save and close
               </button>

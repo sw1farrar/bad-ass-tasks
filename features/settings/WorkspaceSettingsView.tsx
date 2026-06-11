@@ -18,6 +18,8 @@ import {
 } from "@/lib/notifications/notificationPrefs";
 import "./settings-workspace.css";
 
+const WORKSPACE_DELETE_CONFIRM_WORD = "delete";
+
 const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   mention: "Mentions",
   comment: "Comments",
@@ -92,8 +94,8 @@ export function WorkspaceSettingsView() {
       toast.error(workspaceDeleteGuard.reason ?? "This workspace cannot be deleted");
       return;
     }
-    if (deleteConfirmName.trim() !== currentWorkspace.name) {
-      toast.error("Type the exact workspace name to confirm deletion");
+    if (deleteConfirmName.trim().toLowerCase() !== WORKSPACE_DELETE_CONFIRM_WORD) {
+      toast.error(`Type "${WORKSPACE_DELETE_CONFIRM_WORD}" to confirm deletion`);
       return;
     }
     setIsDeletingWorkspace(true);
@@ -136,8 +138,8 @@ export function WorkspaceSettingsView() {
         className="mb-0"
       />
 
-      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5">
-        <div className="settings-panel-header text-[10px] font-medium uppercase tracking-widest text-[#71717a] mb-1.5 md:mb-2">
+      <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5">
+        <div className="settings-panel-header text-[10px] font-medium uppercase tracking-widest text-text-muted mb-1.5 md:mb-2">
           Workspace
         </div>
         {isEditingName && isOwner ? (
@@ -158,7 +160,7 @@ export function WorkspaceSettingsView() {
               type="button"
               onClick={() => void handleSaveWorkspaceName()}
               disabled={isSavingSettings}
-              className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[#00ff9f] hover:bg-white/5 disabled:opacity-50"
+              className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-neon-green hover:bg-surface-hover disabled:opacity-50"
               aria-label="Save workspace name"
             >
               <Check className="h-4 w-4" />
@@ -167,7 +169,7 @@ export function WorkspaceSettingsView() {
               type="button"
               onClick={handleCancelNameEdit}
               disabled={isSavingSettings}
-              className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-[#71717a] hover:text-white hover:bg-white/5 disabled:opacity-50"
+              className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
               aria-label="Cancel editing workspace name"
             >
               <X className="h-4 w-4" />
@@ -175,7 +177,7 @@ export function WorkspaceSettingsView() {
           </div>
         ) : (
           <div className="flex items-center justify-between gap-3 min-w-0">
-            <div className="settings-workspace-name text-base md:text-lg font-semibold text-[#f4f4f5] truncate min-w-0">
+            <div className="settings-workspace-name text-base md:text-lg font-semibold text-text-primary truncate min-w-0">
               {currentWorkspace.name}
             </div>
             {isOwner && (
@@ -188,7 +190,7 @@ export function WorkspaceSettingsView() {
                 disabled={isSavingSettings}
                 className={cn(
                   "h-10 w-10 shrink-0 rounded-xl flex items-center justify-center",
-                  "text-[#a1a1aa] hover:text-[#c084fc] hover:bg-[#c084fc]/10 transition disabled:opacity-50",
+                  "text-text-secondary hover:text-neon-purple hover:bg-neon-purple/10 transition disabled:opacity-50",
                 )}
                 aria-label="Edit workspace name"
               >
@@ -200,17 +202,17 @@ export function WorkspaceSettingsView() {
       </div>
 
       {/* Notifications — all members */}
-      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
-        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
-          <Bell className="h-4 w-4 text-[#c084fc] shrink-0" />
+      <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
+          <Bell className="h-4 w-4 text-neon-purple shrink-0" />
           Notifications
         </div>
-        <p className="text-[11px] md:text-xs text-[#71717a] leading-relaxed">
+        <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
           Choose in-app and email delivery for each notification type.
         </p>
 
-        <div className="settings-notif-matrix rounded-xl border border-white/10 overflow-hidden">
-          <div className="settings-notif-matrix__header grid items-center gap-2 px-3 md:px-4 py-2 border-b border-white/10 bg-white/[0.04] text-[10px] font-medium uppercase tracking-widest text-[#71717a]">
+        <div className="settings-notif-matrix rounded-xl border border-border-glass overflow-hidden">
+          <div className="settings-notif-matrix__header grid items-center gap-2 px-3 md:px-4 py-2 border-b border-border-glass text-[10px] font-medium uppercase tracking-widest text-text-muted">
             <span>Type</span>
             <span className="text-center">In-app</span>
             <span className="text-center">Email</span>
@@ -220,9 +222,9 @@ export function WorkspaceSettingsView() {
             return (
               <div
                 key={type}
-                className="settings-notif-matrix__row grid items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-white/10 last:border-b-0 text-sm"
+                className="settings-notif-matrix__row grid items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-border-glass last:border-b-0 text-sm"
               >
-                <span className="text-[#e5e5e7] min-w-0 leading-snug">
+                <span className="text-text-primary min-w-0 leading-snug">
                   {NOTIFICATION_TYPE_LABELS[type]}
                 </span>
                 <label className="settings-notif-matrix__check flex items-center justify-center">
@@ -230,7 +232,7 @@ export function WorkspaceSettingsView() {
                     type="checkbox"
                     checked={typePref.inApp}
                     onChange={(e) => toggleTypeChannel(type, "inApp", e.target.checked)}
-                    className="h-4 w-4 accent-[#c084fc]"
+                    className="h-4 w-4 accent-neon-purple"
                     aria-label={`${NOTIFICATION_TYPE_LABELS[type]} in-app`}
                   />
                 </label>
@@ -239,7 +241,7 @@ export function WorkspaceSettingsView() {
                     type="checkbox"
                     checked={typePref.email}
                     onChange={(e) => toggleTypeChannel(type, "email", e.target.checked)}
-                    className="h-4 w-4 accent-[#c084fc]"
+                    className="h-4 w-4 accent-neon-purple"
                     aria-label={`${NOTIFICATION_TYPE_LABELS[type]} email`}
                   />
                 </label>
@@ -249,17 +251,17 @@ export function WorkspaceSettingsView() {
         </div>
       </div>
 
-      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
-        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
-          <Mail className="h-4 w-4 text-[#c084fc] shrink-0" />
+      <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
+          <Mail className="h-4 w-4 text-neon-purple shrink-0" />
           <span className="truncate">Files review email</span>
         </div>
         <NoteEmailInboxesPanel />
       </div>
 
-      <div className="settings-panel glass rounded-2xl border border-white/10 p-4 md:p-5 space-y-3 md:space-y-4">
-        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-[#71717a]">
-          <Mail className="h-4 w-4 text-[#c084fc] shrink-0" />
+      <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
+          <Mail className="h-4 w-4 text-neon-purple shrink-0" />
           <span className="truncate">Task from email</span>
         </div>
         <TaskEmailInboxesPanel />
@@ -274,29 +276,32 @@ export function WorkspaceSettingsView() {
           </div>
           {workspaceDeleteGuard.allowed ? (
             <>
-              <p className="text-[11px] text-[#a1a1aa] mb-3 leading-relaxed">
+              <p className="text-[11px] text-text-secondary mb-3 leading-relaxed">
                 Deleting removes this workspace, all tasks, notes, members, and invites permanently. You will be switched
-                to another workspace.
+                to another workspace. Type <span className="font-medium text-text-primary">delete</span> below to confirm.
               </p>
               <input
                 value={deleteConfirmName}
                 onChange={(e) => setDeleteConfirmName(e.target.value)}
-                placeholder={`Type "${currentWorkspace.name}" to confirm`}
-                className="settings-delete-input w-full bg-[#111114] border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
+                placeholder='Type "delete" to confirm'
+                className="settings-delete-input w-full bg-bg-secondary border border-red-500/30 rounded-xl px-3 py-2 text-xs mb-2"
+                aria-label='Type "delete" to confirm workspace deletion'
               />
               <button
                 type="button"
                 onClick={handleDeleteWorkspace}
                 disabled={
-                  isSavingSettings || isDeletingWorkspace || deleteConfirmName.trim() !== currentWorkspace.name
+                  isSavingSettings ||
+                  isDeletingWorkspace ||
+                  deleteConfirmName.trim().toLowerCase() !== WORKSPACE_DELETE_CONFIRM_WORD
                 }
-                className="settings-delete-btn w-full py-2.5 rounded-xl bg-red-600/90 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-50"
+                className="settings-delete-btn w-full py-2.5 rounded-xl bg-[var(--priority-p0)]/90 hover:bg-[var(--priority-p0)] text-accent-on text-sm font-medium disabled:opacity-50"
               >
                 {isDeletingWorkspace ? "Deleting..." : "Delete workspace forever"}
               </button>
             </>
           ) : (
-            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-[11px] text-[#a1a1aa] leading-relaxed">
+            <div className="rounded-xl border border-border-glass bg-surface-hover px-3 py-2.5 text-[11px] text-text-secondary leading-relaxed">
               {workspaceDeleteGuard.reason}
             </div>
           )}

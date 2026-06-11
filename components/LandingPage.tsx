@@ -12,19 +12,16 @@ interface LandingPageProps {
 export function LandingPage({ onSignIn, isCheckingSession }: LandingPageProps) {
   return (
     <div
-      className="landing-page landing-shell fixed inset-0 z-[150] bg-[#0a0a0f] text-[#f4f4f5]"
+      className="landing-page landing-shell fixed inset-0 z-[150] bg-bg text-text-primary"
       aria-label="Badazz Tasks"
     >
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-20%,rgba(255,255,255,0.04),transparent_60%)]"
-        aria-hidden
-      />
+      <div className="landing-page__glow pointer-events-none absolute inset-0" aria-hidden />
 
       <div className="relative flex h-full flex-col">
         <header className="flex shrink-0 items-center justify-between px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-4 sm:px-8">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#c084fc]">
-              <CheckSquare className="h-4 w-4 text-[#0a0a0f]" strokeWidth={2.5} />
+            <div className="landing-brand-icon flex h-8 w-8 items-center justify-center rounded-lg bg-neon-purple">
+              <CheckSquare className="h-4 w-4 text-on-accent" strokeWidth={2.5} />
             </div>
             <span className="text-[15px] font-semibold tracking-tight sm:text-base">
               Badazz Tasks
@@ -33,7 +30,7 @@ export function LandingPage({ onSignIn, isCheckingSession }: LandingPageProps) {
           <button
             onClick={onSignIn}
             disabled={isCheckingSession}
-            className="text-sm font-medium text-[#a1a1aa] transition-colors hover:text-[#f4f4f5] disabled:opacity-50 min-h-[44px] px-2"
+            className="text-sm font-medium text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50 min-h-[44px] px-2"
           >
             Sign in
           </button>
@@ -43,9 +40,9 @@ export function LandingPage({ onSignIn, isCheckingSession }: LandingPageProps) {
           <div className="flex min-h-0 flex-1 flex-col justify-center text-center lg:flex-none lg:text-left">
             <h1 className="text-[1.65rem] font-semibold leading-[1.12] tracking-[-0.03em] sm:text-[2.25rem] lg:text-[3.25rem] lg:leading-[1.06]">
               Tasks, notes, and team{" "}
-              <span className="text-[#a1a1aa] font-normal">— together.</span>
+              <span className="text-text-secondary font-normal">— together.</span>
             </h1>
-            <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-[#71717a] sm:text-base lg:mx-0 lg:mt-5 lg:max-w-md">
+            <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-text-muted sm:text-base lg:mx-0 lg:mt-5 lg:max-w-md">
               A calm workspace for people who ship.
             </p>
             <div className="mt-7 flex justify-center lg:justify-start sm:mt-8">

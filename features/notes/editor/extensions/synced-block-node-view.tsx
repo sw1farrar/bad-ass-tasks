@@ -420,8 +420,8 @@ export function SyncedBlockNodeView({
         "synced-block-node my-3 block overflow-hidden rounded-2xl border transition-all",
         isMissing
           ? "bg-amber-950/20 border-amber-500/40"
-          : "bg-[#0a0a0f] border-white/10 hover:border-white/20",
-        selected && "ring-1 ring-[#c084fc] ring-offset-2 ring-offset-[#0a0a0f]"
+          : "bg-bg border-border-glass hover:border-border-glass",
+        selected && "ring-1 ring-neon-purple ring-offset-2 ring-offset-bg"
       )}
       data-target-note-id={targetNoteId}
       data-synced-block="true"
@@ -435,8 +435,8 @@ export function SyncedBlockNodeView({
       tabIndex={-1}
     >
       {/* === HEADER: "Synced from Note X" label (core deliverable #3) + M3 EDIT IN PLACE === */}
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-white/5 px-3 py-2 text-[11px]">
-        <div className="flex items-center gap-2 text-[#c084fc]">
+      <div className="flex items-center justify-between gap-2 border-b border-border-glass bg-surface-hover px-3 py-2 text-[11px]">
+        <div className="flex items-center gap-2 text-neon-purple">
           <FileText className="h-3.5 w-3.5 shrink-0" />
           <span className="font-medium tracking-[-0.1px]">Synced from Note</span>
 
@@ -454,14 +454,14 @@ export function SyncedBlockNodeView({
                   if (e.key === 'Enter') { e.preventDefault(); handleTitleCommit(); }
                   if (e.key === 'Escape') { e.preventDefault(); handleCancelEdit(); }
                 }}
-                className="max-w-[200px] truncate rounded bg-black/60 border border-[#c084fc]/40 px-1.5 py-0.5 font-mono text-[#e4e4e7] text-[11px] focus:outline-none focus:border-[#c084fc] touch-manipulation min-h-[44px]"
+                className="max-w-[200px] truncate rounded overlay-scrim border border-neon-purple/40 px-1.5 py-0.5 font-mono text-text-primary text-[11px] focus:outline-none focus:border-neon-purple touch-manipulation min-h-[44px]"
                 autoFocus
                 aria-label="Edit synced note title (writes back on Enter/blur)"
               />
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); handleTitleCommit(); }}
-                className="rounded p-1 text-[#00ff9f] hover:bg-white/10 active:bg-white/20 touch-manipulation min-h-[44px] min-w-[32px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
+                className="rounded p-1 text-neon-green hover:bg-surface-hover active:bg-bg-tertiary touch-manipulation min-h-[44px] min-w-[32px] focus-visible:ring-1 focus-visible:ring-neon-purple"
                 title="Save title to source note (two-way sync)"
                 aria-label="Commit title change to source"
               >
@@ -470,7 +470,7 @@ export function SyncedBlockNodeView({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); handleCancelEdit(); }}
-                className="rounded p-1 text-[#a1a1aa] hover:bg-white/10 active:bg-white/20 touch-manipulation min-h-[44px] min-w-[32px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
+                className="rounded p-1 text-text-secondary hover:bg-surface-hover active:bg-bg-tertiary touch-manipulation min-h-[44px] min-w-[32px] focus-visible:ring-1 focus-visible:ring-neon-purple"
                 title="Cancel title edit"
                 aria-label="Cancel title edit"
               >
@@ -488,7 +488,7 @@ export function SyncedBlockNodeView({
                 }
               }}
               /* M2 A11Y/MOBILE: added explicit aria-label + touch-manipulation + min height for reliable 44px-ish touch target on mobile + better keyboard affordance. */
-              className="max-w-[220px] truncate rounded px-1.5 py-1 font-mono text-[#e4e4e7] hover:bg-white/10 hover:text-[#c084fc] active:bg-white/20 transition-colors cursor-pointer touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
+              className="max-w-[220px] truncate rounded px-1.5 py-1 font-mono text-text-primary hover:bg-surface-hover hover:text-neon-purple active:bg-bg-tertiary transition-colors cursor-pointer touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-neon-purple"
               title={targetNoteId ? `Open source note (${targetNoteId})` : "No target note"}
               disabled={!targetNoteId || !onOpenNote}
               aria-label={`Open source note ${displayTitle}`}
@@ -498,7 +498,7 @@ export function SyncedBlockNodeView({
           )}
 
           {targetNoteId && !isEditingTitle && (
-            <span className="font-mono text-[9px] text-[#71717a] opacity-60">
+            <span className="font-mono text-[9px] text-text-muted opacity-60">
               #{targetNoteId.slice(0, 6)}
             </span>
           )}
@@ -519,12 +519,12 @@ export function SyncedBlockNodeView({
             }}
             disabled={!canWrite}
             className={cn(
-              "flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]",
+              "flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] transition touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-neon-purple",
               isEditingTitle
-                ? "border-[#c084fc] bg-[#c084fc]/10 text-[#c084fc]"
+                ? "border-neon-purple bg-neon-purple/10 text-neon-purple"
                 : canWrite
-                  ? "border-white/10 bg-black/40 text-[#a1a1aa] hover:border-[#c084fc]/40 hover:text-[#c084fc] active:bg-white/10"
-                  : "border-white/10 bg-black/40 text-[#71717a]/60 cursor-not-allowed"
+                  ? "border-border-glass overlay-scrim text-text-secondary hover:border-neon-purple/40 hover:text-neon-purple active:bg-surface-hover"
+                  : "border-border-glass overlay-scrim text-text-muted/60 cursor-not-allowed"
             )}
             title={
               !canWrite
@@ -544,7 +544,7 @@ export function SyncedBlockNodeView({
 
           {/* M3 BADGE: visible only while actively two-way syncing titles */}
           {isEditingTitle && (
-            <span className="rounded bg-[#c084fc]/20 px-1 py-px text-[8px] text-[#c084fc] font-mono tracking-widest border border-[#c084fc]/30">
+            <span className="rounded bg-neon-purple/20 px-1 py-px text-[8px] text-neon-purple font-mono tracking-widest border border-neon-purple/30">
               TITLE SYNC
             </span>
           )}
@@ -557,7 +557,7 @@ export function SyncedBlockNodeView({
               handleResync();
             }}
             /* M2 MOBILE/A11Y: touch + min-height for reliable tap target; explicit aria-label for SR. */
-            className="flex items-center gap-1 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-[10px] text-[#a1a1aa] transition hover:border-[#c084fc]/40 hover:text-[#c084fc] active:bg-white/10 touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-[#c084fc]"
+            className="flex items-center gap-1 rounded-md border border-border-glass overlay-scrim px-2 py-1 text-[10px] text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple active:bg-surface-hover touch-manipulation min-h-[44px] focus-visible:ring-1 focus-visible:ring-neon-purple"
             title="Re-sync: pull the latest content from the source note (live data already reactive)"
             aria-label="Re-sync this block with latest content from source note"
           >
@@ -568,7 +568,7 @@ export function SyncedBlockNodeView({
       </div>
 
       {/* === READ-ONLY CONTENT PREVIEW AREA === */}
-      <div className="min-h-[68px] p-3 text-[13px] leading-snug text-[#d4d4d8] bg-black/30">
+      <div className="min-h-[68px] p-3 text-[13px] leading-snug text-text-soft bg-surface-elevated">
         {isMissing ? (
           <div className="flex items-start gap-2 text-amber-400">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -589,11 +589,11 @@ export function SyncedBlockNodeView({
       </div>
 
       {/* === FOOTER — transparency + M2/M3 status === */}
-      <div className="flex items-center justify-between border-t border-white/10 bg-black/40 px-3 py-1.5 text-[9px] text-[#71717a]">
+      <div className="flex items-center justify-between border-t border-border-glass overlay-scrim px-3 py-1.5 text-[9px] text-text-muted">
         <div className="flex items-center gap-2">
           <span className="font-mono tracking-widest opacity-70">SYNCED BLOCK</span>
           {/* M3: badge now reflects live bidirectional capability */}
-          <span className="rounded bg-white/10 px-1.5 py-px text-[8px] text-[#c084fc]/80">M2→M3 LIVE</span>
+          <span className="rounded bg-surface-hover px-1.5 py-px text-[8px] text-neon-purple/80">M2→M3 LIVE</span>
         </div>
 
         <div className="flex items-center gap-2 tabular-nums">
@@ -624,7 +624,7 @@ export function SyncedBlockNodeView({
               HANDOFF FOR FUTURE AGENT 47/53: full content sync gated here per §5. */}
           {!onUpdateNote && targetNoteId && !isMissing && (
             <span
-              className="rounded bg-[#c084fc]/10 px-1 py-px text-[#c084fc]/70 border border-[#c084fc]/20"
+              className="rounded bg-neon-purple/10 px-1 py-px text-neon-purple/70 border border-neon-purple/20"
               title="Read-only sync (M2/M3 boundary): parent has not supplied onUpdateNote to the editor. Title bidirectional writes disabled. Full content sync also gated behind this wiring + serializer. See M3 scaffolding comments."
             >
               read-only (no write path)

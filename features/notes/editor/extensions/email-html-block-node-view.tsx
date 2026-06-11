@@ -4,18 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, FileText, Printer, RefreshCw } from "lucide-react";
-import { buildEmailSrcdoc } from "@/lib/notes/emailDocument";
+import { buildEmailShadowContent, buildEmailSrcdoc } from "@/lib/notes/emailDocument";
 import { displayStoredEmailHtml } from "@/lib/notes/sanitizeInboundEmailHtml";
 import {
   emailHtmlToEditableDoc,
   isSimpleEmailHtml,
 } from "@/lib/notes/emailHtmlToPlainDoc";
 import { toast } from "sonner";
-import {
-  EMAIL_IFRAME_MIN_HEIGHT_PX,
-  EMAIL_IFRAME_SANDBOX,
-  measureEmailIframeContentHeight,
-} from "@/lib/notes/emailIframe";
 
 function openEmailPrintWindow(srcdoc: string, title: string) {
   const win = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
@@ -29,12 +24,31 @@ function openEmailPrintWindow(srcdoc: string, title: string) {
   win.print();
 }
 
+function mountEmailShadowRoot(host: HTMLDivElement, bodyHtml: string, css: string) {
+  const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
+  shadow.innerHTML = "";
+
+  const style = document.createElement("style");
+  style.textContent = css;
+  shadow.appendChild(style);
+
+  const root = document.createElement("div");
+  root.className = "email-message-root";
+  root.innerHTML = bodyHtml;
+  shadow.appendChild(root);
+
+  for (const link of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+}
+
 /**
- * Renders inbound email HTML in a sandboxed iframe (srcdoc).
+ * Renders inbound email HTML in an isolated shadow root (no sandboxed srcdoc iframe).
  * Display-time fixes only — full ingest runs once at webhook time.
  */
 export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: NodeViewProps) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const html = typeof node.attrs.html === "string" ? node.attrs.html : "";
   const styles = typeof node.attrs.styles === "string" ? node.attrs.styles : "";
   const pipelineVersion =
@@ -44,7 +58,6 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
     (typeof node.attrs.noteId === "string" ? node.attrs.noteId : "");
 
   const [collapsed, setCollapsed] = useState(false);
-  const [frameHeight, setFrameHeight] = useState(EMAIL_IFRAME_MIN_HEIGHT_PX);
   const [rerendering, setRerendering] = useState(false);
 
   const { html: displayHtml, extraCss } = useMemo(
@@ -52,74 +65,18 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
     [html, styles, pipelineVersion],
   );
 
+  const shadowContent = useMemo(
+    () => (displayHtml ? buildEmailShadowContent(displayHtml, extraCss) : null),
+    [displayHtml, extraCss],
+  );
+
   const srcdoc = displayHtml ? buildEmailSrcdoc(displayHtml, extraCss) : "";
 
-  const syncFrameHeight = useCallback(() => {
-    const doc = iframeRef.current?.contentDocument;
-    if (!doc) return;
-    setFrameHeight(measureEmailIframeContentHeight(doc));
-  }, []);
-
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !srcdoc || collapsed) return;
-
-    let observer: ResizeObserver | null = null;
-    let cancelled = false;
-    const remeasureTimers: number[] = [];
-    const imageLoadCleanups: Array<() => void> = [];
-
-    const scheduleRemeasures = () => {
-      for (const delay of [0, 80, 250, 750, 2000]) {
-        remeasureTimers.push(
-          window.setTimeout(() => {
-            if (!cancelled) syncFrameHeight();
-          }, delay),
-        );
-      }
-    };
-
-    const bindImageLoadListeners = (doc: Document) => {
-      for (const img of Array.from(doc.images)) {
-        if (img.complete) continue;
-        const onLoad = () => syncFrameHeight();
-        img.addEventListener("load", onLoad);
-        img.addEventListener("error", onLoad);
-        imageLoadCleanups.push(() => {
-          img.removeEventListener("load", onLoad);
-          img.removeEventListener("error", onLoad);
-        });
-      }
-    };
-
-    const handleLoad = () => {
-      syncFrameHeight();
-      scheduleRemeasures();
-
-      const doc = iframe.contentDocument;
-      const body = doc?.body;
-      if (!body) return;
-
-      bindImageLoadListeners(doc);
-
-      if (typeof ResizeObserver === "undefined") return;
-
-      const root = body.querySelector(".email-message-root") ?? body;
-      observer?.disconnect();
-      observer = new ResizeObserver(() => syncFrameHeight());
-      observer.observe(root);
-      observer.observe(body);
-    };
-
-    iframe.addEventListener("load", handleLoad);
-    return () => {
-      cancelled = true;
-      iframe.removeEventListener("load", handleLoad);
-      observer?.disconnect();
-      remeasureTimers.forEach((timer) => window.clearTimeout(timer));
-      imageLoadCleanups.forEach((cleanup) => cleanup());
-    };
-  }, [srcdoc, syncFrameHeight, collapsed]);
+    const host = hostRef.current;
+    if (!host || !shadowContent || collapsed) return;
+    mountEmailShadowRoot(host, shadowContent.bodyHtml, shadowContent.css);
+  }, [shadowContent, collapsed]);
 
   const handleConvertToText = useCallback(() => {
     if (!html.trim()) return;
@@ -227,17 +184,13 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
         </div>
       </div>
 
-      {!collapsed && (
-        <iframe
-          ref={iframeRef}
-          title="Inbound email content"
-          sandbox={EMAIL_IFRAME_SANDBOX}
-          srcDoc={srcdoc}
-          scrolling="no"
-          className="email-html-iframe w-full border-0 bg-white"
-          style={{ height: frameHeight, minHeight: EMAIL_IFRAME_MIN_HEIGHT_PX }}
+      {!collapsed ? (
+        <div
+          ref={hostRef}
+          className="email-html-render w-full border-0 bg-white"
+          aria-label="Inbound email content"
         />
-      )}
+      ) : null}
     </NodeViewWrapper>
   );
 }

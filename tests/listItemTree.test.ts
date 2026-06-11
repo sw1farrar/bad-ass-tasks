@@ -3,6 +3,7 @@ import type { ListItem } from "@/types";
 import {
   canIndentListItem,
   canOutdentListItem,
+  computeOutdentUpdate,
   flattenListItems,
   getIndentParentId,
   getOutdentParentId,
@@ -91,5 +92,59 @@ describe("indent/outdent", () => {
     const nested = [item("a", 0), item("b", 0, "a")];
     expect(canOutdentListItem("b", nested)).toBe(true);
     expect(getOutdentParentId("b", nested)).toBe(null);
+  });
+});
+
+describe("computeOutdentUpdate", () => {
+  it("places the outdented item after its parent, not at the list tail", () => {
+    const items = [
+      item("a", 0),
+      item("b", 1000),
+      item("c", 0, "b"),
+      item("d", 2000),
+      item("e", 3000),
+    ];
+
+    const update = computeOutdentUpdate(items, "c");
+    expect(update).not.toBeNull();
+    expect(update!.parentItemId).toBe(null);
+    expect(update!.sortOrder).toBe(2000);
+
+    const nextItems = items.map((row) => {
+      const sortOrder = update!.siblingSortOrders.get(row.id);
+      if (sortOrder === undefined) return row;
+      return {
+        ...row,
+        parentItemId: row.id === "c" ? update!.parentItemId ?? undefined : row.parentItemId,
+        sortOrder,
+      };
+    });
+
+    expect(flattenListItems(nextItems).map((row) => row.id)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("keeps nested outdents after the parent among cousins", () => {
+    const items = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 0, "b"),
+      item("d", 1000, "a"),
+    ];
+
+    const update = computeOutdentUpdate(items, "c");
+    expect(update).not.toBeNull();
+    expect(update!.parentItemId).toBe("a");
+
+    const nextItems = items.map((row) => {
+      const sortOrder = update!.siblingSortOrders.get(row.id);
+      if (sortOrder === undefined) return row;
+      return {
+        ...row,
+        parentItemId: row.id === "c" ? update!.parentItemId ?? undefined : row.parentItemId,
+        sortOrder,
+      };
+    });
+
+    expect(flattenListItems(nextItems).map((row) => row.id)).toEqual(["a", "b", "c", "d"]);
   });
 });

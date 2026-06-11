@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Trash2, Plus } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NoteLinkedTaskStats } from "../lib/noteLinkedTaskStats";
 import { NoteLinkedTaskBadge } from "./NoteLinkedTaskBadge";
@@ -13,9 +13,6 @@ interface NoteHeaderProps {
   linkedTaskStats: NoteLinkedTaskStats;
   /** Backlink count from single-source selector (useBacklinks.ts). Optional for non-regression. */
   backlinkCount?: number;
-
-  /** Optional: create a direct child under the currently viewed note (wired from the notes list header area). */
-  onCreateSubNote?: () => void;
 
   /**
    * When true, immediately focus the title input and select its entire text.
@@ -48,7 +45,6 @@ export function NoteHeader({
   onDelete,
   linkedTaskStats,
   backlinkCount,
-  onCreateSubNote,
   autoFocusTitle,
   onTitleAutoFocusDone,
   compact,
@@ -111,7 +107,7 @@ export function NoteHeader({
           onKeyDown={handleKeyDown}
           onFocus={selectAllTitle}
           onClick={selectAllTitle}
-          className="note-title-input w-full bg-transparent text-lg font-semibold tracking-tight text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none leading-snug caret-[#7c3aed]"
+          className="note-title-input w-full bg-transparent text-lg font-semibold tracking-tight text-[var(--note-canvas-text,#18181b)] placeholder:text-[var(--note-canvas-text-muted,#a1a1aa)] focus:outline-none leading-snug caret-[var(--neon-purple-dark,#7c3aed)]"
           placeholder="Untitled Note"
         />
       </div>
@@ -141,28 +137,11 @@ export function NoteHeader({
         placeholder="Untitled Note"
       />
       <div className="flex items-center gap-1 shrink-0">
-        {onCreateSubNote && (
-          <button
-            onClick={onCreateSubNote}
-            className={cn(
-              "text-[#7c3aed] hover:text-[#5b21b6] flex items-center rounded-lg hover:bg-[#7c3aed]/10 border border-[#7c3aed]/25 touch-manipulation focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40 focus-visible:outline-none",
-              compact
-                ? "p-1.5 min-h-0"
-                : "text-xs gap-1.5 px-3 py-1.5 sm:py-1 min-h-[40px] sm:min-h-0 font-medium",
-            )}
-            title="Create a new sub-note under this note"
-            aria-label="Create sub-note"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {!compact && "Sub-note"}
-          </button>
-        )}
-
         <NoteLinkedTaskBadge stats={linkedTaskStats} compact={compact} />
         {backlinkCount != null && backlinkCount > 0 && (
           <div
             className={cn(
-              "rounded bg-[#00ff9f]/10 text-[#00ff9f] border border-[#00ff9f]/20",
+              "rounded bg-neon-green/10 text-neon-green border border-neon-green/20",
               compact ? "text-[10px] px-1.5 py-0.5" : "text-xs px-2 py-1",
             )}
             title="Incoming backlinks (from centralized selector)"
@@ -174,7 +153,7 @@ export function NoteHeader({
         <button
           onClick={onDelete}
           className={cn(
-            "text-[var(--note-canvas-text-muted,#71717a)] hover:text-[#dc2626] flex items-center rounded-lg hover:bg-black/5 touch-manipulation focus-visible:ring-1 focus-visible:ring-[#dc2626]/40 focus-visible:outline-none",
+            "text-[var(--note-canvas-text-muted,#71717a)] hover:text-[var(--priority-p0)] flex items-center rounded-lg hover:bg-surface-overlay touch-manipulation focus-visible:ring-1 focus-visible:ring-[var(--priority-p0)]/40 focus-visible:outline-none",
             compact
               ? "p-1.5 min-h-0"
               : "text-xs gap-1.5 px-3 py-1.5 sm:py-1 min-h-[40px] sm:min-h-0",

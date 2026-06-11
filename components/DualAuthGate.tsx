@@ -265,28 +265,28 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
 
   return (
     <div
-      className="fixed inset-0 z-[250] flex items-end md:items-center justify-center bg-[#0a0a0f] p-4"
+      className="fixed inset-0 z-[250] flex items-end md:items-center justify-center bg-bg p-4"
       style={{
         paddingTop: "max(1rem, env(safe-area-inset-top))",
         paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
       }}
     >
-      <div className="glass w-full max-w-md rounded-t-3xl md:rounded-3xl p-6 md:p-8 relative">
+      <div className="dual-auth-gate glass modal-panel w-full max-w-md rounded-t-3xl md:rounded-3xl p-6 md:p-8 relative">
         <div className="flex justify-center pt-1 pb-3 md:hidden">
-          <div className="h-1 w-10 rounded-full bg-white/20" aria-hidden />
+          <div className="confirmation-modal__drag-handle h-1 w-10 rounded-full" aria-hidden />
         </div>
 
         <div className="text-center mb-6">
-          <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-[#c084fc] to-[#a855f7] flex items-center justify-center">
-            <KeyRound className="h-6 w-6 text-black" />
+          <div className="dual-auth-gate__icon mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
+            <KeyRound className="h-6 w-6 text-on-accent" />
           </div>
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tighter">Verify it&apos;s you</h2>
-          <p className="text-[#a1a1aa] mt-2 text-sm leading-relaxed">{statusLine}</p>
+          <p className="text-text-secondary mt-2 text-sm leading-relaxed">{statusLine}</p>
         </div>
 
         {phase === "loading" && (
-          <div className="flex flex-col items-center gap-3 py-6 text-sm text-[#a1a1aa]">
-            <Loader2 className="h-5 w-5 animate-spin text-[#c084fc]" />
+          <div className="flex flex-col items-center gap-3 py-6 text-sm text-text-secondary">
+            <Loader2 className="h-5 w-5 animate-spin text-neon-purple" />
             Preparing verification…
           </div>
         )}
@@ -294,7 +294,7 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
         {(phase === "sending" || phase === "enter_code") && (
           <form onSubmit={handleVerify} className="space-y-4">
             {error && (
-              <div className="rounded-xl border border-[#ff9500]/40 bg-[#111114] px-3 py-2 text-xs text-[#ff9500]">
+              <div className="rounded-xl border border-[var(--priority-p1)]/40 bg-bg-secondary px-3 py-2 text-xs text-[var(--priority-p1)]">
                 {error}
               </div>
             )}
@@ -321,20 +321,20 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
               disabled={phase === "sending"}
               aria-describedby="dual-auth-code-hint"
             />
-            <p id="dual-auth-code-hint" className="text-center text-xs text-[#71717a]">
+            <p id="dual-auth-code-hint" className="text-center text-xs text-text-muted">
               Codes expire in 10 minutes.
             </p>
 
-            <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 cursor-pointer">
+            <label className="flex items-start gap-3 rounded-2xl border border-border-glass bg-surface-overlay px-4 py-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={rememberDevice}
                 onChange={(e) => setRememberDevice(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-transparent accent-[#c084fc]"
+                className="mt-0.5 h-4 w-4 rounded border-border-glass bg-transparent accent-neon-purple"
               />
-              <span className="text-sm text-[#a1a1aa] leading-snug">
-                <span className="flex items-center gap-1.5 text-[#f4f4f5] font-medium">
-                  <ShieldCheck className="h-3.5 w-3.5 text-[#c084fc]" />
+              <span className="text-sm text-text-secondary leading-snug">
+                <span className="flex items-center gap-1.5 text-text-primary font-medium">
+                  <ShieldCheck className="h-3.5 w-3.5 text-neon-purple" />
                   Trust this device
                 </span>
                 Skip verification on this browser until you clear site data or use another device.
@@ -353,7 +353,7 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
               type="button"
               onClick={() => void handleResend()}
               disabled={busy || resendCooldown > 0}
-              className="text-sm text-[#a1a1aa] hover:text-white w-full text-center min-h-[44px] disabled:opacity-60"
+              className="text-sm text-text-secondary hover:text-text-primary w-full text-center min-h-[44px] disabled:opacity-60"
             >
               {resending || phase === "sending" ? (
                 <span className="inline-flex items-center justify-center gap-1.5">
@@ -374,7 +374,7 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
         <button
           type="button"
           onClick={onSignOut}
-          className="mt-6 text-xs text-[#71717a] hover:text-white w-full text-center min-h-[44px]"
+          className="mt-6 text-xs text-text-muted hover:text-text-primary w-full text-center min-h-[44px]"
         >
           Sign out and use a different account
         </button>
