@@ -1,11 +1,11 @@
-import { getBrevoConfig, isBrevoConfigured } from "./config";
+import { getBrevoConfig, isBrevoInboundApiConfigured } from "./config";
 
 export async function downloadBrevoInboundAttachment(downloadToken: string): Promise<{
   buffer: ArrayBuffer;
   contentType: string | null;
 }> {
-  if (!isBrevoConfigured()) {
-    throw new Error("brevo_not_configured");
+  if (!isBrevoInboundApiConfigured()) {
+    throw new Error("brevo_inbound_api_not_configured");
   }
 
   const { apiKey } = getBrevoConfig();

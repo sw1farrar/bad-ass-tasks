@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
+  defaultTaskDueDate,
+  defaultTaskDueDateInput,
+  isDueDateToday,
   parseLocalDate,
   safeFormatDate,
   safeFormatTimestampIso,
   safeFormatDistanceToNow,
   formatLocalDateShort,
+  startOfLocalToday,
 } from "@/lib/datetime";
 
 describe("datetime safety helpers", () => {
@@ -27,6 +31,15 @@ describe("datetime safety helpers", () => {
 
   it("formatLocalDateShort returns empty string for invalid input", () => {
     expect(formatLocalDateShort("not-a-date")).toBe("");
+  });
+
+  it("defaultTaskDueDate helpers align picker input with stored today", () => {
+    const today = startOfLocalToday();
+    const stored = defaultTaskDueDate(today);
+    const input = defaultTaskDueDateInput(today);
+    expect(input).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(isDueDateToday(stored, today)).toBe(true);
+    expect(parseLocalDate(input)?.getTime()).toBe(today.getTime());
   });
 
   it("safeFormatTimestampIso never throws on invalid ISO strings", () => {

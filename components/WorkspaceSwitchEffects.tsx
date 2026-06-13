@@ -136,7 +136,7 @@ export function AnimatedBottomNavItemContent({
         ease: workspaceNameEase,
       }}
       className={cn(
-        "flex flex-col items-center justify-center gap-1.5 w-full min-h-0",
+        "bottom-nav-item__body flex flex-col items-center justify-center w-full min-h-0 min-w-0",
         className,
       )}
     >
@@ -149,10 +149,11 @@ interface AnimatedWorkspaceNameProps {
   workspaceId: string;
   name: string;
   className?: string;
+  onAnimationComplete?: () => void;
 }
 
 export const AnimatedWorkspaceName = React.forwardRef<HTMLSpanElement, AnimatedWorkspaceNameProps>(
-  function AnimatedWorkspaceName({ workspaceId, name, className }, ref) {
+  function AnimatedWorkspaceName({ workspaceId, name, className, onAnimationComplete }, ref) {
     return (
       <AnimatePresence mode="wait" initial={false}>
         <motion.span
@@ -162,6 +163,7 @@ export const AnimatedWorkspaceName = React.forwardRef<HTMLSpanElement, AnimatedW
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
           exit={{ opacity: 0, y: -8, filter: "blur(6px)" }}
           transition={{ duration: 0.34, ease: workspaceNameEase }}
+          onAnimationComplete={onAnimationComplete}
           className={className}
         >
           {name}

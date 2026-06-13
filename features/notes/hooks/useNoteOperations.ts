@@ -1,4 +1,10 @@
+import { dueDateFromUserInput, defaultTaskDueDate } from "@/lib/datetime";
 import { Note, Task } from "@/types";
+
+export type CreateTaskAndLinkOptions = {
+  dueDate?: string | null;
+  assigneeId?: string | null;
+};
 
 /**
  * useNoteOperations
@@ -181,14 +187,33 @@ export function useNoteOperations({
   };
 
   /** Linked Tasks panel: create with explicit title + link to a specific note. */
-  const handleCreateTaskAndLink = async (noteId: string, title: string) => {
+  const handleCreateTaskAndLink = async (
+    noteId: string,
+    title: string,
+    options?: CreateTaskAndLinkOptions,
+  ) => {
     const trimmed = title.trim();
     if (!trimmed || !noteId) return null;
 
     const created = await addTask(trimmed);
     if (!created?.id) return null;
 
-    await linkNewTaskToNote(noteId, created.id, created);
+    const extras: Partial<Task> = {};
+    if (options?.dueDate) {
+      extras.dueDate =
+        dueDateFromUserInput(options.dueDate) ?? options.dueDate;
+    } else if (!created.dueDate) {
+      extras.dueDate = defaultTaskDueDate();
+    }
+    if (options?.assigneeId) extras.assigneeIds = [options.assigneeId];
+
+    let taskSnapshot = created;
+    if (Object.keys(extras).length > 0) {
+      await updateTask(created.id, extras);
+      taskSnapshot = { ...created, ...extras };
+    }
+
+    await linkNewTaskToNote(noteId, created.id, taskSnapshot);
     return created.id;
   };
 

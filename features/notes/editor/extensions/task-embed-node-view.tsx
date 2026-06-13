@@ -2,9 +2,12 @@
 
 import React from "react";
 import { NodeViewWrapper } from "@tiptap/react";
-import { CheckSquare, Clock, AlertCircle, Calendar } from "lucide-react";
+import { CheckSquare, Clock, AlertCircle, Calendar, FolderOpen } from "lucide-react";
 import { cn, dueDateFromUserInput, formatDueDate } from "@/lib/utils";
 import { parseLocalDate, toLocalDateString } from "@/lib/datetime";
+import { TaskFolderPicker } from "@/features/tasks/components/TaskFolderPicker";
+import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
+import { useTaskStore } from "@/store/useTaskStore";
 
 interface TaskEmbedNodeViewProps {
   node: {
@@ -31,6 +34,8 @@ interface TaskEmbedNodeViewProps {
  * from parent NotesView and enable inline editing + navigation.
  */
 export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggleStatus, onUpdateTask }: TaskEmbedNodeViewProps) {
+  const getTaskFolders = useTaskStore((s) => s.getTaskFolders);
+  const folders = getTaskFolders();
   const attrs = node.attrs;
   const taskId = attrs.taskId;
 
@@ -45,6 +50,9 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
   const dueDate = liveTask?.dueDate ?? null;
   const linkedNoteCount = liveTask?.linkedNoteIds?.length ?? 0;
   const assignee = liveTask?.assignee ?? null;
+  const starred = !!liveTask?.starred;
+  const folderId = liveTask?.folderId ?? null;
+  const folderName = folders.find((f) => f.id === folderId)?.name;
 
   const isDone = status === "done";
 
@@ -174,6 +182,30 @@ export function TaskEmbedNodeView({ node, selected, tasks = [], onClick, onToggl
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            {taskId && onUpdateTask ? (
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                <TaskStarButton
+                  size="sm"
+                  starred={starred}
+                  onToggle={() => void onUpdateTask(taskId, { starred: !starred })}
+                />
+                {folders.length > 0 ? (
+                  <TaskFolderPicker
+                    compact
+                    folders={folders}
+                    value={folderId}
+                    className="min-w-[7.5rem] max-w-[10rem]"
+                    onChange={(nextFolderId) => void onUpdateTask(taskId, { folderId: nextFolderId })}
+                  />
+                ) : folderName ? (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border-glass bg-surface-inset px-2 py-0.5 text-[10px] text-text-secondary">
+                    <FolderOpen className="h-3 w-3 text-neon-purple/80" aria-hidden />
+                    {folderName}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
             {/* Status - now clickable */}
             <button
               onClick={handleStatusClick}

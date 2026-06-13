@@ -18,7 +18,9 @@ import { isWordFile, isXlsxPreviewable } from "@/lib/preview/officeMime";
 import type { PdfHighlightAnnotation } from "@/lib/pdf/annotations";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { formatBytes } from "@/lib/files/formatBytes";
 import { cn } from "@/lib/utils";
+import { AttachmentImageSizeBadge } from "./AttachmentImageSizeBadge";
 import {
   fetchNoteAttachments,
   getCachedNoteAttachments,
@@ -37,12 +39,6 @@ export type NoteAttachmentRow = {
   previewUrl: string | null;
   pdfAnnotations?: PdfHighlightAnnotation[];
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function isImageAttachment(mimeType: string, fileName: string): boolean {
   return mimeType.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(fileName);
@@ -240,6 +236,10 @@ interface NoteAttachmentsPanelProps {
   readOnly?: boolean;
   /** Extra-tight layout for desktop file preview chrome */
   previewCompact?: boolean;
+  /** Mobile files gallery owns image thumbnails */
+  hideImageAttachments?: boolean;
+  /** Keep the panel visible (with upload) even when the note has no attachments yet */
+  showWhenEmpty?: boolean;
 }
 
 export function NoteAttachmentsPanel({
@@ -251,6 +251,8 @@ export function NoteAttachmentsPanel({
   onCountChange,
   readOnly = false,
   previewCompact = false,
+  hideImageAttachments = false,
+  showWhenEmpty = false,
 }: NoteAttachmentsPanelProps) {
   const [attachments, setAttachments] = useState<NoteAttachmentRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -290,19 +292,6 @@ export function NoteAttachmentsPanel({
 
     const noteId = selectedNote.id;
     let cancelled = false;
-    const expectedCount = countHint ?? 0;
-
-    if (countsReady && expectedCount === 0) {
-      setAttachments([]);
-      setLoading(false);
-      return;
-    }
-
-    if (!countsReady && expectedCount === 0) {
-      setAttachments([]);
-      setLoading(false);
-      return;
-    }
 
     const cached = getCachedNoteAttachments(noteId);
     if (cached) {
@@ -421,7 +410,14 @@ export function NoteAttachmentsPanel({
     if (!loading && attachments.length === 0) return null;
   }
 
-  if (!embedded && !loading && attachments.length === 0) return null;
+  if (!embedded && !showWhenEmpty && !loading && attachments.length === 0) return null;
+
+  if (embedded && readOnly && hideImageAttachments) {
+    const hasNonImageAttachment = attachments.some(
+      (att) => !isImageAttachment(att.mimeType, att.fileName),
+    );
+    if (!hasNonImageAttachment) return null;
+  }
 
   const displayCount = loading
     ? knownCount > 0
@@ -543,6 +539,7 @@ export function NoteAttachmentsPanel({
       <div className={tilesWrapClass}>
         {attachments.map((att) => {
               const isImage = isImageAttachment(att.mimeType, att.fileName);
+              if (hideImageAttachments && isImage) return null;
               const thumbSize = previewCompact
                 ? "h-10 w-10"
                 : compact
@@ -561,7 +558,7 @@ export function NoteAttachmentsPanel({
                         thumbSize,
                         thumbRadius,
                       )}
-                      title={att.fileName}
+                      title={`${att.fileName}${att.sizeBytes > 0 ? ` · ${formatBytes(att.sizeBytes)}` : ""}`}
                     >
                       {att.previewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -581,6 +578,7 @@ export function NoteAttachmentsPanel({
                           />
                         </div>
                       )}
+                      <AttachmentImageSizeBadge sizeBytes={att.sizeBytes} />
                     </button>
                     {!readOnly && (
                       <AttachmentRemoveButton

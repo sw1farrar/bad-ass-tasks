@@ -10,6 +10,8 @@ interface TagMultiSelectProps {
   selected: string[];
   onChange: (tags: string[]) => void;
   disabled?: boolean;
+  /** Compact icon trigger for mobile files toolbar */
+  variant?: "default" | "toolbar";
 }
 
 export function TagMultiSelect({
@@ -17,6 +19,7 @@ export function TagMultiSelect({
   selected,
   onChange,
   disabled,
+  variant = "default",
 }: TagMultiSelectProps) {
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -48,7 +51,8 @@ export function TagMultiSelect({
     return available.filter((t) => t.includes(q)).slice(0, 12);
   }, [pool, q, normalizedSelected]);
 
-  const expanded = menuOpen || normalizedSelected.length > 0;
+  const isToolbar = variant === "toolbar";
+  const expanded = isToolbar ? menuOpen : menuOpen || normalizedSelected.length > 0;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -95,30 +99,8 @@ export function TagMultiSelect({
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
-  if (!expanded) {
-    return (
-      <div ref={rootRef}>
-        <button
-          type="button"
-          disabled={disabled || pool.length === 0}
-          onClick={openPanel}
-          className={cn(
-            "w-full flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm text-left transition min-h-[44px]",
-            "border-border-glass bg-bg-secondary text-text-secondary hover:border-border-glass",
-            (disabled || pool.length === 0) && "opacity-50 cursor-not-allowed",
-          )}
-          aria-haspopup="listbox"
-        >
-          <Tag className="h-4 w-4 shrink-0 opacity-70" />
-          <span className="flex-1 truncate">{pool.length === 0 ? "No tags yet" : "Filter by tags"}</span>
-          <Search className="h-4 w-4 shrink-0 opacity-50" />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={rootRef} className="space-y-2">
+  const panelContent = (
+    <>
       {normalizedSelected.length > 0 && (
         <div className="flex items-start gap-2">
           <ul className="flex flex-wrap gap-1.5 flex-1 min-w-0" aria-label="Active tag filters">
@@ -222,11 +204,97 @@ export function TagMultiSelect({
         )}
       </div>
 
-      {normalizedSelected.length > 1 && (
+      {normalizedSelected.length > 1 && !isToolbar && (
         <p className="text-[10px] text-text-muted leading-snug">
           Showing files that have every selected tag.
         </p>
       )}
+    </>
+  );
+
+  if (!expanded) {
+    if (isToolbar) {
+      return (
+        <div ref={rootRef} className="relative shrink-0">
+          <button
+            type="button"
+            disabled={disabled || pool.length === 0}
+            onClick={openPanel}
+            className={cn(
+              "files-tag-filter-btn flex items-center justify-center rounded-xl border min-h-[44px] min-w-[44px] transition",
+              normalizedSelected.length > 0
+                ? "border-neon-purple/35 bg-neon-purple/10 text-neon-purple-tint"
+                : "border-border-glass bg-bg-secondary text-text-secondary",
+              (disabled || pool.length === 0) && "opacity-50 cursor-not-allowed",
+            )}
+            aria-haspopup="listbox"
+            aria-label={
+              normalizedSelected.length > 0
+                ? `Filter by tags (${normalizedSelected.length} selected)`
+                : "Filter by tags"
+            }
+          >
+            <Tag className="h-4 w-4 shrink-0" />
+            {normalizedSelected.length > 0 && (
+              <span className="files-tag-filter-btn__count">{normalizedSelected.length}</span>
+            )}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div ref={rootRef}>
+        <button
+          type="button"
+          disabled={disabled || pool.length === 0}
+          onClick={openPanel}
+          className={cn(
+            "w-full flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm text-left transition min-h-[44px]",
+            "border-border-glass bg-bg-secondary text-text-secondary hover:border-border-glass",
+            (disabled || pool.length === 0) && "opacity-50 cursor-not-allowed",
+          )}
+          aria-haspopup="listbox"
+        >
+          <Tag className="h-4 w-4 shrink-0 opacity-70" />
+          <span className="flex-1 truncate">{pool.length === 0 ? "No tags yet" : "Filter by tags"}</span>
+          <Search className="h-4 w-4 shrink-0 opacity-50" />
+        </button>
+      </div>
+    );
+  }
+
+  if (isToolbar) {
+    return (
+      <div ref={rootRef} className="relative shrink-0">
+        <button
+          type="button"
+          disabled={disabled || pool.length === 0}
+          onClick={openPanel}
+          className={cn(
+            "files-tag-filter-btn files-tag-filter-btn--open flex items-center justify-center rounded-xl border min-h-[44px] min-w-[44px] transition",
+            "border-neon-purple/35 bg-neon-purple/10 text-neon-purple-tint",
+            (disabled || pool.length === 0) && "opacity-50 cursor-not-allowed",
+          )}
+          aria-haspopup="listbox"
+          aria-expanded={menuOpen}
+          aria-label="Filter by tags"
+        >
+          <Tag className="h-4 w-4 shrink-0" />
+          {normalizedSelected.length > 0 && (
+            <span className="files-tag-filter-btn__count">{normalizedSelected.length}</span>
+          )}
+        </button>
+        <div className="files-tag-filter-popover absolute left-0 top-[calc(100%+0.5rem)] z-50 w-[min(18rem,calc(100vw-2.5rem))] rounded-xl border border-border-glass bg-bg-card p-3 shadow-2xl space-y-2">
+          {panelContent}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={rootRef} className="space-y-2">
+      {panelContent}
     </div>
   );
 }

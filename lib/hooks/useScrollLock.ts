@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 /** Inner scroll surfaces that can scroll behind modals on desktop (body lock alone is insufficient). */
 const INNER_SCROLL_LOCK_SELECTOR =
-  ".tasks-root .tasks-workspace, .lists-root .lists-workspace, .notes-root .notes-editor-scroll, .settings-root .settings-workspace";
+  ".main-content, .tasks-root .tasks-workspace, .lists-root .lists-workspace, .notes-root .notes-editor-scroll, .settings-root .settings-workspace, .files-root .files-list-scroll, .files-root .files-review-list, .files-root .notes-files-preview-body, .list-detail-body";
 
 type SavedOverflow = { el: HTMLElement; overflow: string };
 

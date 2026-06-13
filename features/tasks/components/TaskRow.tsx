@@ -2,11 +2,13 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Check, Loader2, Repeat } from "lucide-react";
+import { Check, FolderOpen, Loader2, Repeat } from "lucide-react";
 import { cn, getRecurringLabel } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
 import { TaskCommentIndicator } from "./TaskCommentIndicator";
+import { TaskFolderPicker } from "./TaskFolderPicker";
+import { TaskStarButton } from "./TaskStarButton";
 import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
 import { useTaskStore } from "@/store/useTaskStore";
 
@@ -27,6 +29,8 @@ interface TaskRowProps {
   onOpen: (task: Task) => void;
   onComplete: (id: string) => void;
   onSwipeComplete?: (id: string) => void;
+  /** Tasks workspace: star + folder controls */
+  showOrganize?: boolean;
 }
 
 export function TaskRow({
@@ -43,12 +47,23 @@ export function TaskRow({
   onOpen,
   onComplete,
   onSwipeComplete,
+  showOrganize = false,
 }: TaskRowProps) {
+  const {
+    getTaskFolders,
+    toggleTaskStarred,
+    setTaskFolder,
+    taskCommentSummaries,
+    taskCommentsReadAt,
+    currentWorkspace,
+    user,
+  } = useTaskStore();
+  const folders = showOrganize ? getTaskFolders() : [];
+  const folderName = folders.find((f) => f.id === task.folderId)?.name;
   const swipeThreshold = 120;
   const didSwipeDragRef = useRef(false);
   const [allowHtmlDrag, setAllowHtmlDrag] = useState(false);
   const [swipeRevealOpacity, setSwipeRevealOpacity] = useState(0);
-  const { taskCommentSummaries, taskCommentsReadAt, currentWorkspace, user } = useTaskStore();
   const commentState = getTaskCommentIndicatorState(
     task.id,
     taskCommentSummaries,
@@ -125,7 +140,7 @@ export function TaskRow({
         }}
         whileTap={{ scale: 0.995 }}
         className={cn(
-          "task-row group flex items-center gap-2 md:gap-3 px-0 md:px-5 py-2 md:py-2.5 rounded-xl border border-transparent cursor-grab active:cursor-grabbing focus:outline-none focus:ring-1 focus:ring-neon-purple/50 bg-[var(--bg-card)] relative z-10",
+          "task-row group flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-2.5 rounded-xl border border-transparent cursor-grab active:cursor-grabbing focus:outline-none focus:ring-1 focus:ring-neon-purple/50 bg-[var(--bg-card)] relative z-10",
           isDone && "completed"
         )}
         role="button"
@@ -137,6 +152,14 @@ export function TaskRow({
         onKeyDown={handleKeyDown}
         style={{ touchAction: "pan-y" }}
       >
+        {showOrganize ? (
+          <TaskStarButton
+            size="sm"
+            starred={!!task.starred}
+            disabled={isOpLoading}
+            onToggle={() => void toggleTaskStarred(task.id)}
+          />
+        ) : null}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -145,13 +168,7 @@ export function TaskRow({
             }
           }}
           disabled={isOpLoading}
-          className={cn(
-            "task-complete-btn flex shrink-0 items-center justify-center rounded-full border p-0 transition-all active:scale-90 disabled:opacity-60",
-            "h-10 w-10 md:h-6 md:w-6",
-            isDone
-              ? "bg-neon-green border-neon-purple text-accent-on"
-              : "border-border hover:border-neon-purple group-hover:border-neon-purple/70"
-          )}
+          className={cn("task-complete-btn", isDone && "is-done")}
           aria-label={
             isDone
               ? "Reopen task"
@@ -161,9 +178,9 @@ export function TaskRow({
           }
         >
           {isOpLoading ? (
-            <Loader2 className="h-3.5 w-3.5 md:h-3 md:w-3 animate-spin" />
+            <Loader2 className="h-[calc(0.875rem*2/3)] w-[calc(0.875rem*2/3)] md:h-3 md:w-3 animate-spin" />
           ) : isDone ? (
-            <Check className="h-4 w-4 md:h-3.5 md:w-3.5" />
+            <Check className="task-complete-btn__icon stroke-[3]" />
           ) : null}
         </button>
 
@@ -189,9 +206,17 @@ export function TaskRow({
               </div>
             )}
           </div>
-          {(workspaceName || (showAssignee && task.assignee) || due) && (
+          {(workspaceName ||
+            (showOrganize && folderName) ||
+            (showAssignee && task.assignee) ||
+            due) && (
             <div className="flex items-center justify-between gap-2 w-full min-w-0 text-[11px] leading-none">
-              {workspaceName ? (
+              {showOrganize && folderName ? (
+                <span className="tasks-table-folder inline-flex min-w-0 max-w-[45%] items-center gap-1 rounded-md border border-border-glass bg-surface-inset px-1.5 py-0.5 text-[10px] font-medium text-text-secondary truncate">
+                  <FolderOpen className="h-2.5 w-2.5 shrink-0 text-neon-purple/80" aria-hidden />
+                  {folderName}
+                </span>
+              ) : workspaceName ? (
                 <span
                   className="tasks-table-workspace inline-flex min-w-0 max-w-full flex-1 items-center rounded-md border border-neon-purple/25 bg-neon-purple/8 px-1.5 py-0.5 text-[10px] font-medium text-neon-purple-tint truncate text-left"
                   title={workspaceName}
@@ -228,6 +253,18 @@ export function TaskRow({
               <span className="truncate">{getRecurringLabel(task.recurringRule)}</span>
             </div>
           )}
+          {showOrganize && folders.length > 0 ? (
+            <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
+              <TaskFolderPicker
+                compact
+                folders={folders}
+                value={task.folderId}
+                disabled={isOpLoading}
+                className="max-w-[12rem]"
+                onChange={(folderId) => void setTaskFolder(task.id, folderId)}
+              />
+            </div>
+          ) : null}
         </div>
 
         {/* Desktop: title block + trailing meta */}

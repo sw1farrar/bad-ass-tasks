@@ -56,6 +56,7 @@ supabase/.temp
 
 # Agent tooling ephemeral output (command captures, temp dumps)
 agent-tools/
+terminals/
 
 # Local command output captures (re-generable hygiene artifacts)
 *-output.txt

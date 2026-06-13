@@ -4,7 +4,9 @@ import {
   filterFiledNotes,
   filterByAllTags,
   collectWorkspaceTags,
+  countBookmarkedFiles,
   countPendingReviewForWorkspace,
+  filterBookmarkedFiles,
   hasUserFilingTags,
 } from "@/lib/files/fileFilters";
 import type { Note } from "@/types";
@@ -23,6 +25,7 @@ function note(partial: Partial<Note> & { id: string }): Note {
     recordType: partial.recordType,
     memo: partial.memo,
     filedAt: partial.filedAt,
+    bookmarked: partial.bookmarked,
   };
 }
 
@@ -63,6 +66,16 @@ describe("fileFilters", () => {
     expect(countPendingReviewForWorkspace(notes, "ws-a")).toBe(1);
     expect(countPendingReviewForWorkspace(notes, "ws-b")).toBe(1);
     expect(countPendingReviewForWorkspace(notes, "ws-c")).toBe(0);
+  });
+
+  it("filters bookmarked files", () => {
+    const notes = [
+      note({ id: "1", bookmarked: true }),
+      note({ id: "2", bookmarked: false }),
+      note({ id: "3", bookmarked: true }),
+    ];
+    expect(filterBookmarkedFiles(notes).map((n) => n.id)).toEqual(["1", "3"]);
+    expect(countBookmarkedFiles(notes)).toBe(2);
   });
 
   it("collects user tags excluding from-email", () => {

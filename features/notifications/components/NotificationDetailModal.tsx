@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Check, Clock, Star, Users, Zap } from "lucide-react";
+import { Check, Clock, Mail, Star, Users, Zap } from "lucide-react";
 import { BottomSheet } from "@/components/BottomSheet";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
@@ -12,6 +12,7 @@ export interface NotificationDetailModalProps {
   notification: Notification | null;
   onClose: () => void;
   onMarkRead?: (id: string) => void;
+  onDismiss?: (id: string) => void;
   onViewChange?: (view: AppView) => void;
   onOpenNote?: (noteId: string) => void;
 }
@@ -38,6 +39,8 @@ function NotificationTypeIcon({ type }: { type: Notification["type"] }) {
       return <Clock className={className} />;
     case "activity":
       return <Zap className={className} />;
+    case "inbound_file":
+      return <Mail className={className} />;
     default:
       return null;
   }
@@ -47,6 +50,7 @@ export function NotificationDetailModal({
   notification,
   onClose,
   onMarkRead,
+  onDismiss,
   onViewChange,
   onOpenNote,
 }: NotificationDetailModalProps) {
@@ -62,7 +66,10 @@ export function NotificationDetailModal({
       return;
     }
 
-    if (notification.type === "activity" && metadata?.note_id) {
+    if (
+      (notification.type === "activity" || notification.type === "inbound_file") &&
+      metadata?.note_id
+    ) {
       onViewChange?.("notes");
       onOpenNote?.(metadata.note_id);
       onClose();
@@ -86,7 +93,9 @@ export function NotificationDetailModal({
   };
 
   const handleDismiss = () => {
-    if (!notification.readAt) {
+    if (onDismiss) {
+      onDismiss(notification.id);
+    } else if (!notification.readAt) {
       onMarkRead?.(notification.id);
     }
     onClose();
@@ -98,11 +107,11 @@ export function NotificationDetailModal({
       onClose={onClose}
       title={notification.title}
       zIndex={300}
-      mobileLayout="centered"
-      backdropClassName="overlay-scrim backdrop-blur-md"
+      mobileLayout="sheet"
       panelClassName="notification-detail-modal bg-bg-secondary border-border-glass"
-      showDragHandle={false}
-      enableDragDismiss={false}
+      showDragHandle
+      enableDragDismiss
+      dragMode="handle"
     >
       <div className="p-5 text-sm">
         <div className="flex items-center gap-3 mb-4 text-neon-purple">

@@ -41,6 +41,41 @@ function mountEmailShadowRoot(host: HTMLDivElement, bodyHtml: string, css: strin
     link.target = "_blank";
     link.rel = "noopener noreferrer";
   }
+
+  return root;
+}
+
+/** Shadow hosts do not always inherit content size (notably iOS Safari). */
+function syncEmailHostSize(host: HTMLDivElement) {
+  const root = host.shadowRoot?.querySelector(".email-message-root");
+  if (!root) {
+    host.style.height = "";
+    host.style.minHeight = "1rem";
+    host.style.width = "";
+    host.style.minWidth = "";
+    host.style.maxWidth = "";
+    return;
+  }
+
+  const height = Math.ceil(
+    Math.max(root.scrollHeight, root.getBoundingClientRect().height),
+  );
+  host.style.height = `${height}px`;
+  host.style.minHeight = `${height}px`;
+
+  const width = Math.ceil(
+    Math.max(root.scrollWidth, root.getBoundingClientRect().width),
+  );
+  const parentWidth = host.parentElement?.clientWidth ?? 0;
+  if (width > parentWidth) {
+    host.style.width = `${width}px`;
+    host.style.minWidth = `${width}px`;
+    host.style.maxWidth = "none";
+  } else {
+    host.style.width = "";
+    host.style.minWidth = "";
+    host.style.maxWidth = "";
+  }
 }
 
 /**
@@ -75,7 +110,31 @@ export function EmailHtmlBlockNodeView({ node, editor, getPos, extension }: Node
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !shadowContent || collapsed) return;
-    mountEmailShadowRoot(host, shadowContent.bodyHtml, shadowContent.css);
+
+    const root = mountEmailShadowRoot(host, shadowContent.bodyHtml, shadowContent.css);
+    const sync = () => syncEmailHostSize(host);
+    sync();
+    requestAnimationFrame(sync);
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    resizeObserver?.observe(root);
+
+    root.querySelectorAll("img").forEach((img) => {
+      if (!img.complete) {
+        img.addEventListener("load", sync, { once: true });
+        img.addEventListener("error", sync, { once: true });
+      }
+    });
+
+    return () => {
+      resizeObserver?.disconnect();
+      host.style.height = "";
+      host.style.minHeight = "";
+      host.style.width = "";
+      host.style.minWidth = "";
+      host.style.maxWidth = "";
+    };
   }, [shadowContent, collapsed]);
 
   const handleConvertToText = useCallback(() => {

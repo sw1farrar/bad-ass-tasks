@@ -13,31 +13,25 @@ import {
 } from "@/lib/assignee";
 import { DateTimePicker } from "./DateTimePicker";
 import { ConfirmationModal } from "./ConfirmationModal";
+import { SheetDragHandle } from "./SheetDragHandle";
 import { toast } from "sonner";
 import { safeFormatDate, safeFormatTimestampIso } from "@/lib/datetime";
 import { motion, AnimatePresence, PanInfo, useDragControls } from "framer-motion";
 import { useTaskStore } from "@/store/useTaskStore";
 import type { Comment, Task, WorkspaceMember } from "@/types";
 import { getCommentAuthorLabel } from "@/features/tasks/lib/taskCommentIndicators";
+import { TaskOrganizeFields } from "@/features/tasks/components/TaskOrganizeFields";
+import { TaskRecurrenceEditor } from "@/features/tasks/components/TaskRecurrenceEditor";
+import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
 
 import { triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import {
   cn,
   applyTaskUpdateSideEffects,
+  defaultTaskDueDate,
   getRecurringLabel,
-  parseRecurringRule,
-  generateRecurringRule,
-  getUpcomingRecurrencesPreview,
-  getNextRecurringDue,
-  normalizeExceptionKey,
   toDueDateStorage,
-  parseLocalDate,
-  isDueDatePast,
-  getRecurrenceEndDescription,
-  type RecurrencePattern,
-  type RecurrenceFreq,
-  type WeekDay,
 } from "@/lib/utils";
 
 interface TaskModalProps {
@@ -60,6 +54,8 @@ function cloneTaskSnapshot(task: Task): Task {
     linkedNoteIds: [...task.linkedNoteIds],
     assigneeIds: task.assigneeIds ? [...task.assigneeIds] : undefined,
     exceptionDates: task.exceptionDates ? [...task.exceptionDates] : undefined,
+    starred: !!task.starred,
+    folderId: task.folderId ?? null,
   };
 }
 
@@ -72,6 +68,8 @@ function taskRevertPatch(original: Task): Partial<Task> {
     assignee: original.assignee,
     recurringRule: original.recurringRule ?? null,
     exceptionDates: original.exceptionDates,
+    starred: !!original.starred,
+    folderId: original.folderId ?? null,
   };
 }
 
@@ -88,6 +86,8 @@ function taskHasUnsavedChanges(current: Task, original: Task | null): boolean {
   if (JSON.stringify(current.exceptionDates ?? []) !== JSON.stringify(original.exceptionDates ?? [])) {
     return true;
   }
+  if (!!current.starred !== !!original.starred) return true;
+  if ((current.folderId ?? null) !== (original.folderId ?? null)) return true;
   return false;
 }
 
@@ -345,383 +345,6 @@ function CollapsibleSection({
   );
 }
 
-/** Self-contained, beautifully styled recurrence editor (extracted to satisfy strict TS + keep modal clean)
- *  Production (Agent 25): full end conditions (Never / After N / Until date + COUNT/UNTIL), YEARLY preset,
- *  raw RRULE editor, smooth local state for end conds, Linear/Notion quality.
- */
-function RecurrenceEditor({
-  localTask,
-  save,
-  compact = false,
-}: {
-  localTask: Task;
-  save: (updates: Partial<Task>) => void;
-  compact?: boolean;
-}) {
-  const currentLabel = getRecurringLabel(localTask.recurringRule);
-  const currentPattern = parseRecurringRule(localTask.recurringRule);
-  const upcoming = getUpcomingRecurrencesPreview(localTask.dueDate, localTask.recurringRule, 4, localTask.exceptionDates);
-  const endDesc = getRecurrenceEndDescription(localTask.recurringRule);
-
-  const hasRule = !!localTask.recurringRule;
-  const freq = currentPattern?.freq ?? "WEEKLY";
-  const interval = currentPattern?.interval ?? 1;
-  const byDays = currentPattern?.byDay || [];
-  const currentUntil = currentPattern?.until || "";
-  const currentCount = currentPattern?.count || 0;
-
-  // Local UI state for buttery end-condition controls (Never/After N/On date)
-  const [endMode, setEndMode] = useState<"never" | "count" | "until">(
-    currentCount > 0 ? "count" : currentUntil ? "until" : "never"
-  );
-  const [localCount, setLocalCount] = useState(currentCount || 10);
-  const [localUntil, setLocalUntil] = useState(currentUntil ? `${currentUntil.slice(0,4)}-${currentUntil.slice(4,6)}-${currentUntil.slice(6,8)}` : "");
-
-  // Keep local end state in sync when task/pattern changes externally
-  useEffect(() => {
-    const mode = currentCount > 0 ? "count" : currentUntil ? "until" : "never";
-    setEndMode(mode);
-    if (currentCount) setLocalCount(currentCount);
-    if (currentUntil) setLocalUntil(`${currentUntil.slice(0,4)}-${currentUntil.slice(4,6)}-${currentUntil.slice(6,8)}`);
-    else setLocalUntil("");
-  }, [currentUntil, currentCount]);
-
-  const weekDays: WeekDay[] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
-  const weekLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  const applyEndCondition = (mode: "never" | "count" | "until", countVal?: number, untilVal?: string) => {
-    const base: Omit<RecurrencePattern, "until" | "count"> = {
-      freq: freq as RecurrenceFreq,
-      interval: Math.max(1, interval),
-      byDay: freq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
-    };
-    let newPat: RecurrencePattern;
-    if (mode === "count" && (countVal || localCount) > 0) {
-      newPat = { ...base, count: countVal || localCount };
-    } else if (mode === "until" && (untilVal || localUntil)) {
-      const d = untilVal || localUntil;
-      const compact = d.replace(/-/g, "");
-      newPat = { ...base, until: compact };
-    } else {
-      newPat = base; // never
-    }
-    save({ recurringRule: generateRecurringRule(newPat) });
-  };
-
-  const toggleDay = (day: WeekDay) => {
-    const nextBy = byDays.includes(day)
-      ? byDays.filter((d) => d !== day)
-      : [...byDays, day].sort((a, b) => weekDays.indexOf(a) - weekDays.indexOf(b));
-    const newPattern: RecurrencePattern = {
-      freq: freq as RecurrenceFreq,
-      interval: Math.max(1, interval),
-      byDay: nextBy.length ? (nextBy as WeekDay[]) : undefined,
-      ...(endMode === "until" && localUntil ? { until: localUntil.replace(/-/g, "") } : {}),
-      ...(endMode === "count" ? { count: localCount } : {}),
-    };
-    const newRule = generateRecurringRule(newPattern);
-    save({ recurringRule: newRule });
-  };
-
-  const setFreq = (newFreq: RecurrenceFreq) => {
-    if (!localTask.dueDate) {
-      toast.info("Set a due date first", { description: "Recurrence needs an anchor date." });
-      return;
-    }
-    const newPattern: RecurrencePattern = {
-      freq: newFreq,
-      interval: Math.max(1, interval),
-      byDay: newFreq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
-      ...(endMode === "until" && localUntil ? { until: localUntil.replace(/-/g, "") } : {}),
-      ...(endMode === "count" ? { count: localCount } : {}),
-    };
-    save({ recurringRule: generateRecurringRule(newPattern) });
-  };
-
-  const setIntervalVal = (val: number) => {
-    const safe = Math.max(1, Math.min(99, val || 1));
-    const newPattern: RecurrencePattern = {
-      freq: freq as RecurrenceFreq,
-      interval: safe,
-      byDay: freq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
-      ...(endMode === "until" && localUntil ? { until: localUntil.replace(/-/g, "") } : {}),
-      ...(endMode === "count" ? { count: localCount } : {}),
-    };
-    save({ recurringRule: generateRecurringRule(newPattern) });
-  };
-
-  const handleSkipOccurrence = () => {
-    if (!localTask.recurringRule || !localTask.dueDate) {
-      toast.info("Set a due date before skipping occurrences");
-      return;
-    }
-    const isOverdue = isDueDatePast(localTask.dueDate);
-    const skipTarget = isOverdue
-      ? parseLocalDate(localTask.dueDate)
-      : getNextRecurringDue(localTask.recurringRule, new Date(), localTask.dueDate, localTask.exceptionDates);
-    if (!skipTarget) {
-      toast.info("No future occurrences (series may have ended)");
-      return;
-    }
-    const exKey = normalizeExceptionKey(skipTarget);
-    const currentEx = localTask.exceptionDates || [];
-    if (currentEx.some((ex) => normalizeExceptionKey(ex) === exKey)) {
-      toast.info("That occurrence is already skipped");
-      return;
-    }
-    const nextEx = [...currentEx, exKey];
-    save({ exceptionDates: nextEx });
-    toast.success(isOverdue ? "This occurrence skipped" : "Next occurrence skipped", {
-      description: `${safeFormatDate(skipTarget, "MMM d", "that date")} excluded from series`,
-    });
-  };
-
-  // Advanced raw RRULE editor state (power-user / custom rules not covered by UI)
-  const [showRaw, setShowRaw] = useState(false);
-  const [rawRule, setRawRule] = useState(localTask.recurringRule || "");
-
-  const applyRawRule = () => {
-    const trimmed = rawRule.trim().toUpperCase();
-    if (!trimmed) {
-      clearRecurrence();
-    } else {
-      const parsed = parseRecurringRule(trimmed);
-      if (!parsed?.freq) {
-        toast.error("Invalid recurrence rule", { description: "Must include a valid FREQ (DAILY, WEEKLY, etc.)." });
-        return;
-      }
-      if (!localTask.dueDate) {
-        toast.info("Set a due date first", { description: "Recurrence needs an anchor date." });
-        return;
-      }
-      save({ recurringRule: trimmed });
-    }
-    setShowRaw(false);
-  };
-
-  const clearRecurrence = () => {
-    save({ recurringRule: undefined, exceptionDates: undefined });
-  };
-
-  return (
-    <div className="space-y-3">
-      {!compact && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {currentLabel ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-neon-purple/10 text-neon-purple text-xs font-medium border border-neon-purple/30">
-              <Repeat className="h-3 w-3" /> {currentLabel}
-            </span>
-          ) : (
-            <span className="text-xs text-text-muted">No recurrence</span>
-          )}
-          {localTask.recurringRule && (
-            <button
-              onClick={clearRecurrence}
-              className="text-[10px] px-2 py-0.5 rounded bg-surface-hover hover:bg-surface-hover text-text-secondary transition"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Presets */}
-      <div className="flex flex-wrap gap-1.5">
-        {(["DAILY", "WEEKLY", "MONTHLY", "YEARLY"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFreq(f)}
-            className={cn(
-              "text-xs px-3 py-1 rounded-full border transition",
-              hasRule && freq === f
-                ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
-                : "border-border-glass hover:bg-surface-hover text-text-secondary"
-            )}
-          >
-            {f === "DAILY" ? "Daily" : f === "WEEKLY" ? "Weekly" : f === "MONTHLY" ? "Monthly" : "Yearly"}
-          </button>
-        ))}
-        <button
-          onClick={clearRecurrence}
-          className={cn(
-            "text-xs px-3 py-1 rounded-full border transition",
-            !hasRule
-              ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
-              : "border-border-glass hover:bg-surface-hover text-text-muted"
-          )}
-        >
-          None
-        </button>
-      </div>
-
-      {localTask.recurringRule && (
-        <>
-      {/* Interval — only when a rule is active (prevents accidental re-apply after clear) */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-text-muted">Every</span>
-        <input
-          type="number"
-          min={1}
-          max={99}
-          value={interval}
-          onChange={(e) => setIntervalVal(parseInt(e.target.value))}
-          className="input w-14 px-2 py-1 text-center text-sm"
-        />
-        <span className="text-text-muted">{freq.toLowerCase()}{interval > 1 ? "s" : ""}</span>
-      </div>
-
-      {/* Weekly day picker */}
-      {freq === "WEEKLY" && (
-        <div className="flex flex-wrap gap-1">
-          {weekDays.map((day, i) => (
-            <button
-              key={day}
-              onClick={() => toggleDay(day)}
-              className={cn(
-                "text-[10px] px-2 py-0.5 rounded-full border transition min-w-[34px]",
-                byDays.includes(day)
-                  ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
-                  : "border-border-glass hover:bg-surface-hover text-text-secondary"
-              )}
-            >
-              {weekLabels[i]}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Production End Conditions UI: Never / After N / On date (drives COUNT or UNTIL) */}
-        <div className="pt-1 space-y-2 border-t border-border-glass">
-          <div className="text-[10px] text-text-muted flex items-center gap-1.5">
-            <span>Ends</span>
-            <div className="inline-flex rounded-full border border-border-glass overflow-hidden text-[10px]">
-              {(["never", "count", "until"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => { setEndMode(m); applyEndCondition(m); }}
-                  className={cn(
-                    "px-2.5 py-0.5 transition",
-                    endMode === m ? "bg-neon-purple text-[var(--on-accent)]" : "hover:bg-surface-hover text-text-secondary"
-                  )}
-                >
-                  {m === "never" ? "Never" : m === "count" ? "After N" : "On date"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {endMode === "count" && (
-            <div className="flex items-center gap-2 text-xs pl-1">
-              <input
-                type="number"
-                min={1}
-                max={365}
-                value={localCount}
-                onChange={(e) => { const v = parseInt(e.target.value)||1; setLocalCount(v); applyEndCondition("count", v); }}
-                className="input w-16 px-2 py-0.5 text-center text-sm"
-              />
-              <span className="text-text-muted">occurrences</span>
-              <button onClick={() => { setEndMode("never"); applyEndCondition("never"); }} className="text-[10px] text-text-secondary underline">or never</button>
-            </div>
-          )}
-
-          {endMode === "until" && (
-            <div className="flex items-center gap-2 text-xs pl-1">
-              <DateTimePicker
-                value={localUntil}
-                onChange={(dateStr) => {
-                  setLocalUntil(dateStr || '');
-                  applyEndCondition("until", undefined, dateStr || '');
-                }}
-                className="flex-1"
-              />
-              <button onClick={() => { setEndMode("never"); applyEndCondition("never"); }} className="text-[10px] text-text-secondary underline">Never</button>
-            </div>
-          )}
-
-          {endMode === "never" && !compact && (
-            <div className="text-[10px] text-text-secondary pl-1">Open-ended series (continues forever)</div>
-          )}
-        </div>
-
-        </>
-      )}
-
-      {localTask.recurringRule && upcoming.length > 0 && (
-        <div className="text-[10px] text-text-muted pt-1">
-          Next: {upcoming.join(" • ")}
-        </div>
-      )}
-      {!compact && localTask.recurringRule && (
-        <div className="text-[9px] text-text-muted flex items-center gap-2">
-          <span className="font-mono opacity-70">{localTask.recurringRule}</span>
-          <button
-            onClick={() => { setRawRule(localTask.recurringRule || ""); setShowRaw(!showRaw); }}
-            className="text-[9px] underline hover:text-neon-purple"
-            title="Edit raw RRULE (advanced / custom)"
-          >
-            edit raw
-          </button>
-        </div>
-      )}
-      {!compact && showRaw && (
-        <div className="space-y-1">
-          <input
-            value={rawRule}
-            onChange={(e) => setRawRule(e.target.value)}
-            className="input w-full px-2 py-1 font-mono text-xs"
-            placeholder="FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=12"
-          />
-          <div className="flex gap-2">
-            <button onClick={applyRawRule} className="text-[10px] px-2 py-0.5 bg-neon-purple/20 text-neon-purple rounded">Apply RRULE</button>
-            <button onClick={() => setShowRaw(false)} className="text-[10px] px-2 py-0.5 bg-surface-hover rounded">Cancel</button>
-          </div>
-          <div className="text-[9px] text-text-secondary">Full RRULE strings supported (engine handles parse/generate + COUNT/UNTIL/exceptions).</div>
-        </div>
-      )}
-
-      {/* Exceptions / Skipped + quick actions — polished */}
-      {localTask.recurringRule && (
-        <div className="pt-2 border-t border-border-glass space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={handleSkipOccurrence}
-              className="text-[10px] px-2 py-0.5 rounded bg-neon-purple/10 hover:bg-neon-purple/20 text-neon-purple border border-neon-purple/30 transition"
-              title="Skip the current overdue occurrence or the next future one"
-            >
-              {localTask.dueDate && isDueDatePast(localTask.dueDate)
-                ? "Skip this occurrence"
-                : "Skip next occurrence"}
-            </button>
-            <span className="text-[9px] text-text-muted">{endDesc}</span>
-          </div>
-
-          {localTask.exceptionDates && localTask.exceptionDates.length > 0 && (
-            <div>
-              <div className="text-[10px] text-text-secondary mb-1">Skipped dates (tap to restore):</div>
-              <div className="flex flex-wrap gap-1">
-                {localTask.exceptionDates.map((exDate, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      const nextEx = (localTask.exceptionDates || []).filter((_, i) => i !== idx);
-                      save({ exceptionDates: nextEx.length ? nextEx : undefined });
-                    }}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover hover:bg-surface-hover text-text-secondary border border-border-glass"
-                    title="Click to un-skip this occurrence"
-                  >
-                    {exDate.slice(0, 10)} ✕
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModalProps) {
   const { 
     updateTask, deleteTask, taskLoadingStates, 
@@ -834,11 +457,17 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     const justOpened = !prevIsOpenRef.current;
     const switchedTask = openedTaskSnapshotRef.current?.id !== task.id;
     if (justOpened || switchedTask) {
-      openedTaskSnapshotRef.current = cloneTaskSnapshot(task);
-      setLocalTask(task);
+      let nextTask = task;
+      if (!task.dueDate && task.status !== "done") {
+        const todayDue = defaultTaskDueDate();
+        nextTask = { ...task, dueDate: todayDue };
+        void updateTask(task.id, { dueDate: todayDue });
+      }
+      openedTaskSnapshotRef.current = cloneTaskSnapshot(nextTask);
+      setLocalTask(nextTask);
     }
     prevIsOpenRef.current = isOpen;
-  }, [isOpen, task, task.id]);
+  }, [isOpen, task, task.id, updateTask]);
 
   useEffect(() => {
     if (!isOpen || !isMobile) return;
@@ -930,12 +559,20 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     if (newTask.status !== "done") {
       delete (newTask as Task).completedAt;
     }
+    if (
+      Object.prototype.hasOwnProperty.call(normalized, "folderId") &&
+      (normalized.folderId === undefined || normalized.folderId === null)
+    ) {
+      delete (newTask as Task).folderId;
+    }
     setLocalTask(newTask);
     await updateTask(task.id, normalized);
     openedTaskSnapshotRef.current = cloneTaskSnapshot(newTask);
 
-    // Live collab: broadcast the change so others see it in near real-time (debounced)
-    scheduleLiveBroadcast(updates);
+    // Live collab: title/description only (due date etc. persist via DB + postgres_changes)
+    if ("title" in updates || "description" in updates) {
+      scheduleLiveBroadcast(updates);
+    }
   };
 
   const handleDelete = async () => {
@@ -1056,7 +693,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           className={cn(
             "task-detail-modal glass modal-panel w-full overflow-hidden flex flex-col",
             isMobile
-              ? "task-drawer-sheet mobile-bottom-sheet relative flex flex-col h-[92dvh] max-h-[92dvh] rounded-t-3xl max-w-none"
+              ? "task-drawer-sheet mobile-bottom-sheet relative flex flex-col h-[100dvh] max-h-[100dvh] rounded-t-3xl max-w-none"
               : "relative max-w-3xl max-h-[min(88vh,760px)] rounded-2xl"
           )}
           onClick={e => e.stopPropagation()}
@@ -1075,13 +712,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           aria-modal="true"
           aria-label={`Task: ${localTask.title}`}
         >
-          {isMobile && (
-            <div
-              className="sheet-drag-handle shrink-0 touch-none cursor-grab active:cursor-grabbing"
-              onPointerDown={startSheetDrag}
-              aria-hidden="true"
-            />
-          )}
+          {isMobile && <SheetDragHandle onPointerDown={startSheetDrag} />}
 
           {/* Header — Cancel reverts; Save and Close keeps edits */}
           <div
@@ -1100,18 +731,34 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSheetClose}
-                disabled={!!taskLoadingStates?.[task.id]}
-                className="btn btn-primary text-sm px-4 py-2 min-h-[44px] disabled:opacity-60 flex items-center gap-1.5 active:scale-[0.98]"
-                aria-label="Save and close task"
-              >
-                {taskLoadingStates?.[task.id] ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                Save and Close
-              </button>
+              <div className="flex items-center gap-1.5">
+                <TaskStarButton
+                  starred={!!localTask.starred}
+                  disabled={!!taskLoadingStates?.[task.id]}
+                  onToggle={() => save({ starred: !localTask.starred })}
+                />
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={!!taskLoadingStates?.[task.id]}
+                  className="task-modal-delete-icon-btn inline-flex shrink-0 items-center justify-center h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9 rounded-lg border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
+                  aria-label="Delete task"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSheetClose}
+                  disabled={!!taskLoadingStates?.[task.id]}
+                  className="btn btn-primary text-sm px-4 py-2 min-h-[44px] disabled:opacity-60 flex items-center gap-1.5 active:scale-[0.98]"
+                  aria-label="Save and close task"
+                >
+                  {taskLoadingStates?.[task.id] ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Save and Close
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1180,7 +827,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 badge={getRecurringLabel(localTask.recurringRule) || "None"}
                 defaultOpen={!!localTask.recurringRule}
               >
-                <RecurrenceEditor localTask={localTask} save={save} compact />
+                <TaskRecurrenceEditor localTask={localTask} save={save} compact />
               </CollapsibleSection>
             )}
             <TaskAssigneePicker
@@ -1193,6 +840,15 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 save({ assigneeIds, assignee });
               }}
               compact
+            />
+            <TaskOrganizeFields
+              layout="modal-row"
+              starred={!!localTask.starred}
+              folderId={localTask.folderId}
+              disabled={!!taskLoadingStates?.[task.id]}
+              compact
+              onStarredChange={(next) => save({ starred: next })}
+              onFolderChange={(folderId) => save({ folderId })}
             />
           </div>
 
@@ -1279,15 +935,6 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={!!taskLoadingStates?.[task.id]}
-            className="task-modal-delete-btn w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
-            aria-label="Delete task"
-          >
-            Delete
-          </button>
         </div>
         ) : (
         <div className="p-5 flex flex-col gap-5 min-h-0">
@@ -1425,7 +1072,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 badge={getRecurringLabel(localTask.recurringRule) || "None"}
                 defaultOpen={false}
               >
-                <RecurrenceEditor localTask={localTask} save={save} compact />
+                <TaskRecurrenceEditor localTask={localTask} save={save} compact />
               </CollapsibleSection>
             )}
 
@@ -1441,6 +1088,15 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               compact
             />
 
+            <TaskOrganizeFields
+              starred={!!localTask.starred}
+              folderId={localTask.folderId}
+              disabled={!!taskLoadingStates?.[task.id]}
+              compact
+              onStarredChange={(next) => save({ starred: next })}
+              onFolderChange={(folderId) => save({ folderId })}
+            />
+
             <div className="pt-3 border-t border-border-glass text-[11px] text-text-muted leading-relaxed">
               Created {safeFormatTimestampIso(localTask.createdAt, "MMM d, yyyy", "—")}
               {localTask.status === "done" && localTask.completedAt && (
@@ -1450,15 +1106,6 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={!!taskLoadingStates?.[task.id]}
-            className="task-modal-delete-btn w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
-            aria-label="Delete task"
-          >
-            Delete
-          </button>
         </div>
         )}
         </div>

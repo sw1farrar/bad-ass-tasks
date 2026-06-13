@@ -12,6 +12,11 @@ export {
   type VerificationEmailParams,
 } from "./sendVerificationEmail";
 export {
+  sendPasswordResetEmail,
+  buildPasswordResetHtml,
+  type PasswordResetEmailParams,
+} from "./sendPasswordResetEmail";
+export {
   sendDualAuthEmail,
   buildDualAuthHtml,
   type DualAuthEmailParams,

@@ -9,13 +9,13 @@ import {
  * Matches how Gmail/Front isolate sender HTML in its own document context.
  */
 
-const EMAIL_VIEWPORT_MAX_PX = 640;
-
 /** Base layout rules for faithful email rendering inside an isolated root. */
 export const EMAIL_DISPLAY_BASE_CSS = `
   :host {
     display: block;
     width: 100%;
+    height: auto;
+    overflow: visible;
     background: #ffffff;
   }
   html, body {
@@ -28,9 +28,10 @@ export const EMAIL_DISPLAY_BASE_CSS = `
     background: #ffffff;
   }
   .email-message-root {
-    margin: 0 auto;
-    max-width: ${EMAIL_VIEWPORT_MAX_PX}px;
-    width: 100%;
+    margin: 0;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
     box-sizing: border-box;
   }
   img {

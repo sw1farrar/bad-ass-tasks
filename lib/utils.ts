@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { isToday, isTomorrow, isPast, isValid, addDays, addWeeks, addMonths, addYears, startOfDay, getDay, differenceInCalendarWeeks } from "date-fns";
+import { isToday, isTomorrow, isValid, addDays, addWeeks, addMonths, addYears, startOfDay, getDay, differenceInCalendarWeeks } from "date-fns";
 import {
   parseLocalDate,
   safeFormatDate,
@@ -8,6 +8,7 @@ import {
   toLocalDateString,
   normalizeCalendarDateKey,
   startOfLocalToday,
+  isDueDatePast,
 } from "@/lib/datetime";
 
 export {
@@ -24,6 +25,8 @@ export {
   isDueDateToday,
   isDueDateOnOrBefore,
   dueDateFromUserInput,
+  defaultTaskDueDate,
+  defaultTaskDueDateInput,
 } from "@/lib/datetime";
 
 // Canonical types (single source of truth). Old duplicate local copies removed during QA/types cleanup.
@@ -116,7 +119,9 @@ export function formatDueDate(dateString?: string) {
   if (!date || !isValid(date)) return null;
   if (isToday(date)) return { label: "Today", variant: "today" as const };
   if (isTomorrow(date)) return { label: "Tomorrow", variant: "soon" as const };
-  if (isPast(date)) return { label: safeFormatDate(date, "MMM d"), variant: "overdue" as const };
+  if (isDueDatePast(dateString)) {
+    return { label: safeFormatDate(date, "MMM d"), variant: "overdue" as const };
+  }
   return { label: safeFormatDate(date, "MMM d"), variant: "default" as const };
 }
 

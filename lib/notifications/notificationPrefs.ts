@@ -11,6 +11,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "task_assigned",
   "deadline",
   "activity",
+  "inbound_file",
 ];
 
 const DEFAULT_TYPE_CHANNELS: NotificationTypeChannelPrefs = {
@@ -26,6 +27,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
     task_assigned: { ...DEFAULT_TYPE_CHANNELS },
     deadline: { ...DEFAULT_TYPE_CHANNELS },
     activity: { ...DEFAULT_TYPE_CHANNELS },
+    inbound_file: { ...DEFAULT_TYPE_CHANNELS },
   },
   perWorkspace: {},
   muteUntil: null,
@@ -74,6 +76,7 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
       task_assigned: normalizeTypeEntry(taskAssignedRaw, globalInApp, globalEmail),
       deadline: normalizeTypeEntry(rawTypes.deadline, globalInApp, globalEmail),
       activity: normalizeTypeEntry(rawTypes.activity, globalInApp, globalEmail),
+      inbound_file: normalizeTypeEntry(rawTypes.inbound_file, globalInApp, globalEmail),
     },
     perWorkspace:
       source.perWorkspace && typeof source.perWorkspace === "object"

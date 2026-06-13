@@ -182,6 +182,7 @@ export interface Database {
           filed_at?: string | null
           reviewed_by?: string | null
           search_document?: string | null
+          bookmarked?: boolean
         }
         Insert: {
           id?: string
@@ -209,6 +210,7 @@ export interface Database {
           filed_at?: string | null
           reviewed_by?: string | null
           search_document?: string | null
+          bookmarked?: boolean
         }
         Update: {
           id?: string
@@ -236,6 +238,7 @@ export interface Database {
           filed_at?: string | null
           reviewed_by?: string | null
           search_document?: string | null
+          bookmarked?: boolean
         }
       },
       // Added for Phase 2 collaboration (workspace_members was missing from prior types)

@@ -7,11 +7,17 @@ import { storeInboundEml } from "@/lib/storage/inboundEml";
 import { finalizeInboundNoteContent } from "./finalizeInboundNote";
 import { parseInboundRecipientLocalPart } from "./parseInboundRecipient";
 import { downloadBrevoInboundAttachment } from "./downloadInboundAttachment";
+import { listInboundAttachments } from "./normalizeInboundAttachments";
 import { uploadNoteAttachment } from "@/lib/storage/noteAttachments";
 import { buildNoteAttachmentFileUrl } from "@/lib/notes/attachmentUrls";
+import {
+  refreshNoteSearchDocument,
+  saveAttachmentExtractedText,
+} from "@/lib/notes/refreshNoteSearchDocument";
+import { extractPdfText, isPdfMimeType } from "@/lib/pdf/extractPdfText";
 import { processInboundTaskEmail } from "./processInboundTaskEmail";
 import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
-import type { BrevoInboundEmailItem, BrevoInboundWebhookPayload } from "./inboundTypes";
+import type { BrevoInboundAttachment, BrevoInboundEmailItem, BrevoInboundWebhookPayload } from "./inboundTypes";
 
 export type ProcessInboundEmailResult =
   | { ok: true; status: "created"; noteId?: string; taskId?: string; inboxId: string; localPart: string; kind: "note" | "task" }
@@ -67,27 +73,48 @@ async function processAttachments(params: {
   noteId: string;
   workspaceId: string;
   createdBy: string | null;
-}): Promise<Record<string, string>> {
-  const attachments = params.item.Attachments ?? [];
-  if (!attachments.length) return {};
+}): Promise<{ cidToUrl: Record<string, string>; storedCount: number }> {
+  const attachments = listInboundAttachments(params.item);
+  if (!attachments.length) {
+    const rawCount = params.item.Attachments?.length ?? 0;
+    if (rawCount > 0) {
+      console.warn(
+        "[brevo-inbound] attachments present in payload but none had Name + DownloadToken",
+        { noteId: params.noteId, rawCount },
+      );
+    }
+    return { cidToUrl: {}, storedCount: 0 };
+  }
 
   const cidToUrl: Record<string, string> = {};
+  let storedCount = 0;
 
   for (const att of attachments) {
-    if (!att.DownloadToken || !att.Name) continue;
-
     try {
-      const { buffer, contentType } = await downloadBrevoInboundAttachment(att.DownloadToken);
+      const { buffer, contentType } = await downloadBrevoInboundAttachment(att.DownloadToken!);
+      const mimeType = att.ContentType || contentType || "application/octet-stream";
       const stored = await uploadNoteAttachment({
         workspaceId: params.workspaceId,
         noteId: params.noteId,
         fileName: att.Name,
-        mimeType: att.ContentType || contentType || "application/octet-stream",
+        mimeType,
         buffer,
         source: "email",
         createdBy: params.createdBy,
         contentId: att.ContentID ?? null,
       });
+      storedCount += 1;
+
+      if (isPdfMimeType(mimeType, att.Name)) {
+        try {
+          const extractedText = await extractPdfText(buffer);
+          if (extractedText) {
+            await saveAttachmentExtractedText(stored.id, extractedText);
+          }
+        } catch (err) {
+          console.error("[brevo-inbound] PDF text extraction failed", att.Name, err);
+        }
+      }
 
       const fileUrl = buildNoteAttachmentFileUrl(params.noteId, stored.id);
 
@@ -102,7 +129,15 @@ async function processAttachments(params: {
     }
   }
 
-  return cidToUrl;
+  if (storedCount > 0) {
+    try {
+      await refreshNoteSearchDocument(params.noteId);
+    } catch (err) {
+      console.error("[brevo-inbound] search document refresh failed", params.noteId, err);
+    }
+  }
+
+  return { cidToUrl, storedCount };
 }
 
 export async function processInboundEmail(
@@ -241,12 +276,20 @@ export async function processInboundEmail(
 
   let cidToUrl: Record<string, string> = {};
   try {
-    cidToUrl = await processAttachments({
+    const attachmentResult = await processAttachments({
       item,
       noteId,
       workspaceId: inboxRow.workspace_id,
       createdBy: inboxRow.created_by,
     });
+    cidToUrl = attachmentResult.cidToUrl;
+    if (attachmentResult.storedCount === 0 && (item.Attachments?.length ?? 0) > 0) {
+      console.error("[brevo-inbound] email had attachments but none were stored", {
+        noteId,
+        messageId,
+        attachmentNames: (item.Attachments ?? []).map((att: BrevoInboundAttachment) => att.Name),
+      });
+    }
   } catch (err) {
     console.error("[brevo-inbound] attachment batch failed", err);
   }
@@ -296,16 +339,18 @@ export async function processInboundEmail(
     }
   }
 
-  fanoutNoteAddedNotifications({
-    workspaceId: inboxRow.workspace_id,
-    noteId,
-    noteTitle: title,
-    actorUserId: inboxRow.created_by,
-    source: "email",
-    supabase: supabase as any,
-  }).catch((err) => {
+  try {
+    await fanoutNoteAddedNotifications({
+      workspaceId: inboxRow.workspace_id,
+      noteId,
+      noteTitle: title,
+      actorUserId: inboxRow.created_by,
+      source: "email",
+      supabase: supabase as any,
+    });
+  } catch (err) {
     console.error("[brevo-inbound] note-added notification fanout failed", err);
-  });
+  }
 
   return {
     ok: true,

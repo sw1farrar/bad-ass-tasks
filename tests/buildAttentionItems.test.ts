@@ -54,7 +54,73 @@ describe("buildAttentionItems", () => {
     );
 
     expect(items.some((i) => i.kind === "task")).toBe(false);
-    expect(items.some((i) => i.kind === "invite")).toBe(true);
+    expect(items.some((i) => i.kind === "invite")).toBe(false);
     expect(items.some((i) => i.kind === "notification")).toBe(true);
+  });
+
+  it("hides deadline notifications when the task is already in focus", () => {
+    const items = buildAttentionItems(
+      [
+        {
+          task: task("task-1", new Date().toISOString()),
+          workspaceId: "ws1",
+          workspaceName: "Main",
+        },
+      ],
+      [
+        {
+          id: "n1",
+          workspaceId: "ws1",
+          userId: "u1",
+          type: "deadline",
+          title: "Task due today",
+          message: "Finish the report",
+          createdAt: new Date().toISOString(),
+          metadata: { task_id: "task-1", reminder_key: "deadline:task-1:2026-06-10" },
+        } as Notification,
+      ],
+    );
+
+    expect(items).toHaveLength(0);
+  });
+
+  it("shows duplicate unread notifications once in needs attention", () => {
+    const items = buildAttentionItems(
+      [],
+      [
+        {
+          id: "n1",
+          workspaceId: "ws1",
+          userId: "u1",
+          type: "deadline",
+          title: "Task due today",
+          message: "Finish the report",
+          createdAt: "2026-06-10T08:00:00.000Z",
+          metadata: { reminder_key: "deadline:task-1:2026-06-10", task_id: "task-1" },
+        } as Notification,
+        {
+          id: "n2",
+          workspaceId: "ws1",
+          userId: "u1",
+          type: "deadline",
+          title: "Task due today",
+          message: "Finish the report",
+          createdAt: "2026-06-10T09:00:00.000Z",
+          metadata: { reminder_key: "deadline:task-1:2026-06-10", task_id: "task-1" },
+        } as Notification,
+        {
+          id: "n3",
+          workspaceId: "ws1",
+          userId: "u1",
+          type: "deadline",
+          title: "Task due today",
+          message: "Finish the report",
+          createdAt: "2026-06-10T07:00:00.000Z",
+          metadata: { reminder_key: "deadline:task-1:2026-06-10", task_id: "task-1" },
+        } as Notification,
+      ],
+    );
+
+    expect(items.filter((i) => i.kind === "notification")).toHaveLength(1);
   });
 });

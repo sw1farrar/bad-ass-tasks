@@ -1,5 +1,9 @@
 import type { NotificationType } from "@/types";
 import { logError } from "@/lib/logger";
+import {
+  fetchNotificationsByMetadataMatch,
+  idempotencyMetadataMatch,
+} from "@/lib/notifications/notificationIdempotency";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -61,6 +65,20 @@ async function fetchRecipientProfile(
   return (result.data as RecipientProfile | null) ?? null;
 }
 
+async function inAppNotificationExists(
+  supabase: any,
+  userId: string,
+  type: NotificationType,
+  match: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const existing = await fetchNotificationsByMetadataMatch(supabase, userId, type, match);
+    return existing.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function insertInAppNotification(
   supabase: any,
   payload: {
@@ -73,6 +91,17 @@ async function insertInAppNotification(
     metadata: Record<string, unknown>;
   },
 ): Promise<void> {
+  const idempotency = idempotencyMetadataMatch(payload.type, payload.metadata);
+  if (idempotency) {
+    const exists = await inAppNotificationExists(
+      supabase,
+      payload.userId,
+      payload.type,
+      idempotency,
+    );
+    if (exists) return;
+  }
+
   const { error } = await (supabase.from("notifications") as any).insert({
     workspace_id: payload.workspaceId,
     user_id: payload.userId,
@@ -84,6 +113,8 @@ async function insertInAppNotification(
   });
 
   if (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "23505") return;
     logError("deliverNotification:inApp", error);
   }
 }

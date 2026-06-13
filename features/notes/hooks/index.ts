@@ -7,7 +7,7 @@
  * Ready for future useNote* once editor lands and later extractions.
  */
 
-export { useNoteOperations } from "./useNoteOperations";
+export { useNoteOperations, type CreateTaskAndLinkOptions } from "./useNoteOperations";
 export { useNoteHistory } from "./useNoteHistory";
 export { useBacklinks } from "./useBacklinks";
 export { useNoteKeyboard } from "./useNoteKeyboard";

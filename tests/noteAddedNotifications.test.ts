@@ -234,6 +234,94 @@ describe("fanoutNoteAddedNotifications", () => {
     expect(notificationInserts).toHaveLength(1);
   });
 
+  it("uses inbound_file type and copy for email-sourced notes", async () => {
+    const members = [
+      {
+        user_id: "creator-1",
+        profiles: {
+          full_name: "Alex",
+          email: "alex@example.com",
+          notification_prefs: DEFAULT_NOTIFICATION_PREFS,
+        },
+      },
+      {
+        user_id: "peer-email",
+        profiles: {
+          full_name: "Jordan",
+          email: "jordan@example.com",
+          notification_prefs: DEFAULT_NOTIFICATION_PREFS,
+        },
+      },
+    ];
+    const { client, notificationInserts } = createMockSupabase(members);
+
+    await fanoutNoteAddedNotifications({
+      workspaceId: "ws-real",
+      noteId: "note-inbound",
+      noteTitle: "Invoice Q2",
+      actorUserId: "creator-1",
+      source: "email",
+      supabase: client as never,
+    });
+
+    expect(notificationInserts).toHaveLength(2);
+    expect(notificationInserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          user_id: "creator-1",
+          type: "inbound_file",
+          metadata: expect.objectContaining({ note_id: "note-inbound", source: "email" }),
+        }),
+        expect.objectContaining({
+          user_id: "peer-email",
+          type: "inbound_file",
+        }),
+      ]),
+    );
+    expect(sendNotificationEmail).toHaveBeenCalledWith(
+      "alex@example.com",
+      "inbound_file",
+      expect.objectContaining({ title: "New file from email" }),
+    );
+    expect(sendNotificationEmail).toHaveBeenCalledWith(
+      "jordan@example.com",
+      "inbound_file",
+      expect.objectContaining({ title: "New file from email" }),
+    );
+  });
+
+  it("skips delivery when inbound_file type disabled for email source", async () => {
+    const members = [
+      {
+        user_id: "peer-2",
+        profiles: {
+          full_name: "Casey",
+          email: "casey@example.com",
+          notification_prefs: {
+            email: true,
+            inApp: true,
+            types: {
+              ...DEFAULT_NOTIFICATION_PREFS.types,
+              inbound_file: { inApp: false, email: false },
+            },
+          },
+        },
+      },
+    ];
+    const { client, notificationInserts } = createMockSupabase(members);
+
+    await fanoutNoteAddedNotifications({
+      workspaceId: "ws-real",
+      noteId: "note-xyz",
+      noteTitle: "Quiet inbound",
+      source: "email",
+      supabase: client as never,
+    });
+
+    expect(notificationInserts).toHaveLength(0);
+    expect(sendNotificationEmail).not.toHaveBeenCalled();
+  });
+
   it("skips in-app delivery when activity type disabled", async () => {
     const members = [
       {

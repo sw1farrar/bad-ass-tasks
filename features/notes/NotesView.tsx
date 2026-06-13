@@ -10,6 +10,8 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { Star, ChevronRight, ChevronDown, Paperclip, Loader2, Trash2 } from "lucide-react";
 import { Note, Task } from "@/types";
 import { TipTapEditor } from "./editor";
+import { FileBookmarkButton } from "@/features/files/components/FileBookmarkButton";
+import { NoteMobileImageGallery } from "@/features/files/components/NoteMobileImageGallery";
 import {
   NotesSidebarHeader,
   LinkedTasksPanel,
@@ -26,6 +28,7 @@ import {
   getBacklinkCount,
   getBacklinkNotes,
   useNoteAttachmentCounts,
+  type CreateTaskAndLinkOptions,
 } from "./hooks";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +44,7 @@ import {
 } from "./lib/noteLinkedTaskStats";
 import { buildNoteSubtreeCounts } from "./lib/noteSubtreeCount";
 import { resolveNoteEditorContent } from "@/lib/notes/resolveNoteEditorContent";
+import { useTaskStore } from "@/store/useTaskStore";
 import "./notes-workspace.css";
 
 interface NotesViewProps {
@@ -55,7 +59,11 @@ interface NotesViewProps {
   onUnlinkTaskFromNote: (noteId: string, taskId: string) => Promise<void>;
   onOpenTask?: (taskId: string) => void; // For TaskEmbed clicks
   onCreateTaskAndEmbed?: (suggestedTitle?: string) => Promise<string | null>; // For /task in editor
-  onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>; // Linked Tasks panel
+  onCreateTaskAndLink?: (
+    noteId: string,
+    title: string,
+    options?: CreateTaskAndLinkOptions,
+  ) => Promise<string | null>; // Linked Tasks panel
   onToggleTaskStatus?: (taskId: string) => Promise<void>; // Inline status change from embeds
   onToggleTaskComplete?: (taskId: string) => Promise<void>; // Linked tasks list checkbox
   onUpdateTask?: (taskId: string, updates: Partial<any>) => Promise<void>; // Inline edits from TaskEmbeds
@@ -132,6 +140,23 @@ export function NotesView({
   attachmentCountsLoading: attachmentCountsLoadingProp,
   onAttachmentCountChange,
 }: NotesViewProps) {
+  const broadcastLiveNoteContent = useTaskStore((s) => s.broadcastLiveNoteContent);
+  const updateCursorPosition = useTaskStore((s) => s.updateCursorPosition);
+  const clearCursorPosition = useTaskStore((s) => s.clearCursorPosition);
+  const remoteCursors = useTaskStore((s) => s.remoteCursors);
+  const liveEditing = useTaskStore((s) => s.liveEditing);
+  const activeConflicts = useTaskStore((s) => s.activeConflicts);
+  const resolveConflict = useTaskStore((s) => s.resolveConflict);
+  const user = useTaskStore((s) => s.user);
+
+  const noteRemoteCursors = useMemo(
+    () =>
+      remoteCursors.filter(
+        (c) => c.itemType === "note" && c.itemId === selectedNoteId,
+      ),
+    [remoteCursors, selectedNoteId],
+  );
+
   const detailOnly = shellMode === "detail-only";
   const isPreview = previewMode && detailOnly;
   const [isCreating, setIsCreating] = useState(false);
@@ -179,10 +204,15 @@ export function NotesView({
   const setNoteCount = onAttachmentCountChange ?? internalAttachmentCounts.setNoteCount;
   const refreshAttachmentCounts = internalAttachmentCounts.refresh;
 
+  const notesAttachmentRefreshKey = useMemo(
+    () => notes.map((n) => `${n.id}:${n.updatedAt ?? ""}`).join("|"),
+    [notes],
+  );
+
   useEffect(() => {
     if (attachmentCountsProp) return;
     if (isLive) refreshAttachmentCounts();
-  }, [isLive, notes.length, refreshAttachmentCounts, attachmentCountsProp]);
+  }, [isLive, notesAttachmentRefreshKey, refreshAttachmentCounts, attachmentCountsProp]);
 
   const displayNotes = useMemo(() => {
     if (!showOpenTasksOnly) return filteredNotes;
@@ -373,13 +403,20 @@ export function NotesView({
   // Auto-scroll the note detail area (TipTap editor + Linked Tasks/Notes panels) all the way
   // to the top whenever the user selects a different note. This is the expected "I just opened
   // this note, start reading from the top" behavior in world-class apps.
+  useEffect(() => {
+    if (!selectedNoteId || isPreview) return;
+    return () => {
+      clearCursorPosition();
+    };
+  }, [selectedNoteId, isPreview, clearCursorPosition]);
+
   React.useEffect(() => {
     if (!selectedNoteId) return;
     const root = detailScrollRef.current;
     if (root) {
       const scrollTarget =
         root.querySelector<HTMLElement>(".notes-files-preview-body") ?? root;
-      scrollTarget.scrollTo({ top: 0, behavior: "auto" });
+      scrollTarget.scrollTo({ top: 0, left: 0, behavior: "auto" });
     }
     const drawerBody = document.querySelector(".notes-drawer-body");
     drawerBody?.scrollTo({ top: 0, behavior: "auto" });
@@ -596,6 +633,9 @@ export function NotesView({
   }
 
   const selectedNote = notes.find((n) => n.id === selectedNoteId);
+  const showMobileFilePreviewActions = Boolean(
+    isPreview && isMobile && detailOnly && selectedNote,
+  );
 
   const handleCreateNote = async () => {
     setIsCreating(true);
@@ -840,25 +880,36 @@ export function NotesView({
         ? { ...selectedNote, title: mobileDraft.title, content: mobileDraft.content }
         : selectedNote;
 
-    const filesDesktopPreview = isPreview && !compact;
+    const filesMobilePreview = isPreview && isMobile && !compact;
+    const filesDesktopPreview = isPreview && !compact && !isMobile;
     const editorContent = resolveNoteEditorContent(draftNote);
     const previewHeader = filesDesktopPreview ? (
       <>
         <div className="notes-preview-header-row">
           <h1 className="notes-preview-title">{draftNote.title || "Untitled"}</h1>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleDeleteNote(selectedNote.id);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            className="notes-preview-delete-btn"
-            aria-label="Delete this file"
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-            Delete
-          </button>
+          <div className="notes-preview-header-actions">
+            <FileBookmarkButton
+              bookmarked={!!selectedNote.bookmarked}
+              size="sm"
+              className="notes-preview-bookmark-btn"
+              onToggle={() => {
+                void onUpdateNote(selectedNote.id, { bookmarked: !selectedNote.bookmarked });
+              }}
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleDeleteNote(selectedNote.id);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className="notes-preview-delete-btn"
+              aria-label="Delete this file"
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              Delete
+            </button>
+          </div>
         </div>
         {(draftNote.memo ||
           (draftNote.tags ?? []).filter((t) => t !== "from-email").length > 0 ||
@@ -884,6 +935,29 @@ export function NotesView({
           </div>
         )}
       </>
+    ) : filesMobilePreview &&
+      (draftNote.memo ||
+        (draftNote.tags ?? []).filter((t) => t !== "from-email").length > 0 ||
+        draftNote.recordType) ? (
+      <div className="notes-preview-meta notes-preview-meta--mobile">
+        {draftNote.recordType && (
+          <span className="notes-preview-meta__chip notes-preview-meta__chip--record-type">
+            {draftNote.recordType}
+          </span>
+        )}
+        {(draftNote.tags ?? [])
+          .filter((t) => t !== "from-email")
+          .map((tag) => (
+            <span key={tag} className="notes-preview-meta__chip">
+              {tag}
+            </span>
+          ))}
+        {draftNote.memo && (
+          <span className="notes-preview-meta__chip normal-case tracking-normal">
+            {draftNote.memo}
+          </span>
+        )}
+      </div>
     ) : undefined;
 
     const openPreviewEditor =
@@ -898,22 +972,41 @@ export function NotesView({
           "notes-editor-scroll",
           compact
             ? "notes-editor-scroll--drawer notes-drawer-content"
-            : filesDesktopPreview
+            : filesDesktopPreview || filesMobilePreview
               ? "flex flex-1 flex-col min-h-0 overflow-hidden"
               : "flex-1 overflow-y-auto min-h-0",
-          filesDesktopPreview && "notes-editor-scroll--files-preview notes-files-preview-editable",
+          (filesDesktopPreview || filesMobilePreview) &&
+            "notes-editor-scroll--files-preview",
+          filesDesktopPreview && "notes-files-preview-editable",
         )}
-        onDoubleClick={openPreviewEditor}
+        onDoubleClick={filesDesktopPreview ? openPreviewEditor : undefined}
         title={openPreviewEditor ? "Double-click to edit this file" : undefined}
       >
         <div
           className={cn(
             "note-content-card w-full flex flex-col",
-            compact ? "rounded-none border-0 mb-0 overflow-x-hidden" : filesDesktopPreview ? "flex-1 min-h-0 rounded-xl border mb-0" : "rounded-xl border mb-4 overflow-x-hidden",
-            filesDesktopPreview && "note-content-card--files-preview files-preview-hero",
+            compact
+              ? "rounded-none border-0 mb-0 overflow-x-hidden"
+              : filesDesktopPreview || filesMobilePreview
+                ? cn(
+                    "flex-1 min-h-0 mb-0",
+                    filesDesktopPreview
+                      ? "rounded-xl border overflow-x-hidden"
+                      : "rounded-none border-0",
+                  )
+                : "rounded-xl border mb-4 overflow-x-hidden",
+            (filesDesktopPreview || filesMobilePreview) &&
+              "note-content-card--files-preview files-preview-hero",
           )}
         >
-          {!filesDesktopPreview && (
+          {filesMobilePreview && (
+            <NoteMobileImageGallery
+              noteId={selectedNote.id}
+              countHint={attachmentCounts[selectedNote.id]}
+              countsReady={!attachmentCountsLoading}
+            />
+          )}
+          {!filesDesktopPreview && !filesMobilePreview && (
             <NoteHeader
               selectedNote={draftNote}
               onTitleChange={(value) => {
@@ -932,11 +1025,43 @@ export function NotesView({
               drawer={compact}
             />
           )}
+          {!isPreview && liveEditing?.[selectedNote.id] && liveEditing[selectedNote.id].userId !== (user?.id || "me") && (
+            <div className="text-[10px] text-emerald-400/80 flex items-center gap-1.5 px-1">
+              <span className="inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+              {liveEditing[selectedNote.id].email?.split("@")[0] || "Someone"} is editing…
+            </div>
+          )}
+          {!isPreview && activeConflicts?.[selectedNote.id] && (
+            <div className="glass px-3 py-2 rounded-xl border border-amber-500/40 text-amber-400 text-xs flex flex-wrap items-center gap-2 mx-1">
+              <span>Edited by {activeConflicts[selectedNote.id].remoteUser || "teammate"}</span>
+              <button type="button" onClick={() => resolveConflict(selectedNote.id, false)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Theirs</button>
+              <button type="button" onClick={() => resolveConflict(selectedNote.id, true)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Mine</button>
+            </div>
+          )}
           <TipTapEditor
             key={selectedNote.id}
             noteId={selectedNote.id}
             className="!rounded-none !border-0 bg-transparent"
             content={editorContent}
+            remoteCursors={isPreview ? [] : noteRemoteCursors}
+            onCursorUpdate={
+              isPreview
+                ? undefined
+                : (from, to) => {
+                    if (selectedNoteId) {
+                      updateCursorPosition("note", selectedNoteId, from, to);
+                    }
+                  }
+            }
+            onLiveContent={
+              isPreview
+                ? undefined
+                : (content) => {
+                    if (selectedNoteId) {
+                      broadcastLiveNoteContent(selectedNoteId, content);
+                    }
+                  }
+            }
             onChange={
               isPreview
                 ? undefined
@@ -953,7 +1078,8 @@ export function NotesView({
             }
             readOnly={isPreview && !compact}
             previewHeader={previewHeader}
-            stickyPreviewChrome={filesDesktopPreview}
+            stickyPreviewChrome={filesDesktopPreview || filesMobilePreview}
+            hideReadonlyPreviewToolbar={filesMobilePreview}
             tasks={isPreview ? [] : tasks}
             onOpenTask={isPreview ? undefined : onOpenTask}
             onCreateTaskAndEmbed={isPreview ? undefined : onCreateTaskAndEmbed}
@@ -1014,11 +1140,12 @@ export function NotesView({
                   countsReady={!attachmentCountsLoading}
                   onCountChange={setNoteCount}
                   readOnly={isPreview}
+                  hideImageAttachments={filesMobilePreview}
                 />
               ) : undefined
             }
             belowScrollContent={
-              filesDesktopPreview ? (
+              filesDesktopPreview || filesMobilePreview ? (
                 <LinkedTasksPanel
                   selectedNote={selectedNote}
                   tasks={tasks}
@@ -1045,25 +1172,6 @@ export function NotesView({
             compact={compact}
           />
         ) : null}
-
-        {isPreview && !compact && !filesDesktopPreview && (
-          <div className="notes-preview-hint flex flex-col items-center gap-2">
-            <p>
-              {isMobile
-                ? "Tap Edit to change this file"
-                : "Double-click the preview or a file in the list to edit"}
-            </p>
-            {isMobile && onRequestEdit && selectedNote && (
-              <button
-                type="button"
-                onClick={() => onRequestEdit(selectedNote.id)}
-                className="btn btn-primary px-4 py-2 text-sm"
-              >
-                Edit file
-              </button>
-            )}
-          </div>
-        )}
 
         {compact && (
           <div className="notes-drawer-delete px-0 pt-2 pb-4">
@@ -1193,7 +1301,27 @@ export function NotesView({
         detailOnly ? "flex" : "hidden md:flex",
       )}>
         {selectedNote ? (
-          <div className="flex-1 flex flex-col min-h-0">{renderNoteDetail()}</div>
+          <>
+            <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+              {renderNoteDetail()}
+            </div>
+            {showMobileFilePreviewActions && selectedNote && (
+              <div
+                className="files-mobile-preview-actions"
+                role="toolbar"
+                aria-label="Delete file"
+              >
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteNote(selectedNote.id)}
+                  className="task-modal-delete-btn w-full min-h-[50px] rounded-xl text-sm font-semibold tracking-tight border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
+                  aria-label="Delete this file"
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-center p-12">
             <div>

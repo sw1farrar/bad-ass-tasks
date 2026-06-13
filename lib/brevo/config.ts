@@ -5,12 +5,21 @@ const PLACEHOLDER_KEYS = new Set([
   "xkeysib-your-api-key-here",
 ]);
 
+function isValidBrevoApiKey(apiKey: string | undefined): apiKey is string {
+  if (!apiKey) return false;
+  if (PLACEHOLDER_KEYS.has(apiKey)) return false;
+  return apiKey.startsWith("xkeysib-");
+}
+
+/** Inbound attachment/EML downloads only need a valid API key. */
+export function isBrevoInboundApiConfigured(): boolean {
+  return isValidBrevoApiKey(process.env.BREVO_API_KEY?.trim());
+}
+
 export function isBrevoConfigured(): boolean {
   const apiKey = process.env.BREVO_API_KEY?.trim();
   const senderEmail = process.env.BREVO_SENDER_EMAIL?.trim();
-  if (!apiKey || !senderEmail || !senderEmail.includes("@")) return false;
-  if (PLACEHOLDER_KEYS.has(apiKey)) return false;
-  if (!apiKey.startsWith("xkeysib-")) return false;
+  if (!isValidBrevoApiKey(apiKey) || !senderEmail || !senderEmail.includes("@")) return false;
   if (process.env.NODE_ENV === "production" && !process.env.APP_BASE_URL?.trim()) {
     return false;
   }

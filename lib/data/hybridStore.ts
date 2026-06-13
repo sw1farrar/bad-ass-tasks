@@ -15,7 +15,7 @@
 import { apiFetch } from "@/lib/api/apiFetch";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
-import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem } from "@/types";
+import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem, TaskFolder } from "@/types";
 import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
 import {
   NOTE_LIST_SELECT,
@@ -27,6 +27,7 @@ import { FILE_REVIEW_FILED, FILE_REVIEW_PENDING, inferRecordTypeFromTags } from 
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
+import { TASK_ASSIGNEE_ALL_LABEL } from "@/lib/assignee";
 import { isDueDatePast } from "@/lib/datetime";
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -35,7 +36,16 @@ import {
 import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
 import { fanoutCommentNotifications } from "@/lib/notifications/fanoutCommentNotifications";
 import { fanoutTaskAssignedNotifications } from "@/lib/notifications/fanoutTaskAssigned";
+import { cleanupDuplicateNotifications } from "@/lib/notifications/cleanupDuplicateNotifications";
+import { notificationDedupeKey } from "@/lib/notifications/dedupeNotifications";
 import { processDeadlineReminders } from "@/lib/notifications/processDeadlineReminders";
+import {
+  expandToSiblingIds,
+  fetchNotificationsByMetadataMatch,
+  idempotencyMetadataMatch,
+  siblingQueryForNotification,
+} from "@/lib/notifications/notificationIdempotency";
+import { countBellBadgeUnread } from "@/lib/notifications/notificationSelectors";
 import {
   isMissingNotificationPrefsColumn,
   warnMissingNotificationPrefsColumnOnce,
@@ -115,6 +125,8 @@ export function __resetWorkspaceListTableProbeForTests(): void {
   listsMigrationWarned = false;
   listItemNestingAvailable = null;
   listNestingMigrationWarned = false;
+  taskOrganizeColumnsAvailable = null;
+  taskOrganizeMigrationWarned = false;
 }
 
 /** null = not probed yet; false = parent_item_id column missing; true = nesting column exists */
@@ -214,6 +226,234 @@ async function probeListItemNesting(force = false): Promise<void> {
   }
 }
 
+/** null = not probed yet; false = starred/folder_id columns missing; true = columns exist */
+let taskOrganizeColumnsAvailable: boolean | null = null;
+let taskOrganizeMigrationWarned = false;
+
+/** PostgREST: column not in schema cache (task organize migration not applied yet). */
+function isTaskOrganizeColumnMissing(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return (
+    e?.code === "PGRST204" &&
+    typeof e?.message === "string" &&
+    (e.message.includes("starred") || e.message.includes("folder_id"))
+  );
+}
+
+/** Postgres FK: tasks.folder_id references missing task_folders row. */
+function isTaskFolderFkViolation(error: unknown): boolean {
+  const e = error as { code?: string; details?: string; message?: string };
+  return (
+    e?.code === "23503" &&
+    (e.details?.includes("task_folders") ||
+      (typeof e?.message === "string" && e.message.includes("tasks_folder_id_fkey")))
+  );
+}
+
+/** RLS blocked insert/update (task_folders policies not applied yet). */
+function isRlsPolicyDenied(error: unknown): boolean {
+  return (error as { code?: string })?.code === "42501";
+}
+
+function markTaskOrganizeColumnsMissing(): void {
+  if (taskOrganizeColumnsAvailable === false) return;
+  taskOrganizeColumnsAvailable = false;
+  if (!taskOrganizeMigrationWarned) {
+    taskOrganizeMigrationWarned = true;
+    console.warn(
+      "[Badazz Tasks] Task stars and folders are not synced to Supabase yet. Run supabase/add-task-starred-folders.sql in the SQL Editor, then refresh.",
+    );
+  }
+  sanitizePendingQueueTaskOrganize();
+}
+
+function markTaskOrganizeColumnsAvailable(): void {
+  taskOrganizeColumnsAvailable = true;
+}
+
+function stripTaskOrganizeFields<T extends Record<string, unknown>>(payload: T): T {
+  if (taskOrganizeColumnsAvailable !== false) return payload;
+  if (!("starred" in payload) && !("folder_id" in payload)) return payload;
+  const next = { ...payload };
+  delete next.starred;
+  delete next.folder_id;
+  delete next[TASK_FOLDER_SNAPSHOT_KEY];
+  return next;
+}
+
+/** Embedded in offline queue payloads only — never sent to tasks table. */
+const TASK_FOLDER_SNAPSHOT_KEY = "_task_folder_snapshot";
+const ZUSTAND_PERSIST_KEY = "badazz-tasks-storage";
+
+type TaskFolderSnapshotRow = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+function stripTaskFolderSnapshot<T extends Record<string, unknown>>(payload: T): T {
+  if (!(TASK_FOLDER_SNAPSHOT_KEY in payload)) return payload;
+  const next = { ...payload };
+  delete next[TASK_FOLDER_SNAPSHOT_KEY];
+  return next;
+}
+
+function attachTaskFolderSnapshot(
+  payload: Record<string, unknown>,
+  snapshot?: TaskFolder,
+): Record<string, unknown> {
+  if (!snapshot || !payload.folder_id) return payload;
+  return {
+    ...payload,
+    [TASK_FOLDER_SNAPSHOT_KEY]: {
+      id: snapshot.id,
+      workspace_id: snapshot.workspaceId,
+      name: snapshot.name,
+      sort_order: snapshot.sortOrder,
+      created_at: snapshot.createdAt,
+      updated_at: snapshot.updatedAt,
+    } satisfies TaskFolderSnapshotRow,
+  };
+}
+
+function parseTaskFolderSnapshot(raw: unknown): TaskFolder | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as TaskFolderSnapshotRow;
+  if (!row.id || !row.workspace_id || !row.name) return null;
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    sortOrder: row.sort_order ?? 0,
+    createdAt: row.created_at ?? new Date().toISOString(),
+    updatedAt: row.updated_at ?? new Date().toISOString(),
+  };
+}
+
+function readPersistedTaskFolder(folderId: string, workspaceId: string): TaskFolder | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(ZUSTAND_PERSIST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { taskFolders?: TaskFolder[] } };
+    return (
+      parsed.state?.taskFolders?.find((f) => f.id === folderId && f.workspaceId === workspaceId) ??
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function resolveTaskFolderForSync(
+  folderId: string,
+  workspaceId: string,
+  payload: Record<string, unknown>,
+): TaskFolder {
+  return (
+    parseTaskFolderSnapshot(payload[TASK_FOLDER_SNAPSHOT_KEY]) ??
+    readPersistedTaskFolder(folderId, workspaceId) ?? {
+      id: folderId,
+      workspaceId,
+      name: "Folder",
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  );
+}
+
+/** Ensure task_folders row exists before writing tasks.folder_id (queue + live paths). */
+async function ensureTaskFolderForPayload(
+  payload: Record<string, unknown>,
+  workspaceId: string,
+): Promise<Record<string, unknown>> {
+  const folderId = payload.folder_id as string | null | undefined;
+  if (!folderId || !isLiveDataWorkspace(workspaceId)) return payload;
+  if (!(await ensureTaskFolderPersistenceReady())) return payload;
+
+  const supabase = getClient();
+  if (!supabase) return payload;
+
+  const { data: existing } = await (supabase.from("task_folders") as any)
+    .select("id")
+    .eq("id", folderId)
+    .maybeSingle();
+  if (existing) return payload;
+
+  const folder = resolveTaskFolderForSync(folderId, workspaceId, payload);
+  const ok = await upsertTaskFolder(folder);
+  if (!ok) {
+    const next = { ...payload };
+    delete next.folder_id;
+    delete next[TASK_FOLDER_SNAPSHOT_KEY];
+    return next;
+  }
+  return payload;
+}
+
+function sanitizePendingQueueTaskOrganize(): void {
+  const queue = loadPendingQueue();
+  let changed = false;
+  const next: PendingOperation[] = [];
+
+  for (const op of queue) {
+    if (op.entityType !== "task" || (op.type !== "create" && op.type !== "update")) {
+      next.push(op);
+      continue;
+    }
+
+    const raw = stripTaskOrganizeFields({ ...(op.payload as Record<string, unknown>) });
+    if (op.type === "update" && Object.keys(raw).length === 0) {
+      changed = true;
+      continue;
+    }
+    if (JSON.stringify(raw) !== JSON.stringify(op.payload)) {
+      changed = true;
+      next.push({ ...op, payload: raw });
+      continue;
+    }
+    next.push(op);
+  }
+
+  if (changed) {
+    savePendingQueue(next);
+    inMemoryQueue = [...next];
+  }
+}
+
+function sanitizeTaskPendingOp(op: PendingOperation): PendingOperation {
+  if (op.entityType !== "task" || (op.type !== "create" && op.type !== "update")) return op;
+  return { ...op, payload: stripTaskOrganizeFields({ ...(op.payload as Record<string, unknown>) }) };
+}
+
+async function probeTaskOrganizeColumns(force = false): Promise<void> {
+  if (!force && taskOrganizeColumnsAvailable === true) return;
+  if (!isSupabaseLive()) {
+    taskOrganizeColumnsAvailable = false;
+    return;
+  }
+
+  const supabase = getClient();
+  if (!supabase) {
+    taskOrganizeColumnsAvailable = false;
+    return;
+  }
+
+  const { error } = await supabase.from("tasks").select("starred").limit(1);
+  if (error && isTaskOrganizeColumnMissing(error)) {
+    markTaskOrganizeColumnsMissing();
+  } else if (error) {
+    logHybridError("probeTaskOrganizeColumns", error);
+    taskOrganizeColumnsAvailable = true;
+  } else {
+    markTaskOrganizeColumnsAvailable();
+  }
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -276,11 +516,25 @@ export function remapLegacyListIdsInState(
     if (id !== l.id) changed = true;
     return id === l.id ? l : { ...l, id };
   });
+  const idMap = new Map<string, string>();
+  for (const row of items) {
+    const id = normalizeListEntityId(row.id);
+    if (id !== row.id) idMap.set(row.id, id);
+  }
+
   const nextItems = items.map((i) => {
     const id = normalizeListEntityId(i.id);
     const listId = normalizeListEntityId(i.listId);
-    if (id !== i.id || listId !== i.listId) changed = true;
-    return id === i.id && listId === i.listId ? i : { ...i, id, listId };
+    const parentItemId = i.parentItemId
+      ? idMap.get(i.parentItemId) ?? normalizeListEntityId(i.parentItemId)
+      : i.parentItemId;
+    if (id !== i.id || listId !== i.listId || parentItemId !== i.parentItemId) {
+      changed = true;
+    }
+    if (id === i.id && listId === i.listId && parentItemId === i.parentItemId) {
+      return i;
+    }
+    return { ...i, id, listId, parentItemId };
   });
   return { lists: nextLists, items: nextItems, changed };
 }
@@ -328,7 +582,10 @@ function mapTaskRow(row: TaskRow): Task {
     priority: row.priority,
     dueDate: row.due_date ?? undefined,
     assigneeIds: row.assignee_ids ?? [],
-    assignee: undefined,
+    assignee:
+      (row.assignee_ids ?? []).filter(Boolean).length === 0
+        ? TASK_ASSIGNEE_ALL_LABEL
+        : undefined,
     tags: row.tags ?? [],
     createdAt:
       row.created_at && String(row.created_at).trim()
@@ -345,6 +602,8 @@ function mapTaskRow(row: TaskRow): Task {
     exceptionDates: row.exception_dates ?? undefined,
     // AI decomposition support (Agent 15): surface parent for hierarchical tasks from extraction
     parentTaskId: row.parent_task_id ?? undefined,
+    starred: (row as { starred?: boolean }).starred ?? false,
+    folderId: (row as { folder_id?: string | null }).folder_id ?? undefined,
   };
 }
 
@@ -513,6 +772,7 @@ function mapNoteRow(row: NoteRow): Note {
     filedAt: (row as any).filed_at ?? null,
     reviewedBy: (row as any).reviewed_by ?? null,
     searchDocument: (row as any).search_document ?? null,
+    bookmarked: (row as any).bookmarked === true,
   };
 }
 
@@ -621,7 +881,7 @@ function mapActivityLogRow(row: ActivityLogRow): ActivityLog {
  */
 function buildTaskDbPayload(source: any): any {
   if (!source) return {};
-  return {
+  return stripTaskOrganizeFields({
     title: source.title,
     description: source.description ?? "",
     status: source.status ?? "todo",
@@ -637,7 +897,9 @@ function buildTaskDbPayload(source: any): any {
     recurring_rule: source.recurringRule ?? source.recurring_rule ?? null,
     exception_dates: source.exceptionDates ?? source.exception_dates ?? null,
     time_spent: source.timeSpent ?? source.time_spent ?? 0,
-  };
+    starred: source.starred ?? false,
+    folder_id: source.folderId ?? source.folder_id ?? null,
+  });
 }
 
 // ------------------------------------------------------------------
@@ -696,6 +958,9 @@ export function __resetRealtimeGuardForTests(): void {
   activeInviteChannel = null;
   activeMemberChannel = null;
   activeProfileChannel = null;
+  activeCommentChannel = null;
+  activeListChannel = null;
+  activeListItemChannel = null;
 }
 
 export function __getCurrentRealtimeWorkspaceIdForTests(): string | null {
@@ -785,6 +1050,12 @@ function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"
 
   if (fullOp.entityType === "list" || fullOp.entityType === "list_item") {
     fullOp = sanitizeListPendingOp(fullOp);
+  }
+  if (fullOp.entityType === "task" && (fullOp.type === "create" || fullOp.type === "update")) {
+    fullOp = sanitizeTaskPendingOp(fullOp);
+    if (fullOp.type === "update" && Object.keys(fullOp.payload as object).length === 0) {
+      return;
+    }
   }
 
   // Coalesce rapid offline updates for the same entity (keeps queue small, last write wins).
@@ -962,6 +1233,22 @@ async function processPendingOperationsInner(): Promise<{
     inMemoryQueue = [...queue];
   }
 
+  // Enrich legacy task ops that have folder_id but no embedded folder snapshot.
+  const enrichedQueue = queue.map((op) => {
+    if (op.entityType !== "task" || (op.type !== "create" && op.type !== "update")) return op;
+    const raw = { ...(op.payload as Record<string, unknown>) };
+    const folderId = raw.folder_id as string | undefined;
+    if (!folderId || raw[TASK_FOLDER_SNAPSHOT_KEY]) return op;
+    const folder = readPersistedTaskFolder(folderId, op.workspaceId);
+    if (!folder) return op;
+    return { ...op, payload: attachTaskFolderSnapshot(raw, folder) };
+  });
+  if (enrichedQueue.some((op, i) => op !== queue[i])) {
+    savePendingQueue(enrichedQueue);
+    inMemoryQueue = [...enrichedQueue];
+  }
+  queue = enrichedQueue;
+
   if (queue.length === 0) {
     return { synced: 0, skippedConflicts: 0, failed: 0 };
   }
@@ -971,6 +1258,10 @@ async function processPendingOperationsInner(): Promise<{
     if (workspaceListTablesAvailable !== false) {
       await probeListItemNesting();
     }
+  }
+  if (queue.some((op) => op.entityType === "task")) {
+    await probeTaskOrganizeColumns();
+    await ensureTaskFolderPersistenceReady();
   }
 
   let synced = 0;
@@ -991,11 +1282,14 @@ async function processPendingOperationsInner(): Promise<{
     try {
       if (op.entityType === "task") {
         if (op.type === "create") {
+          let rawPayload = { ...(op.payload as Record<string, unknown>) };
+          rawPayload = await ensureTaskFolderForPayload(rawPayload, op.workspaceId);
+          const createPayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(rawPayload));
           // Insert using our pre-generated client UUID as id (supported by schema Insert)
           const { error } = await (supabase.from("tasks") as any).insert({
             id: op.targetId,
             workspace_id: op.workspaceId,
-            ...op.payload,
+            ...createPayload,
           });
           if (error) {
             if (error.code === "23505") {
@@ -1008,6 +1302,13 @@ async function processPendingOperationsInner(): Promise<{
             synced++;
           }
         } else if (op.type === "update") {
+          let rawPayload = { ...(op.payload as Record<string, unknown>) };
+          rawPayload = await ensureTaskFolderForPayload(rawPayload, op.workspaceId);
+          const updatePayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(rawPayload));
+          if (Object.keys(updatePayload).length === 0) {
+            synced++;
+            continue;
+          }
           // Simple conflict check via updated_at
           const { data: current } = await supabase
             .from("tasks")
@@ -1022,7 +1323,7 @@ async function processPendingOperationsInner(): Promise<{
             skippedConflicts++; // server has newer write → LWW: drop our older offline change
           } else {
             const { error } = await (supabase.from("tasks") as any)
-              .update(op.payload)
+              .update(updatePayload)
               .eq("id", op.targetId);
             if (error) throw error;
             synced++;
@@ -1221,6 +1522,101 @@ async function processPendingOperationsInner(): Promise<{
         }
         continue;
       }
+      if (isTaskOrganizeColumnMissing(err) && op.entityType === "task") {
+        markTaskOrganizeColumnsMissing();
+        if (op.type === "create" || op.type === "update") {
+          const retryPayload = stripTaskFolderSnapshot(
+            stripTaskOrganizeFields({ ...(op.payload as Record<string, unknown>) }),
+          );
+          if (op.type === "update" && Object.keys(retryPayload).length === 0) {
+            synced++;
+            continue;
+          }
+          try {
+            if (op.type === "create") {
+              const { error: retryError } = await (supabase.from("tasks") as any).insert({
+                id: op.targetId,
+                workspace_id: op.workspaceId,
+                ...retryPayload,
+              });
+              if (retryError && retryError.code !== "23505") throw retryError;
+            } else {
+              const { error: retryError } = await (supabase.from("tasks") as any)
+                .update(retryPayload)
+                .eq("id", op.targetId);
+              if (retryError) throw retryError;
+            }
+            synced++;
+            continue;
+          } catch (retryErr) {
+            logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, retryErr);
+            failed++;
+            remaining.push({
+              ...op,
+              payload: retryPayload,
+            });
+            continue;
+          }
+        }
+        continue;
+      }
+      if (isTaskFolderFkViolation(err) && op.entityType === "task" && (op.type === "create" || op.type === "update")) {
+        try {
+          let rawPayload = { ...(op.payload as Record<string, unknown>) };
+          rawPayload = await ensureTaskFolderForPayload(rawPayload, op.workspaceId);
+          const retryPayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(rawPayload));
+          if (op.type === "update" && Object.keys(retryPayload).length === 0) {
+            synced++;
+            continue;
+          }
+          if (op.type === "create") {
+            const { error: retryError } = await (supabase.from("tasks") as any).insert({
+              id: op.targetId,
+              workspace_id: op.workspaceId,
+              ...retryPayload,
+            });
+            if (retryError && retryError.code !== "23505") throw retryError;
+          } else {
+            const { error: retryError } = await (supabase.from("tasks") as any)
+              .update(retryPayload)
+              .eq("id", op.targetId);
+            if (retryError) throw retryError;
+          }
+          synced++;
+          continue;
+        } catch (retryErr) {
+          const stripped = stripTaskFolderSnapshot(
+            stripTaskOrganizeFields({ ...(op.payload as Record<string, unknown>) }),
+          );
+          delete stripped.folder_id;
+          if (op.type === "update" && Object.keys(stripped).length === 0) {
+            synced++;
+            continue;
+          }
+          try {
+            if (op.type === "create") {
+              const { error: stripError } = await (supabase.from("tasks") as any).insert({
+                id: op.targetId,
+                workspace_id: op.workspaceId,
+                ...stripped,
+              });
+              if (stripError && stripError.code !== "23505") throw stripError;
+            } else {
+              const { error: stripError } = await (supabase.from("tasks") as any)
+                .update(stripped)
+                .eq("id", op.targetId);
+              if (stripError) throw stripError;
+            }
+            synced++;
+            continue;
+          } catch (stripErr) {
+            logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, stripErr);
+            failed++;
+            remaining.push(op);
+            continue;
+          }
+        }
+      }
       logHybridError(`processPending(${op.type}:${op.entityType}:${op.targetId})`, err);
       failed++;
       remaining.push(op); // keep for retry later
@@ -1297,6 +1693,8 @@ export async function getTasks(workspaceId: string): Promise<Task[]> {
   const supabase = getClient();
   if (!supabase) return [];
 
+  await probeTaskOrganizeColumns();
+
   try {
     const { data, error } = await supabase
       .from("tasks")
@@ -1369,6 +1767,7 @@ export async function createTask(input: {
     return tempTask;
   }
 
+  await probeTaskOrganizeColumns();
   const dbPayload = buildTaskDbPayload(input);
   const insertPayload: TaskInsert = {
     ...(input.id ? { id: input.id } : {}),
@@ -1377,10 +1776,25 @@ export async function createTask(input: {
   } as TaskInsert;
 
   try {
-    const { data, error } = await (supabase.from("tasks") as any)
+    let { data, error } = await (supabase.from("tasks") as any)
       .insert(insertPayload)
       .select()
       .single();
+
+    if (error && isTaskOrganizeColumnMissing(error)) {
+      markTaskOrganizeColumnsMissing();
+      const retryPayload: TaskInsert = {
+        ...(input.id ? { id: input.id } : {}),
+        workspace_id: input.workspaceId,
+        ...stripTaskOrganizeFields(buildTaskDbPayload(input)),
+      } as TaskInsert;
+      const retry = await (supabase.from("tasks") as any)
+        .insert(retryPayload)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       // On transient failure while "online" flag said yes → queue for later (improves resilience)
@@ -1506,8 +1920,21 @@ export async function updateTask(
   if (anyUpdates.timeSpent !== undefined || anyUpdates.time_spent !== undefined) {
     payload.time_spent = anyUpdates.timeSpent ?? anyUpdates.time_spent;
   }
+  if (Object.prototype.hasOwnProperty.call(anyUpdates, "starred")) {
+    (payload as { starred?: boolean }).starred = !!anyUpdates.starred;
+  }
+  if (Object.prototype.hasOwnProperty.call(anyUpdates, "folderId") || Object.prototype.hasOwnProperty.call(anyUpdates, "folder_id")) {
+    const folderId =
+      anyUpdates.folderId !== undefined ? anyUpdates.folderId : anyUpdates.folder_id;
+    (payload as { folder_id?: string | null }).folder_id = folderId ?? null;
+  }
 
   const online = isCurrentlyOnline();
+
+  const queuePayload = attachTaskFolderSnapshot(
+    { ...(payload as Record<string, unknown>) },
+    anyUpdates.taskFolderSnapshot as TaskFolder | undefined,
+  );
 
   if (!online) {
     // Queue immediately for later LWW sync
@@ -1515,24 +1942,68 @@ export async function updateTask(
       type: "update",
       entityType: "task",
       targetId: id,
-      payload,
+      payload: queuePayload,
       workspaceId: (updates as any).workspaceId || "", // best effort; store caller usually knows context
     });
     return true; // Optimistic success from data layer perspective
   }
 
+  await probeTaskOrganizeColumns();
+  let syncPayload = queuePayload;
+  if ((queuePayload as { folder_id?: string | null }).folder_id) {
+    syncPayload = await ensureTaskFolderForPayload(
+      queuePayload,
+      (updates as any).workspaceId || "",
+    );
+  }
+  const sendPayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(syncPayload));
+  if (Object.keys(sendPayload).length === 0) {
+    return true;
+  }
+
   try {
     const { error } = await (supabase.from("tasks") as any)
-      .update(payload)
+      .update(sendPayload)
       .eq("id", id);
 
     if (error) {
+      if (isTaskOrganizeColumnMissing(error)) {
+        markTaskOrganizeColumnsMissing();
+        const retryPayload = stripTaskFolderSnapshot(
+          stripTaskOrganizeFields({ ...(payload as Record<string, unknown>) }),
+        );
+        if (Object.keys(retryPayload).length === 0) {
+          return true;
+        }
+        const { error: retryError } = await (supabase.from("tasks") as any)
+          .update(retryPayload)
+          .eq("id", id);
+        if (!retryError) {
+          return true;
+        }
+      }
+      if (isTaskFolderFkViolation(error) && (sendPayload as { folder_id?: string | null }).folder_id) {
+        const ensured = await ensureTaskFolderForPayload(
+          queuePayload,
+          (updates as any).workspaceId || "",
+        );
+        const fkRetryPayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(ensured));
+        if (Object.keys(fkRetryPayload).length === 0) {
+          return true;
+        }
+        const { error: fkRetryError } = await (supabase.from("tasks") as any)
+          .update(fkRetryPayload)
+          .eq("id", id);
+        if (!fkRetryError) {
+          return true;
+        }
+      }
       // Transient error while thought-to-be-online → queue it
       enqueuePendingOperation({
         type: "update",
         entityType: "task",
         targetId: id,
-        payload,
+        payload: queuePayload,
         workspaceId: (updates as any).workspaceId || "",
       });
       logHybridError("updateTask", error);
@@ -1570,7 +2041,7 @@ export async function updateTask(
       type: "update",
       entityType: "task",
       targetId: id,
-      payload,
+      payload: queuePayload,
       workspaceId: (updates as any).workspaceId || "",
     });
     logHybridError("updateTask", err);
@@ -2132,6 +2603,9 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
   if ((updates as { isArchived?: boolean }).isArchived !== undefined) {
     (payload as any).is_archived = (updates as { isArchived?: boolean }).isArchived;
   }
+  if (updates.bookmarked !== undefined) {
+    (payload as any).bookmarked = updates.bookmarked;
+  }
   if (
     filesWorkflowAvailable &&
     (updates.title !== undefined ||
@@ -2594,8 +3068,132 @@ function mapNotificationRow(row: NotificationRow): Notification {
   };
 }
 
+async function fetchNotificationsByIds(notificationIds: string[]): Promise<Notification[]> {
+  if (notificationIds.length === 0) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .in("id", notificationIds);
+
+  if (error) {
+    logHybridError("fetchNotificationsByIds", error);
+    return [];
+  }
+
+  return (data ?? []).map(mapNotificationRow);
+}
+
+async function fetchAllUnreadNotifications(
+  userId: string,
+  workspaceId?: string,
+  maxRows = 1000,
+): Promise<Notification[]> {
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  const pageSize = 200;
+  const all: Notification[] = [];
+
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    let query = supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .is("read_at", null)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (workspaceId && !["w1", "w2"].includes(workspaceId)) {
+      query = query.eq("workspace_id", workspaceId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      logHybridError("fetchAllUnreadNotifications", error);
+      break;
+    }
+
+    const batch = (data ?? []).map(mapNotificationRow);
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+
+  return all;
+}
+
+async function fetchNotificationSiblingIds(
+  userId: string,
+  seed: Notification,
+): Promise<string[]> {
+  const supabase = getClient();
+  if (!supabase) return [seed.id];
+
+  const query = siblingQueryForNotification(seed);
+  if (!query) return [seed.id];
+
+  try {
+    if (query.kind === "metadata") {
+      const siblings = await fetchNotificationsByMetadataMatch(
+        supabase,
+        userId,
+        query.type,
+        query.match,
+      );
+      const key = notificationDedupeKey(seed);
+      return siblings.filter((row) => notificationDedupeKey(row) === key).map((row) => row.id);
+    }
+
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("type", query.type)
+      .eq("workspace_id", query.workspaceId)
+      .eq("title", query.title)
+      .eq("message", query.message);
+
+    if (error) {
+      logHybridError("fetchNotificationSiblingIds", error);
+      return [seed.id];
+    }
+
+    const key = notificationDedupeKey(seed);
+    return (data ?? [])
+      .map(mapNotificationRow)
+      .filter((row) => notificationDedupeKey(row) === key)
+      .map((row) => row.id);
+  } catch (err) {
+    logHybridError("fetchNotificationSiblingIds", err);
+    return [seed.id];
+  }
+}
+
+async function expandNotificationIdsToSiblings(notificationIds: string[]): Promise<string[]> {
+  const seeds = await fetchNotificationsByIds(notificationIds);
+  if (seeds.length === 0) return notificationIds;
+
+  const userId = seeds[0]?.userId;
+  if (!userId) return notificationIds;
+
+  const unreadCandidates = await fetchAllUnreadNotifications(userId);
+  const expandedUnread = expandToSiblingIds(seeds, unreadCandidates);
+  const allIds = new Set(expandedUnread);
+
+  for (const seed of seeds) {
+    const siblingIds = await fetchNotificationSiblingIds(userId, seed);
+    for (const id of siblingIds) allIds.add(id);
+  }
+
+  return [...allIds];
+}
+
 /** Fetch notifications for the current user in a workspace (or all if no ws). Supports unread filter. */
 export { processDeadlineReminders } from "@/lib/notifications/processDeadlineReminders";
+export { cleanupDuplicateNotifications } from "@/lib/notifications/cleanupDuplicateNotifications";
 
 export async function getUserNotifications(
   userId: string,
@@ -2653,6 +3251,32 @@ export async function createNotification(params: {
   const supabase = getClient();
   if (!supabase) return null;
 
+  const metadata = params.metadata ?? {};
+  const idempotency = idempotencyMetadataMatch(params.type, metadata, params.activityLogId);
+  if (idempotency) {
+    const existing = await fetchNotificationsByMetadataMatch(
+      supabase,
+      params.userId,
+      params.type,
+      idempotency,
+    );
+    if (existing.length > 0) {
+      const key = notificationDedupeKey({
+        id: "seed",
+        workspaceId: params.workspaceId,
+        userId: params.userId,
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        createdAt: new Date().toISOString(),
+        metadata,
+        activityLogId: params.activityLogId,
+      });
+      const match = existing.find((row) => notificationDedupeKey(row) === key);
+      if (match) return match;
+    }
+  }
+
   const insertPayload: NotificationInsert = {
     workspace_id: params.workspaceId,
     user_id: params.userId,
@@ -2661,7 +3285,7 @@ export async function createNotification(params: {
     message: params.message,
     link: params.link ?? null,
     activity_log_id: params.activityLogId ?? null,
-    metadata: params.metadata ?? {},
+    metadata,
   };
 
   try {
@@ -2671,6 +3295,16 @@ export async function createNotification(params: {
       .single();
 
     if (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505" && idempotency) {
+        const existing = await fetchNotificationsByMetadataMatch(
+          supabase,
+          params.userId,
+          params.type,
+          idempotency,
+        );
+        if (existing[0]) return existing[0];
+      }
       logHybridError("createNotification", error);
       return null;
     }
@@ -2681,7 +3315,7 @@ export async function createNotification(params: {
   }
 }
 
-/** Mark one or more notifications as read (sets read_at). */
+/** Mark one or more notifications as read (sets read_at), including duplicate sibling rows. */
 export async function markNotificationsRead(notificationIds: string[]): Promise<boolean> {
   if (!isSupabaseLive() || notificationIds.length === 0) return false;
 
@@ -2689,9 +3323,10 @@ export async function markNotificationsRead(notificationIds: string[]): Promise<
   if (!supabase) return false;
 
   try {
+    const expandedIds = await expandNotificationIdsToSiblings(notificationIds);
     const { error } = await (supabase.from("notifications") as any)
       .update({ read_at: new Date().toISOString() })
-      .in("id", notificationIds);
+      .in("id", expandedIds);
 
     if (error) {
       logHybridError("markNotificationsRead", error);
@@ -2704,7 +3339,7 @@ export async function markNotificationsRead(notificationIds: string[]): Promise<
   }
 }
 
-/** Delete a single notification (user must own it). */
+/** Delete a notification and any duplicate sibling rows for the same event. */
 export async function deleteNotification(notificationId: string, userId: string): Promise<boolean> {
   if (!isSupabaseLive() || !notificationId || !userId) return false;
 
@@ -2712,10 +3347,15 @@ export async function deleteNotification(notificationId: string, userId: string)
   if (!supabase) return false;
 
   try {
+    const [seed] = await fetchNotificationsByIds([notificationId]);
+    const idsToDelete = seed
+      ? await fetchNotificationSiblingIds(userId, seed)
+      : [notificationId];
+
     const { error } = await (supabase.from("notifications") as any)
       .delete()
-      .eq("id", notificationId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .in("id", idsToDelete);
 
     if (error) {
       logHybridError("deleteNotification", error);
@@ -2751,32 +3391,46 @@ export async function clearAllNotifications(userId: string): Promise<boolean> {
   }
 }
 
-/** Quick unread count for badge (lightweight). */
+/** Deduped unread count for badge (excludes invites, collapses duplicate rows). */
 export async function getUnreadNotificationCount(userId: string, workspaceId?: string): Promise<number> {
+  if (!isSupabaseLive() || !userId) return 0;
+
+  try {
+    const unreadRows = await fetchAllUnreadNotifications(userId, workspaceId);
+    return countBellBadgeUnread(unreadRows);
+  } catch (err) {
+    logHybridError("getUnreadNotificationCount", err);
+    return 0;
+  }
+}
+
+/** Remove duplicate notification rows for a user (keeps preferred copy per dedupe key). */
+export async function dedupeUserNotificationsInDb(
+  userId: string,
+  lookback = 300,
+): Promise<number> {
   if (!isSupabaseLive() || !userId) return 0;
 
   const supabase = getClient();
   if (!supabase) return 0;
 
   try {
-    let query = supabase
+    const { data, error } = await supabase
       .from("notifications")
-      .select("id", { count: "exact", head: true })
+      .select("*")
       .eq("user_id", userId)
-      .is("read_at", null);
+      .order("created_at", { ascending: false })
+      .limit(lookback);
 
-    if (workspaceId && !["w1", "w2"].includes(workspaceId)) {
-      query = query.eq("workspace_id", workspaceId);
-    }
-
-    const { count, error } = await query;
     if (error) {
-      logHybridError("getUnreadNotificationCount", error);
+      logHybridError("dedupeUserNotificationsInDb", error);
       return 0;
     }
-    return count || 0;
+
+    const rows = (data ?? []).map(mapNotificationRow);
+    return cleanupDuplicateNotifications({ supabase, userId, rows });
   } catch (err) {
-    logHybridError("getUnreadNotificationCount", err);
+    logHybridError("dedupeUserNotificationsInDb", err);
     return 0;
   }
 }
@@ -2866,7 +3520,7 @@ export function extractMentions(text: string): string[] {
 // Optimistic + activity log. Realtime via broadcast or task/note change triggers in store.
 // ------------------------------------------------------------------
 
-function mapCommentRow(row: any): Comment {
+export function mapCommentRow(row: any): Comment {
   const profile = row?.profiles;
   return {
     id: row.id,
@@ -3836,6 +4490,9 @@ let activeNoteChannel: any = null;
 let activeInviteChannel: any = null;
 let activeMemberChannel: any = null;
 let activeProfileChannel: any = null;
+let activeCommentChannel: any = null;
+let activeListChannel: any = null;
+let activeListItemChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
 
 // Track the workspace we are currently actively subscribed for (prevents double-subscribe on rapid switchWorkspace + initializeFromSupabase)
@@ -3850,6 +4507,9 @@ export function subscribeToWorkspaceRealtime(
     onInviteChange?: (payload: any) => void;
     onMemberChange?: (payload: any) => void;
     onProfileChange?: (payload: any) => void;
+    onCommentChange?: (payload: any) => void;
+    onListChange?: (payload: any) => void;
+    onListItemChange?: (payload: any) => void;
   }
 ): () => void {
   // === ENTRY COERCION + PURGE (String() + bad-UUID discipline for realtime workspace path) ===
@@ -3873,7 +4533,8 @@ export function subscribeToWorkspaceRealtime(
   //  - currentRealtimeWorkspaceId cleared in every teardown path (see below)
   //  - Comparison + channel presence check after String coercion
   if (currentRealtimeWorkspaceId === wsId &&
-      (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel)) {
+      (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
+        activeCommentChannel || activeListChannel || activeListItemChannel)) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
       `(currentRealtimeWorkspaceId=${currentRealtimeWorkspaceId}). Skipping to avoid postgres_changes-after-subscribe crash on rapid switch.`
@@ -3884,7 +4545,8 @@ export function subscribeToWorkspaceRealtime(
   // === TEARDOWN PRIOR (one of the teardown paths: MUST clear guard) ===
   // Defensive: clear any stale channels from previous workspace BEFORE setting new guard value.
   // We clear currentRealtimeWorkspaceId here so that a subsequent subscribe for a *different* ws always proceeds.
-  if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel) {
+  if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
+      activeCommentChannel || activeListChannel || activeListItemChannel) {
     if (activeTaskChannel) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
       activeTaskChannel = null;
@@ -3905,6 +4567,18 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeProfileChannel).catch(() => {});
       activeProfileChannel = null;
     }
+    if (activeCommentChannel) {
+      supabase.removeChannel(activeCommentChannel).catch(() => {});
+      activeCommentChannel = null;
+    }
+    if (activeListChannel) {
+      supabase.removeChannel(activeListChannel).catch(() => {});
+      activeListChannel = null;
+    }
+    if (activeListItemChannel) {
+      supabase.removeChannel(activeListItemChannel).catch(() => {});
+      activeListItemChannel = null;
+    }
     currentRealtimeWorkspaceId = null; // explicit clear in teardown path
   }
 
@@ -3912,7 +4586,16 @@ export function subscribeToWorkspaceRealtime(
   // Set *before* creating channels (but after prior cleared). Guard will protect re-entrancy from here on.
   currentRealtimeWorkspaceId = wsId;
 
-  const { onTaskChange, onNoteChange, onInviteChange, onMemberChange, onProfileChange } = handlers;
+  const {
+    onTaskChange,
+    onNoteChange,
+    onInviteChange,
+    onMemberChange,
+    onProfileChange,
+    onCommentChange,
+    onListChange,
+    onListItemChange,
+  } = handlers;
 
   if (onTaskChange) {
     activeTaskChannel = supabase
@@ -4024,6 +4707,72 @@ export function subscribeToWorkspaceRealtime(
       });
   }
 
+  // Comments have no workspace_id column — RLS scopes events; handler filters by task/note in workspace.
+  if (onCommentChange) {
+    activeCommentChannel = supabase
+      .channel(`ws-comments-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "comments",
+        },
+        (payload: any) => {
+          onCommentChange(payload);
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[realtime] comments subscribed for workspace ${wsId}`);
+        }
+      });
+  }
+
+  if (onListChange) {
+    activeListChannel = supabase
+      .channel(`ws-lists-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "workspace_lists",
+          filter: `workspace_id=eq.${wsId}`,
+        },
+        (payload: any) => {
+          onListChange(payload);
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[realtime] workspace_lists subscribed for workspace ${wsId}`);
+        }
+      });
+  }
+
+  if (onListItemChange) {
+    activeListItemChannel = supabase
+      .channel(`ws-list-items-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "list_items",
+          filter: `workspace_id=eq.${wsId}`,
+        },
+        (payload: any) => {
+          onListItemChange(payload);
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[realtime] list_items subscribed for workspace ${wsId}`);
+        }
+      });
+  }
+
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
   activeRealtimeCleanup = () => {
     if (activeTaskChannel && supabase) {
@@ -4045,6 +4794,18 @@ export function subscribeToWorkspaceRealtime(
     if (activeProfileChannel && supabase) {
       supabase.removeChannel(activeProfileChannel).catch(() => {});
       activeProfileChannel = null;
+    }
+    if (activeCommentChannel && supabase) {
+      supabase.removeChannel(activeCommentChannel).catch(() => {});
+      activeCommentChannel = null;
+    }
+    if (activeListChannel && supabase) {
+      supabase.removeChannel(activeListChannel).catch(() => {});
+      activeListChannel = null;
+    }
+    if (activeListItemChannel && supabase) {
+      supabase.removeChannel(activeListItemChannel).catch(() => {});
+      activeListItemChannel = null;
     }
     currentRealtimeWorkspaceId = null;
     activeRealtimeCleanup = null;
@@ -4724,7 +5485,7 @@ function isLiveDataWorkspace(workspaceId: string): boolean {
   return isSupabaseLive() && !!workspaceId && !["", "w1", "w2"].includes(workspaceId);
 }
 
-function mapWorkspaceListRow(row: WorkspaceListRow): WorkspaceList {
+export function mapWorkspaceListRow(row: WorkspaceListRow): WorkspaceList {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -4737,7 +5498,7 @@ function mapWorkspaceListRow(row: WorkspaceListRow): WorkspaceList {
   };
 }
 
-function mapListItemRow(row: ListItemRow): ListItem {
+export function mapListItemRow(row: ListItemRow): ListItem {
   return {
     id: row.id,
     listId: row.list_id,
@@ -5200,6 +5961,345 @@ export async function deleteListItem(id: string, workspaceId: string): Promise<b
     logHybridError("deleteListItem", err);
     return true;
   }
+}
+
+// ------------------------------------------------------------------
+// Task Folders (workspace-scoped task grouping)
+// ------------------------------------------------------------------
+
+type TaskFolderRow = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/** null = not probed yet; false = migration not applied; true = table exists */
+let taskFolderTablesAvailable: boolean | null = null;
+let taskFoldersMigrationWarned = false;
+
+function sanitizePendingQueueTaskFolderIds(): void {
+  const queue = loadPendingQueue();
+  let changed = false;
+  const next: PendingOperation[] = [];
+
+  for (const op of queue) {
+    if (op.entityType !== "task" || (op.type !== "create" && op.type !== "update")) {
+      next.push(op);
+      continue;
+    }
+    const raw = { ...(op.payload as Record<string, unknown>) };
+    if (!("folder_id" in raw) && !(TASK_FOLDER_SNAPSHOT_KEY in raw)) {
+      next.push(op);
+      continue;
+    }
+    delete raw.folder_id;
+    delete raw[TASK_FOLDER_SNAPSHOT_KEY];
+    changed = true;
+    if (op.type === "update" && Object.keys(raw).length === 0) {
+      continue;
+    }
+    next.push({ ...op, payload: raw });
+  }
+
+  if (changed) {
+    savePendingQueue(next);
+    inMemoryQueue = [...next];
+  }
+}
+
+function markTaskFolderTablesMissing(reason: "missing" | "rls" = "missing"): void {
+  taskFolderTablesAvailable = false;
+  if (!taskFoldersMigrationWarned) {
+    taskFoldersMigrationWarned = true;
+    console.warn(
+      reason === "rls"
+        ? "[Badazz Tasks] task_folders RLS blocked client writes. Run supabase/add-task-folders-rls.sql in the SQL Editor, then refresh."
+        : "[Badazz Tasks] Task folders are not synced to Supabase yet. Run supabase/add-task-starred-folders.sql and supabase/add-task-folders-rls.sql in the SQL Editor, then refresh.",
+    );
+  }
+  sanitizePendingQueueTaskFolderIds();
+}
+
+function markTaskFolderTablesAvailable(): void {
+  taskFolderTablesAvailable = true;
+}
+
+/** Whether task folder CRUD should hit Supabase (false when migration has not been applied). */
+export function isTaskFolderPersistenceEnabled(): boolean {
+  return taskFolderTablesAvailable !== false;
+}
+
+/** True only when task_folders exists in Supabase. */
+export function areTaskFolderTablesReady(): boolean {
+  return taskFolderTablesAvailable === true;
+}
+
+async function probeTaskFolderTables(force = false): Promise<void> {
+  if (!force && taskFolderTablesAvailable !== null) return;
+  if (!isSupabaseLive()) return;
+
+  const supabase = getClient();
+  if (!supabase) {
+    markTaskFolderTablesMissing();
+    return;
+  }
+
+  const { error } = await (supabase.from("task_folders") as any).select("id").limit(1);
+  if (error && isSchemaTableMissing(error)) {
+    markTaskFolderTablesMissing();
+  } else if (error) {
+    logHybridError("probeTaskFolderTables", error);
+  } else {
+    markTaskFolderTablesAvailable();
+  }
+}
+
+/** Re-check whether task_folders exists (e.g. after running SQL migration without refresh). */
+export async function ensureTaskFolderPersistenceReady(): Promise<boolean> {
+  if (taskFolderTablesAvailable === true) return true;
+  await probeTaskFolderTables(true);
+  return taskFolderTablesAvailable !== false && taskFolderTablesAvailable !== null;
+}
+
+export function mapTaskFolderRow(row: TaskFolderRow): TaskFolder {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getTaskFolders(workspaceId: string): Promise<TaskFolder[]> {
+  if (!isLiveDataWorkspace(workspaceId) || !isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.from("task_folders") as any)
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markTaskFolderTablesMissing();
+        return [];
+      }
+      logHybridError("getTaskFolders", error);
+      return [];
+    }
+    markTaskFolderTablesAvailable();
+    return (data ?? []).map((row: TaskFolderRow) => mapTaskFolderRow(row));
+  } catch (err) {
+    logHybridError("getTaskFolders", err);
+    return [];
+  }
+}
+
+export async function upsertTaskFolder(folder: TaskFolder): Promise<boolean> {
+  if (!isLiveDataWorkspace(folder.workspaceId)) return false;
+  if (!(await ensureTaskFolderPersistenceReady())) return true;
+
+  const payload = {
+    id: folder.id,
+    workspace_id: folder.workspaceId,
+    name: folder.name,
+    sort_order: folder.sortOrder,
+    created_at: folder.createdAt,
+    updated_at: folder.updatedAt,
+  };
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("task_folders") as any).upsert(payload, { onConflict: "id" });
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markTaskFolderTablesMissing("missing");
+        return false;
+      }
+      if (isRlsPolicyDenied(error)) {
+        markTaskFolderTablesMissing("rls");
+        return false;
+      }
+      logHybridError("upsertTaskFolder", error);
+      return false;
+    }
+    markTaskFolderTablesAvailable();
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markTaskFolderTablesMissing("missing");
+      return false;
+    }
+    if (isRlsPolicyDenied(err)) {
+      markTaskFolderTablesMissing("rls");
+      return false;
+    }
+    logHybridError("upsertTaskFolder", err);
+    return false;
+  }
+}
+
+export async function createTaskFolder(input: {
+  id?: string;
+  workspaceId: string;
+  name: string;
+  sortOrder?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}): Promise<boolean> {
+  if (!isLiveDataWorkspace(input.workspaceId)) return false;
+  if (!(await ensureTaskFolderPersistenceReady())) return true;
+
+  const now = new Date().toISOString();
+  const clientId = input.id || generateClientId();
+  const payload = {
+    id: clientId,
+    workspace_id: input.workspaceId,
+    name: input.name,
+    sort_order: input.sortOrder ?? 0,
+    created_at: input.createdAt ?? now,
+    updated_at: input.updatedAt ?? now,
+  };
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("task_folders") as any).insert(payload);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markTaskFolderTablesMissing("missing");
+        return false;
+      }
+      if (isRlsPolicyDenied(error)) {
+        markTaskFolderTablesMissing("rls");
+        return false;
+      }
+      logHybridError("createTaskFolder", error);
+      return false;
+    }
+    markTaskFolderTablesAvailable();
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markTaskFolderTablesMissing("missing");
+      return false;
+    }
+    if (isRlsPolicyDenied(err)) {
+      markTaskFolderTablesMissing("rls");
+      return false;
+    }
+    logHybridError("createTaskFolder", err);
+    return false;
+  }
+}
+
+export async function updateTaskFolder(
+  id: string,
+  workspaceId: string,
+  updates: Partial<Pick<TaskFolder, "name" | "sortOrder">>,
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isTaskFolderPersistenceEnabled()) return true;
+
+  const payload: Partial<TaskFolderRow> = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (Object.keys(payload).length === 0) return true;
+  payload.updated_at = new Date().toISOString();
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("task_folders") as any)
+      .update(payload)
+      .eq("id", id)
+      .eq("workspace_id", workspaceId);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markTaskFolderTablesMissing();
+        return true;
+      }
+      logHybridError("updateTaskFolder", error);
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markTaskFolderTablesMissing();
+      return true;
+    }
+    logHybridError("updateTaskFolder", err);
+    return true;
+  }
+}
+
+export async function deleteTaskFolder(id: string, workspaceId: string): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isTaskFolderPersistenceEnabled()) return true;
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("task_folders") as any)
+      .delete()
+      .eq("id", id)
+      .eq("workspace_id", workspaceId);
+    if (error && error.code !== "PGRST116") {
+      if (isSchemaTableMissing(error)) {
+        markTaskFolderTablesMissing();
+        return true;
+      }
+      logHybridError("deleteTaskFolder", error);
+    }
+    return true;
+  } catch (err) {
+    if (isSchemaTableMissing(err)) {
+      markTaskFolderTablesMissing();
+      return true;
+    }
+    logHybridError("deleteTaskFolder", err);
+    return true;
+  }
+}
+
+export async function backfillTaskFoldersIfNeeded(
+  workspaceId: string,
+  localFolders: TaskFolder[],
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!(await ensureTaskFolderPersistenceReady())) return false;
+
+  const serverFolders = await getTaskFolders(workspaceId);
+  if (serverFolders.length > 0) return false;
+
+  const folders = localFolders.filter((f) => f.workspaceId === workspaceId);
+  if (folders.length === 0) return false;
+
+  for (const folder of folders) {
+    await upsertTaskFolder(folder);
+  }
+
+  return true;
 }
 
 // Re-export template helpers from utils for store/UI consumers (no new imports needed in many places)

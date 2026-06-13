@@ -33,11 +33,27 @@ export interface Task {
   // Parent for task decomposition / subtasks (Agent 15 AI + schema support; optional, non-breaking)
   // Enables improved extraction to create hierarchical action items. UI lists treat flat for now.
   parentTaskId?: string | null;
+  /** User-marked important — surfaced in tasks table with star control + filter */
+  starred?: boolean;
+  /** Workspace task folder (organizational grouping) */
+  folderId?: string | null;
+}
+
+/** Workspace-scoped folder for grouping tasks (distinct from Files view). */
+export interface TaskFolder {
+  id: string;
+  workspaceId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type FileReviewStatus = "pending_review" | "filed";
 
 export type FileRecordType = "note" | "email" | "document" | "receipt" | "other";
+
+export type { ReceiptLineItemRecord } from "@/lib/files/receiptLineItems";
 
 export interface Note {
   id: string;
@@ -64,6 +80,8 @@ export interface Note {
   reviewedBy?: string | null;
   searchDocument?: string | null;
   isArchived?: boolean;
+  /** User-flagged bookmark in Files browse */
+  bookmarked?: boolean;
   /** False when only list metadata is loaded; true after full body fetch. */
   bodyHydrated?: boolean;
 }
@@ -272,7 +290,14 @@ export type PendingOperationPayload = Record<string, unknown>;
 // Agent 31: Notification System Types
 // ------------------------------------------------------------------
 
-export type NotificationType = 'mention' | 'comment' | 'invite' | 'task_assigned' | 'deadline' | 'activity';
+export type NotificationType =
+  | 'mention'
+  | 'comment'
+  | 'invite'
+  | 'task_assigned'
+  | 'deadline'
+  | 'activity'
+  | 'inbound_file';
 
 export interface Notification {
   id: string;

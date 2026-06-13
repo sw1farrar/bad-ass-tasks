@@ -1,11 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
-import { Check, Loader2, Repeat } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Check, Loader2, Search } from "lucide-react";
 import { cn, formatDueDate, getRecurringLabel, triggerHaptic } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskRow } from "./TaskRow";
 import { TaskCommentIndicator } from "./TaskCommentIndicator";
+import { resolveAssigneeLabel } from "@/lib/assignee";
+import { TaskAssigneeSelectModal } from "./TaskAssigneeSelectModal";
+import { TaskFolderSelectModal } from "./TaskFolderSelectModal";
+import { TaskRecurrenceSelectModal } from "./TaskRecurrenceSelectModal";
+import { TaskTableAssigneeCell } from "./TaskTableAssigneeCell";
+import { TaskStarButton } from "./TaskStarButton";
+import { TaskTableDueDateCell } from "./TaskTableDueDateCell";
+import { TaskTableFolderCell } from "./TaskTableFolderCell";
+import { TaskTableRepeatCell } from "./TaskTableRepeatCell";
 import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useTaskStore } from "@/store/useTaskStore";
@@ -23,6 +32,9 @@ export interface TasksTableProps {
   getWorkspaceName?: (task: Task) => string | undefined;
   rowIdPrefix?: string;
   className?: string;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  resultCount?: number;
 }
 
 export function TasksTable({
@@ -38,20 +50,61 @@ export function TasksTable({
   getWorkspaceName,
   rowIdPrefix = "task-row",
   className,
+  searchValue = "",
+  onSearchChange,
+  resultCount,
 }: TasksTableProps) {
   const [quickTitle, setQuickTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+  const [folderPickerTaskId, setFolderPickerTaskId] = useState<string | null>(null);
+  const [repeatPickerTaskId, setRepeatPickerTaskId] = useState<string | null>(null);
+  const [assigneePickerTaskId, setAssigneePickerTaskId] = useState<string | null>(null);
+  const quickAddInputRef = useRef<HTMLInputElement>(null);
+  const refocusQuickAddRef = useRef(false);
   const isMobile = useIsMobileViewport();
-  const { taskCommentSummaries, taskCommentsReadAt, user } = useTaskStore();
+  const {
+    taskCommentSummaries,
+    taskCommentsReadAt,
+    user,
+    getTaskFolders,
+    toggleTaskStarred,
+    setTaskFolder,
+    addTaskFolder,
+    updateTask,
+    members,
+  } = useTaskStore();
+  const folders = getTaskFolders();
+  const folderPickerTask = folderPickerTaskId
+    ? tasks.find((t) => t.id === folderPickerTaskId)
+    : undefined;
+  const repeatPickerTask = repeatPickerTaskId
+    ? tasks.find((t) => t.id === repeatPickerTaskId)
+    : undefined;
+  const assigneePickerTask = assigneePickerTaskId
+    ? tasks.find((t) => t.id === assigneePickerTaskId)
+    : undefined;
   const showQuickAddButton =
-    showQuickAdd && onAddTask && (!isMobile || quickTitle.length > 0 || isAdding);
+    showQuickAdd && onAddTask && isMobile && (quickTitle.length > 0 || isAdding);
+  const showDesktopToolbar = Boolean(onSearchChange);
   const showWorkspaceColumn = Boolean(getWorkspaceName);
-  const tableColSpan =
-    4 + (showWorkspaceColumn ? 1 : 0) + (showAssignee ? 1 : 0);
 
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const focusQuickAdd = () => {
+    window.requestAnimationFrame(() => {
+      quickAddInputRef.current?.focus({ preventScroll: true });
+    });
+  };
+
+  useEffect(() => {
+    if (isAdding || !refocusQuickAddRef.current) return;
+    refocusQuickAddRef.current = false;
+    focusQuickAdd();
+  }, [isAdding]);
+
+  const tableColSpan =
+    6 + (showWorkspaceColumn ? 1 : 0) + (showAssignee ? 1 : 0);
+
+  const submitQuickAdd = async () => {
     const title = quickTitle.trim();
     if (!title || isAdding || !onAddTask) return;
     setIsAdding(true);
@@ -63,40 +116,98 @@ export function TasksTable({
         setHighlightTaskId(created.id);
         triggerHaptic("light");
         window.setTimeout(() => setHighlightTaskId(null), 2200);
-        requestAnimationFrame(() => {
+        window.setTimeout(() => {
           document
             .getElementById(`task-row-${created.id}`)
             ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        });
+          focusQuickAdd();
+        }, 0);
       }
     } finally {
+      refocusQuickAddRef.current = true;
       setIsAdding(false);
     }
   };
 
+  const handleQuickAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitQuickAdd();
+  };
+
+  const handleQuickAddKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void submitQuickAdd();
+  };
+
   return (
-    <div className={cn("flex flex-col gap-3 min-h-0", className)}>
+    <div className={cn("tasks-table-root flex flex-col gap-3 md:gap-0 min-h-0", className)}>
       {showQuickAdd && onAddTask ? (
-      <form onSubmit={handleQuickAdd} className="tasks-quick-add flex flex-col sm:flex-row gap-2">
-        <input
-          id="task-quick-add"
-          value={quickTitle}
-          onChange={(e) => setQuickTitle(e.target.value)}
-          placeholder="Add a task…"
-          disabled={isAdding}
-          className="input flex-1 px-3 md:px-4 py-2.5 text-sm min-h-[44px]"
-          aria-label="Quick add task"
-        />
-        {showQuickAddButton ? (
-          <button
-            type="submit"
-            disabled={isAdding || !quickTitle.trim()}
-            className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
-          >
-            {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
-          </button>
+      <div
+        className={cn(
+          "tasks-quick-add flex flex-col sm:flex-row gap-2 md:px-4 md:py-3.5 md:gap-3",
+          showDesktopToolbar && "tasks-table-toolbar md:flex-row md:items-center md:gap-3",
+        )}
+      >
+        {showDesktopToolbar ? (
+          <div className="tasks-table-toolbar__search-group hidden md:flex min-w-0 items-center gap-2">
+            <div className="tasks-table-toolbar__search flex flex-1 min-w-0 items-center">
+              <Search
+                className="tasks-table-toolbar__search-icon h-4 w-4 shrink-0"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                value={searchValue}
+                onChange={(e) => onSearchChange?.(e.target.value)}
+                placeholder="Search tasks…"
+                className="tasks-table-toolbar__search-input text-sm w-full min-h-[2.5rem]"
+                aria-label="Search tasks"
+              />
+            </div>
+            {resultCount !== undefined ? (
+              <span
+                className="tasks-table-toolbar__count shrink-0 tabular-nums"
+                aria-label={`${resultCount} tasks shown`}
+              >
+                {resultCount} shown
+              </span>
+            ) : null}
+          </div>
         ) : null}
-      </form>
+        <form
+          onSubmit={handleQuickAdd}
+          className={cn(
+            "flex min-w-0 flex-1 flex-col gap-2 sm:flex-row md:gap-3",
+            showDesktopToolbar && "tasks-table-toolbar__quick-add-form",
+            !showDesktopToolbar && "w-full",
+          )}
+        >
+          <input
+            ref={quickAddInputRef}
+            id="task-quick-add"
+            value={quickTitle}
+            onChange={(e) => setQuickTitle(e.target.value)}
+            onKeyDown={handleQuickAddKeyDown}
+            placeholder="Add a task…"
+            disabled={isAdding}
+            className={cn(
+              "input w-full flex-1 px-3 py-2.5 text-sm min-h-[44px] md:px-4",
+              showDesktopToolbar && "tasks-table-toolbar__quick-add",
+            )}
+            aria-label="Quick add task"
+          />
+          {showQuickAddButton ? (
+            <button
+              type="submit"
+              disabled={isAdding || !quickTitle.trim()}
+              className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
+            >
+              {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+            </button>
+          ) : null}
+        </form>
+      </div>
       ) : null}
 
       <div className="md:hidden space-y-1">
@@ -124,20 +235,25 @@ export function TasksTable({
                 onOpen={onOpenTask}
                 onComplete={onComplete}
                 onSwipeComplete={onSwipeComplete}
+                showOrganize
               />
             );
           })
         )}
       </div>
 
-      <div className="tasks-desktop-table hidden md:block rounded-2xl border border-border-glass overflow-hidden bg-surface-hover/50">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+      <div className="tasks-desktop-table hidden md:flex md:flex-col md:flex-1 md:min-h-0 overflow-hidden">
+        <div className="tasks-desktop-table__scroll overflow-x-auto overflow-y-auto min-h-0 flex-1">
+          <table className="tasks-desktop-table__grid w-full table-fixed text-sm border-collapse">
             <thead>
               <tr className="tasks-desktop-table__head-row text-left text-[10px] uppercase tracking-wide text-text-muted border-b border-border-glass bg-surface-overlay">
-                <th className="w-10 p-3 font-medium" scope="col" />
-                <th className="p-3 font-medium min-w-[12rem]" scope="col">
+                <th className="w-10 p-3 font-medium" scope="col" aria-label="Important" />
+                <th className="w-10 p-3 font-medium" scope="col" aria-label="Complete" />
+                <th className="tasks-desktop-table__title-col p-3 font-medium" scope="col">
                   Title
+                </th>
+                <th className="p-3 font-medium w-40 hidden lg:table-cell" scope="col">
+                  Folder
                 </th>
                 {showWorkspaceColumn ? (
                   <th className="p-3 font-medium w-36 hidden md:table-cell" scope="col">
@@ -147,7 +263,7 @@ export function TasksTable({
                 <th className="p-3 font-medium w-28 hidden lg:table-cell" scope="col">
                   Due
                 </th>
-                <th className="p-3 font-medium w-32 hidden md:table-cell" scope="col">
+                <th className="tasks-desktop-table__repeat-col p-3 font-medium w-36 hidden md:table-cell" scope="col">
                   Repeat
                 </th>
                 {showAssignee ? (
@@ -166,7 +282,6 @@ export function TasksTable({
                 </tr>
               ) : (
                 tasks.map((task) => {
-                  const due = formatDueDate(task.dueDate ?? undefined);
                   const isDone = task.status === "done";
                   const loading = !!taskLoadingStates?.[task.id];
                   const commentState = getTaskCommentIndicatorState(
@@ -180,6 +295,7 @@ export function TasksTable({
                     ? getRecurringLabel(task.recurringRule)
                     : null;
                   const workspaceName = getWorkspaceName?.(task);
+                  const folderName = folders.find((f) => f.id === task.folderId)?.name;
 
                   return (
                     <tr
@@ -188,46 +304,61 @@ export function TasksTable({
                       className={cn(
                         "tasks-desktop-table__row border-b border-border-glass/60 cursor-pointer transition-colors",
                         "hover:bg-surface-hover",
-                        isDone && "opacity-60"
+                        isDone && "opacity-60",
+                        task.starred && "tasks-desktop-table__row--starred",
                       )}
                     >
+                      <td className="p-2 align-middle" onClick={(e) => e.stopPropagation()}>
+                        <TaskStarButton
+                          size="sm"
+                          starred={!!task.starred}
+                          disabled={loading}
+                          onToggle={() => void toggleTaskStarred(task.id)}
+                        />
+                      </td>
                       <td className="p-3 align-middle" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => !loading && onComplete(task.id)}
                           disabled={loading}
-                          className={cn(
-                            "task-complete-btn flex h-6 w-6 items-center justify-center rounded-full border p-0 transition",
-                            isDone
-                              ? "bg-neon-green border-neon-purple text-accent-on"
-                              : "border-border hover:border-neon-purple"
-                          )}
+                          className={cn("task-complete-btn", isDone && "is-done")}
                           aria-label={isDone ? "Reopen task" : "Mark complete"}
                         >
                           {loading ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : isDone ? (
-                            <Check className="h-3 w-3" />
+                            <Check className="task-complete-btn__icon stroke-[3]" />
                           ) : null}
                         </button>
                       </td>
-                      <td className="px-3 py-2 align-middle min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
+                      <td className="tasks-desktop-table__title-cell px-3 py-2 align-top">
+                        <div className="flex items-start gap-2 w-full min-w-0">
                           <div
                             className={cn(
-                              "font-medium leading-tight truncate min-w-0",
+                              "tasks-desktop-table__title flex-1 min-w-0 font-medium leading-snug",
                               isDone && "line-through text-text-muted"
                             )}
                           >
                             {task.title}
                           </div>
-                          {commentState.hasComments && (
+                          {commentState.hasComments ? (
                             <TaskCommentIndicator
                               count={commentState.count}
                               unread={commentState.unread}
+                              className="shrink-0"
                             />
-                          )}
+                          ) : null}
                         </div>
+                      </td>
+                      <td
+                        className="p-2 align-middle hidden lg:table-cell min-w-[9rem] max-w-[12rem]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <TaskTableFolderCell
+                          folderName={folderName}
+                          disabled={loading}
+                          onOpen={() => setFolderPickerTaskId(task.id)}
+                        />
                       </td>
                       {showWorkspaceColumn ? (
                         <td className="p-3 align-middle hidden md:table-cell min-w-0 max-w-[10rem]">
@@ -243,46 +374,36 @@ export function TasksTable({
                           )}
                         </td>
                       ) : null}
-                      <td className="p-3 align-middle hidden lg:table-cell">
-                        {due ? (
-                          <span
-                            className={cn(
-                              "text-xs font-medium",
-                              due.variant === "overdue" && "text-[var(--priority-p0)]",
-                              due.variant === "today" && "text-neon-purple"
-                            )}
-                          >
-                            {due.label}
-                          </span>
-                        ) : (
-                          <span className="text-text-muted">—</span>
-                        )}
+                      <td
+                        className="p-2 align-middle hidden lg:table-cell"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <TaskTableDueDateCell
+                          taskId={task.id}
+                          dueDate={task.dueDate ?? undefined}
+                          disabled={loading}
+                        />
                       </td>
-                      <td className="p-3 align-middle hidden md:table-cell">
-                        {recurringLabel ? (
-                          <span
-                            className="tasks-table-repeat inline-flex max-w-[9rem] items-center gap-1 rounded-md border border-neon-purple/25 bg-neon-purple/10 px-2 py-0.5 text-[11px] font-medium text-neon-purple"
-                            title={recurringLabel}
-                          >
-                            <Repeat className="h-3 w-3 shrink-0" aria-hidden />
-                            <span className="truncate">{recurringLabel}</span>
-                          </span>
-                        ) : (
-                          <span className="text-text-muted">—</span>
-                        )}
+                      <td
+                        className="tasks-desktop-table__repeat-cell p-2 align-top hidden md:table-cell"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <TaskTableRepeatCell
+                          label={recurringLabel ?? undefined}
+                          disabled={loading}
+                          onOpen={() => setRepeatPickerTaskId(task.id)}
+                        />
                       </td>
                       {showAssignee ? (
-                        <td className="p-3 align-middle hidden xl:table-cell text-xs text-text-secondary truncate max-w-[8rem]">
-                          {task.assignee ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-neon-purple/15 text-neon-purple text-[10px] font-medium">
-                                {task.assignee === "You" ? "Y" : task.assignee.charAt(0).toUpperCase()}
-                              </span>
-                              <span className="truncate">{task.assignee}</span>
-                            </span>
-                          ) : (
-                            "—"
-                          )}
+                        <td
+                          className="p-2 align-middle hidden xl:table-cell min-w-0 max-w-[10rem]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <TaskTableAssigneeCell
+                            assigneeLabel={task.assignee}
+                            disabled={loading}
+                            onOpen={() => setAssigneePickerTaskId(task.id)}
+                          />
                         </td>
                       ) : null}
                     </tr>
@@ -293,6 +414,51 @@ export function TasksTable({
           </table>
         </div>
       </div>
+
+      <TaskFolderSelectModal
+        open={!!folderPickerTask}
+        onOpenChange={(open) => {
+          if (!open) setFolderPickerTaskId(null);
+        }}
+        taskTitle={folderPickerTask?.title}
+        selectedFolderId={folderPickerTask?.folderId}
+        folders={folders}
+        onSelectFolder={(folderId) => {
+          if (!folderPickerTask) return;
+          void setTaskFolder(folderPickerTask.id, folderId);
+        }}
+        onAddFolder={(name) => addTaskFolder(name)}
+      />
+
+      <TaskRecurrenceSelectModal
+        open={!!repeatPickerTask}
+        onOpenChange={(open) => {
+          if (!open) setRepeatPickerTaskId(null);
+        }}
+        task={repeatPickerTask}
+        disabled={!!repeatPickerTask && !!taskLoadingStates?.[repeatPickerTask.id]}
+        onSave={(updates) => {
+          if (!repeatPickerTask) return;
+          void updateTask(repeatPickerTask.id, updates);
+        }}
+      />
+
+      <TaskAssigneeSelectModal
+        open={!!assigneePickerTask}
+        onOpenChange={(open) => {
+          if (!open) setAssigneePickerTaskId(null);
+        }}
+        taskTitle={assigneePickerTask?.title}
+        members={members}
+        currentUserId={user?.id}
+        selectedUserId={assigneePickerTask?.assigneeIds?.[0] ?? null}
+        onSelectAssignee={(userId) => {
+          if (!assigneePickerTask) return;
+          const assigneeIds = userId ? [userId] : [];
+          const assignee = resolveAssigneeLabel(assigneeIds, members, user?.id);
+          void updateTask(assigneePickerTask.id, { assigneeIds, assignee });
+        }}
+      />
     </div>
   );
 }

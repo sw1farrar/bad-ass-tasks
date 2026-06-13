@@ -805,7 +805,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, -- recipient
-  type TEXT NOT NULL CHECK (type IN ('mention', 'comment', 'invite', 'task_assigned', 'deadline', 'activity')),
+  type TEXT NOT NULL CHECK (type IN ('mention', 'comment', 'invite', 'task_assigned', 'deadline', 'activity', 'inbound_file')),
   title TEXT NOT NULL,
   message TEXT NOT NULL,
   link TEXT, -- e.g. relative path or hash for deep link in app
@@ -827,6 +827,9 @@ CREATE POLICY "Users can view their own notifications" ON notifications
 
 CREATE POLICY "Users can update their own notifications (e.g. mark read)" ON notifications
   FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own notifications" ON notifications
+  FOR DELETE USING (auth.uid() = user_id);
 
 -- Workspace members can insert notifications targeted at other members of the same workspace (for fan-out on events)
 CREATE POLICY "Workspace members can create notifications for workspace peers" ON notifications

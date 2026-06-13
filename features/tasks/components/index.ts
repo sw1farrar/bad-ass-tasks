@@ -14,4 +14,17 @@ export { TasksHeader } from "./TasksHeader";
 export { TasksSearch } from "./TasksSearch";
 export { TaskList } from "./TaskList";
 export { TasksTable } from "./TasksTable";
+export { TasksStatusFilter, type TasksStatusFilterMode } from "./TasksStatusFilter";
+export { TasksOrganizeBar } from "./TasksOrganizeBar";
+export { TaskStarButton } from "./TaskStarButton";
+export { TaskFolderPicker } from "./TaskFolderPicker";
+export { TaskOrganizeFields } from "./TaskOrganizeFields";
 export { TaskRow } from "./TaskRow"; // Initial skeleton - logic still being migrated (Batch 2.8)
+export { TaskTableDueDateCell } from "./TaskTableDueDateCell";
+export { TaskTableFolderCell } from "./TaskTableFolderCell";
+export { TaskAssigneeSelectModal } from "./TaskAssigneeSelectModal";
+export { TaskFolderSelectModal } from "./TaskFolderSelectModal";
+export { TaskTableAssigneeCell } from "./TaskTableAssigneeCell";
+export { TaskRecurrenceEditor } from "./TaskRecurrenceEditor";
+export { TaskRecurrenceSelectModal } from "./TaskRecurrenceSelectModal";
+export { TaskTableRepeatCell } from "./TaskTableRepeatCell";

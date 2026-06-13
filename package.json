@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-clean.mjs --ports-only && node scripts/dev-start.mjs",
+    "dev:webpack": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next dev",
+    "dev:clean": "node scripts/dev-clean.mjs && npm run dev",
     "dev:mem": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next dev",
     "build": "next build",
     "start": "next start",
@@ -17,6 +19,7 @@
     "capture:landing": "playwright test capture-landing-screenshots --project=chromium --config=playwright.capture.config.ts",
     "test:e2e:ui": "playwright test --ui",
     "db:apply-missing": "node scripts/apply-supabase-sql.mjs supabase/apply-missing-on-live.sql",
+    "db:apply-task-folders-rls": "node scripts/apply-supabase-sql.mjs supabase/add-task-folders-rls.sql",
     "deploy:prod": "vercel --prod --yes"
   },
   "dependencies": {

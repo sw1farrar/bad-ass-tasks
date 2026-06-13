@@ -21,6 +21,29 @@
   width: 100%;
 }
 
+/* Image attachment thumbs — file size overlay (no extra layout space) */
+.note-attachment-thumb-size {
+  position: absolute;
+  right: 0.1875rem;
+  bottom: 0.1875rem;
+  z-index: 2;
+  max-width: calc(100% - 0.375rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 0.3125rem;
+  padding: 0.0625rem 0.3125rem;
+  font-size: 0.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: #fff;
+  background: rgba(9, 9, 11, 0.68);
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
 /* Unified light canvas for every note — readable for typed content and inbound email HTML */
 .notes-root .note-content-card,
 .notes-drawer-body .note-content-card {
@@ -249,8 +272,8 @@
   opacity: 0;
 }
 
-.notes-drawer-chrome .sheet-drag-handle {
-  margin-bottom: 0;
+.notes-drawer-sheet .sheet-drag-handle-zone {
+  padding-bottom: 4px;
 }
 
 /* ── Notes tree hierarchy (parent → child → grandchild) ── */
@@ -669,8 +692,9 @@
   border-bottom-color: var(--border) !important;
 }
 
-[data-theme="dark"] .notes-drawer-chrome .sheet-drag-handle {
-  background: var(--border);
+[data-theme="dark"] .notes-drawer-sheet .sheet-drag-handle {
+  --sheet-drag-handle-bg: #4b5563;
+  background: var(--sheet-drag-handle-bg);
 }
 
 [data-theme="dark"] .notes-drawer-body {

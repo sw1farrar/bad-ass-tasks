@@ -1,3 +1,4 @@
+import { dedupeNotifications } from "@/lib/notifications/dedupeNotifications";
 import type { Notification, Task } from "@/types";
 
 export type HomeFocusItem = {
@@ -43,35 +44,25 @@ export type HomeAttentionItem =
  * Due tasks live exclusively in the "Up next" section on Home.
  */
 export function buildAttentionItems(
-  _focusItems: HomeFocusItem[],
+  focusItems: HomeFocusItem[],
   notifications: Notification[]
 ): HomeAttentionItem[] {
   const items: HomeAttentionItem[] = [];
+  const deduped = dedupeNotifications(notifications);
+  const visibleTaskIds = new Set(focusItems.map((f) => f.task.id));
 
-  const pendingInvites = notifications.filter((n) => n.type === "invite" && !n.readAt);
-  for (const invite of pendingInvites.slice(0, 3)) {
-    const meta = invite.metadata || {};
-    const from =
-      (meta.invited_by_full_name as string | undefined) ||
-      (meta.invited_by_name as string | undefined) ||
-      "Someone";
-    const wsName = (meta.workspace_name as string | undefined) || "a workspace";
-    const inviteId = (meta.invite_id as string | undefined) || invite.id;
-    items.push({
-      id: `invite-${invite.id}`,
-      kind: "invite",
-      title: `Invite to ${wsName}`,
-      subtitle: `${from} invited you`,
-      workspaceName: wsName,
-      urgency: "high",
-      inviteId,
-      notificationId: invite.id,
-    });
-  }
-
-  const unreadOther = notifications.filter(
-    (n) => !n.readAt && n.type !== "invite"
-  );
+  // Invites are surfaced by the global banner — avoid triple-display on Home.
+  const unreadOther = deduped.filter((n) => {
+    if (n.readAt || n.type === "invite") return false;
+    if (
+      n.type === "deadline" &&
+      n.metadata?.task_id &&
+      visibleTaskIds.has(String(n.metadata.task_id))
+    ) {
+      return false;
+    }
+    return true;
+  });
   for (const notif of unreadOther.slice(0, 4)) {
     items.push({
       id: `notif-${notif.id}`,

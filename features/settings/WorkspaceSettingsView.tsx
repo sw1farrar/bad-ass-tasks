@@ -27,6 +27,7 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   task_assigned: "Task assignments",
   deadline: "Due date reminders",
   activity: "Workspace activity",
+  inbound_file: "Files received by email",
 };
 
 export function WorkspaceSettingsView() {
@@ -256,6 +257,10 @@ export function WorkspaceSettingsView() {
           <Mail className="h-4 w-4 text-neon-purple shrink-0" />
           <span className="truncate">Files review email</span>
         </div>
+        <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
+          Forward mail to this address to add files to Review. Workspace members are notified
+          according to the &ldquo;Files received by email&rdquo; row above.
+        </p>
         <NoteEmailInboxesPanel />
       </div>
 

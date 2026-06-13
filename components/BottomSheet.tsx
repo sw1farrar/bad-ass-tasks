@@ -2,12 +2,13 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion, type PanInfo } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
-
-const SPRING = { type: "spring" as const, damping: 28, stiffness: 320, mass: 0.85 };
+import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 export interface BottomSheetProps {
   open: boolean;
@@ -27,6 +28,8 @@ export interface BottomSheetProps {
   showClose?: boolean;
   showDragHandle?: boolean;
   enableDragDismiss?: boolean;
+  /** handle: drag only from handle (scroll-safe). panel: whole sheet draggable */
+  dragMode?: "handle" | "panel";
 }
 
 function useIsMobileSheet(breakpoint = 768) {
@@ -62,15 +65,36 @@ export function BottomSheet({
   showClose = true,
   showDragHandle = true,
   enableDragDismiss = true,
+  dragMode = "handle",
 }: BottomSheetProps) {
   const [mounted] = useState(() => typeof window !== "undefined");
-  const [dragY, setDragY] = useState(0);
   const isMobile = useIsMobileSheet();
 
   const handleClose = useCallback(() => {
     triggerHaptic("light");
     onClose();
   }, [onClose]);
+
+  const useMobileSheet = isMobile && mobileLayout === "sheet";
+  const useMobileCentered = isMobile && mobileLayout === "centered";
+  const dragEnabled = useMobileSheet && enableDragDismiss;
+
+  const {
+    dragY,
+    resetDrag,
+    startDrag,
+    handleDragEnd,
+    handleDrag,
+    drag,
+    dragControlsProp,
+    dragListener,
+    dragConstraints,
+    dragElastic,
+  } = useMobileSheetDrag({
+    enabled: dragEnabled,
+    onDismiss: handleClose,
+    dragMode,
+  });
 
   useScrollLock(open);
 
@@ -85,18 +109,7 @@ export function BottomSheet({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, handleClose]);
 
-  const handleDragEnd = (_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.y > 120 || info.velocity.y > 600) {
-      handleClose();
-    } else {
-      setDragY(0);
-    }
-  };
-
   if (!mounted) return null;
-
-  const useMobileSheet = isMobile && mobileLayout === "sheet";
-  const useMobileCentered = isMobile && mobileLayout === "centered";
 
   const backdropClasses = cn(
     "absolute inset-0",
@@ -109,7 +122,7 @@ export function BottomSheet({
   );
 
   return createPortal(
-    <AnimatePresence onExitComplete={() => setDragY(0)}>
+    <AnimatePresence onExitComplete={resetDrag}>
       {open && (
         <div
           className={cn("fixed inset-0", className)}
@@ -139,20 +152,20 @@ export function BottomSheet({
               aria-label={ariaLabel || title}
               className={cn(
                 "bottom-sheet-panel pointer-events-auto w-full bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden",
-                useMobileSheet && "mobile-bottom-sheet rounded-t-3xl max-h-[92dvh]",
+                useMobileSheet && cn("mobile-bottom-sheet rounded-t-3xl", MOBILE_SHEET_HEIGHT_CLASS),
                 useMobileCentered &&
                   "max-w-[min(20rem,calc(100vw-2rem))] mx-auto rounded-2xl max-h-[min(85dvh,640px)]",
                 !isMobile && cn("rounded-3xl max-h-[min(90vh,880px)]", desktopMaxWidth),
                 panelClassName,
               )}
               onClick={(e) => e.stopPropagation()}
-              drag={useMobileSheet && enableDragDismiss ? "y" : false}
-              dragConstraints={{ top: 0, bottom: 400 }}
-              dragElastic={0.15}
-              onDrag={(_e, info) => {
-                if (useMobileSheet) setDragY(Math.max(0, info.offset.y));
-              }}
-              onDragEnd={useMobileSheet && enableDragDismiss ? handleDragEnd : undefined}
+              drag={drag}
+              dragControls={dragControlsProp}
+              dragListener={dragListener}
+              dragConstraints={dragConstraints}
+              dragElastic={dragElastic}
+              onDrag={handleDrag}
+              onDragEnd={handleDragEnd}
               initial={
                 useMobileSheet
                   ? { y: "100%" }
@@ -168,18 +181,20 @@ export function BottomSheet({
                   ? { y: "100%", opacity: 0 }
                   : { scale: 0.96, opacity: 0 }
               }
-              transition={SPRING}
+              transition={SHEET_SPRING}
               style={useMobileSheet ? { touchAction: "pan-y" } : undefined}
             >
               {useMobileSheet && showDragHandle && (
-                <div className="sheet-drag-handle shrink-0" aria-hidden="true" />
+                <SheetDragHandle
+                  onPointerDown={dragMode === "handle" ? startDrag : undefined}
+                />
               )}
 
               {(title || showClose) && (
                 <div
                   className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-border-glass"
                   style={
-                    useMobileSheet
+                    useMobileSheet && !showDragHandle
                       ? { paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }
                       : undefined
                   }

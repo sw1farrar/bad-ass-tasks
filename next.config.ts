@@ -1,7 +1,24 @@
 import type { NextConfig } from "next";
 
+const devWatchIgnored = [
+  "**/node_modules/**",
+  "**/.git/**",
+  "**/terminals/**",
+  "**/test-results/**",
+  "**/playwright-report/**",
+  "**/_recovery/**",
+  "**/agent-tools/**",
+];
+
+const usingTurbopack = process.env.BADAZZ_DEV_BUNDLER === "turbopack";
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["word-extractor"],
+  // Keep more routes warm during rapid edits to reduce full recompiles.
+  onDemandEntries: {
+    maxInactiveAge: 60 * 1000,
+    pagesBufferLength: 5,
+  },
   experimental: {
     // Optimize for beautiful animations and large state
     optimizePackageImports: ["lucide-react", "framer-motion", "@dnd-kit/core"],
@@ -72,5 +89,21 @@ const nextConfig: NextConfig = {
     ];
   },
 };
+
+if (!usingTurbopack) {
+  nextConfig.webpack = (config, { dev }) => {
+    if (!dev) {
+      return config;
+    }
+
+    // Avoid stale webpack chunk references (e.g. missing ./4447.js) on Windows.
+    config.cache = false;
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: devWatchIgnored,
+    };
+    return config;
+  };
+}
 
 export default nextConfig;

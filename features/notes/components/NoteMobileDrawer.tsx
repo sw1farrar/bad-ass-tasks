@@ -6,8 +6,8 @@ import { AnimatePresence, motion, type PanInfo, useDragControls } from "framer-m
 import { Loader2 } from "lucide-react";
 import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
-
-const SHEET_SPRING = { type: "spring" as const, damping: 32, stiffness: 380, mass: 0.85 };
+import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 interface NoteMobileDrawerProps {
   open: boolean;
@@ -99,7 +99,8 @@ export function NoteMobileDrawer({
             aria-label="Note editor"
             className={cn(
               "notes-drawer-sheet mobile-bottom-sheet relative flex flex-col",
-              "h-[92dvh] max-h-[92dvh] rounded-t-3xl max-w-none w-full overflow-hidden",
+              MOBILE_SHEET_HEIGHT_CLASS,
+              "rounded-t-3xl max-w-none w-full overflow-hidden",
               "bg-bg border-t border-border-glass shadow-2xl",
             )}
             onClick={(e) => e.stopPropagation()}
@@ -115,11 +116,7 @@ export function NoteMobileDrawer({
             exit={{ y: "100%" }}
             transition={SHEET_SPRING}
           >
-            <div
-              className="sheet-drag-handle shrink-0 touch-none cursor-grab active:cursor-grabbing"
-              onPointerDown={startSheetDrag}
-              aria-hidden="true"
-            />
+            <SheetDragHandle onPointerDown={startSheetDrag} />
 
             <div className="notes-drawer-chrome shrink-0 flex items-center justify-between gap-3 w-full px-4 py-3 border-b border-border-glass">
               <button

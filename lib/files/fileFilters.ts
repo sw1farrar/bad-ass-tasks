@@ -63,3 +63,15 @@ export function sortFiledNotes(notes: Note[]): Note[] {
     return bTs - aTs;
   });
 }
+
+export function isBookmarkedFile(note: Note): boolean {
+  return note.bookmarked === true;
+}
+
+export function filterBookmarkedFiles(notes: Note[]): Note[] {
+  return notes.filter(isBookmarkedFile);
+}
+
+export function countBookmarkedFiles(notes: Note[]): number {
+  return filterBookmarkedFiles(notes).length;
+}

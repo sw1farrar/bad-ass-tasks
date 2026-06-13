@@ -20,6 +20,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { User, Session } from '@supabase/supabase-js';
+import { addDays } from 'date-fns';
+import { isDueDateToday, startOfLocalToday, toDueDateStorage } from '@/lib/datetime';
 
 // Hoisted mocks — MUST be before any imports of mocked modules
 vi.mock('sonner', () => ({
@@ -100,6 +102,7 @@ vi.mock('@/lib/data/hybridStore', () => {
         task_assigned: { inApp: true, email: true },
         deadline: { inApp: true, email: true },
         activity: { inApp: true, email: true },
+        inbound_file: { inApp: true, email: true },
       },
       perWorkspace: {},
     }),
@@ -321,6 +324,17 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       expect(mockHybrid.createTask).not.toHaveBeenCalled(); // demo short-circuit / local only
     });
 
+    it('addTask (demo): defaults due date to today when not parsed from input', async () => {
+      const task = await useTaskStore.getState().addTask('Quick task without date');
+      expect(task?.dueDate).toBeDefined();
+      expect(isDueDateToday(task!.dueDate!)).toBe(true);
+    });
+
+    it('addTask (demo): preserves explicit natural-language due dates', async () => {
+      const task = await useTaskStore.getState().addTask('Follow up tomorrow');
+      expect(task?.dueDate).toBe(toDueDateStorage(addDays(startOfLocalToday(), 1)));
+    });
+
     it('addTask (demo w1/w2): still succeeds locally, never leaks to hybrid', async () => {
       useTaskStore.setState({ currentWorkspace: { id: 'w1', name: 'Demo', slug: '', role: 'owner' } as any });
       const task = await useTaskStore.getState().addTask('Demo only task');
@@ -393,6 +407,43 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       ]});
       expect(useTaskStore.getState().getFilteredTasks().length).toBeGreaterThanOrEqual(0);
       expect(useTaskStore.getState().getTasksByStatus('todo').length).toBe(1);
+    });
+
+    it('getFilteredTasks: starred-only and folder filters (demo)', () => {
+      useTaskStore.setState({
+        tasks: [
+          { id: 's1', status: 'todo', priority: 'P2', title: 'Starred work', workspaceId: 'w1', starred: true, folderId: 'tf-work' } as any,
+          { id: 's2', status: 'todo', priority: 'P2', title: 'Plain', workspaceId: 'w1' } as any,
+        ],
+        taskFilter: { search: '', recurring: 'all', starred: 'only', folderFilter: 'all' },
+      });
+      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id)).toEqual(['s1']);
+
+      useTaskStore.getState().setTaskFilter({ starred: 'all', folderFilter: 'tf-work' });
+      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id)).toEqual(['s1']);
+
+      useTaskStore.getState().setTaskFilter({ folderFilter: 'none' });
+      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id)).toEqual(['s2']);
+    });
+
+    it('toggleTaskStarred + task folders CRUD (demo)', async () => {
+      useTaskStore.setState({
+        tasks: [
+          { id: 'star-1', status: 'todo', priority: 'P2', title: 'Toggle me', workspaceId: 'w1' } as any,
+        ],
+      });
+      const taskId = 'star-1';
+      await useTaskStore.getState().toggleTaskStarred(taskId);
+      expect(useTaskStore.getState().tasks.find((t) => t.id === taskId)?.starred).toBe(true);
+
+      const folder = await useTaskStore.getState().addTaskFolder('Sprint');
+      expect(folder.name).toBe('Sprint');
+      await useTaskStore.getState().setTaskFolder(taskId, folder.id);
+      expect(useTaskStore.getState().tasks.find((t) => t.id === taskId)?.folderId).toBe(folder.id);
+
+      await useTaskStore.getState().deleteTaskFolder(folder.id);
+      expect(useTaskStore.getState().taskFolders.some((f) => f.id === folder.id)).toBe(false);
+      expect(useTaskStore.getState().tasks.find((t) => t.id === taskId)?.folderId).toBeFalsy();
     });
 
     it('toggleCommandPalette / setView / selectTask (demo UI actions): update state correctly', () => {

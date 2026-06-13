@@ -84,7 +84,13 @@ export function WorkspaceViewHeader({
           <p className="text-sm text-text-muted mt-3 leading-relaxed max-w-lg">{description}</p>
         ) : null}
         {meta ? (
-          <p className={cn("text-sm text-text-muted", description ? "mt-1 text-xs font-mono" : "mt-2")}>
+          <p
+            className={cn(
+              "text-sm text-text-muted",
+              description ? "mt-1 text-xs font-mono" : "mt-2",
+              hideMetaOnMobile && "hidden md:block",
+            )}
+          >
             {meta}
           </p>
         ) : null}

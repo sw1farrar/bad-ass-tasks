@@ -2,6 +2,9 @@ import type { ListItem } from "@/types";
 
 export const LIST_ITEM_PREVIEW_LIMIT = 10;
 
+/** Maximum indent depth (0 = top-level, 2 = two levels nested). */
+export const LIST_ITEM_MAX_DEPTH = 2;
+
 export type FlatListItem = ListItem & { depth: number };
 
 function groupByParent(items: ListItem[]): Map<string | null, ListItem[]> {
@@ -48,6 +51,15 @@ export function flattenListItems(items: ListItem[]): FlatListItem[] {
   };
 
   walk(null, 0);
+
+  // Orphans (missing parent in set) still render — never vanish from the UI.
+  const reached = new Set(result.map((row) => row.id));
+  for (const orphan of items) {
+    if (!reached.has(orphan.id)) {
+      result.push({ ...orphan, depth: 0 });
+    }
+  }
+
   return result;
 }
 
@@ -95,44 +107,42 @@ function wouldCreateCycle(itemId: string, newParentId: string, items: ListItem[]
   return itemId === newParentId || isDescendantOf(newParentId, itemId, items);
 }
 
+/** Indent under the row directly above in the flat list (natural outliner behavior). */
 export function getIndentParentId(itemId: string, items: ListItem[]): string | undefined {
   const item = items.find((i) => i.id === itemId);
   if (!item) return undefined;
 
-  const prevSibling = getPreviousSibling(itemId, items);
-  if (prevSibling && !wouldCreateCycle(itemId, prevSibling.id, items)) {
-    return prevSibling.id;
-  }
+  const previousFlat = getPreviousFlatSibling(itemId, items);
+  if (!previousFlat || previousFlat.listId !== item.listId) return undefined;
+  if (wouldCreateCycle(itemId, previousFlat.id, items)) return undefined;
+  return previousFlat.id;
+}
+
+function canIndentListItemDirect(itemId: string, items: ListItem[]): boolean {
+  const parentId = getIndentParentId(itemId, items);
+  if (!parentId) return false;
+
+  const item = items.find((i) => i.id === itemId);
+  if (item?.parentItemId === parentId) return false;
+
+  return getListItemDepth(parentId, items) + 1 <= LIST_ITEM_MAX_DEPTH;
+}
+
+/** When the row above is already this item's parent, deepen by indenting the parent first. */
+function canPromoteParentForDeeperIndent(itemId: string, items: ListItem[]): boolean {
+  const item = items.find((i) => i.id === itemId);
+  if (!item?.parentItemId) return false;
 
   const previousFlat = getPreviousFlatSibling(itemId, items);
-  if (!previousFlat) return undefined;
+  if (!previousFlat || previousFlat.id !== item.parentItemId) return false;
 
-  if (
-    item.parentItemId !== previousFlat.id &&
-    !wouldCreateCycle(itemId, previousFlat.id, items)
-  ) {
-    return previousFlat.id;
-  }
-
-  const flat = flattenListItems(items);
-  const itemIndex = flat.findIndex((i) => i.id === itemId);
-  for (let i = itemIndex - 1; i >= 0; i--) {
-    const candidate = flat[i];
-    if (candidate.id === previousFlat.id) break;
-    if (
-      isDescendantOf(candidate.id, previousFlat.id, items) &&
-      candidate.id !== itemId &&
-      !wouldCreateCycle(itemId, candidate.id, items)
-    ) {
-      return candidate.id;
-    }
-  }
-
-  return undefined;
+  return canIndentListItemDirect(item.parentItemId, items);
 }
 
 export function canIndentListItem(itemId: string, items: ListItem[]): boolean {
-  return getIndentParentId(itemId, items) !== undefined;
+  if (getListItemDepth(itemId, items) >= LIST_ITEM_MAX_DEPTH) return false;
+  if (canIndentListItemDirect(itemId, items)) return true;
+  return canPromoteParentForDeeperIndent(itemId, items);
 }
 
 export function canOutdentListItem(itemId: string, items: ListItem[]): boolean {
@@ -202,7 +212,195 @@ export function computeOutdentUpdate(
   };
 }
 
-export function nextSortOrderAmongSiblings(
+export type ListItemTreeUpdate = {
+  parentItemId: string | null | undefined;
+  sortOrder: number;
+};
+
+/** Subtree rooted at itemId in flat pre-order (item + all descendants). */
+export function getSubtreeFlatIds(itemId: string, items: ListItem[]): string[] {
+  const flat = flattenListItems(items);
+  const start = flat.findIndex((row) => row.id === itemId);
+  if (start < 0) return [];
+  const rootDepth = flat[start].depth;
+  const ids = [itemId];
+  for (let i = start + 1; i < flat.length; i++) {
+    if (flat[i].depth <= rootDepth) break;
+    ids.push(flat[i].id);
+  }
+  return ids;
+}
+
+function assignSortOrdersFromFlat(flat: FlatListItem[], items: ListItem[]): Map<string, number> {
+  const byParent = new Map<string | null, ListItem[]>();
+  for (const row of flat) {
+    const item = items.find((i) => i.id === row.id);
+    if (!item) continue;
+    const parent = item.parentItemId ?? null;
+    const group = byParent.get(parent);
+    if (group) group.push(item);
+    else byParent.set(parent, [item]);
+  }
+
+  const sortOrders = new Map<string, number>();
+  for (const siblings of byParent.values()) {
+    siblings.forEach((sibling, index) => {
+      sortOrders.set(sibling.id, index * 1000);
+    });
+  }
+  return sortOrders;
+}
+
+export type FlatListReorderResult = {
+  updates: Map<string, ListItemTreeUpdate>;
+};
+
+/** Nearest row at `targetDepth` above `fromIndex` in the flat list (outliner parent). */
+function findParentAtDepth(
+  flat: FlatListItem[],
+  fromIndex: number,
+  targetDepth: number,
+  activeId: string,
+  items: ListItem[],
+): string | null {
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    if (flat[i].depth !== targetDepth) continue;
+    const candidate = flat[i].id;
+    if (!wouldCreateCycle(activeId, candidate, items)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Reorder by flat visual position — moves the dragged subtree. Top-level drags
+ * adopt the drop row's parent; indented drags keep their depth via the nearest
+ * ancestor row above the new position.
+ */
+export function computeFlatListReorder(
+  items: ListItem[],
+  activeId: string,
+  overId: string,
+): FlatListReorderResult | null {
+  const flat = flattenListItems(items);
+  const activeIdx = flat.findIndex((row) => row.id === activeId);
+  const overIdx = flat.findIndex((row) => row.id === overId);
+  if (activeIdx < 0 || overIdx < 0 || activeIdx === overIdx) return null;
+
+  const blockIds = getSubtreeFlatIds(activeId, items);
+  if (blockIds.includes(overId)) return null;
+
+  const activeDepth = flat[activeIdx].depth;
+  const block = flat.filter((row) => blockIds.includes(row.id));
+  const reduced = flat.filter((row) => !blockIds.includes(row.id));
+  let insertIdx = reduced.findIndex((row) => row.id === overId);
+  if (insertIdx < 0) return null;
+  if (activeIdx < overIdx) insertIdx += 1;
+
+  const newFlat: FlatListItem[] = [
+    ...reduced.slice(0, insertIdx),
+    ...block,
+    ...reduced.slice(insertIdx),
+  ];
+
+  const overItem = items.find((i) => i.id === overId);
+  if (!overItem) return null;
+
+  let newParentId: string | null;
+  if (activeDepth > 0) {
+    newParentId = findParentAtDepth(newFlat, insertIdx, activeDepth - 1, activeId, items);
+  } else {
+    newParentId = overItem.parentItemId ?? null;
+  }
+
+  const nextItems = items.map((row) =>
+    row.id === activeId
+      ? { ...row, parentItemId: newParentId ?? undefined }
+      : row,
+  );
+
+  const sortOrders = assignSortOrdersFromFlat(newFlat, nextItems);
+  const updates = new Map<string, ListItemTreeUpdate>();
+  for (const [id, sortOrder] of sortOrders) {
+    const row = nextItems.find((i) => i.id === id);
+    if (!row) continue;
+    updates.set(id, {
+      parentItemId: id === activeId ? newParentId : (row.parentItemId ?? null),
+      sortOrder,
+    });
+  }
+
+  return { updates };
+}
+
+export type IndentListItemUpdate = {
+  parentItemId: string;
+  sortOrder: number;
+  siblingSortOrders: Map<string, number>;
+  /** Parent row promoted one level so this item can nest deeper under it. */
+  parentPromotion?: {
+    itemId: string;
+    parentItemId: string;
+  };
+};
+
+/** Indent as the first child of the row above — keeps the item tucked under its new parent. */
+export function computeIndentUpdate(
+  items: ListItem[],
+  itemId: string,
+): IndentListItemUpdate | null {
+  const item = items.find((i) => i.id === itemId);
+  if (!item) return null;
+  if (getListItemDepth(itemId, items) >= LIST_ITEM_MAX_DEPTH) return null;
+
+  const parentId = getIndentParentId(itemId, items);
+  if (!parentId || parentId === item.parentItemId) {
+    if (!canPromoteParentForDeeperIndent(itemId, items) || !item.parentItemId) return null;
+
+    const parentUpdate = computeIndentUpdate(items, item.parentItemId);
+    if (!parentUpdate) return null;
+
+    return {
+      parentItemId: item.parentItemId,
+      sortOrder: item.sortOrder,
+      siblingSortOrders: parentUpdate.siblingSortOrders,
+      parentPromotion: {
+        itemId: item.parentItemId,
+        parentItemId: parentUpdate.parentItemId,
+      },
+    };
+  }
+
+  const parent = items.find((i) => i.id === parentId);
+  if (!parent || parent.listId !== item.listId) return null;
+  if (getListItemDepth(parentId, items) + 1 > LIST_ITEM_MAX_DEPTH) return null;
+
+  const siblings = items
+    .filter(
+      (i) =>
+        i.listId === item.listId &&
+        (i.parentItemId ?? null) === parentId &&
+        i.id !== itemId,
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const reordered = [{ ...item, parentItemId: parentId }, ...siblings];
+  const siblingSortOrders = new Map<string, number>();
+  reordered.forEach((sibling, index) => {
+    siblingSortOrders.set(sibling.id, index * 1000);
+  });
+
+  const movedSort = siblingSortOrders.get(itemId);
+  if (movedSort === undefined) return null;
+
+  return {
+    parentItemId: parentId,
+    sortOrder: movedSort,
+    siblingSortOrders,
+  };
+}
+
+/** Sort order for a new sibling inserted at the top of its group. */
+export function firstSortOrderAmongSiblings(
   items: ListItem[],
   listId: string,
   parentItemId: string | null | undefined,
@@ -213,7 +411,17 @@ export function nextSortOrderAmongSiblings(
       (i.parentItemId ?? null) === (parentItemId ?? null),
   );
   if (siblings.length === 0) return 0;
-  return Math.max(...siblings.map((i) => i.sortOrder)) + 1000;
+  const min = Math.min(...siblings.map((i) => i.sortOrder));
+  return min - 1000;
+}
+
+/** @deprecated Use firstSortOrderAmongSiblings — new items belong at the top. */
+export function nextSortOrderAmongSiblings(
+  items: ListItem[],
+  listId: string,
+  parentItemId: string | null | undefined,
+): number {
+  return firstSortOrderAmongSiblings(items, listId, parentItemId);
 }
 
 export type InsertAfterListItemPlacement = {

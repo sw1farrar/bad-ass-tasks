@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check, Plus, Command, Users, Settings,
   ChevronRight, ChevronDown, Clock, Star, ArrowUpRight, ListChecks, Shield,
@@ -17,6 +18,7 @@ import {
   buildTaskCompletionUndoContext,
   showTaskCompletionFeedback,
 } from "@/features/tasks/lib/taskCompletionFeedback";
+import { showListItemCompletionFeedback } from "@/features/lists/lib/listItemCompletionFeedback";
 import { registerDualAuthRequiredHandler } from "@/lib/api/apiFetch";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
@@ -28,7 +30,7 @@ import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { Confetti } from "@/components/Confetti";
 import { SupabaseSetupBanner } from "@/components/SupabaseSetupBanner";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { AuthModal } from "@/components/AuthModal";
+
 import { CreateWorkspaceGate } from "@/components/CreateWorkspaceGate";
 import { DualAuthGate } from "@/components/DualAuthGate";
 import { LandingPage } from "@/components/LandingPage";
@@ -40,12 +42,11 @@ import {
   type CaptureFileSubmitMode,
 } from "@/features/files/components/CaptureFileModal";
 import { collectWorkspaceTags, filterFiledNotes, hasUserFilingTags, isFiledNote } from "@/lib/files/fileFilters";
-import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
 import "@/features/files/files-workspace.css";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
 import { hasOpenOverlay } from "@/lib/dom/hasOpenOverlay";
-import { HomeView } from "@/features/home";
+import { HomeView, getGreeting } from "@/features/home";
 import { ListDetailModal } from "@/features/lists/components/ListDetailModal";
 import { flattenListItems } from "@/lib/lists/listItemTree";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
@@ -59,12 +60,21 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
 import { FilesNavIndicator } from "@/components/FilesNavIndicator";
 import { filterPendingReview, sortFiledNotes } from "@/lib/files/fileFilters";
-import { countOpenAndOverdueTasks } from "@/features/home/lib/computeWorkspaceTaskStats";
+import {
+  getWorkspaceNavTaskCounts,
+  getWorkspacePendingReviewCount,
+} from "@/lib/nav/workspaceNavCounts";
 import { getSearchResultDisplayName, isSharedWorkspace } from "@/lib/assignee";
 import { ListsView } from "@/features/lists";
 import { SiteAdminView } from "@/features/admin";
 import "@/features/lists/lists-workspace.css";
 import type { HomeFocusItem } from "@/features/home/lib/buildAttentionItems";
+import {
+  countWorkspaceBadgeUnread,
+  getBellPanelNotifications,
+  getPendingInviteNotifications,
+  isBellUnread,
+} from "@/lib/notifications/notificationSelectors";
 import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
 import { WorkspaceSettingsView } from "@/features/settings";
 import { TransferOwnershipControl } from "@/features/workspace/TransferOwnershipControl";
@@ -76,6 +86,11 @@ import {
 import { BottomSheet } from "@/components/BottomSheet";
 import { NotificationDetailModal } from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
+import {
+  TasksStatusFilter,
+  type TasksStatusFilterMode,
+} from "@/features/tasks/components/TasksStatusFilter";
+import { TasksOrganizeBar } from "@/features/tasks/components/TasksOrganizeBar";
 import "@/features/tasks/tasks-workspace.css";
 import "@/features/teams/teams-workspace.css";
 
@@ -120,6 +135,7 @@ export default function BadAssTasks() {
     user,
     isAuthLoading,
     isSigningOut,
+    isInitializing,
     isSiteAdmin,
     initializeAuth,
     signOut,
@@ -138,6 +154,10 @@ export default function BadAssTasks() {
     undoTaskCompletion,
     taskLoadingStates,
     getFilteredTasks,
+    getTaskFolders,
+    addTaskFolder,
+    updateTaskFolder,
+    deleteTaskFolder,
     switchWorkspace,
     addNote,
     updateNote,
@@ -209,11 +229,11 @@ export default function BadAssTasks() {
     // Agent 31 notifications
     notifications,
     unreadNotifCount,
+    bellUnreadOverflow,
     isLoadingNotifications,
     fetchNotifications,
     markNotifRead,
     markAllNotifsRead,
-    refreshUnreadCount,
     deleteNotification,
     clearAllNotifications,
     notificationPrefs,
@@ -234,8 +254,10 @@ export default function BadAssTasks() {
   // now pulls ALL notifs for the user (cross-ws) and auto-runs on login/ws init, the banner + bell
   // will correctly surface specific "X invited you to Y" data as soon as the sender creates the invite
   // (once the notifications INSERT RLS policy allows pre-membership targets).
-  const pendingReceivedInvites = (notifications || []).filter((n: any) => n.type === 'invite' && !n.readAt);
-  const hasPendingReceivedInvites = pendingReceivedInvites.length;
+  const pendingReceivedInvites = useMemo(
+    () => getPendingInviteNotifications(notifications || []),
+    [notifications],
+  );
 
   // Role/permission flags — hoisted early so they are available before any useEffect
   // or logic that depends on them. (The old `isEmptyOwnerState` identifier has been fully
@@ -271,14 +293,15 @@ export default function BadAssTasks() {
   };
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const isMobileViewport = useIsMobileViewport();
-  useScrollLock(showNotifications && isMobileViewport);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
+  const isMobileViewport = useIsMobileViewport();
+  useScrollLock((showNotifications || showProfilePopover) && isMobileViewport);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
   const [modalTask, setModalTask] = useState<Task | null>(null);
   const [listDetailTarget, setListDetailTarget] = useState<{
     listId: string;
     workspaceId: string;
+    discardIfEmpty?: boolean;
   } | null>(null);
   const workspaceLists = useTaskStore((s) => s.workspaceLists);
   const listItems = useTaskStore((s) => s.listItems);
@@ -290,6 +313,7 @@ export default function BadAssTasks() {
   const [pendingWorkspaceNav, setPendingWorkspaceNav] = useState<
     | { kind: "task"; workspaceId: string; taskId: string }
     | { kind: "list"; workspaceId: string; listId: string }
+    | { kind: "review"; workspaceId: string }
     | null
   >(null);
   const [highlightListId, setHighlightListId] = useState<string | null>(null);
@@ -304,7 +328,7 @@ export default function BadAssTasks() {
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [isCreatingLoading, setIsCreatingLoading] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const router = useRouter();
   const [dualAuthChecked, setDualAuthChecked] = useState(false);
   const [dualAuthRequired, setDualAuthRequired] = useState(false);
   const [dualAuthVerified, setDualAuthVerified] = useState(false);
@@ -316,7 +340,6 @@ export default function BadAssTasks() {
   const [pendingRevokeInvite, setPendingRevokeInvite] = useState<{ inviteId: string; label: string } | null>(null);
   const [pendingResendInvite, setPendingResendInvite] = useState<{ inviteId: string; label: string } | null>(null);
   const [pendingLeaveWorkspace, setPendingLeaveWorkspace] = useState(false);
-  const [pendingDeleteNotification, setPendingDeleteNotification] = useState<string | null>(null);
   const [pendingClearNotifications, setPendingClearNotifications] = useState(false);
   const [pendingSignOut, setPendingSignOut] = useState(false);
 
@@ -348,15 +371,27 @@ export default function BadAssTasks() {
     setPendingResendInvite(null);
   };
 
-  const handleConfirmDeleteNotification = async () => {
-    if (!pendingDeleteNotification) return;
-    await deleteNotification?.(pendingDeleteNotification);
-    setPendingDeleteNotification(null);
+  const handleDismissNotification = async (id: string) => {
+    const notif = notifications.find((n) => n.id === id);
+    if (notif?.type === "invite") {
+      toast.info("Use Accept or Decline on the invitation banner to respond.");
+      return;
+    }
+    await deleteNotification?.(id);
+    if (selectedNotification?.id === id) {
+      setSelectedNotification(null);
+    }
   };
+
+  const bellPanelNotifications = useMemo(
+    () => getBellPanelNotifications(notifications || [], 20),
+    [notifications],
+  );
 
   const handleConfirmClearNotifications = async () => {
     await clearAllNotifications?.();
     setPendingClearNotifications(false);
+    setSelectedNotification(null);
   };
 
   const handleConfirmDeleteNote = async () => {
@@ -408,6 +443,7 @@ export default function BadAssTasks() {
       }
       if (
         showProfilePopover &&
+        !isMobileViewport &&
         profilePopoverRef.current &&
         !profilePopoverRef.current.contains(event.target as Node)
       ) {
@@ -417,40 +453,62 @@ export default function BadAssTasks() {
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showProfilePopover, showWorkspaceMenu, showNotifications]);
+  }, [showProfilePopover, showWorkspaceMenu, showNotifications, isMobileViewport]);
 
-  // Shrink workspace name on phones so the full label fits without truncating early
-  React.useEffect(() => {
-    const fitWorkspaceName = () => {
-      const el = workspaceNameRef.current;
-      if (!el) return;
-      const isMobile = window.matchMedia("(max-width: 767px)").matches;
-      if (!isMobile) {
-        el.style.fontSize = "";
-        return;
-      }
-      const maxSize = 22;
-      const minSize = 16;
-      let size = maxSize;
+  // Shrink workspace name on phones only when it overflows — skip until layout has width
+  const fitWorkspaceName = React.useCallback((): boolean => {
+    const el = workspaceNameRef.current;
+    if (!el) return true;
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    if (!isMobile) {
+      el.style.fontSize = "";
+      return true;
+    }
+    if (el.clientWidth < 8) return false;
+
+    const maxSize = 22;
+    const minSize = 16;
+    let size = maxSize;
+    el.style.fontSize = `${size}px`;
+    while (el.scrollWidth > el.clientWidth && size > minSize) {
+      size -= 0.5;
       el.style.fontSize = `${size}px`;
-      while (el.scrollWidth > el.clientWidth && size > minSize) {
-        size -= 0.5;
-        el.style.fontSize = `${size}px`;
+    }
+    return true;
+  }, []);
+
+  const scheduleFitWorkspaceName = React.useCallback(() => {
+    let attempts = 0;
+    const tick = () => {
+      if (fitWorkspaceName()) return;
+      if (attempts < 24) {
+        attempts += 1;
+        requestAnimationFrame(tick);
       }
     };
+    tick();
+  }, [fitWorkspaceName]);
 
-    fitWorkspaceName();
-    const t = window.setTimeout(fitWorkspaceName, 360);
-    const parent = workspaceNameRef.current?.parentElement;
-    const ro = typeof ResizeObserver !== "undefined" && parent ? new ResizeObserver(fitWorkspaceName) : null;
-    ro?.observe(parent!);
-    window.addEventListener("resize", fitWorkspaceName);
+  React.useLayoutEffect(() => {
+    scheduleFitWorkspaceName();
+    const t = window.setTimeout(scheduleFitWorkspaceName, 400);
+
+    const el = workspaceNameRef.current;
+    const parent = el?.parentElement;
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => scheduleFitWorkspaceName())
+        : null;
+    if (el) ro?.observe(el);
+    if (parent) ro?.observe(parent);
+
+    window.addEventListener("resize", scheduleFitWorkspaceName);
     return () => {
       window.clearTimeout(t);
       ro?.disconnect();
-      window.removeEventListener("resize", fitWorkspaceName);
+      window.removeEventListener("resize", scheduleFitWorkspaceName);
     };
-  }, [currentWorkspace.id, currentWorkspace.name, showWorkspaceMenu]);
+  }, [scheduleFitWorkspaceName, currentWorkspace.id, currentWorkspace.name, showWorkspaceMenu]);
 
   const prevWorkspaceIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -468,7 +526,8 @@ export default function BadAssTasks() {
     }
   }, [currentWorkspace.id]);
 
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const selectedNoteId = useTaskStore((s) => s.selectedNoteId);
+  const setSelectedNoteId = useTaskStore((s) => s.setSelectedNoteId);
 
   // Extracted note keyboard (M2 extraction - reduces monolith)
   useNoteKeyboard({
@@ -494,6 +553,8 @@ export default function BadAssTasks() {
   // Pull-to-refresh state (Agent 27 mobile native)
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
+  const pullDistanceRef = useRef(0);
+  const listDetailOpenRef = useRef(false);
 
   // Phase 2 collaboration UI state (inline, no new files)
   const [showInviteDialog, setShowInviteDialog] = useState(false);
@@ -568,23 +629,22 @@ export default function BadAssTasks() {
     return () => mq.removeEventListener("change", normalize);
   }, [taskFilter.recurring, setTaskFilter]);
 
-  const currentWorkspaceTaskCounts = useMemo(() => {
-    const wsId = currentWorkspace.id;
-    const wsTasks = tasks.filter((t) => t.workspaceId === wsId);
-    if (wsTasks.length > 0) {
-      return countOpenAndOverdueTasks(wsTasks);
-    }
-    const stats = globalWorkspaceStats?.[wsId];
-    return {
-      openCount: stats?.openCount ?? 0,
-      overdueCount: stats?.overdueCount ?? 0,
-    };
-  }, [tasks, currentWorkspace.id, globalWorkspaceStats]);
+  const currentWorkspaceTaskCounts = useMemo(
+    () =>
+      getWorkspaceNavTaskCounts({
+        workspaceId: currentWorkspace.id,
+        tasks,
+        globalTodayFocus,
+        globalOpenTaskFocus,
+        globalWorkspaceStats,
+      }),
+    [tasks, globalTodayFocus, globalOpenTaskFocus, currentWorkspace.id, globalWorkspaceStats],
+  );
 
-  const pendingReviewCount = useMemo(() => {
-    const wsId = currentWorkspace.id;
-    return filterPendingReview(notes.filter((n) => n.workspaceId === wsId)).length;
-  }, [notes, currentWorkspace.id]);
+  const pendingReviewCount = useMemo(
+    () => getWorkspacePendingReviewCount(notes, currentWorkspace.id),
+    [notes, currentWorkspace.id],
+  );
 
   const selectedTask = useMemo(() => {
     if (!showFullTaskModal) return undefined;
@@ -784,17 +844,18 @@ export default function BadAssTasks() {
     })();
   }, [user, switchWorkspace]);
 
-  // Open auth modal when middleware or /login redirects with ?signin=1
+  // Legacy ?signin=1 links → bookmarkable /login page
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("signin") !== "1") return;
-    setShowAuthModal(true);
-    params.delete("signin");
-    const url = new URL(window.location.href);
-    url.search = params.toString();
-    window.history.replaceState({}, "", url.toString());
-  }, []);
+    const next = params.get("next");
+    const target = new URL("/login", window.location.origin);
+    if (next && next.startsWith("/") && !next.startsWith("//")) {
+      target.searchParams.set("next", next);
+    }
+    router.replace(`${target.pathname}${target.search}`);
+  }, [router]);
 
   // Deep links for PWA shortcuts + shareable views: ?view=home|tasks|notes|teams
   // Initializes from manifest shortcuts (?view=...&source=pwa). Syncs on change for back/forward + share.
@@ -825,7 +886,11 @@ export default function BadAssTasks() {
     }
   }, [currentView]);
 
-  // Pull-to-refresh for mobile lists. Threshold + haptic + optimistic refresh.
+  useEffect(() => {
+    listDetailOpenRef.current = !!listDetailTarget;
+  }, [listDetailTarget]);
+
+  // Pull-to-refresh for mobile. Threshold + haptic + optimistic refresh.
   // Uses passive touch on .main-content when near top. No new libs.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -838,11 +903,14 @@ export default function BadAssTasks() {
     if (!mainEl) return;
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (mainEl.scrollTop > 8 || isPullRefreshing) return;
+      if (mainEl.scrollTop > 8) return;
+      if (listDetailOpenRef.current) return;
+      if (document.querySelector(".files-root")) return;
+      if (document.querySelector(".list-detail-modal-root")) return;
       const target = e.target as HTMLElement | null;
       if (
         target?.closest(
-          ".list-item-drag, .list-card-drag-handle, .sortable-list-card, .list-item-drag-overlay, .list-card-drag-overlay",
+          ".list-item-drag, .list-card-drag-handle, .list-item-drag-overlay, .list-card-drag-overlay, .lists-board--dragging",
         )
       ) {
         return;
@@ -853,15 +921,17 @@ export default function BadAssTasks() {
     const handleTouchMove = (e: TouchEvent) => {
       if (!isPulling) return;
       const dy = Math.max(0, e.touches[0].clientY - startY);
-      setPullDistance(Math.min(dy, 70));
+      const next = Math.min(dy, 70);
+      pullDistanceRef.current = next;
+      setPullDistance(next);
     };
     const handleTouchEnd = async () => {
       if (!isPulling) return;
-      const dist = pullDistance;
+      const dist = pullDistanceRef.current;
       isPulling = false;
-      const wasPulling = dist > 0;
+      pullDistanceRef.current = 0;
       setPullDistance(0);
-      if (dist > 52 && !isPullRefreshing) {
+      if (dist > 52) {
         setIsPullRefreshing(true);
         triggerHaptic('medium');
         try {
@@ -883,7 +953,7 @@ export default function BadAssTasks() {
       mainEl.removeEventListener('touchmove', handleTouchMove);
       mainEl.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [pullDistance, isPullRefreshing, refreshRecentActivity, tasks]);
+  }, [refreshRecentActivity]);
 
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user && dualAuthVerified;
@@ -893,43 +963,63 @@ export default function BadAssTasks() {
     [notes],
   );
 
+  const handleCreateCaptureDraft = useCallback(async () => {
+    const emptyDoc = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
+    return addNote("Untitled", emptyDoc, {
+      tags: [],
+      reviewStatus: "pending_review",
+    });
+  }, [addNote]);
+
+  const handleDeleteCaptureDraft = useCallback(
+    async (noteId: string) => {
+      await deleteNote(noteId);
+    },
+    [deleteNote],
+  );
+
   const handleCaptureFile = useCallback(
-    async (input: CaptureFileInput, mode: CaptureFileSubmitMode) => {
+    async (input: CaptureFileInput, mode: CaptureFileSubmitMode, draftNoteId?: string) => {
       const reviewStatus = mode === "review" ? ("pending_review" as const) : ("filed" as const);
       const tags =
         input.tags.length > 0 ? input.tags : mode === "file" ? ["uncategorized"] : [];
 
-      const created = await addNote(input.title, input.content, {
-        tags,
-        memo: input.memo || null,
-        recordType: input.recordType,
-        reviewStatus,
-      });
+      let noteId = draftNoteId ?? null;
 
-      if (!created) {
+      if (noteId) {
+        await updateNote(noteId, {
+          title: input.title,
+          content: input.content,
+          tags,
+          memo: input.memo || null,
+          recordType: input.recordType,
+          reviewStatus,
+        });
+      } else {
+        const created = await addNote(input.title, input.content, {
+          tags,
+          memo: input.memo || null,
+          recordType: input.recordType,
+          reviewStatus,
+        });
+        noteId = created?.id ?? null;
+      }
+
+      if (!noteId) {
         toast.error("Could not capture file");
         return;
       }
 
       if (mode === "file") {
-        await updateNote(created.id, {
+        await updateNote(noteId, {
           workspaceId: currentWorkspace.id,
           reviewedBy: user?.id ?? null,
           filedAt: new Date().toISOString(),
         });
       }
 
-      if (input.attachments.length > 0 && isTrulyLive) {
-        const uploaded = await uploadFilesToNote(created.id, input.attachments);
-        if (uploaded === 0) {
-          toast.warning("Attachments could not be uploaded");
-        } else if (uploaded < input.attachments.length) {
-          toast.warning(`${uploaded} of ${input.attachments.length} attachments uploaded`);
-        }
-      }
-
       setView("notes");
-      setSelectedNoteId(created.id);
+      setSelectedNoteId(noteId);
       if (mode === "review") {
         setFilesOpenReview(true);
         toast.success("Added to Review");
@@ -942,15 +1032,19 @@ export default function BadAssTasks() {
       updateNote,
       currentWorkspace.id,
       user?.id,
-      isTrulyLive,
       setView,
       setFilesOpenReview,
     ],
   );
 
+  const isMarketingCapture =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("capture") === "1";
+
   const showSessionGate =
     isConfigured && (isAuthLoading || isSigningOut || (!!user && !dualAuthChecked));
-  const showLandingGate = isConfigured && !user && !isSigningOut;
+  const showLandingGate =
+    isConfigured && !user && !isSigningOut && !isMarketingCapture;
   const showDualAuthGate =
     isConfigured &&
     !!user &&
@@ -1095,19 +1189,57 @@ export default function BadAssTasks() {
   }, [listDetailTarget, listItems]);
 
   const closeListDetail = useCallback(() => {
+    setListDetailTarget((current) => {
+      if (current?.discardIfEmpty) {
+        const hasItems = listItems.some(
+          (item) => item.listId === current.listId && item.workspaceId === current.workspaceId,
+        );
+        if (!hasItems) {
+          void deleteList(current.listId);
+        }
+      }
+      return null;
+    });
     refreshHomeListAggregatesFromStore();
-    setListDetailTarget(null);
-  }, [refreshHomeListAggregatesFromStore]);
+  }, [deleteList, listItems, refreshHomeListAggregatesFromStore]);
+
+  const handleToggleListItem = useCallback(
+    async (id: string) => {
+      const item = listItems.find((i) => i.id === id);
+      if (!item) return;
+
+      const markingComplete = !item.completed;
+      const ok = await toggleListItem(id);
+      if (!ok || !markingComplete) return;
+
+      showListItemCompletionFeedback(item, {
+        undoListItemCompletion: async (itemId) => {
+          const current = useTaskStore.getState().listItems.find((i) => i.id === itemId);
+          if (!current?.completed) return false;
+          return toggleListItem(itemId);
+        },
+      });
+    },
+    [listItems, toggleListItem],
+  );
 
   const openListDetail = useCallback(
-    (listId: string, workspaceId: string) => {
+    (
+      listId: string,
+      workspaceId: string,
+      options?: { discardIfEmpty?: boolean },
+    ) => {
       void hydrateWorkspaceListData(workspaceId);
-      setListDetailTarget({ listId, workspaceId });
+      setListDetailTarget({
+        listId,
+        workspaceId,
+        discardIfEmpty: options?.discardIfEmpty,
+      });
     },
     [hydrateWorkspaceListData],
   );
 
-  const handleHomeOpenWorkspaceReview = useCallback(
+  const openWorkspaceReview = useCallback(
     (workspaceId: string) => {
       const pending = sortFiledNotes(
         filterPendingReview((notes || []).filter((n) => n.workspaceId === workspaceId)),
@@ -1115,27 +1247,84 @@ export default function BadAssTasks() {
       const first = pending[0];
       if (!first) {
         toast.info("No files in Review for this workspace");
+        setFilesOpenReview(false);
+        setFilesOpenReviewNoteId(null);
         return;
       }
-      switchWorkspace(workspaceId);
       setSelectedNoteId(first.id);
       setFilesOpenReview(true);
       setFilesOpenReviewNoteId(first.id);
       setView("notes");
     },
-    [
-      notes,
-      switchWorkspace,
-      setSelectedNoteId,
-      setFilesOpenReview,
-      setFilesOpenReviewNoteId,
-      setView,
-    ],
+    [notes, setFilesOpenReview, setFilesOpenReviewNoteId, setView],
+  );
+
+  const handleHomeOpenWorkspaceReview = useCallback(
+    (workspaceId: string) => {
+      if (currentWorkspace.id !== workspaceId) {
+        setPendingWorkspaceNav({ kind: "review", workspaceId });
+        setFilesOpenReview(true);
+        setView("notes");
+        switchWorkspace(workspaceId);
+        return;
+      }
+      openWorkspaceReview(workspaceId);
+    },
+    [currentWorkspace.id, switchWorkspace, openWorkspaceReview, setFilesOpenReview, setView],
   );
 
   const handleHomeOpenList = (listId: string, workspaceId: string) => {
     openListDetail(listId, workspaceId);
   };
+
+  const handleHomeNavigateDue = useCallback(
+    (workspaceId: string) => {
+      setView("tasks");
+      if (currentWorkspace.id !== workspaceId) {
+        switchWorkspace(workspaceId);
+      }
+    },
+    [currentWorkspace.id, setView, switchWorkspace],
+  );
+
+  const handleHomeNavigateLists = useCallback(
+    (workspaceId: string) => {
+      const lists = (globalListHighlights || []).filter((l) => l.workspaceId === workspaceId);
+      const listId = lists.length === 1 ? lists[0].id : undefined;
+      setView("lists");
+      if (currentWorkspace.id !== workspaceId) {
+        if (listId) {
+          setPendingWorkspaceNav({ kind: "list", workspaceId, listId });
+        }
+        switchWorkspace(workspaceId);
+        return;
+      }
+      if (listId) {
+        void hydrateWorkspaceListData(workspaceId).then(() => setHighlightListId(listId));
+      }
+    },
+    [
+      globalListHighlights,
+      currentWorkspace.id,
+      setView,
+      switchWorkspace,
+      hydrateWorkspaceListData,
+    ],
+  );
+
+  const handleHomeNavigateReview = useCallback(
+    (workspaceId: string) => {
+      if (currentWorkspace.id !== workspaceId) {
+        setPendingWorkspaceNav({ kind: "review", workspaceId });
+        setFilesOpenReview(true);
+        setView("notes");
+        switchWorkspace(workspaceId);
+        return;
+      }
+      openWorkspaceReview(workspaceId);
+    },
+    [currentWorkspace.id, openWorkspaceReview, setFilesOpenReview, setView, switchWorkspace],
+  );
 
   const handleHomeCompleteFocusTask = async (item: HomeFocusItem) => {
     const wasDone = item.task.status === "done";
@@ -1194,8 +1383,7 @@ export default function BadAssTasks() {
 
   const handleHomeOpenNotification = (notification: Notification) => {
     setSelectedNotification(notification);
-    setShowNotifications(true);
-    if (!notification.readAt) {
+    if (!notification.readAt && notification.type !== "invite") {
       markNotifRead?.(notification.id);
     }
   };
@@ -1220,60 +1408,220 @@ export default function BadAssTasks() {
     return "";
   }, [user, myProfile, members]);
 
+  const renderProfileEditorContent = () => {
+    if (!user) return null;
+
+    const selfMember = members.find((m) => m.userId === user.id);
+    const nameVal = profileFullName || selfMember?.fullName || myProfile?.fullName || "";
+    const userVal = profileUsername || selfMember?.username || myProfile?.username || "";
+    const locVal = profileLocation || selfMember?.location || myProfile?.location || "";
+    const profileDisabled =
+      isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id);
+
+    const save = async () => {
+      setIsSavingProfile(true);
+      try {
+        const ok = await updateMyProfile({
+          fullName: profileFullName || undefined,
+          username: profileUsername || undefined,
+          location: profileLocation || undefined,
+        });
+        if (ok) {
+          setProfileFullName("");
+          setProfileUsername("");
+          setProfileLocation("");
+          setShowProfilePopover(false);
+        }
+      } finally {
+        setIsSavingProfile(false);
+      }
+    };
+
+    return (
+      <div className="profile-popover-panel__body p-4 md:p-4 text-sm space-y-4">
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+              Signed in as
+            </label>
+            <p
+              className="profile-popover-email px-3 py-2.5 text-sm rounded-xl min-h-[44px] bg-surface-hover border border-border-glass text-text-primary truncate"
+              title={user.email ?? undefined}
+            >
+              {user.email || "No email on this account"}
+            </p>
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+              Full name
+            </label>
+            <input
+              type="text"
+              value={nameVal}
+              onChange={(e) => setProfileFullName(e.target.value)}
+              placeholder="Alex Rivera"
+              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
+              disabled={profileDisabled}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+              Username / handle
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-text-secondary px-2">@</span>
+              <input
+                type="text"
+                value={userVal}
+                onChange={(e) =>
+                  setProfileUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+                }
+                placeholder="alexr"
+                className="input flex-1 px-3 py-2.5 text-sm rounded-xl font-mono min-h-[44px]"
+                disabled={profileDisabled}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+              Where you&apos;re from
+            </label>
+            <input
+              type="text"
+              value={locVal}
+              onChange={(e) => setProfileLocation(e.target.value)}
+              placeholder="San Francisco, CA or Remote"
+              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
+              disabled={profileDisabled}
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-border-glass pt-4">
+          <ThemeToggle compact onThemeChange={() => setShowProfilePopover(false)} />
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setShowProfilePopover(false)}
+            className="btn btn-ghost flex-1 min-h-[44px]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={profileDisabled}
+            className="btn btn-primary flex-1 min-h-[44px] disabled:opacity-50"
+          >
+            {isSavingProfile ? "Saving..." : "Save"}
+          </button>
+        </div>
+        {!isLiveWorkspace && (
+          <p className="text-[10px] text-neon-purple text-center">Live connection required to save</p>
+        )}
+        {isSiteAdmin && (
+          <div className="border-t border-border-glass pt-3 md:hidden">
+            <button
+              type="button"
+              onClick={() => {
+                setShowProfilePopover(false);
+                setView("admin");
+              }}
+              className={cn(
+                "w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium",
+                currentView === "admin"
+                  ? "text-neon-purple bg-neon-purple/10"
+                  : "text-text-primary hover:bg-surface-hover",
+              )}
+            >
+              <Shield className="h-4 w-4 text-neon-purple" />
+              Admin
+            </button>
+          </div>
+        )}
+        <div className="border-t border-border-glass pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setShowProfilePopover(false);
+              setPendingSignOut(true);
+            }}
+            className="profile-popover-sign-out w-full min-h-[44px] flex items-center justify-center gap-2 text-[var(--priority-p0)] hover:opacity-90 hover:bg-red-500/10 rounded-lg transition font-medium"
+          >
+            <LogOut className="h-4 w-4 text-[var(--priority-p0)]" />
+            Log out
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const taskStatusFilterMode = (taskFilter.recurring ?? "incomplete") as TasksStatusFilterMode;
+  const taskStarredFilterMode = taskFilter.starred ?? "all";
+  const taskFolderFilterMode = taskFilter.folderFilter ?? "all";
+  const taskFolders = getTaskFolders();
   const renderTasksView = () => (
-    <div className="tasks-root">
-      <div className="tasks-workspace flex flex-col min-h-0 w-full">
+    <div className="tasks-root flex flex-col flex-1 min-h-0">
+      <div className="tasks-workspace flex flex-col flex-1 min-h-0 w-full">
         <WorkspaceViewHeader
           variant="inline"
           title="Tasks"
           workspaceName={currentWorkspace.name}
           icon={<Check className="h-6 w-6" />}
-          meta={`${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"} · ${currentWorkspaceTaskCounts.openCount} open`}
           hideWorkspaceLabelOnMobile
           hideWorkspaceNameOnMobile
-          hideMetaOnMobile
-          className="mb-1"
+          className="tasks-desktop-page-header mb-1"
         />
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+
+        {/* Mobile — search + filters (unchanged flow) */}
+        <div className="tasks-toolbar-mobile flex flex-col sm:flex-row sm:items-center gap-2 mb-1 md:hidden">
           <input
             value={taskFilter.search || ""}
             onChange={(e) => setTaskFilter({ search: e.target.value })}
             placeholder="Search tasks"
-            className="tasks-page-search input px-3 py-2.5 text-sm w-full md:max-w-md"
+            className="tasks-page-search input px-3 py-2.5 text-sm w-full"
           />
-          <div className="task-recurring-filters w-full max-md:w-full md:w-auto md:shrink-0 overflow-x-auto md:overflow-visible pb-1">
-            <div
-              className="task-recurring-filters__track flex w-full md:w-auto items-center gap-0.5 md:gap-0.5 p-1 md:p-0.5 rounded-full border border-border-glass bg-surface-hover"
-              role="group"
-              aria-label="Filter tasks by status"
-            >
-            {(["all", "incomplete", "completed"] as const).map((mode) => {
-              const activeMode = taskFilter.recurring ?? "incomplete";
-              const isActive = activeMode === mode;
-              const label =
-                mode === "all" ? "All" : mode === "incomplete" ? "Incomplete" : "Complete";
-              return (
-                <button
-                  key={`task-status-filter-${mode}`}
-                  type="button"
-                  onClick={() => setTaskFilter({ recurring: mode })}
-                  aria-pressed={isActive}
-                  className={cn(
-                    "task-recurring-filter-pill inline-flex items-center justify-center rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                    isActive
-                      ? "is-active bg-neon-purple text-accent-on shadow-[0_0_12px_rgba(192,132,252,0.28)]"
-                      : "text-text-secondary hover:text-text-primary hover:bg-surface-hover",
-                  )}
-                >
-                  {label}
-                </button>
-              );
-            })}
-            </div>
-          </div>
+          <TasksStatusFilter
+            value={taskStatusFilterMode}
+            onChange={(mode) => setTaskFilter({ recurring: mode })}
+          />
+          <TasksOrganizeBar
+            folders={taskFolders}
+            starredFilter={taskStarredFilterMode}
+            folderFilter={taskFolderFilterMode}
+            onStarredFilterChange={(starred) => setTaskFilter({ starred })}
+            onFolderFilterChange={(folderFilter) => setTaskFilter({ folderFilter })}
+            onAddFolder={(name) => addTaskFolder(name)}
+            onRenameFolder={(id, name) => updateTaskFolder(id, { name })}
+            onDeleteFolder={async (id) => {
+              await deleteTaskFolder(id);
+              if (taskFolderFilterMode === id) setTaskFilter({ folderFilter: "all" });
+            }}
+          />
         </div>
 
+        <TasksOrganizeBar
+          className="tasks-organize-bar--desktop hidden md:block"
+          showStatusFilter
+          statusFilter={taskStatusFilterMode}
+          onStatusFilterChange={(mode) => setTaskFilter({ recurring: mode })}
+          folders={taskFolders}
+          starredFilter={taskStarredFilterMode}
+          folderFilter={taskFolderFilterMode}
+          onStarredFilterChange={(starred) => setTaskFilter({ starred })}
+          onFolderFilterChange={(folderFilter) => setTaskFilter({ folderFilter })}
+          onAddFolder={(name) => addTaskFolder(name)}
+          onRenameFolder={(id, name) => updateTaskFolder(id, { name })}
+          onDeleteFolder={async (id) => {
+            await deleteTaskFolder(id);
+            if (taskFolderFilterMode === id) setTaskFilter({ folderFilter: "all" });
+          }}
+        />
+
         <TasksTable
+          className="tasks-table-host"
           tasks={filteredTasks}
           taskLoadingStates={taskLoadingStates}
           onOpenTask={openTask}
@@ -1281,6 +1629,9 @@ export default function BadAssTasks() {
           onAddTask={addTask}
           onSwipeComplete={handleComplete}
           showAssignee={isSharedWorkspace(members)}
+          searchValue={taskFilter.search || ""}
+          onSearchChange={(search) => setTaskFilter({ search })}
+          resultCount={filteredTasks.length}
         />
       </div>
     </div>
@@ -1364,7 +1715,7 @@ export default function BadAssTasks() {
         return;
       }
 
-      if (!typing && !paletteOpen && !showFullTaskModal && !listDetailTarget && !showAuthModal && !isKeyboardCheatsheetOpen) {
+      if (!typing && !paletteOpen && !showFullTaskModal && !listDetailTarget && !isKeyboardCheatsheetOpen) {
         if (e.key === "1") { setView("tasks"); return; }
         if (e.key === "2") { setView("notes"); return; }
         if (e.key === "3") { setView("lists"); return; }
@@ -1379,10 +1730,6 @@ export default function BadAssTasks() {
         }
         if (isKeyboardCheatsheetOpen) {
           toggleKeyboardCheatsheet(false);
-          return;
-        }
-        if (showAuthModal) {
-          setShowAuthModal(false);
           return;
         }
         if (showFullTaskModal) {
@@ -1437,7 +1784,6 @@ export default function BadAssTasks() {
     showFullTaskModal,
     listDetailTarget,
     closeListDetail,
-    showAuthModal,
     setView,
     filesCaptureOpen,
     setFilesCaptureOpen,
@@ -1484,6 +1830,14 @@ export default function BadAssTasks() {
       return;
     }
 
+    if (pendingWorkspaceNav.kind === "review") {
+      if (currentView !== "notes") return;
+      if (isInitializing) return;
+      openWorkspaceReview(pendingWorkspaceNav.workspaceId);
+      setPendingWorkspaceNav(null);
+      return;
+    }
+
     if (currentView !== "lists") return;
     void hydrateWorkspaceListData(pendingWorkspaceNav.workspaceId).then(() => {
       setHighlightListId(pendingWorkspaceNav.listId);
@@ -1493,10 +1847,12 @@ export default function BadAssTasks() {
     pendingWorkspaceNav,
     currentWorkspace.id,
     currentView,
+    isInitializing,
     tasks,
     globalTodayFocus,
     globalOpenTaskFocus,
     hydrateWorkspaceListData,
+    openWorkspaceReview,
   ]);
 
   const renderHomeView = () => {
@@ -1522,9 +1878,7 @@ export default function BadAssTasks() {
         overdue,
         assigneeBreakdown: stats?.assigneeBreakdown ?? [],
         assignedToYou,
-        unreadNotifications: (notifications || []).filter(
-          (n: Notification) => !n.readAt && n.workspaceId === ws.id
-        ).length,
+        unreadNotifications: countWorkspaceBadgeUnread(notifications || [], ws.id),
         unreadChat: stats?.unreadChat ?? false,
         isCurrent: currentWorkspace.id === ws.id,
         onlineCount: currentWorkspace.id === ws.id ? (onlineUsers || []).length : undefined,
@@ -1544,6 +1898,7 @@ export default function BadAssTasks() {
         userDisplayName={homeUserDisplayName}
         workspaces={workspaces}
         switchWorkspace={switchWorkspace}
+        tasks={tasks}
         globalTodayFocus={globalTodayFocus}
         globalOpenTaskFocus={globalOpenTaskFocus}
         notifications={notifications}
@@ -1571,9 +1926,14 @@ export default function BadAssTasks() {
           0,
         )}
         onOpenWorkspaceReview={handleHomeOpenWorkspaceReview}
+        onNavigateDue={handleHomeNavigateDue}
+        onNavigateLists={handleHomeNavigateLists}
+        onNavigateReview={handleHomeNavigateReview}
         showTaskAssignee={workspaces.some(
           (ws) => (globalWorkspaceStats?.[ws.id]?.memberCount ?? 1) > 1,
         )}
+        members={members}
+        currentUserId={user?.id}
       />
     );
   };
@@ -1606,14 +1966,14 @@ export default function BadAssTasks() {
         workspaceName={currentWorkspace.name}
         lists={lists}
         getItemsForList={getListItemsForList}
-        onAddList={(title) => { void addList(title); }}
+        onAddList={(title) => addList(title)}
         onUpdateList={(id, updates) => { void updateList(id, updates); }}
         onDeleteList={(id) => { void deleteList(id); }}
         onTogglePinned={(id) => { void toggleListPinned(id); }}
         onAddItem={(listId, text, options) =>
           addListItem(listId, text, options).then((item) => item?.id ?? null)
         }
-        onToggleItem={(id) => { void toggleListItem(id); }}
+        onToggleItem={(id) => { void handleToggleListItem(id); }}
         onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
         onDeleteItem={(id) => { void deleteListItem(id); }}
         onReorderLists={reorderLists}
@@ -1622,7 +1982,9 @@ export default function BadAssTasks() {
         onOutdentItem={(id) => { void outdentListItem(id); }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
         highlightListId={highlightListId}
-        onOpenDetail={(listId) => openListDetail(listId, currentWorkspace.id)}
+        onOpenDetail={(listId, options) =>
+          openListDetail(listId, currentWorkspace.id, options)
+        }
       />
       </div>
     );
@@ -1683,6 +2045,8 @@ export default function BadAssTasks() {
         openReviewNoteIdOnMount={filesOpenReviewNoteId}
         onOpenReviewNoteConsumed={() => setFilesOpenReviewNoteId(null)}
         onOpenCapture={() => setFilesCaptureOpen(true)}
+        members={members}
+        currentUserId={user?.id}
       />
     );
   };
@@ -1760,10 +2124,11 @@ export default function BadAssTasks() {
         title={isMobileViewport ? "Invite by email" : `Invite to ${currentWorkspace.name}`}
         zIndex={220}
         panelClassName="glass modal-panel team-invite-modal"
-        mobileLayout={isMobileViewport ? "centered" : "sheet"}
-        showClose={!isMobileViewport}
-        showDragHandle={false}
-        enableDragDismiss={!isMobileViewport}
+        mobileLayout="sheet"
+        showClose
+        showDragHandle
+        enableDragDismiss
+        dragMode="handle"
       >
         {isMobileViewport ? (
           <div className="team-invite-sheet p-5 space-y-4">
@@ -2367,17 +2732,7 @@ export default function BadAssTasks() {
   if (showLandingGate) {
     return (
       <>
-        <LandingPage onSignIn={() => setShowAuthModal(true)} isCheckingSession={false} />
-        <AuthModal
-          isOpen={showAuthModal}
-          onClose={() => setShowAuthModal(false)}
-          onSuccess={() => {
-            toast.success("Signed in", {
-              description: "Enter the verification code from your email.",
-              duration: 4000,
-            });
-          }}
-        />
+        <LandingPage onSignIn={() => router.push("/login")} isCheckingSession={false} />
       </>
     );
   }
@@ -2430,7 +2785,8 @@ export default function BadAssTasks() {
               </div>
             </div>
 
-            {/* Workspace Switcher — full-bleed second row on mobile */}
+            {/* Workspace Switcher — full-bleed second row on mobile; greeting sits to its right on home desktop */}
+            <div className="top-bar-workspace-row max-md:contents md:flex md:items-center md:gap-5 md:min-w-0 md:flex-1">
             <div ref={workspaceMenuRef} className="top-bar-workspace relative min-w-0 md:shrink-0">
             <button 
               onClick={() => {
@@ -2474,6 +2830,7 @@ export default function BadAssTasks() {
                     ref={workspaceNameRef}
                     workspaceId={currentWorkspace.id}
                     name={currentWorkspace.name}
+                    onAnimationComplete={scheduleFitWorkspaceName}
                     className="workspace-name-label workspace-header-name block w-full whitespace-nowrap text-center leading-tight"
                   />
                 </span>
@@ -2590,6 +2947,16 @@ export default function BadAssTasks() {
               )}
             </AnimatePresence>
             </div>
+
+            {currentView === "home" && user && (
+              <div className="top-bar-greeting hidden md:flex items-center min-w-0 flex-1 justify-end">
+                <span className="text-lg lg:text-xl font-semibold tracking-tight truncate text-text-primary">
+                  {getGreeting()}
+                  {homeUserDisplayName ? `, ${homeUserDisplayName}` : ""}
+                </span>
+              </div>
+            )}
+            </div>
           </div>
 
         <div className="top-bar-actions flex items-center gap-1.5 md:gap-3 text-sm shrink-0 flex-nowrap">
@@ -2601,7 +2968,6 @@ export default function BadAssTasks() {
                 setShowNotifications(next);
                 if (next) {
                   fetchNotifications?.(false).catch(() => {});
-                  refreshUnreadCount?.().catch(() => {});
                 }
               }}
               className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-surface-hover border border-border-glass relative transition"
@@ -2673,17 +3039,17 @@ export default function BadAssTasks() {
                     ) : notifications.length === 0 ? (
                       <div className="p-6 text-center text-text-muted text-xs">All clear. No notifications yet.<br />@mentions, comments &amp; invites will appear here.</div>
                     ) : (
-                      notifications.slice(0, 20).map((n: Notification) => (
+                      bellPanelNotifications.map((n: Notification) => (
                         <div
                           key={n.id}
                           onClick={() => {
-                            if (!n.readAt) markNotifRead?.(n.id);
+                            if (isBellUnread(n)) markNotifRead?.(n.id);
                             setSelectedNotification(n);
                             setShowNotifications(false);
                           }}
                           className={cn(
                             "px-3 py-2.5 rounded-xl m-1 cursor-pointer border border-border-glass bg-bg-panel hover:bg-bg-tertiary flex gap-2 transition-colors",
-                            !n.readAt && "bg-neon-purple/10 border-neon-purple/30"
+                            isBellUnread(n) && "bg-neon-purple/10 border-neon-purple/30"
                           )}
                         >
                           <div className="mt-0.5 text-neon-purple/80 shrink-0">
@@ -2699,23 +3065,29 @@ export default function BadAssTasks() {
                             <div className="text-[11px] text-text-secondary line-clamp-2">{n.message}</div>
                             <div className="text-[9px] text-text-muted mt-0.5">{new Date(n.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                           </div>
-                          {!n.readAt && <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPendingDeleteNotification(n.id);
-                            }}
-                            className="ml-1 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover"
-                            aria-label="Remove notification"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                          {isBellUnread(n) && (
+                            <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />
+                          )}
+                          {n.type !== "invite" && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleDismissNotification(n.id);
+                              }}
+                              className="ml-1 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover"
+                              aria-label="Remove notification"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                         </div>
                       ))
                     )}
                   </div>
                   <div className="notifications-panel__footer p-2 border-t border-border-glass bg-bg text-[10px] text-center text-text-muted">
-                    Timely • Non-intrusive • Powered by activity logs
+                    {bellUnreadOverflow > 0
+                      ? `+${bellUnreadOverflow} more unread not shown`
+                      : "Timely • Non-intrusive • Powered by activity logs"}
                   </div>
                 </motion.div>
                 </>
@@ -2797,18 +3169,18 @@ export default function BadAssTasks() {
             </div>
 
             <AnimatePresence>
-              {showProfilePopover && user && (
+              {showProfilePopover && user && !isMobileViewport && (
                 <motion.div
                   initial={{ opacity: 0, y: -6, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="profile-popover-panel absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-border-glass shadow-2xl overflow-hidden"
+                  className="profile-popover-panel absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-border-glass shadow-2xl overflow-hidden flex flex-col"
                   role="dialog"
                   aria-label="Your profile"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="px-4 py-3 border-b border-border-glass flex items-center justify-between gap-2">
+                  <div className="profile-popover-panel__header shrink-0 px-4 py-3 border-b border-border-glass flex items-center justify-between gap-2">
                     <h2 className="font-semibold text-sm tracking-tight text-text-primary">Your profile</h2>
                     <button
                       type="button"
@@ -2819,153 +3191,7 @@ export default function BadAssTasks() {
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  {(() => {
-                    const selfMember = members.find((m) => m.userId === user.id);
-                    const nameVal = profileFullName || selfMember?.fullName || myProfile?.fullName || "";
-                    const userVal = profileUsername || selfMember?.username || myProfile?.username || "";
-                    const locVal = profileLocation || selfMember?.location || myProfile?.location || "";
-                    const profileDisabled =
-                      isSavingProfile || !isLiveWorkspace || ["w1", "w2"].includes(currentWorkspace.id);
-
-                    const save = async () => {
-                      setIsSavingProfile(true);
-                      try {
-                        const ok = await updateMyProfile({
-                          fullName: profileFullName || undefined,
-                          username: profileUsername || undefined,
-                          location: profileLocation || undefined,
-                        });
-                        if (ok) {
-                          setProfileFullName("");
-                          setProfileUsername("");
-                          setProfileLocation("");
-                          setShowProfilePopover(false);
-                        }
-                      } finally {
-                        setIsSavingProfile(false);
-                      }
-                    };
-
-                    return (
-                      <div className="p-4 text-sm space-y-4">
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
-                              Signed in as
-                            </label>
-                            <p
-                              className="profile-popover-email px-3 py-2.5 text-sm rounded-xl min-h-[44px] bg-surface-hover border border-border-glass text-text-primary truncate"
-                              title={user.email ?? undefined}
-                            >
-                              {user.email || "No email on this account"}
-                            </p>
-                          </div>
-                          <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
-                              Full name
-                            </label>
-                            <input
-                              type="text"
-                              value={nameVal}
-                              onChange={(e) => setProfileFullName(e.target.value)}
-                              placeholder="Alex Rivera"
-                              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
-                              disabled={profileDisabled}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
-                              Username / handle
-                            </label>
-                            <div className="flex items-center gap-1">
-                              <span className="text-text-secondary px-2">@</span>
-                              <input
-                                type="text"
-                                value={userVal}
-                                onChange={(e) =>
-                                  setProfileUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-                                }
-                                placeholder="alexr"
-                                className="input flex-1 px-3 py-2.5 text-sm rounded-xl font-mono min-h-[44px]"
-                                disabled={profileDisabled}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
-                              Where you&apos;re from
-                            </label>
-                            <input
-                              type="text"
-                              value={locVal}
-                              onChange={(e) => setProfileLocation(e.target.value)}
-                              placeholder="San Francisco, CA or Remote"
-                              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
-                              disabled={profileDisabled}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="border-t border-border-glass pt-4">
-                          <ThemeToggle compact onThemeChange={() => setShowProfilePopover(false)} />
-                        </div>
-
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowProfilePopover(false)}
-                            className="btn btn-ghost flex-1 min-h-[44px]"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={save}
-                            disabled={profileDisabled}
-                            className="btn btn-primary flex-1 min-h-[44px] disabled:opacity-50"
-                          >
-                            {isSavingProfile ? "Saving..." : "Save"}
-                          </button>
-                        </div>
-                        {!isLiveWorkspace && (
-                          <p className="text-[10px] text-neon-purple text-center">Live connection required to save</p>
-                        )}
-                        {isSiteAdmin && (
-                          <div className="border-t border-border-glass pt-3 md:hidden">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowProfilePopover(false);
-                                setView("admin");
-                              }}
-                              className={cn(
-                                "w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium",
-                                currentView === "admin"
-                                  ? "text-neon-purple bg-neon-purple/10"
-                                  : "text-text-primary hover:bg-surface-hover",
-                              )}
-                            >
-                              <Shield className="h-4 w-4 text-neon-purple" />
-                              Admin
-                            </button>
-                          </div>
-                        )}
-                        <div className="border-t border-border-glass pt-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowProfilePopover(false);
-                              setPendingSignOut(true);
-                            }}
-                            className="profile-popover-sign-out w-full min-h-[44px] flex items-center justify-center gap-2 text-[var(--priority-p0)] hover:opacity-90 hover:bg-red-500/10 rounded-lg transition font-medium"
-                          >
-                            <LogOut className="h-4 w-4 text-[var(--priority-p0)]" />
-                            Log out
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {renderProfileEditorContent()}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -2973,13 +3199,13 @@ export default function BadAssTasks() {
           ) : (
             <>
               <button
-                onClick={() => setShowAuthModal(true)}
+                onClick={() => router.push("/login")}
                 className="btn btn-secondary text-xs px-4 py-2 hidden md:flex items-center gap-1.5 min-h-[44px]"
               >
                 <User className="h-3.5 w-3.5" /> Sign in
               </button>
               <button
-                onClick={() => setShowAuthModal(true)}
+                onClick={() => router.push("/login")}
                 className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 transition"
                 aria-label="Sign in"
               >
@@ -3044,7 +3270,7 @@ export default function BadAssTasks() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         <CollapsibleSidebar
           currentView={currentView as "home" | "tasks" | "notes" | "lists" | "teams" | "settings" | "admin"}
           onNavigate={(view) => setView(view as typeof currentView)}
@@ -3081,7 +3307,7 @@ export default function BadAssTasks() {
              - Stays visible across pages until action is taken.
           */}
           {user && pendingReceivedInvites.length > 0 && (
-            <div className="mb-6 border border-neon-purple/50 bg-neon-purple/10 rounded-2xl p-5 flex flex-col gap-4">
+            <div className="home-global-invite-banner mb-6 border border-neon-purple/50 bg-neon-purple/10 rounded-2xl p-5 flex flex-col gap-4">
               <div className="text-sm font-medium text-neon-purple">
                 You have pending workspace invitation{pendingReceivedInvites.length > 1 ? 's' : ''}.
               </div>
@@ -3234,6 +3460,7 @@ export default function BadAssTasks() {
               className={cn(
                 "bottom-nav-item relative z-[1]",
                 v.id === "home" && "bottom-nav-item--home",
+                v.id === "lists" && "bottom-nav-item--lists",
                 isActive && "active",
               )}
             >
@@ -3255,7 +3482,7 @@ export default function BadAssTasks() {
                     <FilesNavIndicator reviewCount={pendingReviewCount} variant="bottom" />
                   )}
                 </span>
-                <span className="font-medium tracking-tight">{label}</span>
+                <span className="bottom-nav-item__label font-medium tracking-tight">{label}</span>
               </AnimatedBottomNavItemContent>
             </div>
           );
@@ -3286,6 +3513,8 @@ export default function BadAssTasks() {
         workspaceTags={captureWorkspaceTags}
         isLive={isTrulyLive}
         onSubmit={handleCaptureFile}
+        onCreateDraftNote={handleCreateCaptureDraft}
+        onDeleteDraftNote={handleDeleteCaptureDraft}
       />
 
       {/* Confetti on completions */}
@@ -3293,21 +3522,6 @@ export default function BadAssTasks() {
 
       {/* Supabase connection helper (self-gating; only renders in !live demo mode) */}
       <SupabaseSetupBanner />
-
-      {/* Auth Modal */}
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={() => {
-          const live = isSupabaseConfigured();
-          toast.success(live ? "Synced with Supabase" : "Welcome back!", { 
-            description: live 
-              ? "You're now in LIVE mode. Data persists across devices & refreshes." 
-              : "Demo login complete. Add Supabase keys for the real experience.",
-            duration: 4000,
-          });
-        }}
-      />
 
       {selectedTask && (
         <TaskModal 
@@ -3333,6 +3547,7 @@ export default function BadAssTasks() {
         list={listDetailList}
         items={listDetailItems}
         isOpen={!!listDetailTarget && !!listDetailList}
+        focusAddItemOnOpen={!!listDetailTarget?.discardIfEmpty}
         onClose={closeListDetail}
         onUpdateList={(id, updates) => { void updateList(id, updates); }}
         onDeleteList={(id) => {
@@ -3343,7 +3558,7 @@ export default function BadAssTasks() {
         onAddItem={(listId, text, options) =>
           addListItem(listId, text, options).then((item) => item?.id ?? null)
         }
-        onToggleItem={(id) => { void toggleListItem(id); }}
+        onToggleItem={(id) => { void handleToggleListItem(id); }}
         onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
         onDeleteItem={(id) => { void deleteListItem(id); }}
         onReorderItems={reorderListItems}
@@ -3354,17 +3569,36 @@ export default function BadAssTasks() {
 
       {/* Note: rich detail is now inline inside renderNotesView() using TipTapEditor (legacy modal removed) */}
 
-      {/* Keyboard Cheatsheet - beautiful discoverable modal, keyboard-first (triggered by ? or palette) */}
-      {isKeyboardCheatsheetOpen && (
-        <div className="fixed inset-0 z-[110] flex items-end md:items-center justify-center p-4 md:p-4">
-          <div 
-            className="fixed inset-0 bg-black/80 backdrop-blur-md sheet-backdrop md:bg-black/70" 
-            onClick={() => toggleKeyboardCheatsheet(false)} 
-          />
-          <div className="relative w-full max-w-[720px] md:max-w-[720px] glass-strong modal-panel rounded-t-3xl md:rounded-3xl shadow-2xl border border-border-glass overflow-hidden mobile-bottom-sheet">
-            {/* Mobile drag handle (visual + native affordance; CSS hides/positions on desktop) */}
-            <div className="sheet-drag-handle md:hidden" aria-hidden="true" />
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border-glass">
+      {/* Profile menu — full mobile drawer, desktop popover in top bar */}
+      <BottomSheet
+        open={showProfilePopover && !!user && isMobileViewport}
+        onClose={() => setShowProfilePopover(false)}
+        title="Your profile"
+        zIndex={260}
+        panelClassName="glass modal-panel profile-popover-panel profile-popover-drawer"
+        mobileLayout="sheet"
+        showClose
+        showDragHandle
+        enableDragDismiss
+        dragMode="handle"
+      >
+        {renderProfileEditorContent()}
+      </BottomSheet>
+
+      {/* Keyboard Cheatsheet - full mobile drawer, centered dialog on desktop */}
+      <BottomSheet
+        open={isKeyboardCheatsheetOpen}
+        onClose={() => toggleKeyboardCheatsheet(false)}
+        zIndex={110}
+        showClose={false}
+        showDragHandle
+        enableDragDismiss
+        dragMode="handle"
+        desktopMaxWidth="max-w-[720px]"
+        panelClassName="glass-strong modal-panel shadow-2xl"
+        ariaLabel="Keyboard shortcuts"
+      >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border-glass shrink-0">
               <div className="flex items-center gap-3">
                 <div className="text-neon-purple"><Command className="h-5 w-5" /></div>
                 <div>
@@ -3427,18 +3661,17 @@ export default function BadAssTasks() {
               ))}
             </div>
 
-            <div className="px-6 py-3.5 bg-black/30 text-[11px] text-text-muted border-t border-border-glass flex items-center justify-between">
+            <div className="px-6 py-3.5 bg-black/30 text-[11px] text-text-muted border-t border-border-glass flex items-center justify-between shrink-0">
               <div>Pro tip: Open palette with ⌘K and type ΓÇ£workspaceΓÇ¥, ΓÇ£noteΓÇ¥, or a task name to jump instantly.</div>
               <div className="font-mono text-neon-purple">Badazz Tasks</div>
             </div>
-          </div>
-        </div>
-      )}
+      </BottomSheet>
 
       <NotificationDetailModal
         notification={selectedNotification}
         onClose={() => setSelectedNotification(null)}
         onMarkRead={markNotifRead}
+        onDismiss={handleDismissNotification}
         onViewChange={setView}
         onOpenNote={setSelectedNoteId}
       />
@@ -3499,16 +3732,6 @@ export default function BadAssTasks() {
         confirmText="Leave workspace"
         variant="destructive"
         onConfirm={handleConfirmLeaveWorkspace}
-      />
-
-      <ConfirmationModal
-        open={!!pendingDeleteNotification}
-        onOpenChange={(open) => !open && setPendingDeleteNotification(null)}
-        title="Delete notification?"
-        description="This notification will be permanently removed from your inbox."
-        confirmText="Delete"
-        variant="destructive"
-        onConfirm={handleConfirmDeleteNotification}
       />
 
       <ConfirmationModal

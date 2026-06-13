@@ -5,8 +5,12 @@ import { Link as LinkIcon, X, Plus, Calendar, Repeat, Check, Loader2 } from "luc
 import { Note, Task } from "@/types";
 import { cn, formatDueDate, getRecurringLabel } from "@/lib/utils";
 import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
+import { TASK_ASSIGNEE_ALL_LABEL } from "@/lib/assignee";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { TaskRow } from "@/features/tasks/components/TaskRow";
+import { TaskFolderPicker } from "@/features/tasks/components/TaskFolderPicker";
+import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
+import { useTaskStore } from "@/store/useTaskStore";
 
 interface LinkedTasksPanelProps {
   selectedNote: Note;
@@ -20,6 +24,8 @@ interface LinkedTasksPanelProps {
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>;
   /** Mobile drawer layout */
   compact?: boolean;
+  /** Nested inside a modal card — drop outer chrome padding/border */
+  embedded?: boolean;
   /** File preview: TaskRow list with complete toggle only (no link/unlink/create). */
   previewMode?: boolean;
 }
@@ -38,12 +44,15 @@ export function LinkedTasksPanel({
   onToggleTaskComplete,
   onCreateTaskAndLink,
   compact = false,
+  embedded = false,
   previewMode = false,
 }: LinkedTasksPanelProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [pendingUnlink, setPendingUnlink] = useState<Task | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const { getTaskFolders, toggleTaskStarred, setTaskFolder } = useTaskStore();
+  const folders = getTaskFolders();
 
   const linkedTaskIds = selectedNote.linkedTaskIds || [];
   const linkedTasks = linkedTaskIds
@@ -95,11 +104,15 @@ export function LinkedTasksPanel({
   return (
     <div
       className={cn(
-        "linked-tasks-panel border-t",
+        "linked-tasks-panel",
+        !embedded && "border-t",
         previewMode
           ? "linked-tasks-panel--preview border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)] px-4 md:px-6 py-4"
-          : "border-border-glass bg-bg/50",
-        compact ? "px-0 py-3" : !previewMode && "px-4 md:px-6 py-3",
+          : embedded
+            ? "border-0 bg-transparent"
+            : "border-border-glass border-t bg-bg/50",
+        compact ? "px-0 py-3" : !previewMode && !embedded && "px-4 md:px-6 py-3",
+        embedded && !compact && "px-3 py-3 sm:px-4",
       )}
       onDoubleClick={previewMode ? (e) => e.stopPropagation() : undefined}
     >
@@ -112,8 +125,8 @@ export function LinkedTasksPanel({
               : "text-text-muted",
           )}
         >
-          <LinkIcon className="h-3.5 w-3.5" />
-          LINKED TASKS
+          <LinkIcon className="h-3.5 w-3.5 shrink-0" />
+          Linked tasks
         </div>
         {!compact && (
           <div
@@ -131,22 +144,30 @@ export function LinkedTasksPanel({
         {linkedTasks.length === 0 ? (
           <div className="text-[11px] text-text-muted italic py-1">No tasks linked yet</div>
         ) : useTaskRows ? (
-          linkedTasks.map((task) => {
-            const due = formatDueDate(task.dueDate ?? undefined);
-            const isDone = task.status === "done";
-            return (
-              <TaskRow
-                key={task.id}
-                task={task}
-                isDone={isDone}
-                isOpLoading={togglingId === task.id}
-                due={due}
-                showAssignee
-                onOpen={() => onOpenTask?.(task.id)}
-                onComplete={() => void handleToggleComplete(task)}
-              />
-            );
-          })
+          <div className="tasks-root min-w-0">
+            {linkedTasks.map((task) => {
+              const due = formatDueDate(task.dueDate ?? undefined);
+              const isDone = task.status === "done";
+              return (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  isDone={isDone}
+                  isOpLoading={togglingId === task.id}
+                  due={due}
+                  showAssignee
+                  onOpen={() => onOpenTask?.(task.id)}
+                  onComplete={() => void handleToggleComplete(task)}
+                  onSwipeComplete={
+                    onToggleTaskComplete
+                      ? () => void handleToggleComplete(task)
+                      : undefined
+                  }
+                  showOrganize
+                />
+              );
+            })}
+          </div>
         ) : (
           linkedTasks.map((task) => {
             const due = formatDueDate(task.dueDate ?? undefined);
@@ -164,15 +185,19 @@ export function LinkedTasksPanel({
                   isDone ? "bg-surface-overlay opacity-80" : "bg-surface-hover hover:bg-bg-tertiary",
                 )}
               >
+                <TaskStarButton
+                  size="sm"
+                  starred={!!task.starred}
+                  disabled={isToggling}
+                  onToggle={() => void toggleTaskStarred(task.id)}
+                />
                 <button
                   type="button"
                   onClick={() => void handleToggleComplete(task)}
                   disabled={!onToggleTaskComplete || isToggling}
                   className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 disabled:opacity-60",
-                    isDone
-                      ? "bg-neon-green border-neon-purple text-accent-on"
-                      : "border-border hover:border-neon-purple group-hover:border-neon-purple/70",
+                    "task-complete-btn task-complete-btn--linked",
+                    isDone && "is-done",
                   )}
                   aria-label={
                     isDone
@@ -186,7 +211,7 @@ export function LinkedTasksPanel({
                   {isToggling ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : isDone ? (
-                    <Check className="h-3.5 w-3.5" />
+                    <Check className="task-complete-btn__icon stroke-[3]" />
                   ) : null}
                 </button>
 
@@ -207,13 +232,19 @@ export function LinkedTasksPanel({
                     {task.title}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    {task.assignee ? (
-                      <TaskAssigneeBadge label={task.assignee} />
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-border-glass bg-surface-overlay px-2 py-0.5 text-[10px] text-text-muted">
-                        Unassigned
-                      </span>
-                    )}
+                    {folders.length > 0 ? (
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <TaskFolderPicker
+                          compact
+                          folders={folders}
+                          value={task.folderId}
+                          disabled={isToggling}
+                          className="max-w-[9rem]"
+                          onChange={(folderId) => void setTaskFolder(task.id, folderId)}
+                        />
+                      </div>
+                    ) : null}
+                    <TaskAssigneeBadge label={task.assignee || TASK_ASSIGNEE_ALL_LABEL} />
                     {due && (
                       <span
                         className={cn(
@@ -262,7 +293,10 @@ export function LinkedTasksPanel({
       {!previewMode && (
       <div className={cn("flex flex-col", compact ? "gap-2" : "gap-2")}>
         <select
-          className="w-full text-sm bg-bg-secondary border border-border-glass rounded-lg px-3 py-2 focus:outline-none focus:border-neon-purple/50 focus:ring-1 focus:ring-neon-purple/30 touch-manipulation"
+          className={cn(
+            "w-full text-sm bg-bg-secondary border border-border-glass rounded-xl px-3 focus:outline-none focus:border-neon-purple/50 focus:ring-1 focus:ring-neon-purple/30 touch-manipulation",
+            compact ? "min-h-[44px] py-2.5" : "rounded-lg py-2",
+          )}
           onChange={async (e) => {
             const taskId = e.target.value;
             if (taskId) {
@@ -284,30 +318,38 @@ export function LinkedTasksPanel({
         </select>
 
         {compact ? (
-          <div className="space-y-2">
+          <div className="linked-tasks-panel__mobile-create space-y-2">
             <input
               type="text"
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Create new task for this note…"
-              className="input w-full text-sm px-3 py-2.5 rounded-xl min-h-0"
+              placeholder="Create a task to link…"
+              className="input w-full text-base sm:text-sm px-3 py-2.5 rounded-xl min-h-[44px]"
               disabled={isCreating || !onCreateTaskAndLink}
               aria-label="New task title"
             />
-            {newTaskTitle.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void handleCreateTask()}
-                disabled={!canAdd || isCreating || !onCreateTaskAndLink}
-                className={cn(
-                  "w-full rounded-xl text-sm font-medium px-4 py-2.5 transition",
-                  canAdd && !isCreating ? "btn btn-primary" : "btn btn-secondary opacity-45",
-                )}
-              >
-                {isCreating ? "Adding…" : "Add"}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => void handleCreateTask()}
+              disabled={!canAdd || isCreating || !onCreateTaskAndLink}
+              className={cn(
+                "w-full rounded-xl text-sm font-semibold px-4 py-2.5 min-h-[44px] transition flex items-center justify-center gap-1.5",
+                canAdd && !isCreating ? "btn btn-primary" : "btn btn-secondary opacity-45",
+              )}
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Adding…
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Add task
+                </>
+              )}
+            </button>
           </div>
         ) : (
           <>

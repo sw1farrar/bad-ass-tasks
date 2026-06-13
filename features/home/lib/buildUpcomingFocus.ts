@@ -145,6 +145,31 @@ export function pickDueAttentionTasksFromWorkspace(
     .map((t) => ({ task: t, workspaceId, workspaceName }));
 }
 
+/** All incomplete tasks for a workspace — used by home tiles (any due date). */
+export function pickAllOpenTasksFromWorkspace(
+  tasks: Task[],
+  workspaceId: string,
+  workspaceName: string,
+): HomeFocusItem[] {
+  return tasks
+    .filter((t) => t.status !== "done")
+    .map((t) => ({ task: t, workspaceId, workspaceName }));
+}
+
+function homeTileDueTime(item: HomeFocusItem): number {
+  return parseLocalDate(item.task.dueDate || "")?.getTime() ?? Number.MAX_SAFE_INTEGER;
+}
+
+/** Oldest due date first; undated tasks last. */
+export function sortHomeTileTasksChronologically(items: HomeFocusItem[]): HomeFocusItem[] {
+  return [...items].sort((a, b) => {
+    const aDue = homeTileDueTime(a);
+    const bDue = homeTileDueTime(b);
+    if (aDue !== bDue) return aDue - bDue;
+    return a.task.title.localeCompare(b.task.title, undefined, { sensitivity: "base" });
+  });
+}
+
 /** @deprecated Use pickDueAttentionTasksFromWorkspace */
 export const pickOpenTasksFromWorkspace = pickDueAttentionTasksFromWorkspace;
 

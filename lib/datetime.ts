@@ -146,6 +146,16 @@ export function formatLocalDateShort(input: string): string {
   return safeFormatDate(d, "MMM d");
 }
 
+/** Default due date for newly created tasks (local today, stored ISO). */
+export function defaultTaskDueDate(reference: Date = startOfLocalToday()): string {
+  return toDueDateStorage(reference);
+}
+
+/** Default due date for DateTimePicker value props (YYYY-MM-DD). */
+export function defaultTaskDueDateInput(reference: Date = startOfLocalToday()): string {
+  return toLocalDateString(reference);
+}
+
 /** Parse YYYY-MM-DD user input into stored due-date ISO. */
 export function dueDateFromUserInput(yyyyMmDd: string): string | null {
   const trimmed = yyyyMmDd.trim();

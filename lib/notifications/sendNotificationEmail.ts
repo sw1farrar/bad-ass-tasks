@@ -1,7 +1,6 @@
-import { getBrevoConfig } from "@/lib/brevo/config";
+import { getBrevoConfig, isBrevoConfigured } from "@/lib/brevo/config";
 import { sendBrevoTransactionalEmail } from "@/lib/brevo/sendBrevoTransactional";
 import { escapeHtml } from "@/lib/brevo/emailUtils";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
 import type { NotificationType } from "@/types";
 
 const TYPE_LABELS: Record<NotificationType, string> = {
@@ -11,6 +10,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   task_assigned: "Task assigned",
   deadline: "Due date reminder",
   activity: "Workspace activity",
+  inbound_file: "File received by email",
 };
 
 const TYPE_TAGS: Record<NotificationType, string> = {
@@ -20,6 +20,7 @@ const TYPE_TAGS: Record<NotificationType, string> = {
   task_assigned: "notification-assignment",
   deadline: "notification-deadline",
   activity: "notification-activity",
+  inbound_file: "notification-inbound-file",
 };
 
 function buildAppLink(link?: string): string {
@@ -35,7 +36,7 @@ export async function sendNotificationEmail(
   type: NotificationType,
   data: { title: string; message: string; workspaceName?: string; link?: string; actor?: string },
 ): Promise<boolean> {
-  if (!isSupabaseConfigured() || !toEmail) return false;
+  if (!isBrevoConfigured() || !toEmail) return false;
 
   const appLink = buildAppLink(data.link);
   const workspaceLine = data.workspaceName

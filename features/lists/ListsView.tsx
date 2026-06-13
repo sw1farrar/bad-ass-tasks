@@ -1,20 +1,24 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { areWorkspaceListTablesReady, ensureWorkspaceListPersistenceReady } from "@/lib/data/hybridStore";
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   closestCenter,
   closestCorners,
   pointerWithin,
   type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  arrayMove,
   rectSortingStrategy,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -29,15 +33,27 @@ import {
 } from "./lib/listsDesktopLayout";
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import type { ListItem, WorkspaceList } from "@/types";
+
+export type ListDetailOpenOptions = {
+  discardIfEmpty?: boolean;
+};
 import { ListCard, SortableListCard, type ListDragSlotSize } from "./components/ListCard";
-import { useListDndSensors } from "./dndConfig";
+import {
+  getMobileListAutoScrollOptions,
+  getStackListAutoScrollOptions,
+  LIST_DRAG_DROP_ANIMATION,
+  restrictToVerticalAxis,
+  useListDndSensors,
+} from "./dndConfig";
+import { applyListDragEdgeScroll } from "./lib/listDragAutoScroll";
+import { resolveListReorderAfterDrag } from "./lib/listDragReorder";
 import "./lists-workspace.css";
 
 interface ListsViewProps {
   workspaceName: string;
   lists: WorkspaceList[];
   getItemsForList: (listId: string) => ListItem[];
-  onAddList: (title?: string) => void | Promise<void>;
+  onAddList: (title?: string) => WorkspaceList | Promise<WorkspaceList | void> | void;
   onUpdateList: (id: string, updates: Partial<WorkspaceList>) => void;
   onDeleteList: (id: string) => void;
   onTogglePinned: (id: string) => void;
@@ -51,7 +67,7 @@ interface ListsViewProps {
   onOutdentItem: (id: string) => void;
   onClearCompleted: (listId: string) => void;
   highlightListId?: string | null;
-  onOpenDetail: (listId: string) => void;
+  onOpenDetail: (listId: string, options?: ListDetailOpenOptions) => void;
 }
 
 export function ListsView({
@@ -78,17 +94,61 @@ export function ListsView({
   const [newListTitle, setNewListTitle] = useState("");
   const [listsDbReady, setListsDbReady] = useState<boolean | null>(null);
   const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [dragLists, setDragLists] = useState<WorkspaceList[] | null>(null);
   const [dragSlotSize, setDragSlotSize] = useState<ListDragSlotSize | null>(null);
   const [desktopLayout, setDesktopLayout] = useState<ListsDesktopLayout>("grid");
   const isMobileViewport = useIsMobileViewport();
-  const sensors = useListDndSensors();
-  const listIds = useMemo(() => lists.map((l) => l.id), [lists]);
+  const sensors = useListDndSensors({ isMobile: isMobileViewport });
+  const boardLists = dragLists ?? lists;
+  const listIds = useMemo(() => boardLists.map((l) => l.id), [boardLists]);
   const isStackLayout = isMobileViewport || desktopLayout === "stack";
   const listSortStrategy = isStackLayout ? verticalListSortingStrategy : rectSortingStrategy;
   const activeList = useMemo(
     () => (activeListId ? lists.find((l) => l.id === activeListId) : undefined),
     [activeListId, lists],
   );
+  const dragPointerYRef = useRef<number | null>(null);
+  const dragScrollRafRef = useRef<number | null>(null);
+  const isListDraggingRef = useRef(false);
+
+  const stopMobileDragEdgeScroll = useCallback(() => {
+    isListDraggingRef.current = false;
+    if (dragScrollRafRef.current != null) {
+      cancelAnimationFrame(dragScrollRafRef.current);
+      dragScrollRafRef.current = null;
+    }
+    dragPointerYRef.current = null;
+  }, []);
+
+  const mobileDragEdgeScrollTick = useCallback(() => {
+    const pointerY = dragPointerYRef.current;
+    if (pointerY != null && isListDraggingRef.current) {
+      applyListDragEdgeScroll(pointerY);
+    }
+    dragScrollRafRef.current = requestAnimationFrame(mobileDragEdgeScrollTick);
+  }, []);
+
+  const startMobileDragEdgeScroll = useCallback(() => {
+    stopMobileDragEdgeScroll();
+    dragScrollRafRef.current = requestAnimationFrame(mobileDragEdgeScrollTick);
+  }, [mobileDragEdgeScrollTick, stopMobileDragEdgeScroll]);
+
+  useEffect(() => {
+    return () => stopMobileDragEdgeScroll();
+  }, [stopMobileDragEdgeScroll]);
+
+  useEffect(() => {
+    if (!activeListId || !isMobileViewport) return;
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (touch) dragPointerYRef.current = touch.clientY;
+    };
+
+    document.addEventListener("touchmove", handleTouchMove, { passive: true });
+    return () => document.removeEventListener("touchmove", handleTouchMove);
+  }, [activeListId, isMobileViewport]);
+
   useEffect(() => {
     if (!highlightListId) return;
     const timer = window.setTimeout(() => {
@@ -112,11 +172,15 @@ export function ListsView({
     });
   }, []);
 
-  /** Stack: pointer-first for vertical reorder. Grid: pointer hit first, then corners. */
+  /** Stack/mobile: center-based targeting is stable for vertical reorder. Grid: pointer hit first. */
   const listCollisionDetection: CollisionDetection = (args) => {
+    if (isStackLayout) {
+      const centerHits = closestCenter(args);
+      if (centerHits.length > 0) return centerHits;
+      return pointerWithin(args);
+    }
     const within = pointerWithin(args);
     if (within.length > 0) return within;
-    if (isStackLayout) return closestCenter(args);
     return closestCorners(args);
   };
 
@@ -133,20 +197,38 @@ export function ListsView({
 
   const handleCreateList = async () => {
     const trimmed = newListTitle.trim();
-    await onAddList(trimmed || "Untitled list");
+    const created = await onAddList(trimmed || "Untitled list");
     setNewListTitle("");
     setComposerOpen(false);
+    if (created?.id) {
+      onOpenDetail(created.id, { discardIfEmpty: true });
+    }
   };
 
-  const newListButton = (
+  const openListComposer = () => {
+    setComposerOpen(true);
+    requestAnimationFrame(() => {
+      document.getElementById("list-composer-input")?.focus();
+    });
+  };
+
+  const showListComposer = isMobileViewport
+    ? composerOpen
+    : composerOpen || lists.length === 0;
+
+  const newListButton = isMobileViewport ? (
     <button
       type="button"
-      onClick={() => {
-        setComposerOpen(true);
-        setTimeout(() => {
-          document.getElementById("list-composer-input")?.focus();
-        }, 0);
-      }}
+      onClick={openListComposer}
+      className="lists-new-list-btn lists-new-list-btn--icon btn btn-primary inline-flex items-center justify-center rounded-xl transition active:scale-95"
+      aria-label="New list"
+    >
+      <Plus className="h-5 w-5" aria-hidden />
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={openListComposer}
       className="lists-new-list-btn btn btn-primary inline-flex items-center gap-2 self-start rounded-xl px-4 py-2 text-sm font-medium transition"
     >
       <Plus className="h-4 w-4" aria-hidden />
@@ -190,52 +272,87 @@ export function ListsView({
   ) : null;
 
   const handleListDragStart = (event: DragStartEvent) => {
+    isListDraggingRef.current = true;
     setActiveListId(String(event.active.id));
+    setDragLists([...lists]);
     const rect = event.active.rect.current.initial ?? event.active.rect.current.translated;
     if (rect) {
       setDragSlotSize({ width: rect.width, height: rect.height });
+      dragPointerYRef.current = rect.top + rect.height * 0.35;
     } else {
       setDragSlotSize(null);
+      dragPointerYRef.current = null;
+    }
+    if (isMobileViewport) startMobileDragEdgeScroll();
+  };
+
+  const handleListDragMove = (event: DragMoveEvent) => {
+    if (!isMobileViewport) return;
+    const translated = event.active.rect.current.translated;
+    if (translated) {
+      dragPointerYRef.current = translated.top + translated.height * 0.35;
     }
   };
 
-  const handleListDragEnd = (event: DragEndEvent) => {
+  const handleListDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
-    setActiveListId(null);
-    setDragSlotSize(null);
     if (!over || active.id === over.id) return;
-    onReorderLists(String(active.id), String(over.id));
+
+    setDragLists((current) => {
+      const items = current ?? lists;
+      const oldIndex = items.findIndex((list) => list.id === active.id);
+      const newIndex = items.findIndex((list) => list.id === over.id);
+      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return items;
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  };
+
+  const handleListDragEnd = (event: DragEndEvent) => {
+    const activeId = String(event.active.id);
+    const finalLists = dragLists ?? lists;
+    const finalOrderIds = finalLists.map((list) => list.id);
+    const { shouldReorder, overId } = resolveListReorderAfterDrag(lists, finalOrderIds, activeId);
+
+    setActiveListId(null);
+    setDragLists(null);
+    setDragSlotSize(null);
+    stopMobileDragEdgeScroll();
+
+    if (!shouldReorder || !overId) return;
+    onReorderLists(activeId, overId);
     if (isMobileViewport) triggerHaptic("light");
   };
 
   const handleListDragCancel = () => {
     setActiveListId(null);
+    setDragLists(null);
     setDragSlotSize(null);
+    stopMobileDragEdgeScroll();
   };
 
   return (
     <div className="lists-workspace w-full max-w-[1400px] mx-auto max-md:max-w-none max-md:mx-0">
       <div className="lists-workspace-header">
       <WorkspaceViewHeader
-        variant={isMobileViewport ? "inline-centered" : "inline"}
+        variant="inline"
         title="Lists"
         workspaceName={workspaceName}
         hideWorkspaceLabelOnMobile
         hideWorkspaceNameOnMobile
         hideMetaOnMobile
-        icon={<ListChecks className="h-6 w-6" />}
+        icon={<ListChecks className={isMobileViewport ? "h-5 w-5" : "h-6 w-6"} />}
         description={
-          lists.length === 0
+          !isMobileViewport && lists.length === 0
             ? "Quick checklists for groceries, launches, ideas — drag to reorder anytime."
             : undefined
         }
         meta={
-          lists.length > 0
+          !isMobileViewport && lists.length > 0
             ? `${lists.length} list${lists.length === 1 ? "" : "s"} · ${totalOpen} open item${totalOpen === 1 ? "" : "s"}`
             : undefined
         }
         className="mb-0"
-        actions={isMobileViewport ? newListButton : undefined}
+        actions={!isMobileViewport ? newListButton : undefined}
       />
 
       {!isMobileViewport && (
@@ -254,36 +371,91 @@ export function ListsView({
         </div>
       )}
 
-      {(composerOpen || lists.length === 0) && (
-        <div className="list-composer mb-6 px-4 py-3">
-          <input
-            id="list-composer-input"
-            value={newListTitle}
-            onChange={(e) => setNewListTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void handleCreateList();
-              }
-              if (e.key === "Escape") {
-                setComposerOpen(false);
-                setNewListTitle("");
-              }
-            }}
-            onBlur={() => {
-              if (newListTitle.trim()) void handleCreateList();
-              else if (lists.length > 0) setComposerOpen(false);
-            }}
-            placeholder="Title"
-            className="w-full bg-transparent text-[15px] font-medium text-text-primary outline-none placeholder:text-text-faint"
-            aria-label="New list title"
-          />
-          <p className="text-[11px] text-text-faint mt-2">Press Enter to create · drag cards to reorder</p>
+      {showListComposer && (
+        <div
+          className={cn(
+            "list-composer px-4 py-3",
+            isMobileViewport ? "lists-composer-sheet list-composer--mobile mb-3" : "mb-6",
+          )}
+        >
+          <div
+            className={cn(
+              "list-composer-body flex items-center gap-2",
+              isMobileViewport && "list-composer-field flex-col items-stretch",
+            )}
+          >
+            {isMobileViewport && (
+              <div className="list-composer-input-row flex min-h-[3rem] items-center gap-2.5">
+                <span className="list-composer-icon" aria-hidden>
+                  <Plus className="h-4 w-4" strokeWidth={2.5} />
+                </span>
+                <input
+                  id="list-composer-input"
+                  value={newListTitle}
+                  onChange={(e) => setNewListTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleCreateList();
+                    }
+                    if (e.key === "Escape") {
+                      setComposerOpen(false);
+                      setNewListTitle("");
+                    }
+                  }}
+                  placeholder="Title"
+                  enterKeyHint="done"
+                  className="list-composer-input min-w-0 flex-1 bg-transparent text-base font-medium text-text-primary outline-none placeholder:text-text-faint"
+                  aria-label="New list title"
+                />
+              </div>
+            )}
+            {!isMobileViewport && (
+              <input
+                id="list-composer-input"
+                value={newListTitle}
+                onChange={(e) => setNewListTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleCreateList();
+                  }
+                  if (e.key === "Escape") {
+                    setComposerOpen(false);
+                    setNewListTitle("");
+                  }
+                }}
+                onBlur={() => {
+                  if (newListTitle.trim()) void handleCreateList();
+                  else if (lists.length > 0) setComposerOpen(false);
+                }}
+                placeholder="Title"
+                enterKeyHint="done"
+                className="list-composer-input w-full bg-transparent text-[15px] font-medium text-text-primary outline-none placeholder:text-text-faint"
+                aria-label="New list title"
+              />
+            )}
+            {isMobileViewport && (
+              <button
+                type="button"
+                onClick={() => void handleCreateList()}
+                disabled={!newListTitle.trim()}
+                className="list-composer-create-btn btn btn-primary min-h-[44px] rounded-xl px-4 text-sm font-medium disabled:opacity-40"
+              >
+                Create list
+              </button>
+            )}
+          </div>
+          {!isMobileViewport && (
+            <p className="text-[11px] text-text-faint mt-2">
+              Press Enter to create · drag cards to reorder
+            </p>
+          )}
         </div>
       )}
       </div>
 
-      {lists.length === 0 ? (
+      {lists.length === 0 && !composerOpen ? (
         <div className="glass rounded-2xl border border-border-glass p-10 text-center">
           <ListChecks className="h-10 w-10 text-neon-purple/60 mx-auto mb-3" />
           <div className="text-lg font-medium text-text-primary">Your lists live here</div>
@@ -295,7 +467,20 @@ export function ListsView({
         <DndContext
           sensors={sensors}
           collisionDetection={listCollisionDetection}
+          modifiers={isStackLayout ? [restrictToVerticalAxis] : undefined}
+          measuring={{
+            droppable: { strategy: MeasuringStrategy.Always },
+          }}
+          autoScroll={
+            isStackLayout
+              ? isMobileViewport
+                ? getMobileListAutoScrollOptions()
+                : getStackListAutoScrollOptions()
+              : true
+          }
           onDragStart={handleListDragStart}
+          onDragMove={handleListDragMove}
+          onDragOver={handleListDragOver}
           onDragEnd={handleListDragEnd}
           onDragCancel={handleListDragCancel}
         >
@@ -310,10 +495,11 @@ export function ListsView({
                 activeListId && "lists-board--dragging",
               )}
             >
-              {lists.map((list) => (
+              {boardLists.map((list) => (
                 <SortableListCard
                   key={list.id}
                   id={list.id}
+                  layoutMode={isStackLayout ? "stack" : "grid"}
                   dragSlotSize={activeListId === list.id ? dragSlotSize : null}
                   list={list}
                   items={getItemsForList(list.id)}
@@ -334,7 +520,7 @@ export function ListsView({
               ))}
             </div>
           </SortableContext>
-          <DragOverlay adjustScale={false} dropAnimation={null}>
+          <DragOverlay adjustScale={false} dropAnimation={LIST_DRAG_DROP_ANIMATION}>
             {activeList ? (
               <div
                 className="list-card-drag-overlay"
@@ -365,6 +551,16 @@ export function ListsView({
         </DndContext>
       )}
 
+      {isMobileViewport && (
+        <button
+          type="button"
+          onClick={openListComposer}
+          className="lists-fab fab md:hidden"
+          aria-label="New list"
+        >
+          <Plus className="h-6 w-6" strokeWidth={2.5} aria-hidden />
+        </button>
+      )}
     </div>
   );
 }

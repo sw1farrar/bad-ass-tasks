@@ -1,14 +1,17 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Loader2, Plus, Search } from "lucide-react";
+import { format } from "date-fns";
+import { Loader2, Pencil, Plus, Search } from "lucide-react";
+import { FileBookmarkButton } from "./components/FileBookmarkButton";
+import { toast } from "sonner";
 import { NotesView } from "@/features/notes/NotesView";
-import type { Note, FileRecordType } from "@/types";
+import type { Note, FileRecordType, WorkspaceMember } from "@/types";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { cn } from "@/lib/utils";
 import {
   collectWorkspaceTags,
-  filterByAllTags,
+  countBookmarkedFiles,
   filterFiledNotes,
   filterPendingReview,
   isPendingReview,
@@ -17,7 +20,18 @@ import {
 import type { FilesSearchScope } from "@/lib/files/searchFilesInWorkspace";
 import { useTaskStore } from "@/store/useTaskStore";
 import { useFilesSearch } from "./hooks/useFilesSearch";
-import { TagRail, type FilesBrowseFilter } from "./components/TagRail";
+import { TagRail } from "./components/TagRail";
+import {
+  DEFAULT_FILES_BROWSE_FILTER,
+  filterSearchResultsForBrowse,
+  listFilesForBrowseFilter,
+  setFilesLibrary,
+  setFilesTagFilter,
+  toggleFilesBookmarksOnly,
+  getSelectedFilterTags,
+  isReviewLibrary,
+  type FilesBrowseFilter,
+} from "@/lib/files/filesBrowseFilter";
 import { TagMultiSelect } from "./components/TagMultiSelect";
 import { FileStream } from "./components/FileStream";
 import { ReviewPanel } from "./components/ReviewPanel";
@@ -32,9 +46,15 @@ import {
 import { useNoteAttachmentCounts } from "@/features/notes/hooks";
 import { patchNoteAttachmentCount } from "@/features/notes/hooks/useNoteAttachmentCounts";
 import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
+import { buildPhotoNoteContent } from "@/lib/notes/buildPhotoNoteContent";
 import { prefetchNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { MobileAddNoteChoiceSheet } from "./components/MobileAddNoteChoiceSheet";
+import { MobilePhotoCaptureFlow } from "./components/MobilePhotoCaptureFlow";
+import { ReceiptItemsModal } from "./components/ReceiptItemsModal";
 import "./files-workspace.css";
+
+const EMPTY_NOTE_DOC = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
 
 type FilesViewProps = Omit<React.ComponentProps<typeof NotesView>, "workspaceId"> & {
   workspaceId: string;
@@ -50,6 +70,8 @@ type FilesViewProps = Omit<React.ComponentProps<typeof NotesView>, "workspaceId"
   onOpenReviewNoteConsumed?: () => void;
   /** Open the capture modal instead of instant blank file. */
   onOpenCapture?: () => void;
+  members?: WorkspaceMember[];
+  currentUserId?: string;
 };
 
 export function FilesView({
@@ -62,6 +84,8 @@ export function FilesView({
   openReviewNoteIdOnMount,
   onOpenReviewNoteConsumed,
   onOpenCapture,
+  members,
+  currentUserId,
   ...notesProps
 }: FilesViewProps) {
   const isMobile = useIsMobileViewport();
@@ -72,19 +96,24 @@ export function FilesView({
 
   const pendingFiles = useMemo(() => sortFiledNotes(filterPendingReview(notes)), [notes]);
   const filedFiles = useMemo(() => sortFiledNotes(filterFiledNotes(notes)), [notes]);
+  const bookmarkCount = useMemo(() => countBookmarkedFiles(notes), [notes]);
   const workspaceTags = useMemo(
     () => collectWorkspaceTags([...filedFiles, ...pendingFiles]),
     [filedFiles, pendingFiles],
   );
 
-  const [filter, setFilter] = useState<FilesBrowseFilter>({ kind: "all" });
+  const [filter, setFilter] = useState<FilesBrowseFilter>(DEFAULT_FILES_BROWSE_FILTER);
   const filterChosenByUser = useRef(false);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
   const [reviewPaused, setReviewPaused] = useState(false);
   const [fileEditorNote, setFileEditorNote] = useState<Note | null>(null);
+  const [photoCaptureOpen, setPhotoCaptureOpen] = useState(false);
+  const [addNoteChoiceOpen, setAddNoteChoiceOpen] = useState(false);
+  const [receiptLedgerOpen, setReceiptLedgerOpen] = useState(false);
   const hydrateNoteDetail = useTaskStore((s) => s.hydrateNoteDetail);
+  const addNote = useTaskStore((s) => s.addNote);
 
-  const searchScope: FilesSearchScope = filter.kind === "review" ? "review" : "filed";
+  const searchScope: FilesSearchScope = isReviewLibrary(filter) ? "review" : "filed";
 
   const {
     searchQuery,
@@ -103,7 +132,13 @@ export function FilesView({
     counts: attachmentCounts,
     loading: attachmentCountsLoading,
     setNoteCount,
+    refresh: refreshAttachmentCounts,
   } = useNoteAttachmentCounts(workspaceId);
+
+  const notesAttachmentRefreshKey = useMemo(
+    () => notes.map((n) => `${n.id}:${n.updatedAt ?? ""}`).join("|"),
+    [notes],
+  );
 
   const selectedFile = useMemo(
     () => (selectedNoteId ? notes.find((n) => n.id === selectedNoteId) : null),
@@ -116,11 +151,14 @@ export function FilesView({
   }, [selectedNoteId, hydrateNoteDetail]);
 
   useEffect(() => {
+    if (!notesProps.isLive) return;
+    void refreshAttachmentCounts();
+  }, [notesAttachmentRefreshKey, notesProps.isLive, refreshAttachmentCounts]);
+
+  useEffect(() => {
     if (!selectedNoteId) return;
-    if ((attachmentCounts[selectedNoteId] ?? 0) > 0) {
-      prefetchNoteAttachments(selectedNoteId);
-    }
-  }, [selectedNoteId, attachmentCounts]);
+    prefetchNoteAttachments(selectedNoteId);
+  }, [selectedNoteId]);
 
   useEffect(() => {
     if (!approveTarget) return;
@@ -129,8 +167,18 @@ export function FilesView({
   }, [notes, approveTarget?.id]);
 
   useEffect(() => {
+    if (!approveTarget?.id) return;
+    void hydrateNoteDetail(approveTarget.id).then((hydrated) => {
+      if (!hydrated) return;
+      setApproveTarget((current) =>
+        current?.id === hydrated.id ? { ...current, ...hydrated, bodyHydrated: true } : current,
+      );
+    });
+  }, [approveTarget?.id, hydrateNoteDetail]);
+
+  useEffect(() => {
     if (openReviewOnMount) {
-      setFilter({ kind: "review" });
+      setFilter((current) => setFilesLibrary(current, "review"));
       filterChosenByUser.current = true;
       onOpenReviewConsumed?.();
     }
@@ -147,7 +195,7 @@ export function FilesView({
       onOpenReviewNoteConsumed?.();
       return;
     }
-    setFilter({ kind: "review" });
+    setFilter((current) => setFilesLibrary(current, "review"));
     filterChosenByUser.current = true;
     setFileEditorNote(null);
     setReviewPaused(false);
@@ -159,63 +207,61 @@ export function FilesView({
   useEffect(() => {
     if (filterChosenByUser.current || openReviewOnMount) return;
     if (pendingFiles.length > 0) {
-      setFilter({ kind: "review" });
+      setFilter((current) => setFilesLibrary(current, "review"));
       filterChosenByUser.current = true;
     }
   }, [pendingFiles.length, openReviewOnMount]);
 
-  const handleFilterChange = useCallback(
-    (next: FilesBrowseFilter) => {
+  const handleLibraryChange = useCallback(
+    (library: "review" | "archive") => {
       filterChosenByUser.current = true;
-      setFilter(next);
+      setFilter((current) => setFilesLibrary(current, library));
       clearSearch();
     },
     [clearSearch],
+  );
+
+  const handleBookmarksOnlyChange = useCallback((bookmarksOnly: boolean) => {
+    filterChosenByUser.current = true;
+    setFilter((current) => ({ ...current, bookmarksOnly }));
+  }, []);
+
+  const handleOpenReceiptFile = useCallback(
+    (noteId: string) => {
+      const file = notes.find((n) => n.id === noteId);
+      if (!file) return;
+      filterChosenByUser.current = true;
+      setFilter((current) =>
+        setFilesLibrary(current, isPendingReview(file) ? "review" : "archive"),
+      );
+      clearSearch();
+      setFileEditorNote(null);
+      setApproveTarget(null);
+      onSelectNote(noteId);
+    },
+    [notes, onSelectNote, clearSearch],
   );
 
   const handleTagFilterChange = useCallback(
     (nextTags: string[]) => {
       filterChosenByUser.current = true;
       clearSearch();
-      if (nextTags.length === 0) {
-        setFilter({ kind: "all" });
-        return;
-      }
-      setFilter({ kind: "tags", tags: nextTags });
+      setFilter((current) => setFilesTagFilter(current, nextTags));
     },
     [clearSearch],
   );
 
-  const selectedFilterTags = filter.kind === "tags" ? filter.tags : [];
+  const selectedFilterTags = getSelectedFilterTags(filter);
 
   const streamedFiles = useMemo(() => {
     if (searchResultIds) {
       const byId = new Map(notes.map((n) => [n.id, n]));
-      let results = searchResultIds.map((id) => byId.get(id)).filter(Boolean) as Note[];
-
-      if (filter.kind === "untagged") {
-        results = results.filter(
-          (n) => (n.tags ?? []).filter((t) => t !== "from-email").length === 0,
-        );
-      } else if (filter.kind === "tags") {
-        results = filterByAllTags(results, filter.tags);
-      }
-
-      return results;
+      const results = searchResultIds.map((id) => byId.get(id)).filter(Boolean) as Note[];
+      return filterSearchResultsForBrowse(results, filter);
     }
 
-    if (filter.kind === "review") return pendingFiles;
-
-    let list = filedFiles;
-    if (filter.kind === "untagged") {
-      list = list.filter(
-        (n) => (n.tags ?? []).filter((t) => t !== "from-email").length === 0,
-      );
-    } else if (filter.kind === "tags") {
-      list = filterByAllTags(list, filter.tags);
-    }
-    return list;
-  }, [searchResultIds, filter, pendingFiles, filedFiles, notes]);
+    return listFilesForBrowseFilter(notes, filter);
+  }, [searchResultIds, filter, notes]);
 
   const resolveNoteById = useCallback(
     (id: string) => notes.find((n) => n.id === id) ?? null,
@@ -229,13 +275,35 @@ export function FilesView({
       setFileEditorNote(null);
       setReviewPaused(false);
       setApproveTarget(file);
-      onSelectNote(id);
+      if (!isMobile) {
+        onSelectNote(id);
+      }
     },
-    [resolveNoteById, onSelectNote],
+    [resolveNoteById, onSelectNote, isMobile],
   );
+
+  const closeMobileDetail = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.state?.mobileFileDetail) {
+      window.history.back();
+      return;
+    }
+    notesProps.onSelectNote(null);
+  }, [notesProps.onSelectNote]);
+
+  useEffect(() => {
+    if (!isMobile || !selectedNoteId) return;
+    const token = `file-${selectedNoteId}`;
+    window.history.pushState({ mobileFileDetail: token }, "");
+    const onPop = () => {
+      notesProps.onSelectNote(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [isMobile, selectedNoteId, notesProps.onSelectNote]);
 
   const openFileEditor = useCallback(
     (id: string) => {
+      prefetchNoteAttachments(id);
       void hydrateNoteDetail(id).then((file) => {
         if (!file) return;
         setFileEditorNote(file);
@@ -248,18 +316,23 @@ export function FilesView({
   const openReviewEditor = useCallback(() => {
     const targetId = approveTarget?.id;
     if (!targetId) return;
-    const fresh = resolveNoteById(targetId);
-    if (!fresh) return;
     setReviewPaused(true);
-    setFileEditorNote(fresh);
-  }, [approveTarget?.id, resolveNoteById]);
+    void hydrateNoteDetail(targetId).then((file) => {
+      if (!file) return;
+      setFileEditorNote(file);
+    });
+  }, [approveTarget?.id, hydrateNoteDetail]);
 
   const handleFileEditorClose = useCallback(() => {
     const preservedId = fileEditorNote?.id ?? null;
+    const returningToReview =
+      preservedId != null && approveTarget?.id === preservedId;
     setFileEditorNote(null);
     setReviewPaused(false);
-    if (preservedId) onSelectNote(preservedId);
-  }, [fileEditorNote, onSelectNote]);
+    if (preservedId && !returningToReview) {
+      onSelectNote(preservedId);
+    }
+  }, [fileEditorNote, approveTarget?.id, onSelectNote]);
 
   const handleSaveFileEdit = useCallback(
     async (noteId: string, input: CaptureFileInput) => {
@@ -270,16 +343,8 @@ export function FilesView({
         memo: input.memo || null,
         recordType: input.recordType,
       });
-
-      if (input.attachments.length > 0 && isSupabaseConfigured() && workspaceId) {
-        const uploaded = await uploadFilesToNote(noteId, input.attachments);
-        if (uploaded > 0) {
-          const prior = attachmentCounts[noteId] ?? 0;
-          patchNoteAttachmentCount(workspaceId, noteId, prior + uploaded);
-        }
-      }
     },
-    [notesProps, workspaceId, attachmentCounts],
+    [notesProps],
   );
 
   const handleApprove = useCallback(
@@ -312,28 +377,68 @@ export function FilesView({
       setFileEditorNote(null);
       setReviewPaused(false);
       setApproveTarget(null);
-      if (filter.kind === "review" && pendingFiles.length <= 1) {
-        setFilter({ kind: "all" });
+      if (isReviewLibrary(filter) && pendingFiles.length <= 1) {
+        setFilter((current) => setFilesLibrary(current, "archive"));
       }
     },
-    [approveTarget, onApproveFile, pendingFiles, filter.kind, onSelectNote, resolveNoteById],
+    [approveTarget, onApproveFile, pendingFiles, filter, onSelectNote, resolveNoteById],
   );
 
   const handleNewFile = useCallback(() => {
     onOpenCapture?.();
   }, [onOpenCapture]);
 
-  const listTitle =
-    filter.kind === "review"
-      ? "Review"
-      : searchQuery.trim()
-        ? "Search results"
-        : filter.kind === "tags"
-          ? filter.tags.join(" + ")
-          : "Archive";
+  const handleToggleBookmark = useCallback(
+    async (noteId: string, bookmarked: boolean) => {
+      await notesProps.onUpdateNote(noteId, { bookmarked });
+    },
+    [notesProps.onUpdateNote],
+  );
+
+  const handlePhotoCaptureComplete = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+
+      const title = `Photos · ${format(new Date(), "MMM d")}`;
+      const created = await addNote(title, EMPTY_NOTE_DOC, {
+        tags: [],
+        recordType: "document",
+        reviewStatus: "pending_review",
+      });
+
+      if (!created) {
+        toast.error("Could not create note");
+        throw new Error("create-failed");
+      }
+
+      if (isSupabaseConfigured() && notesProps.isLive) {
+        const uploaded = await uploadFilesToNote(created.id, files);
+        if (uploaded === 0) {
+          toast.warning("Photos could not be uploaded");
+        } else if (uploaded < files.length) {
+          toast.warning(`${uploaded} of ${files.length} photos uploaded`);
+        } else {
+          patchNoteAttachmentCount(workspaceId, created.id, uploaded);
+          prefetchNoteAttachments(created.id);
+        }
+      } else {
+        const content = await buildPhotoNoteContent(files);
+        await notesProps.onUpdateNote(created.id, { content });
+      }
+
+      filterChosenByUser.current = true;
+      setFilter((current) => setFilesLibrary(current, "review"));
+      notesProps.onSelectNote(null);
+      openReview(created.id);
+      toast.success(
+        files.length === 1 ? "Added to Review" : `${files.length} photos added to Review`,
+      );
+    },
+    [addNote, workspaceId, notesProps, openReview],
+  );
 
   const fileListContent =
-    filter.kind === "review" ? (
+    isReviewLibrary(filter) ? (
       <ReviewPanel
         files={streamedFiles}
         tasks={tasksById}
@@ -342,6 +447,13 @@ export function FilesView({
         onReview={openReview}
         onOpenEditor={openFileEditor}
         attachmentCounts={attachmentCounts}
+        emptyMessage={
+          searchQuery.trim()
+            ? "No files match your search."
+            : filter.bookmarksOnly
+              ? "No bookmarked files in Review yet."
+              : undefined
+        }
       />
     ) : (
       <FileStream
@@ -354,7 +466,9 @@ export function FilesView({
         emptyMessage={
           searchQuery.trim()
             ? "No files match your search."
-            : "No archived files match this filter yet."
+            : filter.bookmarksOnly
+              ? "No bookmarked files in this view yet."
+              : "No archived files match this filter yet."
         }
       />
     );
@@ -362,16 +476,19 @@ export function FilesView({
   return (
     <div
       className={cn(
-        "files-root flex h-full min-h-0 overflow-hidden",
+        "files-root flex flex-col md:flex-row h-full min-h-0 overflow-hidden max-w-full min-w-0",
         showMobileDetail && "files-mobile-detail",
       )}
     >
       <TagRail
         filter={filter}
-        onFilterChange={handleFilterChange}
+        onLibraryChange={handleLibraryChange}
+        onBookmarksOnlyChange={handleBookmarksOnlyChange}
+        onOpenReceiptLedger={isDesktop ? () => setReceiptLedgerOpen(true) : undefined}
         onTagFilterChange={handleTagFilterChange}
         tags={workspaceTags}
         reviewCount={pendingFiles.length}
+        bookmarkCount={bookmarkCount}
         onNewFile={handleNewFile}
         isDesktop={isDesktop}
         searchQuery={searchQuery}
@@ -381,41 +498,41 @@ export function FilesView({
       />
 
       {!isDesktop && (
-        <div className="files-list-column w-64 sm:w-72 shrink-0 flex flex-col min-h-0 border-r border-border-glass bg-bg">
-          <div className="p-3 border-b border-border-glass space-y-2">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">
-                {listTitle}
+        <div className="files-list-column w-full min-w-0 max-w-full flex flex-1 flex-col min-h-0 border-r border-border-glass bg-bg box-border">
+          <div className="files-list-toolbar files-mobile-toolbar-row border-b border-border-glass min-w-0 max-w-full box-border">
+            <div className="files-mobile-toolbar-row__left flex flex-1 min-w-0 items-center gap-2">
+              {!isReviewLibrary(filter) && (
+                <TagMultiSelect
+                  tags={workspaceTags}
+                  selected={selectedFilterTags}
+                  onChange={handleTagFilterChange}
+                  variant="toolbar"
+                />
+              )}
+              <div className="relative flex-1 min-w-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint pointer-events-none" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search files…"
+                  className="files-mobile-search-input w-full min-w-0 bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-9 py-2 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint min-h-[44px]"
+                  aria-label="Search files"
+                />
+                {isRemoteSearching && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-neon-purple" />
+                )}
               </div>
+            </div>
+            <div className="files-mobile-toolbar-row__actions flex items-center shrink-0">
               <button
                 type="button"
-                onClick={() => void handleNewFile()}
-                className="md:hidden flex items-center gap-1 rounded-lg border border-neon-purple/30 bg-neon-purple/10 px-2.5 py-1.5 text-[11px] font-semibold text-neon-purple-tint"
+                onClick={() => setAddNoteChoiceOpen(true)}
+                className="files-mobile-add-note-btn flex items-center justify-center rounded-xl border border-neon-purple/30 bg-neon-purple/10 min-h-[44px] min-w-[44px] text-neon-purple-tint"
+                aria-label="Add note"
               >
-                <Plus className="h-3.5 w-3.5" />
-                New
+                <Plus className="h-4 w-4" aria-hidden />
               </button>
-            </div>
-            {filter.kind !== "review" && (
-              <TagMultiSelect
-                tags={workspaceTags}
-                selected={selectedFilterTags}
-                onChange={handleTagFilterChange}
-              />
-            )}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search files…"
-                className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint"
-                aria-label="Search files"
-              />
-              {isRemoteSearching && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-neon-purple" />
-              )}
             </div>
           </div>
           {fileListContent}
@@ -426,16 +543,32 @@ export function FilesView({
         <div className="files-mobile-back-bar">
           <button
             type="button"
-            onClick={() => notesProps.onSelectNote(null)}
-            className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[40px]"
-            aria-label="Back to file list"
+            onClick={closeMobileDetail}
+            className="flex items-center rounded-xl px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[44px]"
+            aria-label="Close file preview"
           >
-            <ChevronLeft className="h-5 w-5" />
-            Files
+            Close
           </button>
-          <div className="min-w-0 flex-1 text-sm font-medium truncate text-text-primary">
+          <div className="min-w-0 flex-1 text-sm font-semibold truncate text-text-primary px-1">
             {selectedFile?.title || "Untitled file"}
           </div>
+          {selectedNoteId && selectedFile && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <FileBookmarkButton
+                bookmarked={!!selectedFile.bookmarked}
+                onToggle={() => void handleToggleBookmark(selectedFile.id, !selectedFile.bookmarked)}
+              />
+              <button
+                type="button"
+                onClick={() => openFileEditor(selectedNoteId)}
+                className="flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-medium text-neon-purple-tint hover:bg-surface-hover min-h-[44px] shrink-0"
+                aria-label="Edit file"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -465,6 +598,12 @@ export function FilesView({
         remainingInQueue={pendingFiles.length}
         onApprove={handleApprove}
         onEdit={openReviewEditor}
+        onToggleBookmark={handleToggleBookmark}
+        tasks={notesProps.tasks}
+        members={members}
+        currentUserId={currentUserId}
+        onCreateTaskAndLink={notesProps.onCreateTaskAndLink}
+        onOpenTask={notesProps.onOpenTask}
       />
 
       <CaptureFileModal
@@ -478,8 +617,42 @@ export function FilesView({
         tasks={notesProps.tasks}
         linkedTaskIds={fileEditorNote?.linkedTaskIds ?? []}
         onSaveEdit={handleSaveFileEdit}
+        onToggleBookmark={handleToggleBookmark}
         onCreateTaskAndLink={notesProps.onCreateTaskAndLink}
+        onLinkTaskToNote={notesProps.onLinkTaskToNote}
+        onUnlinkTaskFromNote={notesProps.onUnlinkTaskFromNote}
+        onOpenTask={notesProps.onOpenTask}
+        onToggleTaskComplete={notesProps.onToggleTaskComplete}
+        attachmentCountHint={
+          fileEditorNote ? (attachmentCounts[fileEditorNote.id] ?? 0) : undefined
+        }
+        onAttachmentCountChange={setNoteCount}
       />
+
+      {isDesktop && (
+        <ReceiptItemsModal
+          open={receiptLedgerOpen}
+          onClose={() => setReceiptLedgerOpen(false)}
+          workspaceId={workspaceId}
+          onOpenFile={handleOpenReceiptFile}
+        />
+      )}
+
+      {isMobile && (
+        <>
+          <MobileAddNoteChoiceSheet
+            open={addNoteChoiceOpen}
+            onClose={() => setAddNoteChoiceOpen(false)}
+            onUploadPhotos={() => setPhotoCaptureOpen(true)}
+            onTextNote={() => void handleNewFile()}
+          />
+          <MobilePhotoCaptureFlow
+            open={photoCaptureOpen}
+            onClose={() => setPhotoCaptureOpen(false)}
+            onComplete={handlePhotoCaptureComplete}
+          />
+        </>
+      )}
     </div>
   );
 }

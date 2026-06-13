@@ -7,3 +7,4 @@
  * remain in the parent (app/page.tsx) during early M0 batches.
  */
 export { HomeView } from "./HomeView";
+export { getGreeting } from "./lib/getGreeting";

@@ -8,6 +8,8 @@ import { Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseLocalDate, safeFormatDate, toLocalDateString } from '@/lib/datetime';
 import { useScrollLock } from '@/lib/hooks/useScrollLock';
+import { MobileDrawerShell } from '@/components/MobileDrawerShell';
+
 
 interface DatePickerProps {
   value?: string | null;
@@ -15,6 +17,13 @@ interface DatePickerProps {
   placeholder?: string;
   className?: string;
   label?: string;
+  /** Full input trigger (default) or compact text trigger for table cells */
+  variant?: 'default' | 'inline';
+  /** Inline variant: override trigger label (e.g. Today / Tomorrow from formatDueDate) */
+  displayLabel?: string;
+  triggerClassName?: string;
+  triggerLabelClassName?: string;
+  disabled?: boolean;
 }
 
 const MOBILE_BREAKPOINT = 768;
@@ -85,6 +94,11 @@ export function DateTimePicker({
   placeholder = 'No date set',
   className,
   label,
+  variant = 'default',
+  displayLabel,
+  triggerClassName,
+  triggerLabelClassName,
+  disabled = false,
 }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -94,8 +108,9 @@ export function DateTimePicker({
 
   const selectedDate = parseToLocalDate(value);
 
-  const displayValue = selectedDate
-    ? safeFormatDate(selectedDate, 'MMM d, yyyy', placeholder)
+  const displayValue = value
+    ? displayLabel ??
+      (selectedDate ? safeFormatDate(selectedDate, 'MMM d, yyyy', placeholder) : placeholder)
     : placeholder;
 
   useEffect(() => {
@@ -134,38 +149,34 @@ export function DateTimePicker({
       if (e.key === 'Escape') close();
     };
 
-    const onPointerDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (triggerRef.current?.contains(target)) return;
-      if (panelRef.current?.contains(target)) return;
-      close();
-    };
-
     window.addEventListener('keydown', onKeyDown);
-    document.addEventListener('mousedown', onPointerDown, true);
+
+    // Desktop only: mobile uses MobileDrawerShell backdrop for dismiss. Without a
+    // panel ref on the sheet, capture-phase mousedown here closes the picker before
+    // DayPicker onSelect runs (due date never applies on phones).
+    if (!isMobile) {
+      const onPointerDown = (e: MouseEvent) => {
+        const target = e.target as Node;
+        if (triggerRef.current?.contains(target)) return;
+        if (panelRef.current?.contains(target)) return;
+        close();
+      };
+
+      document.addEventListener('mousedown', onPointerDown, true);
+
+      return () => {
+        window.removeEventListener('keydown', onKeyDown);
+        document.removeEventListener('mousedown', onPointerDown, true);
+      };
+    }
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('mousedown', onPointerDown, true);
     };
-  }, [isOpen, close]);
+  }, [isOpen, close, isMobile]);
 
-  const panel = (
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Choose due date"
-      className={cn(
-        'date-picker-panel bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden',
-        isMobile
-          ? 'mobile-bottom-sheet fixed inset-x-0 bottom-0 z-[720] rounded-t-3xl h-[92dvh] max-h-[92dvh]'
-          : 'date-picker-sheet-desktop fixed z-[720] rounded-2xl',
-      )}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {isMobile && <div className="sheet-drag-handle shrink-0" aria-hidden="true" />}
-
+  const panelBody = (
+    <>
       <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border-glass shrink-0">
         <span className="text-sm font-semibold text-text-primary tracking-tight">Due date</span>
         <div className="flex items-center gap-1">
@@ -243,11 +254,43 @@ export function DateTimePicker({
           </button>
         ))}
       </div>
+    </>
+  );
+
+  const panel = isMobile ? (
+    <MobileDrawerShell
+      open={isOpen}
+      onClose={close}
+      isMobile
+      zIndex={720}
+      panelClassName="date-picker-panel"
+      ariaLabel="Choose due date"
+    >
+      {panelBody}
+    </MobileDrawerShell>
+  ) : (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose due date"
+      className="date-picker-panel date-picker-sheet-desktop bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden fixed z-[720] rounded-2xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {panelBody}
     </div>
   );
 
+  const openPicker = () => {
+    if (disabled) return;
+    setIsOpen(true);
+  };
+
   return (
-    <div className={cn('relative', className)}>
+    <div
+      className={cn('relative', className)}
+      onClick={variant === 'inline' ? (e) => e.stopPropagation() : undefined}
+    >
       {label && (
         <label className="text-text-muted mb-1.5 block text-xs flex items-center gap-1.5">
           <Calendar className="h-3.5 w-3.5" /> {label}
@@ -257,29 +300,50 @@ export function DateTimePicker({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setIsOpen(true)}
-        className="input w-full px-3 py-2 text-sm flex items-center justify-between text-left hover:border-border-glass transition-colors min-h-[40px]"
+        onClick={(e) => {
+          if (variant === 'inline') e.stopPropagation();
+          openPicker();
+        }}
+        disabled={disabled}
+        className={cn(
+          variant === 'inline'
+            ? 'tasks-due-inline-trigger inline-flex min-h-[28px] min-w-[4.5rem] items-center rounded-md px-1.5 py-0.5 text-xs font-medium text-left transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/40 disabled:opacity-50 disabled:pointer-events-none'
+            : 'input w-full px-3 py-2 text-sm flex items-center justify-between text-left hover:border-border-glass transition-colors min-h-[40px]',
+          triggerClassName,
+        )}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
+        aria-label={value ? `Due date: ${displayValue}. Click to change.` : 'Set due date'}
       >
-        <span className={value ? 'text-text-primary' : 'text-text-muted'}>{displayValue}</span>
-        <Calendar className="h-4 w-4 text-text-secondary shrink-0" />
+        <span
+          className={cn(
+            value
+              ? triggerLabelClassName ?? 'text-text-primary'
+              : 'text-text-muted',
+          )}
+        >
+          {displayValue}
+        </span>
+        {variant === 'default' ? (
+          <Calendar className="h-4 w-4 text-text-secondary shrink-0" />
+        ) : null}
       </button>
 
       {isOpen &&
         mounted &&
         createPortal(
-          <div className="fixed inset-0 z-[710]">
-            <div
-              className={cn(
-                'absolute inset-0 date-picker-backdrop',
-                isMobile ? 'sheet-backdrop' : undefined,
-              )}
-              onClick={close}
-              aria-hidden
-            />
-            {panel}
-          </div>,
+          isMobile ? (
+            panel
+          ) : (
+            <div className="fixed inset-0 z-[710]">
+              <div
+                className="absolute inset-0 date-picker-backdrop"
+                onClick={close}
+                aria-hidden
+              />
+              {panel}
+            </div>
+          ),
           document.body,
         )}
     </div>

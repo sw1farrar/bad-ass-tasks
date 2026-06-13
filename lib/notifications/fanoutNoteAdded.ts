@@ -25,7 +25,8 @@ type MemberProfileRow = {
   } | null;
 };
 
-const NOTIFICATION_TYPE: NotificationType = "activity";
+const MANUAL_NOTIFICATION_TYPE: NotificationType = "activity";
+const INBOUND_FILE_NOTIFICATION_TYPE: NotificationType = "inbound_file";
 
 function resolveActorName(
   actorUserId: string | null | undefined,
@@ -49,8 +50,8 @@ function buildNotificationCopy(params: {
   const title = params.noteTitle.trim() || "New note";
   if (params.source === "email") {
     return {
-      title: "New note from email",
-      message: `"${title}" was added to ${params.workspaceName} via email inbox.`,
+      title: "New file from email",
+      message: `"${title}" was emailed into ${params.workspaceName} and is ready for review.`,
     };
   }
   return {
@@ -122,6 +123,10 @@ export async function fanoutNoteAddedNotifications(params: FanoutNoteAddedParams
       source: params.source,
     });
 
+    const isInboundFile = params.source === "email";
+    const notificationType = isInboundFile
+      ? INBOUND_FILE_NOTIFICATION_TYPE
+      : MANUAL_NOTIFICATION_TYPE;
     const link = "?view=notes";
     const metadata = {
       note_id: noteId,
@@ -138,12 +143,13 @@ export async function fanoutNoteAddedNotifications(params: FanoutNoteAddedParams
           supabase,
           workspaceId,
           recipientUserId: recipientId,
-          type: NOTIFICATION_TYPE,
+          type: notificationType,
           title: copy.title,
           message: copy.message,
           link,
           workspaceName,
-          actorUserId,
+          // Inbound files notify every member, including the inbox creator.
+          actorUserId: isInboundFile ? undefined : actorUserId,
           metadata,
           recipientProfile: {
             email: member.profiles?.email ?? null,

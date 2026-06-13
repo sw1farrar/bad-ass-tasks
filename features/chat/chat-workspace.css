@@ -169,7 +169,8 @@
 }
 
 [data-theme="dark"] .chat-drawer-sheet .sheet-drag-handle {
-  background: #2f2f38 !important;
+  --sheet-drag-handle-bg: #4b5563;
+  background: var(--sheet-drag-handle-bg) !important;
 }
 
 /* Emoji picker popover */

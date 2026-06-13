@@ -1,16 +1,24 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { X, Paperclip, Upload, Loader2, Plus, CheckSquare, Link2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X, Loader2, Plus, CheckSquare, Link2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { TipTapEditor } from "@/features/notes/editor";
+import { LinkedTasksPanel, NoteAttachmentsPanel } from "@/features/notes/components";
 import type { FileRecordType, Note, Task } from "@/types";
 import { FILE_RECORD_TYPES, recordTypeLabel } from "@/lib/files/fileTypes";
 import { noteContentToJson } from "@/lib/data/hybridStore";
 import { resolveNoteEditorContent } from "@/lib/notes/resolveNoteEditorContent";
+import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
+import { invalidateNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { TagPicker } from "./TagPicker";
+import { FileBookmarkButton } from "./FileBookmarkButton";
+import { MobileDrawerShell } from "@/components/MobileDrawerShell";
 
 export type CaptureFileSubmitMode = "review" | "file";
 
@@ -34,9 +42,24 @@ interface CaptureFileModalProps {
   isLive?: boolean;
   tasks?: Task[];
   linkedTaskIds?: string[];
-  onSubmit?: (input: CaptureFileInput, mode: CaptureFileSubmitMode) => Promise<void>;
+  onSubmit?: (
+    input: CaptureFileInput,
+    mode: CaptureFileSubmitMode,
+    draftNoteId?: string,
+  ) => Promise<void>;
+  /** Live create mode: provision a draft note so attachments can upload immediately. */
+  onCreateDraftNote?: () => Promise<Note | null>;
+  /** Live create mode: discard an abandoned draft on cancel. */
+  onDeleteDraftNote?: (noteId: string) => Promise<void>;
   onSaveEdit?: (noteId: string, input: CaptureFileInput) => Promise<void>;
+  onToggleBookmark?: (noteId: string, bookmarked: boolean) => void | Promise<void>;
   onCreateTaskAndLink?: (noteId: string, title: string) => Promise<string | null>;
+  onLinkTaskToNote?: (noteId: string, taskId: string) => Promise<void>;
+  onUnlinkTaskFromNote?: (noteId: string, taskId: string) => Promise<void>;
+  onOpenTask?: (taskId: string) => void;
+  onToggleTaskComplete?: (taskId: string) => Promise<void>;
+  attachmentCountHint?: number;
+  onAttachmentCountChange?: (noteId: string, count: number) => void;
 }
 
 function emptyState() {
@@ -94,18 +117,14 @@ function snapshotFromNote(note: Note): EditSnapshot {
   };
 }
 
-function hasEditChanges(
-  snapshot: EditSnapshot | null,
-  values: EditSnapshot & { attachments: File[] },
-) {
+function hasEditChanges(snapshot: EditSnapshot | null, values: EditSnapshot) {
   if (!snapshot) return false;
   return (
     values.title.trim() !== snapshot.title.trim() ||
     !noteContentEqual(values.content, snapshot.content) ||
     values.memo.trim() !== snapshot.memo.trim() ||
     values.recordType !== snapshot.recordType ||
-    !tagsEqual(values.tags, snapshot.tags) ||
-    values.attachments.length > 0
+    !tagsEqual(values.tags, snapshot.tags)
   );
 }
 
@@ -120,7 +139,16 @@ export function CaptureFileModal({
   linkedTaskIds = [],
   onSubmit,
   onSaveEdit,
+  onToggleBookmark,
+  onCreateDraftNote,
+  onDeleteDraftNote,
   onCreateTaskAndLink,
+  onLinkTaskToNote,
+  onUnlinkTaskFromNote,
+  onOpenTask,
+  onToggleTaskComplete,
+  attachmentCountHint,
+  onAttachmentCountChange,
 }: CaptureFileModalProps) {
   const isEdit = mode === "edit";
   const isMobile = useIsMobileViewport();
@@ -129,15 +157,26 @@ export function CaptureFileModal({
   const [memo, setMemo] = useState("");
   const [recordType, setRecordType] = useState<FileRecordType>("note");
   const [content, setContent] = useState("");
-  const [attachments, setAttachments] = useState<File[]>([]);
   const [pendingTaskTitles, setPendingTaskTitles] = useState<string[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
   const [saving, setSaving] = useState<CaptureFileSubmitMode | "save" | null>(null);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [captureNote, setCaptureNote] = useState<Note | null>(null);
+  const [attachmentRevision, setAttachmentRevision] = useState(0);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const openedSnapshotRef = useRef<EditSnapshot | null>(null);
+  const draftPromiseRef = useRef<Promise<Note | null> | null>(null);
+  const submittedRef = useRef(false);
+  const [mounted, setMounted] = useState(false);
+
+  const activeNote = isEdit ? initialNote : captureNote;
+  const activeNoteId = activeNote?.id;
+  const supportsLiveAttachments = isLive && isSupabaseConfigured() && !!activeNoteId;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   /** True after TipTap's first normalized content emission has been baselined. */
   const editorContentBaselinedRef = useRef(false);
 
@@ -155,7 +194,6 @@ export function CaptureFileModal({
       setMemo(initialNote.memo ?? "");
       setRecordType(initialNote.recordType ?? "note");
       setContent(resolvedContent);
-      setAttachments([]);
       setPendingTaskTitles([]);
     } else {
       const next = emptyState();
@@ -164,19 +202,90 @@ export function CaptureFileModal({
       setMemo(next.memo);
       setRecordType(next.recordType);
       setContent(next.content);
-      setAttachments(next.attachments);
       setPendingTaskTitles(next.pendingTaskTitles);
     }
     setNewTaskTitle("");
     setSaving(null);
     setShowUnsavedConfirm(false);
-    setDragOver(false);
+    setCaptureNote(null);
+    setAttachmentRevision(0);
+    submittedRef.current = false;
+    draftPromiseRef.current = null;
     openedSnapshotRef.current =
       isEdit && initialNote
         ? { ...snapshotFromNote(initialNote), content: resolveNoteEditorContent(initialNote) }
         : null;
     editorContentBaselinedRef.current = !isEdit;
   }, [isOpen, isEdit, initialNoteId, initialNoteRevision, initialNote]);
+
+  useEffect(() => {
+    if (!isOpen || isEdit || !isLive || !onCreateDraftNote) return;
+
+    let cancelled = false;
+    draftPromiseRef.current = onCreateDraftNote().then((note) => {
+      if (!cancelled && note) setCaptureNote(note);
+      return note;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, isEdit, isLive, onCreateDraftNote]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    const draftId = captureNote?.id;
+    if (draftId && !submittedRef.current && !isEdit && onDeleteDraftNote) {
+      void onDeleteDraftNote(draftId);
+    }
+  }, [isOpen, captureNote?.id, isEdit, onDeleteDraftNote]);
+
+  const ensureActiveNote = useCallback(async (): Promise<Note | null> => {
+    if (activeNote) return activeNote;
+    if (isEdit || !isLive || !onCreateDraftNote) return null;
+    if (draftPromiseRef.current) return draftPromiseRef.current;
+    draftPromiseRef.current = onCreateDraftNote().then((note) => {
+      if (note) setCaptureNote(note);
+      return note;
+    });
+    return draftPromiseRef.current;
+  }, [activeNote, isEdit, isLive, onCreateDraftNote]);
+
+  const handleAttachFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length || !isLive || !isSupabaseConfigured()) return;
+
+      setUploadingAttachments(true);
+      try {
+        const note = await ensureActiveNote();
+        if (!note) {
+          toast.error("Save the file first before attaching");
+          return;
+        }
+
+        const uploaded = await uploadFilesToNote(note.id, files);
+        if (uploaded === 0) {
+          toast.error("Could not upload attachment");
+          return;
+        }
+        if (uploaded < files.length) {
+          toast.warning(`${uploaded} of ${files.length} files uploaded`);
+        } else {
+          toast.success(uploaded === 1 ? "Attachment added" : `${uploaded} attachments added`);
+        }
+
+        invalidateNoteAttachments(note.id);
+        setAttachmentRevision((n) => n + 1);
+        onAttachmentCountChange?.(
+          note.id,
+          (attachmentCountHint ?? 0) + uploaded,
+        );
+      } finally {
+        setUploadingAttachments(false);
+      }
+    },
+    [ensureActiveNote, isLive, attachmentCountHint, onAttachmentCountChange],
+  );
 
   const handleContentChange = useCallback(
     (next: string) => {
@@ -202,7 +311,6 @@ export function CaptureFileModal({
       tags,
       memo,
       recordType,
-      attachments,
     });
 
   const dismissWithoutSaving = useCallback(() => {
@@ -234,15 +342,6 @@ export function CaptureFileModal({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [isOpen, requestClose, showUnsavedConfirm]);
 
-  const addFiles = useCallback((files: FileList | File[] | null) => {
-    if (!files?.length) return;
-    setAttachments((prev) => [...prev, ...Array.from(files)]);
-  }, []);
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const addPendingTask = () => {
     const trimmed = newTaskTitle.trim();
     if (!trimmed) return;
@@ -254,10 +353,11 @@ export function CaptureFileModal({
     const trimmed = newTaskTitle.trim();
     if (!trimmed || creatingTask) return;
 
-    if (isEdit && initialNote && onCreateTaskAndLink) {
+    const noteForLinking = activeNote;
+    if (noteForLinking && onCreateTaskAndLink) {
       setCreatingTask(true);
       try {
-        const taskId = await onCreateTaskAndLink(initialNote.id, trimmed);
+        const taskId = await onCreateTaskAndLink(noteForLinking.id, trimmed);
         if (taskId) setNewTaskTitle("");
       } finally {
         setCreatingTask(false);
@@ -272,6 +372,16 @@ export function CaptureFileModal({
     .map((id) => tasks.find((t) => t.id === id))
     .filter(Boolean) as Task[];
 
+  const editNoteForTasks = activeNote
+    ? {
+        ...activeNote,
+        linkedTaskIds: linkedTaskIds.length ? linkedTaskIds : activeNote.linkedTaskIds ?? [],
+      }
+    : null;
+
+  const showEditLinkedTasksPanel =
+    !!editNoteForTasks && isLive && !!onLinkTaskToNote && !!onUnlinkTaskFromNote;
+
   const handleSubmit = async (submitMode: CaptureFileSubmitMode) => {
     if (saving || !onSubmit) return;
     setSaving(submitMode);
@@ -283,11 +393,14 @@ export function CaptureFileModal({
           tags,
           memo: memo.trim(),
           recordType,
-          attachments,
+          attachments: [],
           pendingTaskTitles,
         },
         submitMode,
+        captureNote?.id,
       );
+      submittedRef.current = true;
+      setCaptureNote(null);
       onClose();
     } finally {
       setSaving(null);
@@ -304,7 +417,7 @@ export function CaptureFileModal({
         tags,
         memo: memo.trim(),
         recordType,
-        attachments,
+        attachments: [],
       });
       onClose();
     } finally {
@@ -312,53 +425,69 @@ export function CaptureFileModal({
     }
   };
 
-  if (!isOpen) return null;
+  if (!mounted || !isOpen) return null;
 
   const modalTitle = isEdit ? "Edit file" : "Add file";
   const modalSubtitle = isEdit
     ? "Update content, tags, and linked tasks — then save and close."
-    : "Add everything at once — tags, notes, images, and attachments.";
+    : "Add tags and notes — drag files into the editor or use the paperclip to attach.";
 
-  const modalShellClass =
-    "sm:w-[min(96vw,1440px)] sm:max-h-[94vh] max-h-[94vh]";
-  const modalBodyClass = "px-6 py-5 md:px-8";
-  const editorMinHeight = "min(52vh, 520px)";
+  const editorMinHeight = isMobile ? "min(24dvh, 200px)" : "min(52dvh, 520px)";
+  const safeX = "pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))]";
 
-  return (
-    <div className="fixed inset-0 z-[290] flex items-end sm:items-center justify-center p-0 sm:p-3 md:p-4">
-      <button
-        type="button"
-        className="absolute inset-0 overlay-scrim backdrop-blur-sm"
-        onClick={requestClose}
-        aria-label="Close"
-      />
-      <div
-        className={cn(
-          "relative flex flex-col w-full rounded-t-2xl sm:rounded-2xl border border-border-glass modal-panel bg-bg-panel shadow-2xl overflow-hidden",
-          modalShellClass,
+  return createPortal(
+    <>
+      <MobileDrawerShell
+        open={isOpen}
+        onClose={requestClose}
+        isMobile={isMobile}
+        zIndex={290}
+        panelClassName={cn(
+          "capture-file-modal-shell",
+          !isMobile && "sm:w-[min(96vw,1440px)] sm:max-h-[min(94dvh,94vh)]",
         )}
-        role="dialog"
-        aria-labelledby="capture-file-title"
+        ariaLabelledBy="capture-file-title"
       >
-        <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-border-glass">
+        <div
+          className={cn(
+            "shrink-0 flex items-center justify-between gap-3 py-4 border-b border-border-glass",
+            safeX,
+            isMobile ? "px-4" : "px-5",
+          )}
+        >
           <div>
             <h2 id="capture-file-title" className="text-lg font-semibold tracking-tight text-text-primary">
               {modalTitle}
             </h2>
             <p className="text-xs text-text-muted mt-0.5">{modalSubtitle}</p>
           </div>
-          <button
-            type="button"
-            onClick={requestClose}
-            disabled={!!saving}
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-surface-hover text-text-muted"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            {isEdit && initialNote && onToggleBookmark && (
+              <FileBookmarkButton
+                bookmarked={!!initialNote.bookmarked}
+                disabled={!!saving}
+                onToggle={() => void onToggleBookmark(initialNote.id, !initialNote.bookmarked)}
+              />
+            )}
+            <button
+              type="button"
+              onClick={requestClose}
+              disabled={!!saving}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-surface-hover text-text-muted"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        <div className={cn("flex-1 min-h-0 overflow-y-auto space-y-4", modalBodyClass)}>
+        <div
+          className={cn(
+            "capture-file-modal-body flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4",
+            safeX,
+            isMobile ? "px-4 py-4" : "px-6 py-5 md:px-8",
+          )}
+        >
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
             <label className="block text-xs text-text-secondary md:col-span-12">
               Title
@@ -367,7 +496,7 @@ export function CaptureFileModal({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="What is this file?"
                 className="mt-1 w-full input px-3 py-2.5 rounded-xl text-sm"
-                autoFocus
+                autoFocus={!isMobile}
               />
             </label>
 
@@ -415,156 +544,173 @@ export function CaptureFileModal({
           <div>
             <div className="text-xs text-text-secondary mb-1.5">Notes & images</div>
             <div
-              className="capture-file-editor-shell rounded-xl border border-border-glass bg-bg overflow-x-hidden min-h-[min(52vh,520px)]"
+              className={cn(
+                "capture-file-editor-shell rounded-xl border border-border-glass bg-bg overflow-x-auto overflow-y-visible",
+                isMobile ? "min-h-[min(28dvh,240px)]" : "min-h-[min(52vh,520px)]",
+              )}
             >
               <TipTapEditor
-                key={isEdit ? initialNoteId ?? "edit" : "create"}
-                noteId={isEdit ? initialNoteId : undefined}
+                key={
+                  isEdit
+                    ? initialNoteId ?? "edit"
+                    : captureNote?.id ?? "create"
+                }
+                noteId={activeNoteId}
                 content={content}
                 onChange={handleContentChange}
                 placeholder="Jot notes, paste images, format text…"
                 minHeight={editorMinHeight}
                 compactToolbar={isMobile}
+                showAttachFilesButton={isLive && isSupabaseConfigured()}
+                onAttachFiles={isLive && isSupabaseConfigured() ? handleAttachFiles : undefined}
+                belowToolbar={
+                  supportsLiveAttachments && activeNote ? (
+                    <NoteAttachmentsPanel
+                      key={`${activeNote.id}-${attachmentRevision}`}
+                      selectedNote={activeNote}
+                      embedded
+                      compact={isMobile}
+                      previewCompact={!isMobile}
+                      showWhenEmpty
+                      countHint={attachmentCountHint}
+                      onCountChange={onAttachmentCountChange}
+                    />
+                  ) : undefined
+                }
               />
             </div>
           </div>
 
-          <div className="rounded-xl border border-border-glass bg-bg/60 p-4 space-y-3">
-            <div className="flex items-center gap-2 text-xs text-text-secondary">
-              <Link2 className="h-3.5 w-3.5 text-neon-purple" />
-              Associated tasks
-            </div>
-
-            {(linkedTasks.length > 0 || pendingTaskTitles.length > 0) && (
-              <ul className="space-y-1.5">
-                {linkedTasks.map((task) => (
-                  <li
-                    key={task.id}
-                    className="flex items-center gap-2 rounded-lg border border-border-glass bg-bg-secondary px-3 py-2 text-sm text-text-primary"
-                  >
-                    <CheckSquare className="h-3.5 w-3.5 shrink-0 text-neon-purple" />
-                    <span className="flex-1 min-w-0 truncate">{task.title}</span>
-                    <span className="text-[10px] text-text-faint uppercase tracking-wide">Linked</span>
-                  </li>
-                ))}
-                {pendingTaskTitles.map((taskTitle, index) => (
-                  <li
-                    key={`pending-${taskTitle}-${index}`}
-                    className="flex items-center gap-2 rounded-lg border border-neon-purple/25 bg-neon-purple/5 px-3 py-2 text-sm text-neon-purple-tint"
-                  >
-                    <CheckSquare className="h-3.5 w-3.5 shrink-0" />
-                    <span className="flex-1 min-w-0 truncate">{taskTitle}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPendingTaskTitles((prev) => prev.filter((_, i) => i !== index))
-                      }
-                      className="text-text-muted hover:text-text-primary"
-                      aria-label={`Remove ${taskTitle}`}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="flex gap-2">
-              <input
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void handleCreateLinkedTask();
-                  }
-                }}
-                placeholder="Create a task to link to this file"
-                className="flex-1 input px-3 py-2 rounded-xl text-sm"
-                disabled={!!saving || creatingTask}
+          {showEditLinkedTasksPanel && editNoteForTasks ? (
+            <div className="capture-file-associated-tasks rounded-xl border border-border-glass bg-bg/60 overflow-hidden">
+              <LinkedTasksPanel
+                selectedNote={editNoteForTasks}
+                tasks={tasks}
+                onLinkTaskToNote={onLinkTaskToNote}
+                onUnlinkTaskFromNote={onUnlinkTaskFromNote}
+                onOpenTask={onOpenTask}
+                onToggleTaskComplete={onToggleTaskComplete}
+                onCreateTaskAndLink={onCreateTaskAndLink}
+                compact={isMobile}
+                embedded
               />
-              <button
-                type="button"
-                onClick={() => void handleCreateLinkedTask()}
-                disabled={!!saving || creatingTask || !newTaskTitle.trim()}
-                className="btn btn-ghost shrink-0 px-3 py-2 text-sm border border-border-glass flex items-center gap-1.5"
-              >
-                {creatingTask ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-                Add task
-              </button>
             </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-text-secondary mb-1.5">Attachments</div>
+          ) : (
             <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(false);
-                addFiles(e.dataTransfer.files);
-              }}
               className={cn(
-                "rounded-xl border border-dashed px-4 py-5 text-center transition",
-                dragOver
-                  ? "border-neon-purple/50 bg-neon-purple/5"
-                  : "border-border-glass bg-bg/60",
+                "capture-file-associated-tasks rounded-xl border border-border-glass bg-bg/60 space-y-3",
+                isMobile ? "p-3" : "p-4",
               )}
             >
-              <Upload className="h-5 w-5 mx-auto text-text-muted mb-2" />
-              <p className="text-sm text-text-secondary">
-                Drop files here or{" "}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                  <Link2 className="h-3.5 w-3.5 shrink-0 text-neon-purple" />
+                  Associated tasks
+                </div>
+                {(linkedTasks.length > 0 || pendingTaskTitles.length > 0) && (
+                  <span className="text-[10px] font-mono text-neon-purple tabular-nums">
+                    {linkedTasks.length + pendingTaskTitles.length} linked
+                  </span>
+                )}
+              </div>
+
+              {(linkedTasks.length > 0 || pendingTaskTitles.length > 0) && (
+                <ul className="space-y-1.5">
+                  {linkedTasks.map((task) => (
+                    <li key={task.id}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask?.(task.id)}
+                        disabled={!onOpenTask}
+                        className={cn(
+                          "capture-file-linked-task w-full flex items-center gap-2 rounded-xl border border-border-glass bg-bg-secondary px-3 py-2.5 text-sm text-text-primary text-left transition min-h-[44px]",
+                          onOpenTask && "hover:border-neon-purple/30 hover:bg-surface-hover active:scale-[0.99]",
+                          !onOpenTask && "cursor-default",
+                        )}
+                      >
+                        <CheckSquare className="h-4 w-4 shrink-0 text-neon-purple" />
+                        <span className="flex-1 min-w-0 truncate">{task.title}</span>
+                        <span className="text-[10px] text-text-faint uppercase tracking-wide shrink-0">
+                          Linked
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {pendingTaskTitles.map((taskTitle, index) => (
+                    <li
+                      key={`pending-${taskTitle}-${index}`}
+                      className="flex items-center gap-2 rounded-xl border border-neon-purple/25 bg-neon-purple/5 px-3 py-2.5 text-sm text-neon-purple-tint min-h-[44px]"
+                    >
+                      <CheckSquare className="h-4 w-4 shrink-0" />
+                      <span className="flex-1 min-w-0 truncate">{taskTitle}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingTaskTitles((prev) => prev.filter((_, i) => i !== index))
+                        }
+                        className="flex items-center justify-center min-h-[44px] min-w-[44px] -mr-2 text-text-muted hover:text-text-primary"
+                        aria-label={`Remove ${taskTitle}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className={cn(isMobile ? "space-y-2" : "flex gap-2")}>
+                <input
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleCreateLinkedTask();
+                    }
+                  }}
+                  placeholder="Create a task to link to this file"
+                  className={cn(
+                    "input rounded-xl",
+                    isMobile
+                      ? "w-full min-h-[44px] px-3 py-2.5 text-base"
+                      : "flex-1 px-3 py-2 text-sm",
+                  )}
+                  disabled={!!saving || creatingTask}
+                />
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-neon-purple hover:underline"
+                  onClick={() => void handleCreateLinkedTask()}
+                  disabled={!!saving || creatingTask || !newTaskTitle.trim()}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 text-sm font-semibold transition",
+                    isMobile
+                      ? "btn btn-primary w-full min-h-[44px] rounded-xl px-4 py-2.5"
+                      : "btn btn-ghost shrink-0 px-3 py-2 border border-border-glass rounded-xl",
+                    (!newTaskTitle.trim() || creatingTask) && isMobile && "opacity-45",
+                  )}
                 >
-                  browse
+                  {creatingTask ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Adding…
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4" />
+                      Add task
+                    </>
+                  )}
                 </button>
-              </p>
-              <p className="text-[10px] text-text-faint mt-1">PDF, images, docs — up to 50 MB each</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => addFiles(e.target.files)}
-              />
+              </div>
             </div>
+          )}
 
-            {attachments.length > 0 && (
-              <ul className="mt-2 space-y-1.5">
-                {attachments.map((file, index) => (
-                  <li
-                    key={`${file.name}-${index}`}
-                    className="flex items-center gap-2 rounded-lg border border-border-glass bg-bg-secondary px-3 py-2 text-sm"
-                  >
-                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <span className="flex-1 min-w-0 truncate text-text-primary">{file.name}</span>
-                    <span className="text-[10px] text-text-faint shrink-0">
-                      {(file.size / 1024).toFixed(0)} KB
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(index)}
-                      className="text-text-muted hover:text-text-primary px-1"
-                      aria-label={`Remove ${file.name}`}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {uploadingAttachments && (
+            <p className="text-xs text-text-muted flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Uploading attachment…
+            </p>
+          )}
 
           {!isLive && (
             <p className="text-xs text-text-muted rounded-lg border border-border-glass bg-surface-hover px-3 py-2">
@@ -574,7 +720,15 @@ export function CaptureFileModal({
           )}
         </div>
 
-        <div className="shrink-0 flex flex-col-reverse sm:flex-row gap-2 px-5 py-4 border-t border-border-glass bg-bg/80">
+        <div
+          className={cn(
+            "shrink-0 flex gap-2 border-t border-border-glass bg-bg/80",
+            safeX,
+            isMobile
+              ? "flex-col px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+              : "flex-col-reverse sm:flex-row px-5 py-4",
+          )}
+        >
           <button
             type="button"
             onClick={requestClose}
@@ -637,77 +791,62 @@ export function CaptureFileModal({
             </>
           )}
         </div>
-      </div>
+      </MobileDrawerShell>
 
-      {showUnsavedConfirm && (
-        <div className="fixed inset-0 z-[300] flex items-end md:items-center justify-center p-0 md:p-4">
-          <div
-            className="absolute inset-0 overlay-scrim backdrop-blur-[3px]"
-            onClick={() => setShowUnsavedConfirm(false)}
-            aria-hidden
-          />
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="file-unsaved-title"
-            aria-describedby="file-unsaved-desc"
-            className={cn(
-              "confirmation-modal confirmation-modal--unsaved task-unsaved-dialog relative w-full max-w-md bg-bg-panel border border-border-glass modal-panel shadow-2xl",
-              "rounded-t-2xl md:rounded-2xl",
-              "pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0",
-              "animate-in fade-in slide-in-from-bottom-4 md:zoom-in-95 duration-200",
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-center pt-2.5 md:hidden">
-              <div className="confirmation-modal__drag-handle h-1 w-10 rounded-full" aria-hidden />
-            </div>
-            <div className="p-5 pb-4">
-              <h3 id="file-unsaved-title" className="text-lg font-semibold text-text-primary tracking-tight">
-                Save changes?
-              </h3>
-              <div id="file-unsaved-desc" className="mt-2 space-y-1.5">
-                <p className="text-sm font-medium text-text-primary truncate">
-                  &ldquo;{title.trim() || initialNote?.title || "Untitled"}&rdquo;
-                </p>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  You have unsaved changes. Save them before closing, or discard your edits.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2.5 px-5 pb-5">
-              <button
-                type="button"
-                onClick={() => setShowUnsavedConfirm(false)}
-                className="confirmation-modal__cancel w-full min-h-[44px] rounded-xl border border-border-glass px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-surface-hover transition"
-              >
-                Keep editing
-              </button>
-              <div className="flex flex-col-reverse md:flex-row gap-2.5">
-                <button
-                  type="button"
-                  onClick={dismissWithoutSaving}
-                  disabled={!!saving}
-                  className="confirmation-modal__discard flex-1 min-h-[44px] rounded-xl border border-[var(--priority-p0)]/35 px-4 py-2.5 text-sm font-semibold text-[var(--priority-p0)]/70 hover:bg-[var(--priority-p0)]/15 disabled:opacity-50 transition"
-                >
-                  Discard changes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUnsavedConfirm(false);
-                    void handleSaveEdit();
-                  }}
-                  disabled={!!saving}
-                  className="confirmation-modal__save btn btn-primary flex-1 min-h-[44px] px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition"
-                >
-                  Save and close
-                </button>
-              </div>
-            </div>
+      <MobileDrawerShell
+        open={showUnsavedConfirm}
+        onClose={() => setShowUnsavedConfirm(false)}
+        isMobile={isMobile}
+        zIndex={300}
+        panelClassName={cn(
+          "confirmation-modal confirmation-modal--unsaved task-unsaved-dialog",
+          !isMobile && "max-w-md",
+        )}
+        ariaLabel="Save changes?"
+      >
+        <div className="p-5 pb-4">
+          <h3 className="text-lg font-semibold text-text-primary tracking-tight">Save changes?</h3>
+          <div className="mt-2 space-y-1.5">
+            <p className="text-sm font-medium text-text-primary truncate">
+              &ldquo;{title.trim() || initialNote?.title || "Untitled"}&rdquo;
+            </p>
+            <p className="text-sm text-text-secondary leading-relaxed">
+              You have unsaved changes. Save them before closing, or discard your edits.
+            </p>
           </div>
         </div>
-      )}
-    </div>
+        <div className="flex flex-col gap-2.5 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={() => setShowUnsavedConfirm(false)}
+            className="confirmation-modal__cancel w-full min-h-[44px] rounded-xl border border-border-glass px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-surface-hover transition"
+          >
+            Keep editing
+          </button>
+          <div className="flex flex-col-reverse sm:flex-row gap-2.5">
+            <button
+              type="button"
+              onClick={dismissWithoutSaving}
+              disabled={!!saving}
+              className="confirmation-modal__discard flex-1 min-h-[44px] rounded-xl border border-[var(--priority-p0)]/35 px-4 py-2.5 text-sm font-semibold text-[var(--priority-p0)]/70 hover:bg-[var(--priority-p0)]/15 disabled:opacity-50 transition"
+            >
+              Discard changes
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowUnsavedConfirm(false);
+                void handleSaveEdit();
+              }}
+              disabled={!!saving}
+              className="confirmation-modal__save btn btn-primary flex-1 min-h-[44px] px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition"
+            >
+              Save and close
+            </button>
+          </div>
+        </div>
+      </MobileDrawerShell>
+    </>,
+    document.body,
   );
 }

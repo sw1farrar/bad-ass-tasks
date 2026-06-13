@@ -3,6 +3,7 @@
 import React from "react";
 import { Eye, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { prefetchNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
 import type { Note, Task } from "@/types";
 import { recordTypeLabel } from "@/lib/files/fileTypes";
@@ -18,6 +19,7 @@ interface ReviewPanelProps {
   onReview: (id: string) => void;
   onOpenEditor?: (id: string) => void;
   attachmentCounts?: Record<string, number>;
+  emptyMessage?: string;
 }
 
 export function ReviewPanel({
@@ -28,20 +30,29 @@ export function ReviewPanel({
   onReview,
   onOpenEditor,
   attachmentCounts = {},
+  emptyMessage,
 }: ReviewPanelProps) {
+  const isMobile = useIsMobileViewport();
+
   if (files.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="text-lg font-medium text-text-primary mb-1">Review is clear</div>
-        <p className="text-sm text-text-muted max-w-xs">
-          New emails, uploads, and files you create will appear here for tagging and filing.
-        </p>
+      <div className="flex-1 flex flex-col items-center justify-center p-8 pb-[calc(6rem+env(safe-area-inset-bottom))] text-center">
+        {emptyMessage ? (
+          <p className="text-sm text-text-muted max-w-xs">{emptyMessage}</p>
+        ) : (
+          <>
+            <div className="text-lg font-medium text-text-primary mb-1">Review is clear</div>
+            <p className="text-sm text-text-muted max-w-xs">
+              New emails, uploads, and files you create will appear here for tagging and filing.
+            </p>
+          </>
+        )}
       </div>
     );
   }
 
   return (
-    <ul className="files-list-scroll files-review-list flex-1 overflow-y-auto" aria-label="Review queue">
+    <ul className="files-list-scroll files-review-list flex-1 min-w-0 overflow-y-auto overflow-x-hidden" aria-label="Review queue">
       {files.map((file) => {
         const isSelected = file.id === selectedId;
         const attachCount = attachmentCounts[file.id] ?? 0;
@@ -60,11 +71,11 @@ export function ReviewPanel({
                 "files-list-item--open-tasks",
             )}
           >
-            <div className="px-4 py-4 flex gap-2 items-start">
+            <div className="px-3 md:px-4 py-4 flex gap-2 items-start min-w-0 max-w-full box-border overflow-hidden">
               <button
                 type="button"
                 className="files-list-item__body flex-1 min-w-0 text-left relative"
-                onClick={() => onSelect(file.id)}
+                onClick={() => (isMobile ? onReview(file.id) : onSelect(file.id))}
                 onMouseEnter={() => {
                   if (attachCount > 0) prefetchNoteAttachments(file.id);
                 }}
@@ -102,10 +113,10 @@ export function ReviewPanel({
               <button
                 type="button"
                 onClick={() => onReview(file.id)}
-                className="files-inline-action-button files-inline-action-button--review shrink-0 min-h-[30px] px-2.5 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1"
+                className="files-inline-action-button files-inline-action-button--review shrink-0 min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1"
               >
-                <Eye className="h-3 w-3" />
-                Review
+                <Eye className="h-4 w-4" />
+                <span className="hidden sm:inline">Review</span>
               </button>
             </div>
           </li>

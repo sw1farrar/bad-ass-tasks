@@ -64,7 +64,7 @@ export function FileStream({
 
   if (files.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8 text-center text-sm text-text-muted">
+      <div className="flex-1 flex items-center justify-center p-8 pb-[calc(6rem+env(safe-area-inset-bottom))] text-center text-sm text-text-muted">
         {emptyMessage}
       </div>
     );
@@ -75,7 +75,7 @@ export function FileStream({
   return (
     <div
       ref={parentRef}
-      className="files-list-scroll flex-1 overflow-y-auto"
+      className="files-list-scroll flex-1 min-w-0 overflow-y-auto overflow-x-hidden"
       role="listbox"
       aria-label="Files"
       onScroll={() => {
@@ -126,7 +126,7 @@ export function FileStream({
                 }}
                 onDoubleClick={() => onOpenEditor?.(file.id)}
                 className={cn(
-                  "files-list-item w-full text-left px-4 py-4 transition relative",
+                  "files-list-item w-full max-w-full text-left px-3 md:px-4 py-4 transition relative box-border overflow-hidden",
                   isSelected && "files-list-item--selected",
                   !isSelected && "hover:bg-surface-hover",
                   linkedTaskStats.hasOverdue && "files-list-item--overdue-tasks",

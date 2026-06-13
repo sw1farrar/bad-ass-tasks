@@ -1,5 +1,27 @@
 import type { Task, WorkspaceMember } from "@/types";
 
+/** Shared workspace pool when no member is assigned (empty assigneeIds). */
+export const TASK_ASSIGNEE_ALL_LABEL = "Anyone";
+
+export function isAllAssigneeLabel(label: string | undefined | null): boolean {
+  const trimmed = label?.trim();
+  return (
+    !trimmed ||
+    trimmed === TASK_ASSIGNEE_ALL_LABEL ||
+    trimmed === "All" ||
+    trimmed === "Unassigned"
+  );
+}
+
+export function isAllAssigneePool(
+  assigneeIds: string[] | undefined,
+  assigneeLabel?: string,
+): boolean {
+  const ids = assigneeIds?.filter(Boolean) ?? [];
+  if (ids.length > 0) return false;
+  return isAllAssigneeLabel(assigneeLabel);
+}
+
 export function getAssigneeFirstName(label: string): string {
   const trimmed = label.trim();
   if (!trimmed || trimmed === "You" || trimmed === "Team member") return trimmed;
@@ -67,9 +89,9 @@ export function resolveAssigneeLabel(
   assigneeIds: string[] | undefined,
   members: WorkspaceMember[],
   currentUserId?: string
-): string | undefined {
+): string {
   const ids = assigneeIds?.filter(Boolean) ?? [];
-  if (ids.length === 0) return undefined;
+  if (ids.length === 0) return TASK_ASSIGNEE_ALL_LABEL;
 
   const primaryId = ids[0];
   const member = members.find((m) => m.userId === primaryId);
@@ -84,14 +106,15 @@ export function enrichTaskWithAssignee(
   members: WorkspaceMember[],
   currentUserId?: string
 ): Task {
-  const ids = task.assigneeIds ?? [];
+  const ids = task.assigneeIds?.filter(Boolean) ?? [];
   if (ids.length > 0) {
     return {
       ...task,
+      assigneeIds: ids,
       assignee: resolveAssigneeLabel(ids, members, currentUserId),
     };
   }
-  return { ...task, assignee: undefined };
+  return { ...task, assigneeIds: [], assignee: TASK_ASSIGNEE_ALL_LABEL };
 }
 
 export function enrichTasksWithAssignees(
@@ -117,7 +140,9 @@ export function buildAssigneeBreakdown(
 
   for (const task of tasks) {
     if (task.status === "done") continue;
-    const label = task.assignee || resolveAssigneeLabel(task.assigneeIds, members, currentUserId) || "Unassigned";
+    const label = isAllAssigneePool(task.assigneeIds, task.assignee)
+      ? TASK_ASSIGNEE_ALL_LABEL
+      : task.assignee || resolveAssigneeLabel(task.assigneeIds, members, currentUserId);
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
 

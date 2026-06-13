@@ -1,9 +1,11 @@
 import type { ListItem, WorkspaceList } from "@/types";
 import {
+  computeFlatListReorder,
+  computeIndentUpdate,
   computeOutdentUpdate,
   flattenListItems,
   getIndentParentId,
-  nextSortOrderAmongSiblings,
+  firstSortOrderAmongSiblings,
   sortOrderForInsertAfter,
 } from "@/lib/lists/listItemTree";
 import { generateId, triggerHaptic } from "@/lib/utils";
@@ -241,7 +243,7 @@ export function createListSliceActions(get: Get, set: Set) {
       const allItems = get().listItems;
 
       let parentItemId = options?.parentItemId ?? null;
-      let sortOrder = nextSortOrderAmongSiblings(allItems, listId, parentItemId);
+      let sortOrder = firstSortOrderAmongSiblings(allItems, listId, parentItemId);
 
       if (options?.afterItemId) {
         const placement = sortOrderForInsertAfter(allItems, options.afterItemId);
@@ -354,9 +356,35 @@ export function createListSliceActions(get: Get, set: Set) {
 
     deleteListItem: async (id: string) => {
       const current = get().listItems.find((i) => i.id === id);
-      set((state) => ({ listItems: state.listItems.filter((i) => i.id !== id) }));
-      if (current && shouldPersistLists(current.workspaceId)) {
+      if (!current) return false;
+
+      const reparentTo = current.parentItemId ?? null;
+      const now = new Date().toISOString();
+      const childIds = get()
+        .listItems.filter((i) => i.parentItemId === id)
+        .map((i) => i.id);
+
+      set((state) => ({
+        listItems: state.listItems
+          .filter((i) => i.id !== id)
+          .map((i) =>
+            i.parentItemId === id
+              ? {
+                  ...i,
+                  parentItemId: reparentTo ?? undefined,
+                  updatedAt: now,
+                }
+              : i,
+          ),
+      }));
+
+      if (shouldPersistLists(current.workspaceId)) {
         void deleteListItemSupabase(normalizeListEntityId(id), current.workspaceId);
+        for (const childId of childIds) {
+          void updateListItemSupabase(normalizeListEntityId(childId), current.workspaceId, {
+            parentItemId: reparentTo,
+          });
+        }
       }
       return true;
     },
@@ -366,68 +394,124 @@ export function createListSliceActions(get: Get, set: Set) {
       const active = allItems.find((i) => i.id === activeId);
       const over = allItems.find((i) => i.id === overId);
       if (!active || !over) return;
-      if ((active.parentItemId ?? null) !== (over.parentItemId ?? null)) return;
 
-      const siblings = allItems
-        .filter((i) => (i.parentItemId ?? null) === (active.parentItemId ?? null))
-        .sort((a, b) => a.sortOrder - b.sortOrder);
-      const oldIndex = siblings.findIndex((i) => i.id === activeId);
-      const newIndex = siblings.findIndex((i) => i.id === overId);
-      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+      const result = computeFlatListReorder(allItems, activeId, overId);
+      if (!result) return;
 
-      const reordered = [...siblings];
-      const [moved] = reordered.splice(oldIndex, 1);
-      reordered.splice(newIndex, 0, moved);
-      const normalized = renormalizeSortOrders(reordered);
-      const idToOrder = new Map(normalized.map((i) => [i.id, i.sortOrder]));
       const now = new Date().toISOString();
       const workspaceId = active.workspaceId ?? wsId();
       set((state) => ({
-        listItems: state.listItems.map((i) =>
-          idToOrder.has(i.id) ? { ...i, sortOrder: idToOrder.get(i.id)!, updatedAt: now } : i
-        ),
+        listItems: state.listItems.map((i) => {
+          const update = result.updates.get(i.id);
+          if (!update) return i;
+          return {
+            ...i,
+            parentItemId:
+              update.parentItemId === null
+                ? undefined
+                : update.parentItemId === undefined
+                  ? i.parentItemId
+                  : update.parentItemId,
+            sortOrder: update.sortOrder,
+            updatedAt: now,
+          };
+        }),
       }));
+
       if (workspaceId && shouldPersistLists(workspaceId)) {
-        for (const [itemId, sortOrder] of idToOrder) {
-          void updateListItemSupabase(normalizeListEntityId(itemId), workspaceId, { sortOrder });
+        for (const [itemId, update] of result.updates) {
+          void updateListItemSupabase(normalizeListEntityId(itemId), workspaceId, {
+            sortOrder: update.sortOrder,
+            ...(itemId === activeId ? { parentItemId: update.parentItemId } : {}),
+          });
         }
       }
     },
 
     indentListItem: async (id: string) => {
-      const allItems = get().listItems;
-      const current = allItems.find((i) => i.id === id);
+      const current = get().listItems.find((i) => i.id === id);
       if (!current) return false;
 
-      const listItems = allItems.filter((i) => i.listId === current.listId);
-      const parentId = getIndentParentId(id, listItems);
-      if (!parentId || parentId === current.parentItemId) return false;
+      const listItems = get().listItems.filter(
+        (i) => i.listId === current.listId && i.workspaceId === current.workspaceId,
+      );
+      const update = computeIndentUpdate(listItems, id);
+      if (!update) return false;
 
       const now = new Date().toISOString();
-      const sortOrder = nextSortOrderAmongSiblings(allItems, current.listId, parentId);
       set((state) => ({
-        listItems: state.listItems.map((i) =>
-          i.id === id
-            ? { ...i, parentItemId: parentId, sortOrder, updatedAt: now }
-            : i,
-        ),
+        listItems: state.listItems.map((i) => {
+          const sortOrder = update.siblingSortOrders.get(i.id);
+          const promotedParent =
+            update.parentPromotion?.itemId === i.id
+              ? update.parentPromotion.parentItemId
+              : undefined;
+
+          if (sortOrder === undefined && promotedParent === undefined) return i;
+
+          if (i.id === id) {
+            return {
+              ...i,
+              parentItemId: update.parentItemId,
+              ...(sortOrder !== undefined ? { sortOrder } : {}),
+              updatedAt: now,
+            };
+          }
+
+          return {
+            ...i,
+            ...(sortOrder !== undefined ? { sortOrder } : {}),
+            ...(promotedParent !== undefined ? { parentItemId: promotedParent } : {}),
+            updatedAt: now,
+          };
+        }),
       }));
 
       if (shouldPersistLists(current.workspaceId)) {
-        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
-          parentItemId: parentId,
-          sortOrder,
-        });
+        for (const [itemId, sortOrder] of update.siblingSortOrders) {
+          const promotedParent =
+            update.parentPromotion?.itemId === itemId
+              ? update.parentPromotion.parentItemId
+              : undefined;
+          void updateListItemSupabase(normalizeListEntityId(itemId), current.workspaceId, {
+            ...(itemId === id
+              ? {
+                  parentItemId: normalizeListEntityId(update.parentItemId),
+                  sortOrder,
+                }
+              : promotedParent !== undefined
+                ? {
+                    parentItemId: normalizeListEntityId(promotedParent),
+                    sortOrder,
+                  }
+                : { sortOrder }),
+          });
+        }
+
+        if (
+          update.parentPromotion &&
+          !update.siblingSortOrders.has(update.parentPromotion.itemId)
+        ) {
+          void updateListItemSupabase(
+            normalizeListEntityId(update.parentPromotion.itemId),
+            current.workspaceId,
+            {
+              parentItemId: normalizeListEntityId(update.parentPromotion.parentItemId),
+            },
+          );
+        }
       }
       return true;
     },
 
     outdentListItem: async (id: string) => {
-      const allItems = get().listItems;
-      const current = allItems.find((i) => i.id === id);
+      const current = get().listItems.find((i) => i.id === id);
       if (!current?.parentItemId) return false;
 
-      const update = computeOutdentUpdate(allItems, id);
+      const listItems = get().listItems.filter(
+        (i) => i.listId === current.listId && i.workspaceId === current.workspaceId,
+      );
+      const update = computeOutdentUpdate(listItems, id);
       if (!update) return false;
 
       const now = new Date().toISOString();
@@ -449,10 +533,15 @@ export function createListSliceActions(get: Get, set: Set) {
 
       if (shouldPersistLists(current.workspaceId)) {
         for (const [itemId, sortOrder] of update.siblingSortOrders) {
-          const item = allItems.find((i) => i.id === itemId);
           void updateListItemSupabase(normalizeListEntityId(itemId), current.workspaceId, {
             ...(itemId === id
-              ? { parentItemId: update.parentItemId, sortOrder }
+              ? {
+                  parentItemId:
+                    update.parentItemId == null
+                      ? null
+                      : normalizeListEntityId(update.parentItemId),
+                  sortOrder,
+                }
               : { sortOrder }),
           });
         }

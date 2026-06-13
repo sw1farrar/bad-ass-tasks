@@ -2,7 +2,7 @@
 
 import { User } from "lucide-react";
 import type { WorkspaceMember } from "@/types";
-import { getMemberDisplayName, isSharedWorkspace } from "@/lib/assignee";
+import { TASK_ASSIGNEE_ALL_LABEL, getMemberDisplayName, isSharedWorkspace } from "@/lib/assignee";
 import { cn } from "@/lib/utils";
 
 interface TaskAssigneePickerProps {
@@ -37,7 +37,7 @@ export function TaskAssigneePicker({
         )}
         aria-label="Assign task to a workspace member"
       >
-        <option value="">Unassigned</option>
+        <option value="">{TASK_ASSIGNEE_ALL_LABEL}</option>
         {members.map((member) => (
           <option key={member.userId} value={member.userId}>
             {getMemberDisplayName(member, currentUserId)}

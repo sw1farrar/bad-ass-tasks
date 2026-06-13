@@ -64,7 +64,7 @@ async function prepareMarketingShot(page: Page) {
 }
 
 async function waitForAppReady(page: Page) {
-  await page.goto("/");
+  await page.goto("/?capture=1");
   await page
     .getByRole("button", { name: "Home", exact: true })
     .first()
@@ -78,7 +78,7 @@ async function tapNav(page: Page, name: string) {
   if (await bottomNav.count()) {
     await bottomNav.getByRole("button", { name: new RegExp(name, "i") }).click({ force: true });
   } else {
-    await page.getByRole("button", { name, exact: true }).first().click({ force: true });
+    await page.getByRole("button", { name: new RegExp(name, "i") }).first().click({ force: true });
   }
   await page.waitForTimeout(700);
   await prepareMarketingShot(page);
@@ -98,14 +98,80 @@ async function goTasks(page: Page) {
   }
 }
 
-async function goNotes(page: Page) {
-  await tapNav(page, "Notes");
-  await page.getByLabel("Notes tree").waitFor({ state: "visible", timeout: 8000 });
+async function goFilesWorkspace(page: Page) {
+  await tapNav(page, "Files");
+  await page.locator(".files-root").waitFor({ state: "visible", timeout: 8000 });
+  await page.waitForTimeout(400);
+}
+
+async function goFilesReview(page: Page) {
+  await goFilesWorkspace(page);
+  const reviewButton = page.getByRole("button", { name: /^Review$/i });
+  if (await reviewButton.count()) {
+    await reviewButton.first().click({ force: true });
+    await page.waitForTimeout(500);
+  }
+}
+
+async function goLists(page: Page) {
+  await tapNav(page, "Lists");
+  await page.locator(".lists-root").waitFor({ state: "visible", timeout: 8000 });
+  await page.waitForTimeout(400);
 }
 
 async function goTeam(page: Page) {
   await tapNav(page, "Team");
   await page.waitForTimeout(800);
+}
+
+async function goSettingsFilesEmail(page: Page) {
+  await page.goto("/?capture=1&view=settings");
+  await page.locator(".settings-root").waitFor({ state: "visible", timeout: 10000 });
+  await prepareMarketingShot(page);
+
+  await page.evaluate(() => {
+    const emailHeading = Array.from(document.querySelectorAll(".settings-panel")).find((panel) =>
+      panel.textContent?.includes("Files review email"),
+    );
+    emailHeading?.scrollIntoView({ block: "center" });
+
+    const panel = emailHeading;
+    if (!panel) return;
+
+    for (const hint of panel.querySelectorAll(".settings-inbox-hint, button.settings-inbox-create")) {
+      hint.remove();
+    }
+
+    const placeholder = panel.querySelector(".text-xs.text-text-muted");
+    if (placeholder?.textContent?.includes("No files review email")) {
+      placeholder.remove();
+    }
+
+    const mount = document.createElement("div");
+    mount.innerHTML = `
+      <div class="settings-inbox-card rounded-xl border border-border-glass bg-surface-hover p-4 space-y-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-text-primary truncate">Files review email</div>
+            <div class="text-[11px] text-text-muted mt-0.5">One address per workspace</div>
+          </div>
+        </div>
+        <div class="settings-inbox-email flex items-center gap-2 rounded-xl border border-neon-purple/20 bg-neon-purple/5 px-3 py-2.5">
+          <code class="flex-1 min-w-0 text-xs text-neon-purple-tint font-mono break-all sm:truncate">acme-workspace@inbound.badazztasks.com</code>
+          <span class="settings-inbox-copy flex items-center gap-1 rounded-lg border border-border-glass px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-text-secondary shrink-0">Copy</span>
+        </div>
+      </div>
+    `;
+
+    const panels = panel.querySelectorAll("p");
+    const lastDesc = panels[panels.length - 1];
+    if (lastDesc?.parentElement) {
+      lastDesc.parentElement.appendChild(mount.firstElementChild!);
+    }
+  });
+
+  await page.waitForTimeout(500);
+  await prepareMarketingShot(page);
 }
 
 async function captureAppChrome(page: Page, filename: string) {
@@ -124,6 +190,7 @@ test.describe("Capture landing screenshots", () => {
   });
 
   test("desktop views @1440x900", async ({ browser }) => {
+    test.setTimeout(120_000);
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       deviceScaleFactor: 2,
@@ -137,8 +204,17 @@ test.describe("Capture landing screenshots", () => {
     await goTasks(page);
     await captureAppChrome(page, "desktop-tasks.png");
 
-    await goNotes(page);
+    await goFilesWorkspace(page);
     await captureAppChrome(page, "desktop-notes.png");
+
+    await goLists(page);
+    await captureAppChrome(page, "desktop-lists.png");
+
+    await goFilesReview(page);
+    await captureAppChrome(page, "desktop-files.png");
+
+    await goSettingsFilesEmail(page);
+    await captureAppChrome(page, "desktop-files-email.png");
 
     await goTeam(page);
     await captureAppChrome(page, "desktop-team.png");
@@ -147,7 +223,7 @@ test.describe("Capture landing screenshots", () => {
   });
 
   test("mobile views @390x844", async ({ browser }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 3,
@@ -163,8 +239,17 @@ test.describe("Capture landing screenshots", () => {
     await goTasks(page);
     await captureAppChrome(page, "mobile-tasks.png");
 
-    await goNotes(page);
+    await goFilesWorkspace(page);
     await captureAppChrome(page, "mobile-notes.png");
+
+    await goLists(page);
+    await captureAppChrome(page, "mobile-lists.png");
+
+    await goFilesReview(page);
+    await captureAppChrome(page, "mobile-files.png");
+
+    await goSettingsFilesEmail(page);
+    await captureAppChrome(page, "mobile-files-email.png");
 
     await goTeam(page);
     await captureAppChrome(page, "mobile-team.png");

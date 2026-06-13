@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Legacy signup links → home with sign-in modal. */
+/** Sign up lives on the login page (bookmark /login or /signup). */
 export default function SignupPage() {
-  redirect("/?signin=1");
+  redirect("/login?mode=signup");
 }

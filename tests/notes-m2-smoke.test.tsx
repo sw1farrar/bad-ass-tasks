@@ -451,6 +451,47 @@ describe('Bidirectional linking in useNoteOperations (task-to-note and note-to-n
     expect(updateTask).toHaveBeenCalledWith('new-task-1', { linkedNoteIds: [noteUuid] });
   });
 
+  it('create-and-link: applies due date and assignee when provided', async () => {
+    const noteUuid = 'note-due-assignee';
+    const addTask = vi.fn().mockResolvedValue({
+      id: 'new-task-2',
+      title: 'Follow up',
+      linkedNoteIds: [],
+      status: 'todo',
+      priority: 'P2',
+      description: '',
+      createdAt: '',
+      tags: [],
+      workspaceId: '',
+    });
+    const updateNote = vi.fn().mockResolvedValue(true);
+    const updateTask = vi.fn().mockResolvedValue(true);
+
+    const ops = useNoteOperations({
+      notes: [{ id: noteUuid, linkedTaskIds: [], title: 'Note', content: '', createdAt: '', updatedAt: '', tags: [], workspaceId: '' }],
+      tasks: [],
+      selectedNoteId: noteUuid,
+      addNote: async () => null,
+      updateNote,
+      deleteNote: async () => true,
+      updateTask,
+      addTask,
+      openTask: () => {},
+      setPendingDeleteNote: () => {},
+    } as any);
+
+    await ops.onCreateTaskAndLink(noteUuid, 'Follow up', {
+      dueDate: '2026-06-15',
+      assigneeId: 'user-abc',
+    });
+
+    expect(updateTask).toHaveBeenCalledWith('new-task-2', {
+      dueDate: '2026-06-15',
+      assigneeIds: ['user-abc'],
+    });
+    expect(updateTask).toHaveBeenCalledWith('new-task-2', { linkedNoteIds: [noteUuid] });
+  });
+
   it('task-to-note unlink: handleUnlinkTaskFromNote removes only the target id from both sides', async () => {
     const updateNote = vi.fn().mockResolvedValue(true);
     const updateTask = vi.fn().mockResolvedValue(true);

@@ -1,4 +1,5 @@
 import { deliverNotification } from "@/lib/notifications/deliverNotification";
+import { isReminderDismissed, reminderKeyForTask } from "@/lib/notifications/dismissedReminders";
 import { logError } from "@/lib/logger";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { formatLocalDateShort } from "@/lib/utils";
@@ -23,13 +24,9 @@ function isDueToday(dueDate: string): boolean {
   return dueDay.getTime() === today.getTime();
 }
 
-function reminderKey(taskId: string): string {
-  const day = startOfLocalDay().toISOString().slice(0, 10);
-  return `deadline:${taskId}:${day}`;
-}
-
 async function hasReminderToday(supabase: any, userId: string, taskId: string): Promise<boolean> {
-  const key = reminderKey(taskId);
+  const key = reminderKeyForTask(taskId);
+  if (isReminderDismissed(userId, key)) return true;
   const { data, error } = await supabase
     .from("notifications")
     .select("id")
@@ -82,31 +79,32 @@ export async function processDeadlineReminders(userId: string, supabase?: any): 
       workspaceNames.set(ws.id, ws.name?.trim() || "your workspace");
     }
 
-    await Promise.all(
-      dueToday.map(async (task) => {
-        if (await hasReminderToday(client, userId, task.id)) return;
+    // Sequential delivery avoids check-then-insert races between parallel reminders.
+    for (const task of dueToday) {
+      const key = reminderKeyForTask(task.id);
+      if (isReminderDismissed(userId, key)) continue;
+      if (await hasReminderToday(client, userId, task.id)) continue;
 
-        const dueLabel = task.due_date ? formatLocalDateShort(task.due_date) : "today";
-        const workspaceName = workspaceNames.get(task.workspace_id) || "your workspace";
+      const dueLabel = task.due_date ? formatLocalDateShort(task.due_date) : "today";
+      const workspaceName = workspaceNames.get(task.workspace_id) || "your workspace";
 
-        await deliverNotification({
-          supabase: client,
-          workspaceId: task.workspace_id,
-          recipientUserId: userId,
-          type: "deadline",
-          title: "Task due today",
-          message: `"${task.title.trim() || "Task"}" is due ${dueLabel} in ${workspaceName}.`,
-          link: `?view=tasks&task=${task.id}`,
-          workspaceName,
-          metadata: {
-            task_id: task.id,
-            task_title: task.title,
-            due_date: task.due_date,
-            reminder_key: reminderKey(task.id),
-          },
-        });
-      }),
-    );
+      await deliverNotification({
+        supabase: client,
+        workspaceId: task.workspace_id,
+        recipientUserId: userId,
+        type: "deadline",
+        title: "Task due today",
+        message: `"${task.title.trim() || "Task"}" is due ${dueLabel} in ${workspaceName}.`,
+        link: `?view=tasks&task=${task.id}`,
+        workspaceName,
+        metadata: {
+          task_id: task.id,
+          task_title: task.title,
+          due_date: task.due_date,
+          reminder_key: key,
+        },
+      });
+    }
   } catch (err) {
     logError("processDeadlineReminders", err);
   }

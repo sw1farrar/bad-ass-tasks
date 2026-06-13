@@ -68,8 +68,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/auth/dual-auth") ||
     pathname.startsWith("/api/auth/signup") ||
     pathname.startsWith("/api/auth/resend-verification") ||
+    pathname.startsWith("/api/auth/reset-password") ||
     pathname.startsWith("/api/webhooks/brevo-inbound") ||
-    pathname.startsWith("/api/invite/");
+    pathname.startsWith("/api/invite/") ||
+    pathname === "/api/ai/suggest-archive-title";
 
   // Block paused users (platform admin can pause accounts)
   if (user && !isAuthPage) {
@@ -121,8 +123,7 @@ export async function middleware(request: NextRequest) {
     pathname !== "/" &&
     !pathname.startsWith("/api/")
   ) {
-    const signInUrl = new URL("/", request.url);
-    signInUrl.searchParams.set("signin", "1");
+    const signInUrl = new URL("/login", request.url);
     const returnPath = `${pathname}${request.nextUrl.search}`;
     if (returnPath && returnPath !== "/") {
       signInUrl.searchParams.set("next", returnPath);

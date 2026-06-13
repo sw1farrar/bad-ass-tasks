@@ -1,74 +1,142 @@
 "use client";
 
-import React, { useId, useMemo } from "react";
+import React, { useMemo } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceOpenTasksGraphicProps {
   openTasks: number;
   overdue?: number;
+  dueToday?: number;
+  size?: 56 | 72 | 80 | 96;
   className?: string;
+  showSublabel?: boolean;
 }
 
-const SIZE = 56;
-const STROKE = 4.5;
-const RADIUS = (SIZE - STROKE) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-
 type ArcSegment = {
-  key: string;
+  key: "overdue" | "dueToday" | "open";
   length: number;
   dashOffset: number;
 };
 
-/** Full ring = 100% of open tasks; deeper purple slice = overdue share, lighter purple = the rest. */
-function buildOpenRingSegments(openTasks: number, overdue: number): ArcSegment[] {
+function ringMetrics(size: number) {
+  const stroke = size >= 96 ? 6 : size >= 72 ? 5 : 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  return { stroke, radius, circumference, size };
+}
+
+/** Full ring = 100% of open tasks; red = overdue, orange = due today, purple = the rest. */
+function buildOpenRingSegments(
+  openTasks: number,
+  overdue: number,
+  dueToday: number,
+  circumference: number,
+): ArcSegment[] {
   if (openTasks <= 0) return [];
 
   const safeOverdue = Math.min(Math.max(overdue, 0), openTasks);
-  const onTrack = openTasks - safeOverdue;
-  const overdueLength = (safeOverdue / openTasks) * CIRCUMFERENCE;
-  const onTrackLength = (onTrack / openTasks) * CIRCUMFERENCE;
+  const remainingAfterOverdue = openTasks - safeOverdue;
+  const safeDueToday = Math.min(Math.max(dueToday, 0), remainingAfterOverdue);
+  const onTrack = remainingAfterOverdue - safeDueToday;
+
+  const overdueLength = (safeOverdue / openTasks) * circumference;
+  const dueTodayLength = (safeDueToday / openTasks) * circumference;
+  const onTrackLength = (onTrack / openTasks) * circumference;
 
   const segments: ArcSegment[] = [];
+  let offset = 0;
 
   if (overdueLength > 0) {
     segments.push({
       key: "overdue",
       length: overdueLength,
-      dashOffset: 0,
+      dashOffset: offset,
     });
+    offset -= overdueLength;
+  }
+  if (dueTodayLength > 0) {
+    segments.push({
+      key: "dueToday",
+      length: dueTodayLength,
+      dashOffset: offset,
+    });
+    offset -= dueTodayLength;
   }
   if (onTrackLength > 0) {
     segments.push({
       key: "open",
       length: onTrackLength,
-      dashOffset: -overdueLength,
+      dashOffset: offset,
     });
   }
 
   return segments;
 }
 
+function segmentClassName(key: ArcSegment["key"]): string {
+  switch (key) {
+    case "overdue":
+      return "home-ws-task-ring-segment--overdue";
+    case "dueToday":
+      return "home-ws-task-ring-segment--due-today";
+    default:
+      return "home-ws-task-ring-segment--open";
+  }
+}
+
 export function WorkspaceOpenTasksGraphic({
   openTasks,
   overdue = 0,
+  dueToday = 0,
+  size = 56,
   className,
+  showSublabel = true,
 }: WorkspaceOpenTasksGraphicProps) {
-  const uid = useId().replace(/:/g, "");
+  const { stroke, radius, circumference } = ringMetrics(size);
   const isAllClear = openTasks <= 0;
   const safeOverdue = Math.min(Math.max(overdue, 0), openTasks);
+  const safeDueToday = Math.min(
+    Math.max(dueToday, 0),
+    Math.max(openTasks - safeOverdue, 0),
+  );
   const hasOverdue = safeOverdue > 0;
+  const hasDueToday = safeDueToday > 0;
 
   const segments = useMemo(
-    () => buildOpenRingSegments(openTasks, safeOverdue),
-    [openTasks, safeOverdue],
+    () => buildOpenRingSegments(openTasks, safeOverdue, safeDueToday, circumference),
+    [openTasks, safeOverdue, safeDueToday, circumference],
   );
 
   const ariaLabel = isAllClear
     ? "No open tasks"
     : `${openTasks} open task${openTasks === 1 ? "" : "s"}` +
-      (hasOverdue ? `, ${safeOverdue} overdue` : "");
+      (hasOverdue ? `, ${safeOverdue} overdue` : "") +
+      (hasDueToday ? `, ${safeDueToday} due today` : "");
+
+  const countAccentClass = hasOverdue
+    ? "home-ws-task-ring-count--overdue"
+    : hasDueToday
+      ? "home-ws-task-ring-count--due-today"
+      : "text-neon-purple";
+
+  const subLabel = hasOverdue
+    ? `${safeOverdue} late`
+    : hasDueToday
+      ? `${safeDueToday} today`
+      : "open";
+
+  const subLabelClass = hasOverdue
+    ? "home-ws-task-ring-sublabel--overdue"
+    : hasDueToday
+      ? "home-ws-task-ring-sublabel--due-today"
+      : "text-text-muted";
+
+  const countSizeClass =
+    size >= 96 ? "text-2xl" : size >= 80 ? "text-xl" : size >= 72 ? "text-lg" : "text-base";
+  const subLabelSizeClass =
+    size >= 96 ? "text-[9px]" : size >= 72 ? "text-[8px]" : "text-[7px]";
+  const checkSizeClass = size >= 96 ? "h-6 w-6" : size >= 72 ? "h-5 w-5" : "h-4 w-4";
 
   return (
     <div
@@ -77,103 +145,91 @@ export function WorkspaceOpenTasksGraphic({
       aria-label={ariaLabel}
     >
       <svg
-        width={SIZE}
-        height={SIZE}
-        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
         shapeRendering="geometricPrecision"
-        className="block"
-        style={{ transform: "rotate(-90deg)" }}
+        className="home-ws-task-ring-graphic block"
+        aria-hidden
       >
-        <defs>
-          <filter id={`ws-ring-glow-${uid}`} x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="2" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <linearGradient id={`ws-ring-clear-${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--success)" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="var(--neon-green)" stopOpacity="0.75" />
-          </linearGradient>
-          <linearGradient id={`ws-ring-open-${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--neon-purple-tint)" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="var(--neon-purple)" stopOpacity="0.85" />
-          </linearGradient>
-          <linearGradient id={`ws-ring-overdue-${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="var(--neon-purple)" stopOpacity="1" />
-            <stop offset="100%" stopColor="#6d28d9" stopOpacity="1" />
-          </linearGradient>
-        </defs>
-
-        {isAllClear ? (
-          <>
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={RADIUS}
-              fill="var(--success-subtle)"
-            />
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={RADIUS}
-              fill="none"
-              stroke={`url(#ws-ring-clear-${uid})`}
-              strokeWidth={STROKE}
-              filter={`url(#ws-ring-glow-${uid})`}
-              className="home-ws-task-ring-clear"
-            />
-          </>
-        ) : (
-          <>
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={RADIUS}
-              fill="var(--accent-purple-muted)"
-            />
-            {segments.map((seg) => (
+        <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+          {isAllClear ? (
+            <>
               <circle
-                key={seg.key}
-                cx={SIZE / 2}
-                cy={SIZE / 2}
-                r={RADIUS}
-                fill="none"
-                stroke={
-                  seg.key === "overdue"
-                    ? `url(#ws-ring-overdue-${uid})`
-                    : `url(#ws-ring-open-${uid})`
-                }
-                strokeWidth={STROKE}
-                strokeLinecap="butt"
-                strokeDasharray={`${Math.max(seg.length, 0.001)} ${CIRCUMFERENCE}`}
-                strokeDashoffset={seg.dashOffset}
-                className="home-ws-task-ring-segment"
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="var(--success-subtle)"
               />
-            ))}
-          </>
-        )}
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                strokeWidth={stroke}
+                className="home-ws-task-ring-clear"
+              />
+            </>
+          ) : (
+            <>
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="transparent"
+              />
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                strokeWidth={stroke}
+                className="home-ws-task-ring-track"
+              />
+              {segments.map((seg) => (
+                <circle
+                  key={seg.key}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  fill="none"
+                  strokeWidth={stroke}
+                  strokeLinecap="butt"
+                  strokeDasharray={`${Math.max(seg.length, 0.001)} ${circumference}`}
+                  strokeDashoffset={seg.dashOffset}
+                  className={cn("home-ws-task-ring-segment", segmentClassName(seg.key))}
+                />
+              ))}
+            </>
+          )}
+        </g>
       </svg>
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
         {isAllClear ? (
-          <Check className="h-4 w-4 text-neon-green" strokeWidth={2.5} aria-hidden />
+          <Check className={cn(checkSizeClass, "text-neon-green")} strokeWidth={2.5} aria-hidden />
         ) : (
           <>
-            <span className="text-base font-semibold leading-none tabular-nums text-neon-purple">
-              {openTasks > 99 ? "99+" : openTasks}
-            </span>
             <span
               className={cn(
-                "text-[7px] uppercase tracking-wider mt-0.5 leading-none",
-                hasOverdue ? "text-neon-purple" : "text-text-muted",
+                countSizeClass,
+                "font-semibold leading-none tabular-nums",
+                countAccentClass,
               )}
             >
-              {hasOverdue
-                ? `${safeOverdue} late`
-                : "open"}
+              {openTasks > 99 ? "99+" : openTasks}
             </span>
+            {showSublabel && (
+              <span
+                className={cn(
+                  subLabelSizeClass,
+                  "uppercase tracking-wider mt-0.5 leading-none",
+                  subLabelClass,
+                )}
+              >
+                {subLabel}
+              </span>
+            )}
           </>
         )}
       </div>

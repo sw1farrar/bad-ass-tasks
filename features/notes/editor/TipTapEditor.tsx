@@ -40,6 +40,7 @@ import {
   ChevronDown,
   ChevronUp,
   Table2,
+  Paperclip,
 } from "lucide-react";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
@@ -52,7 +53,9 @@ import { EmailHtmlBlock } from "./extensions/email-html-block";
 import {
   fileToDataUrl,
   getClipboardImageFiles,
+  getClipboardFiles,
   getDroppedImageFiles,
+  getDroppedFiles,
 } from "./lib/clipboard-images";
 
 /** Default collapsed height before "Read more" (~12–14 lines at 15px/1.65). */
@@ -128,6 +131,8 @@ interface TipTapEditorProps {
   previewHeader?: React.ReactNode;
   /** Pin header, toolbar, and belowToolbar; only the editor body scrolls (Files desktop preview). */
   stickyPreviewChrome?: boolean;
+  /** Hide disabled formatting toolbar in read-only sticky preview (mobile file detail). */
+  hideReadonlyPreviewToolbar?: boolean;
   /** Rendered below editor content inside the files preview scroll region (e.g. linked tasks). */
   belowScrollContent?: React.ReactNode;
   // Future-proof callbacks for advanced slash/linking features (non-breaking; parent wires store actions)
@@ -189,6 +194,10 @@ interface TipTapEditorProps {
   // Non-breaking: optional, undefined = read-only graceful degrade in node-view.
   // Future full content sync would use the same channel with JSON handling.
   onUpdateNote?: (noteId: string, updates: { title?: string; content?: any }) => void;
+  /** Upload dropped/pasted files as note attachments (Files capture/edit modal). */
+  onAttachFiles?: (files: File[]) => void | Promise<void>;
+  /** Show paperclip toolbar control wired to onAttachFiles. */
+  showAttachFilesButton?: boolean;
 }
 
 export function TipTapEditor({
@@ -202,6 +211,7 @@ export function TipTapEditor({
   readOnly = false,
   previewHeader,
   stickyPreviewChrome = false,
+  hideReadonlyPreviewToolbar = false,
   belowScrollContent,
   onCreateTaskFromSlash,
   onCreateNoteFromSlash,
@@ -228,6 +238,8 @@ export function TipTapEditor({
   notes = [],
   // M3 minimal drill (only addition in this file per ultra-narrow charter)
   onUpdateNote,
+  onAttachFiles,
+  showAttachFilesButton = false,
 }: TipTapEditorProps) {
   /**
    * Prepare initial content for TipTap:
@@ -272,6 +284,7 @@ export function TipTapEditor({
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const lastEmittedContentRef = useRef<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const attachFilesInputRef = useRef<HTMLInputElement>(null);
   const editorBodyRef = useRef<HTMLDivElement>(null);
   const [contentExpanded, setContentExpanded] = useState(false);
   const [needsCollapse, setNeedsCollapse] = useState(false);
@@ -279,6 +292,7 @@ export function TipTapEditor({
   const handleImageFilesRef = useRef<(files: FileList | File[]) => Promise<boolean>>(
     async () => false
   );
+  const onAttachFilesRef = useRef(onAttachFiles);
 
   // Image preview (world-class lightbox for any image in the editor)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt?: string } | null>(null);
@@ -314,6 +328,12 @@ export function TipTapEditor({
   }, []);
 
   const isCompactToolbar = compactToolbar ?? isMobileViewport;
+
+  const [detectedMentions, setDetectedMentions] = useState<
+    Array<{ label: string; refType?: string; refId?: string | null }>
+  >([]);
+  const liveContentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastLiveSendRef = useRef<number>(0);
 
   const editor = useEditor({
     // Client-only editor; avoid Next.js hydration warning and first-paint delay.
@@ -408,7 +428,9 @@ export function TipTapEditor({
 
       // Always record what we emit so the external-content effect can avoid echo
       lastEmittedContentRef.current = contentString;
-      onChange?.(contentString);
+      if (onChange) {
+        queueMicrotask(() => onChange(contentString));
+      }
 
       // Live collab: throttled + trailing broadcast while typing (much better "live" feel than pure debounce)
       if (onLiveContent && editor.isFocused) {
@@ -433,10 +455,13 @@ export function TipTapEditor({
 
       // Agent 24: Live scan of mentions for bidirectional linking awareness (detectedMentions drives future panel / auto features)
       const scanned = extractMentionsFromDoc(richJson);
-      if (JSON.stringify(scanned) !== JSON.stringify(detectedMentions)) {
-        setDetectedMentions(scanned);
-        onMentionsChanged?.(scanned);
-      }
+      queueMicrotask(() => {
+        setDetectedMentions((prev) => {
+          if (JSON.stringify(scanned) === JSON.stringify(prev)) return prev;
+          onMentionsChanged?.(scanned);
+          return scanned;
+        });
+      });
 
       // === SLASH COMMAND DETECTION (live on every keystroke, zero-dep, magical) ===
       if (!editor.isFocused) return;
@@ -501,6 +526,14 @@ export function TipTapEditor({
       },
 
       handlePaste: (_view, event) => {
+        if (onAttachFilesRef.current) {
+          const files = getClipboardFiles(event.clipboardData);
+          if (files.length > 0) {
+            event.preventDefault();
+            void onAttachFilesRef.current(files);
+            return true;
+          }
+        }
         const imageFiles = getClipboardImageFiles(event.clipboardData);
         if (imageFiles.length > 0) {
           event.preventDefault();
@@ -512,6 +545,14 @@ export function TipTapEditor({
 
       handleDrop: (_view, event, _slice, moved) => {
         if (moved) return false;
+        if (onAttachFilesRef.current) {
+          const files = getDroppedFiles(event.dataTransfer);
+          if (files.length > 0) {
+            event.preventDefault();
+            void onAttachFilesRef.current(files);
+            return true;
+          }
+        }
         const imageFiles = getDroppedImageFiles(event.dataTransfer);
         if (imageFiles.length > 0) {
           event.preventDefault();
@@ -593,9 +634,6 @@ export function TipTapEditor({
   const [syncedBlockPickerSearch, setSyncedBlockPickerSearch] = useState("");
   const syncedBlockPickerRef = useRef<HTMLDivElement>(null);
 
-  // Detected mentions from live content scan (for backlinks prep, counts, future auto-sync)
-  const [detectedMentions, setDetectedMentions] = useState<Array<{ label: string; refType?: string; refId?: string | null }>>([]);
-
   // Collapsible integrated backlinks panel state (always delightful demo if no props passed)
   const [showBacklinksPanel, setShowBacklinksPanel] = useState(true);
   const [linkFilter, setLinkFilter] = useState(""); // live filter for the Links & Backlinks panel (M2 polish)
@@ -633,10 +671,6 @@ export function TipTapEditor({
     }
     return () => window.removeEventListener("keydown", handleKey);
   }, [showBacklinksPanel]);
-
-  // Live collab: refs for throttled + trailing live content broadcasts
-  const liveContentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastLiveSendRef = useRef<number>(0);
 
   // M2: Debounced auto content snapshots on typing
   const lastAutoSnapshotRef = useRef<number>(0);
@@ -1376,6 +1410,10 @@ export function TipTapEditor({
     handleImageFilesRef.current = handleImageFiles;
   }, [handleImageFiles]);
 
+  useEffect(() => {
+    onAttachFilesRef.current = onAttachFiles;
+  }, [onAttachFiles]);
+
   // Force-save on blur (when the user finishes typing a paragraph or thought and clicks away).
   // This is a key part of "reliable paragraph persistence" without hammering the DB on every keystroke.
   useEffect(() => {
@@ -1583,7 +1621,8 @@ export function TipTapEditor({
   const compactToolbarRowClass =
     "notes-editor-toolbar__row flex items-center flex-nowrap w-full";
 
-  const showToolbar = !readOnly || stickyPreviewChrome;
+  const showToolbar =
+    (!readOnly || stickyPreviewChrome) && !(readOnly && hideReadonlyPreviewToolbar);
   const toolbarDisabled = readOnly && stickyPreviewChrome;
 
   const toolbarMarkup = showToolbar ? (
@@ -1694,13 +1733,23 @@ export function TipTapEditor({
           >
             <Redo2 className={toolbarIconClass} />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => imageUploadInputRef.current?.click()}
-            isActive={false}
-            title="Upload image (paste or drag & drop also work)"
-          >
-            <ImageIcon className={toolbarIconClass} />
-          </ToolbarButton>
+          {showAttachFilesButton ? (
+            <ToolbarButton
+              onClick={() => attachFilesInputRef.current?.click()}
+              isActive={false}
+              title="Attach file (drag & drop into the note also works)"
+            >
+              <Paperclip className={toolbarIconClass} />
+            </ToolbarButton>
+          ) : (
+            <ToolbarButton
+              onClick={() => imageUploadInputRef.current?.click()}
+              isActive={false}
+              title="Upload image (paste or drag & drop also work)"
+            >
+              <ImageIcon className={toolbarIconClass} />
+            </ToolbarButton>
+          )}
         </div>
       </div>
     ) : (
@@ -1797,13 +1846,23 @@ export function TipTapEditor({
           >
             <Table2 className={toolbarIconClass} />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => imageUploadInputRef.current?.click()}
-            isActive={false}
-            title="Upload image (paste or drag & drop also work)"
-          >
-            <ImageIcon className={toolbarIconClass} />
-          </ToolbarButton>
+          {showAttachFilesButton ? (
+            <ToolbarButton
+              onClick={() => attachFilesInputRef.current?.click()}
+              isActive={false}
+              title="Attach file (drag & drop into the note also works)"
+            >
+              <Paperclip className={toolbarIconClass} />
+            </ToolbarButton>
+          ) : (
+            <ToolbarButton
+              onClick={() => imageUploadInputRef.current?.click()}
+              isActive={false}
+              title="Upload image (paste or drag & drop also work)"
+            >
+              <ImageIcon className={toolbarIconClass} />
+            </ToolbarButton>
+          )}
         </div>
         <div className={toolbarGroupClass}>
           <ToolbarButton
@@ -1826,11 +1885,13 @@ export function TipTapEditor({
   ) : null;
 
   const chromeBlock = stickyPreviewChrome ? (
-    <div className="notes-files-preview-chrome">
-      {previewHeader}
-      {toolbarMarkup}
-      {belowToolbar}
-    </div>
+    previewHeader || toolbarMarkup || belowToolbar ? (
+      <div className="notes-files-preview-chrome">
+        {previewHeader}
+        {toolbarMarkup}
+        {belowToolbar}
+      </div>
+    ) : null
   ) : (
     <>
       {toolbarMarkup}
@@ -2161,10 +2222,23 @@ export function TipTapEditor({
           e.target.value = "";
         }}
       />
+      <input
+        ref={attachFilesInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-hidden
+        onChange={async (e) => {
+          if (e.target.files?.length && onAttachFilesRef.current) {
+            await onAttachFilesRef.current(Array.from(e.target.files));
+          }
+          e.target.value = "";
+        }}
+      />
       {chromeBlock}
 
       {stickyPreviewChrome ? (
-        <div className="notes-files-preview-body flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        <div className="notes-files-preview-body flex-1 min-h-0 overflow-auto overscroll-contain">
           {editorBody}
           {belowScrollContent}
         </div>

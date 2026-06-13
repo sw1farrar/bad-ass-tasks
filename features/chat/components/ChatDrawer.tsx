@@ -8,6 +8,7 @@ import { triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import type { WorkspaceChatController } from "../hooks/useWorkspaceChat";
 import { WorkspaceChatPanel, type WorkspaceChatPanelProps } from "./WorkspaceChatPanel";
+import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 export interface ChatDrawerProps extends WorkspaceChatPanelProps {
   open: boolean;
@@ -61,11 +62,8 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
             dragElastic={0.12}
             onDragEnd={handleDragEnd}
           >
-            <div className="sheet-drag-handle shrink-0" aria-hidden="true" />
-            <div
-              className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0"
-              style={{ paddingTop: "max(0.25rem, env(safe-area-inset-top, 0px))" }}
-            >
+            <SheetDragHandle />
+            <div className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0">
               <div className="font-semibold">Messages</div>
               <button
                 type="button"

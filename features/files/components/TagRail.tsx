@@ -1,25 +1,30 @@
 "use client";
 
 import React from "react";
-import { Archive, Inbox, Loader2, Plus, Search } from "lucide-react";
+import { Archive, Bookmark, Inbox, Loader2, Plus, Receipt, Search } from "lucide-react";
+import {
+  getSelectedFilterTags,
+  isArchiveLibrary,
+  isReviewLibrary,
+  isTagFilterDisabled,
+  type FilesBrowseFilter,
+} from "@/lib/files/filesBrowseFilter";
 import { cn } from "@/lib/utils";
 import { TagMultiSelect } from "./TagMultiSelect";
 
-export type FilesBrowseFilter =
-  | { kind: "review" }
-  | { kind: "all" }
-  | { kind: "untagged" }
-  | { kind: "tags"; tags: string[] };
+export type { FilesBrowseFilter } from "@/lib/files/filesBrowseFilter";
 
 interface TagRailProps {
   filter: FilesBrowseFilter;
-  onFilterChange: (filter: FilesBrowseFilter) => void;
+  onLibraryChange: (library: "review" | "archive") => void;
+  onBookmarksOnlyChange: (bookmarksOnly: boolean) => void;
+  onOpenReceiptLedger?: () => void;
   onTagFilterChange: (tags: string[]) => void;
   tags: string[];
   reviewCount: number;
+  bookmarkCount?: number;
   onNewFile: () => void;
   isCreating?: boolean;
-  /** Desktop: integrated browse panel with search + file list */
   isDesktop?: boolean;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
@@ -27,21 +32,152 @@ interface TagRailProps {
   listContent?: React.ReactNode;
 }
 
-function modeButtonClass(active: boolean) {
-  return cn(
-    "files-mode-button flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition min-h-[44px]",
-    active
-      ? "files-mode-button--active bg-neon-purple/15 text-neon-purple-tint border border-neon-purple/30"
-      : "text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-border-glass bg-bg-secondary",
+function LibrarySegmentButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+  badge,
+  position,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: typeof Inbox;
+  label: string;
+  badge?: React.ReactNode;
+  position: "start" | "end";
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "files-library-segment__btn",
+        "files-library-segment__btn--icon-only",
+        position === "start" && "files-library-segment__btn--start",
+        position === "end" && "files-library-segment__btn--end",
+        active && "files-library-segment__btn--active",
+      )}
+      onClick={onClick}
+      role="radio"
+      aria-checked={active}
+      aria-label={label}
+      title={label}
+    >
+      <Icon className="files-library-segment__icon h-4 w-4 shrink-0" aria-hidden />
+      {badge ? <span className="files-library-segment__badge">{badge}</span> : null}
+    </button>
+  );
+}
+
+function BrowseModeControls({
+  filter,
+  onLibraryChange,
+  onBookmarksOnlyChange,
+  onOpenReceiptLedger,
+  reviewCount,
+  bookmarkCount,
+  variant,
+}: {
+  filter: FilesBrowseFilter;
+  onLibraryChange: (library: "review" | "archive") => void;
+  onBookmarksOnlyChange: (bookmarksOnly: boolean) => void;
+  onOpenReceiptLedger?: () => void;
+  reviewCount: number;
+  bookmarkCount: number;
+  variant: "desktop" | "mobile";
+}) {
+  const reviewBadge =
+    reviewCount > 0 ? (
+      <span className="nav-count-badge nav-count-badge--corner">
+        {reviewCount > 99 ? "99+" : reviewCount}
+      </span>
+    ) : undefined;
+
+  const bookmarkBadge =
+    bookmarkCount > 0 ? (
+      <span className="nav-count-badge nav-count-badge--corner">
+        {bookmarkCount > 99 ? "99+" : bookmarkCount}
+      </span>
+    ) : undefined;
+
+  const libraryLabel = isReviewLibrary(filter) ? "Review" : "Archive";
+
+  return (
+    <div
+      className={cn(
+        "files-browse-mode-row",
+        variant === "mobile" && "files-browse-mode-row--mobile",
+        filter.bookmarksOnly && "files-browse-mode-row--bookmarks-scoped",
+      )}
+    >
+      <div className="files-library-segment" role="radiogroup" aria-label="Library view">
+        <LibrarySegmentButton
+          active={isReviewLibrary(filter)}
+          onClick={() => onLibraryChange("review")}
+          icon={Inbox}
+          label="Review"
+          badge={reviewBadge}
+          position="start"
+        />
+        <LibrarySegmentButton
+          active={isArchiveLibrary(filter)}
+          onClick={() => onLibraryChange("archive")}
+          icon={Archive}
+          label="Archive"
+          position="end"
+        />
+      </div>
+
+      <div className="files-browse-mode-row__divider" aria-hidden />
+
+      {variant === "desktop" && onOpenReceiptLedger ? (
+        <button
+          type="button"
+          className="files-receipt-ledger-btn"
+          onClick={onOpenReceiptLedger}
+          aria-label="Open receipt items ledger"
+          title="Receipt items"
+        >
+          <Receipt className="h-4 w-4 shrink-0" aria-hidden />
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        className={cn(
+          "files-bookmarks-filter-btn",
+          filter.bookmarksOnly && "files-bookmarks-filter-btn--active",
+        )}
+        onClick={() => onBookmarksOnlyChange(!filter.bookmarksOnly)}
+        aria-pressed={filter.bookmarksOnly}
+        aria-label={
+          filter.bookmarksOnly
+            ? `Show all ${libraryLabel.toLowerCase()} files`
+            : `Filter ${libraryLabel.toLowerCase()} to bookmarks only`
+        }
+        title={filter.bookmarksOnly ? "Show all files" : "Bookmarks only"}
+      >
+        <Bookmark
+          className={cn("files-bookmarks-filter-btn__icon h-4 w-4", filter.bookmarksOnly && "fill-current")}
+          aria-hidden
+        />
+        {bookmarkBadge ? (
+          <span className="files-bookmarks-filter-btn__badge">{bookmarkBadge}</span>
+        ) : null}
+      </button>
+    </div>
   );
 }
 
 export function TagRail({
   filter,
-  onFilterChange,
+  onLibraryChange,
+  onBookmarksOnlyChange,
+  onOpenReceiptLedger,
   onTagFilterChange,
   tags,
   reviewCount,
+  bookmarkCount = 0,
   onNewFile,
   isCreating,
   isDesktop = false,
@@ -50,8 +186,8 @@ export function TagRail({
   searching = false,
   listContent,
 }: TagRailProps) {
-  const selectedTags = filter.kind === "tags" ? filter.tags : [];
-  const tagFilterDisabled = filter.kind === "review";
+  const selectedTags = getSelectedFilterTags(filter);
+  const tagFilterDisabled = isTagFilterDisabled(filter);
 
   if (isDesktop) {
     return (
@@ -70,30 +206,15 @@ export function TagRail({
             Add File
           </button>
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className={modeButtonClass(filter.kind === "review")}
-              onClick={() => onFilterChange({ kind: "review" })}
-            >
-              <Inbox className="h-4 w-4 shrink-0" />
-              <span>Review</span>
-              {reviewCount > 0 && (
-                <span className="nav-count-badge">
-                  {reviewCount > 99 ? "99+" : reviewCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              className={modeButtonClass(filter.kind === "all" || filter.kind === "tags")}
-              onClick={() => onFilterChange({ kind: "all" })}
-            >
-              <Archive className="h-4 w-4 shrink-0" />
-              Archive
-            </button>
-          </div>
+          <BrowseModeControls
+            filter={filter}
+            onLibraryChange={onLibraryChange}
+            onBookmarksOnlyChange={onBookmarksOnlyChange}
+            onOpenReceiptLedger={onOpenReceiptLedger}
+            reviewCount={reviewCount}
+            bookmarkCount={bookmarkCount}
+            variant="desktop"
+          />
 
           <TagMultiSelect
             tags={tags}
@@ -123,16 +244,8 @@ export function TagRail({
     );
   }
 
-  const itemClass = (active: boolean) =>
-    cn(
-      "files-mode-button w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition text-left",
-      active
-        ? "files-mode-button--active bg-neon-purple/15 text-neon-purple-tint border border-neon-purple/30"
-        : "text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-transparent",
-    );
-
   return (
-    <aside className="files-tag-rail w-52 sm:w-56 shrink-0 border-r border-border-glass bg-bg flex flex-col min-h-0">
+    <aside className="files-tag-rail w-full min-w-0 max-w-full shrink-0 border-r border-border-glass bg-bg flex flex-col min-h-0">
       <div className="files-tag-rail__new-file p-3 border-b border-border-glass">
         <button
           type="button"
@@ -145,29 +258,16 @@ export function TagRail({
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-2 space-y-1" aria-label="File drawers">
-        <button
-          type="button"
-          className={itemClass(filter.kind === "review")}
-          onClick={() => onFilterChange({ kind: "review" })}
-        >
-          <Inbox className="h-4 w-4 shrink-0" />
-          <span className="flex-1">Review</span>
-          {reviewCount > 0 && (
-            <span className="nav-count-badge">
-              {reviewCount > 99 ? "99+" : reviewCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          className={itemClass(filter.kind === "all" || filter.kind === "tags")}
-          onClick={() => onFilterChange({ kind: "all" })}
-        >
-          <Archive className="h-4 w-4 shrink-0" />
-          Archive
-        </button>
+      <nav className="files-mobile-mode-nav flex-1 overflow-y-auto p-2" aria-label="File drawers">
+        <BrowseModeControls
+          filter={filter}
+          onLibraryChange={onLibraryChange}
+          onBookmarksOnlyChange={onBookmarksOnlyChange}
+          onOpenReceiptLedger={onOpenReceiptLedger}
+          reviewCount={reviewCount}
+          bookmarkCount={bookmarkCount}
+          variant="mobile"
+        />
       </nav>
     </aside>
   );
