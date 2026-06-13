@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, CirclePause } from "lucide-react";
 
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,10 @@ interface ListItemRowProps {
   registerInputRef?: (el: HTMLTextAreaElement | null) => void;
   /** Rendered in the completed section below the divider */
   completedSection?: boolean;
+  /** Rendered in the pending parked section */
+  pendingSection?: boolean;
+  /** Park this item in the pending bucket */
+  onSetPending?: (id: string) => void;
   /** Mobile list detail modal — show edit pencil that selects all on tap */
   showEditPencil?: boolean;
   /** Desktop detail — tap the item text (not the row) to edit with select-all */
@@ -79,6 +83,8 @@ export function ListItemRow({
   onInsertBelow,
   registerInputRef,
   completedSection = false,
+  pendingSection = false,
+  onSetPending,
   showEditPencil = false,
   clickTitleToEdit = false,
   isRowActive = false,
@@ -110,6 +116,8 @@ export function ListItemRow({
       actionsMenuOpen ||
       (showEditPencil ? titleEditMode : clickTitleToEdit ? titleEditMode : focused));
   const showActionsMenu = !readOnly && !!onActionsMenuOpenChange;
+  const showPendingButton =
+    !!onSetPending && !item.pending && !item.completed && !pendingSection;
 
   const selectRow = useCallback(() => {
     onRowActivate?.(item.id);
@@ -310,6 +318,7 @@ export function ListItemRow({
         familyChrome?.isFamilyLast && "list-item-row--family-last",
         familyChrome?.isSoloFamily && "list-item-row--family-solo",
         completedSection && "list-item-row--completed-section",
+        pendingSection && "list-item-row--pending-section",
         isRowFocused && "is-row-focused",
         isRowActive && "is-row-selected",
         actionsMenuOpen && "is-actions-menu-open",
@@ -391,6 +400,21 @@ export function ListItemRow({
           </div>
         )}
       </div>
+
+      {showPendingButton ? (
+        <button
+          type="button"
+          className="list-item-pending-btn"
+          aria-label="Move to pending"
+          data-no-open
+          onClick={() => {
+            selectRow();
+            onSetPending?.(item.id);
+          }}
+        >
+          <CirclePause className="list-item-pending-icon" strokeWidth={2.25} aria-hidden />
+        </button>
+      ) : null}
 
       {showActionsMenu ? (
         <ListItemActionsMenu

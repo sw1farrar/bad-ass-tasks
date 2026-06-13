@@ -12,6 +12,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ import { ListItemFamilyGroup } from "./ListItemFamilyGroup";
 import type { ListItemMoveTarget } from "./ListItemMoveMenu";
 import { ListItemRow } from "./ListItemRow";
 import { ListShowCompletedToggle } from "./ListShowCompletedToggle";
+import { ListShowPendingToggle } from "./ListShowPendingToggle";
 
 type ListCardVariant = "preview" | "detail";
 
@@ -73,6 +75,9 @@ interface ListCardBodyProps {
   onMoveItemToList?: (itemId: string, targetListId: string) => void;
   moveTargetLists?: ListItemMoveTarget[];
   onClearCompleted: (listId: string) => void;
+  onSetListItemPending: (id: string, pending: boolean) => void;
+  onRestorePending: (listId: string) => void;
+  onClearPending: (listId: string) => void;
   onArchiveList?: (id: string) => void;
   onUnarchiveList?: (id: string) => void;
   onNudgeList?: (listId: string, direction: "up" | "down") => void;
@@ -105,6 +110,9 @@ export function ListCardBody({
   onMoveItemToList,
   moveTargetLists = [],
   onClearCompleted,
+  onSetListItemPending,
+  onRestorePending,
+  onClearPending,
   onArchiveList,
   onUnarchiveList,
   onNudgeList,
@@ -130,9 +138,11 @@ export function ListCardBody({
   } | null>(null);
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [showPending, setShowPending] = useState(false);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [openActionsMenuItemId, setOpenActionsMenuItemId] = useState<string | null>(null);
   const [clearCompletedConfirmOpen, setClearCompletedConfirmOpen] = useState(false);
+  const [clearPendingConfirmOpen, setClearPendingConfirmOpen] = useState(false);
   const itemsStackRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
@@ -193,10 +203,21 @@ export function ListCardBody({
     return flattenListItems(items);
   }, [items]);
 
-  const openItems = useMemo(() => flatItems.filter((i) => !i.completed), [flatItems]);
-  const completedItems = useMemo(() => flatItems.filter((i) => i.completed), [flatItems]);
+  const openItems = useMemo(
+    () => flatItems.filter((i) => !i.completed && !i.pending),
+    [flatItems],
+  );
+  const completedItems = useMemo(
+    () => flatItems.filter((i) => i.completed && !i.pending),
+    [flatItems],
+  );
+  const pendingItems = useMemo(
+    () => flatItems.filter((i) => i.pending && !i.completed),
+    [flatItems],
+  );
   const openCount = openItems.length;
   const completedCount = completedItems.length;
+  const pendingCount = pendingItems.length;
 
   const updateMenuPosition = useCallback(() => {
     const anchor = menuRef.current?.getBoundingClientRect();
@@ -260,9 +281,10 @@ export function ListCardBody({
   );
   const hiddenCount = isPreview ? Math.max(0, openItems.length - previewLimit) : 0;
   const detailVisibleItems = useMemo(() => {
+    if (showPending) return pendingItems;
     if (!showCompleted) return openItems;
-    return flatItems;
-  }, [showCompleted, openItems, flatItems]);
+    return flatItems.filter((i) => !i.pending);
+  }, [showPending, showCompleted, openItems, pendingItems, flatItems]);
   const detailVisibleItemIds = useMemo(
     () => new Set(detailVisibleItems.map((row) => row.id)),
     [detailVisibleItems],
@@ -294,6 +316,7 @@ export function ListCardBody({
 
   useEffect(() => {
     setShowCompleted(false);
+    setShowPending(false);
     setActiveRowId(null);
   }, [list.id]);
 
@@ -308,6 +331,27 @@ export function ListCardBody({
   useEffect(() => {
     if (completedCount === 0 && showCompleted) setShowCompleted(false);
   }, [completedCount, showCompleted]);
+
+  useEffect(() => {
+    if (pendingCount === 0 && showPending) setShowPending(false);
+  }, [pendingCount, showPending]);
+
+  const handleToggleCompleted = useCallback(() => {
+    setShowPending(false);
+    setShowCompleted((value) => !value);
+  }, []);
+
+  const handleTogglePending = useCallback(() => {
+    setShowCompleted(false);
+    setShowPending((value) => !value);
+  }, []);
+
+  const handleParkItemPending = useCallback(
+    (id: string) => {
+      onSetListItemPending(id, true);
+    },
+    [onSetListItemPending],
+  );
 
   useEffect(() => {
     if (!isDetail || !activeRowId) return;
@@ -432,6 +476,7 @@ export function ListCardBody({
   const renderEditableItem = (
     item: FlatListItem,
     completedSection = false,
+    pendingSection = false,
     options?: {
       familyChrome?: ListItemFamilyChrome;
     },
@@ -467,6 +512,8 @@ export function ListCardBody({
           else itemInputRefs.current.delete(item.id);
         }}
         completedSection={completedSection}
+        pendingSection={pendingSection}
+        onSetPending={handleParkItemPending}
         showEditPencil={mobileDetail}
         clickTitleToEdit={isDetail && !isMobile}
         rowSelectionMode={isDetail}
@@ -514,9 +561,12 @@ export function ListCardBody({
       {detailVisibleItems.map((item) => {
         const chrome = familyChromeByItemId.get(item.id);
 
-        return renderEditableItem(item, showCompleted && item.completed, {
-          familyChrome: chrome,
-        });
+        return renderEditableItem(
+          item,
+          showCompleted && item.completed,
+          showPending && item.pending,
+          { familyChrome: chrome },
+        );
       })}
     </div>
   );
@@ -532,6 +582,7 @@ export function ListCardBody({
           onToggle={handleItemToggle}
           onDelete={onDeleteItem}
           onTextChange={onUpdateItem}
+          onSetPending={handleParkItemPending}
           inFamily
           nestedInFamily={item.depth > 0}
         />
@@ -541,9 +592,14 @@ export function ListCardBody({
           +{hiddenCount} more — open list
         </div>
       )}
-      {completedCount > 0 && openCount === 0 && (
+      {completedCount > 0 && openCount === 0 && pendingCount === 0 && (
         <div className="list-card-more-hint px-1 pt-1 text-[11px]">
           {completedCount} completed — open list to review
+        </div>
+      )}
+      {pendingCount > 0 && openCount === 0 && (
+        <div className="list-card-more-hint px-1 pt-1 text-[11px]">
+          {pendingCount} pending — open list to review
         </div>
       )}
     </div>
@@ -567,27 +623,89 @@ export function ListCardBody({
           )}
           style={detailColorVars}
         >
-          {completedCount > 0 && (
+          {(completedCount > 0 || pendingCount > 0) && (
             <div
               className={cn(
-                "list-detail-toolbar shrink-0 flex items-center gap-2 pb-2",
+                "list-detail-toolbar shrink-0 flex pb-2",
+                mobileDetail
+                  ? "list-detail-toolbar--mobile flex-col gap-1.5"
+                  : "flex-wrap items-center gap-2",
                 isDetail ? "pt-0.5" : "pt-0",
               )}
             >
-              <ListShowCompletedToggle
-                completedCount={completedCount}
-                showCompleted={showCompleted}
-                onToggle={() => setShowCompleted((value) => !value)}
-              />
-              {showCompleted ? (
-                <button
-                  type="button"
-                  className="list-clear-completed-btn"
-                  onClick={() => setClearCompletedConfirmOpen(true)}
+              {(!showPending && completedCount > 0) ||
+              (!showCompleted && pendingCount > 0) ? (
+                <div
+                  className={cn(
+                    "list-detail-toolbar-filters flex min-w-0 items-stretch",
+                    mobileDetail
+                      ? "list-detail-toolbar-filters--compact w-full flex-nowrap gap-0.5"
+                      : "flex-wrap gap-2",
+                  )}
                 >
-                  <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span>Delete all completed</span>
-                </button>
+                  {!showPending && completedCount > 0 ? (
+                    <ListShowCompletedToggle
+                      completedCount={completedCount}
+                      showCompleted={showCompleted}
+                      onToggle={handleToggleCompleted}
+                      compact={mobileDetail}
+                    />
+                  ) : null}
+                  {!showCompleted && pendingCount > 0 ? (
+                    <ListShowPendingToggle
+                      pendingCount={pendingCount}
+                      showPending={showPending}
+                      onToggle={handleTogglePending}
+                      compact={mobileDetail}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {showCompleted || showPending ? (
+                <div
+                  className={cn(
+                    "list-detail-toolbar-actions flex flex-wrap items-center gap-2",
+                    mobileDetail && "w-full",
+                  )}
+                >
+                  {showCompleted ? (
+                    <button
+                      type="button"
+                      className="list-clear-completed-btn"
+                      onClick={() => setClearCompletedConfirmOpen(true)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <span>
+                        {mobileDetail ? "Delete completed" : "Delete all completed"}
+                      </span>
+                    </button>
+                  ) : null}
+                  {showPending ? (
+                    <>
+                      <button
+                        type="button"
+                        className="list-restore-pending-btn"
+                        onClick={() => {
+                          void onRestorePending(list.id);
+                          setShowPending(false);
+                        }}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <span>Restore pending</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="list-clear-pending-btn"
+                        onClick={() => setClearPendingConfirmOpen(true)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <span>
+                          {mobileDetail ? "Delete pending" : "Delete all pending"}
+                        </span>
+                      </button>
+                    </>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           )}
@@ -629,6 +747,22 @@ export function ListCardBody({
             onClearCompleted(list.id);
             setShowCompleted(false);
             setClearCompletedConfirmOpen(false);
+          }}
+        />
+
+        <ConfirmationModal
+          open={clearPendingConfirmOpen}
+          onOpenChange={setClearPendingConfirmOpen}
+          title="Delete all pending items?"
+          description={`This will permanently remove ${pendingCount} pending item${pendingCount === 1 ? "" : "s"} from this list. This action cannot be undone.`}
+          highlight={list.title.trim() || "Untitled list"}
+          confirmText="Delete all pending"
+          cancelText="Cancel"
+          variant="destructive"
+          onConfirm={() => {
+            onClearPending(list.id);
+            setShowPending(false);
+            setClearPendingConfirmOpen(false);
           }}
         />
       </>
@@ -973,6 +1107,9 @@ interface ListCardProps {
   onMoveItemToList?: (itemId: string, targetListId: string) => void;
   moveTargetLists?: ListItemMoveTarget[];
   onClearCompleted: (listId: string) => void;
+  onSetListItemPending: (id: string, pending: boolean) => void;
+  onRestorePending: (listId: string) => void;
+  onClearPending: (listId: string) => void;
   onArchiveList?: (id: string) => void;
   onUnarchiveList?: (id: string) => void;
   onNudgeList?: (listId: string, direction: "up" | "down") => void;
@@ -999,6 +1136,9 @@ export function ListCard({
   onMoveItemToList,
   moveTargetLists,
   onClearCompleted,
+  onSetListItemPending,
+  onRestorePending,
+  onClearPending,
   onArchiveList,
   onUnarchiveList,
   onNudgeList,
@@ -1038,6 +1178,9 @@ export function ListCard({
         onMoveItemToList={onMoveItemToList}
         moveTargetLists={moveTargetLists}
         onClearCompleted={onClearCompleted}
+        onSetListItemPending={onSetListItemPending}
+        onRestorePending={onRestorePending}
+        onClearPending={onClearPending}
         onArchiveList={onArchiveList}
         onUnarchiveList={onUnarchiveList}
         onNudgeList={onNudgeList}

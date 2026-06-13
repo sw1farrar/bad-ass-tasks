@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   LIST_ITEM_COMPLETION_TOAST_DURATION_MS,
   showListItemCompletionFeedback,
+  showListItemPendingFeedback,
 } from "@/features/lists/lib/listItemCompletionFeedback";
 import type { ListItem } from "@/types";
 
@@ -40,6 +41,21 @@ describe("listItemCompletionFeedback", () => {
 
     expect(toast.success).toHaveBeenCalledWith(
       "Item completed",
+      expect.objectContaining({
+        description: "Buy oat milk",
+        duration: LIST_ITEM_COMPLETION_TOAST_DURATION_MS,
+        action: expect.objectContaining({ label: "Undo" }),
+      }),
+    );
+  });
+
+  it("shows pending toast with undo action", () => {
+    const undoListItemPending = vi.fn().mockResolvedValue(true);
+
+    showListItemPendingFeedback(baseItem, { undoListItemPending });
+
+    expect(toast.success).toHaveBeenCalledWith(
+      "Moved to pending",
       expect.objectContaining({
         description: "Buy oat milk",
         duration: LIST_ITEM_COMPLETION_TOAST_DURATION_MS,

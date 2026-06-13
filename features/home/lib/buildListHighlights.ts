@@ -14,7 +14,7 @@ export function buildListHighlightsForWorkspace(
       const listItems = flattenListItems(
         items.filter((i) => i.listId === list.id && i.workspaceId === workspaceId),
       );
-      const open = listItems.filter((i) => !i.completed);
+      const open = listItems.filter((i) => !i.completed && !i.pending);
       return {
         id: list.id,
         title: list.title,

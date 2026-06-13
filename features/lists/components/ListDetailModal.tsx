@@ -51,6 +51,9 @@ interface ListDetailModalProps {
   ) => void;
   onMoveItemToList: (itemId: string, targetListId: string) => void;
   onClearCompleted: (listId: string) => void;
+  onSetListItemPending: (id: string, pending: boolean) => void;
+  onRestorePending: (listId: string) => void;
+  onClearPending: (listId: string) => void;
 }
 
 const safeX =
@@ -75,6 +78,9 @@ export function ListDetailModal({
   onNudgeListItem,
   onMoveItemToList,
   onClearCompleted,
+  onSetListItemPending,
+  onRestorePending,
+  onClearPending,
 }: ListDetailModalProps) {
   const [mounted, setMounted] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
@@ -108,7 +114,10 @@ export function ListDetailModal({
   const colorStyle = list
     ? getListColorPresentation(list.color, theme, { opaque: true })
     : null;
-  const openCount = useMemo(() => items.filter((item) => !item.completed).length, [items]);
+  const openCount = useMemo(
+    () => items.filter((item) => !item.completed && !item.pending).length,
+    [items],
+  );
   const displayTitle = list ? list.title.trim() || "Untitled list" : "";
 
   useEffect(() => {
@@ -485,6 +494,9 @@ export function ListDetailModal({
               onMoveItemToList={onMoveItemToList}
               moveTargetLists={moveTargetLists}
               onClearCompleted={onClearCompleted}
+              onSetListItemPending={onSetListItemPending}
+              onRestorePending={onRestorePending}
+              onClearPending={onClearPending}
             />
             </div>
           </motion.article>

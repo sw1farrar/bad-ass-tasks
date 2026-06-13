@@ -35,3 +35,29 @@ export function showListItemCompletionFeedback(
     },
   });
 }
+
+export function showListItemPendingFeedback(
+  itemBeforePending: ListItem,
+  opts: {
+    undoListItemPending: (id: string) => Promise<boolean>;
+  },
+): void {
+  toast.success("Moved to pending", {
+    description: formatListItemToastDescription(itemBeforePending.text),
+    duration: LIST_ITEM_COMPLETION_TOAST_DURATION_MS,
+    action: {
+      label: "Undo",
+      onClick: () => {
+        void opts.undoListItemPending(itemBeforePending.id).then((ok) => {
+          if (ok) {
+            triggerHaptic("light");
+          } else {
+            toast.error("Could not undo", {
+              description: "Try moving the item back from pending.",
+            });
+          }
+        });
+      },
+    },
+  });
+}

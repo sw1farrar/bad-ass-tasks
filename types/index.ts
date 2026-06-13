@@ -105,6 +105,8 @@ export interface ListItem {
   workspaceId: string;
   text: string;
   completed: boolean;
+  /** Parked item — hidden from the active list until restored. */
+  pending?: boolean;
   sortOrder: number;
   /** Parent row for nested items; null/undefined = top-level. */
   parentItemId?: string | null;

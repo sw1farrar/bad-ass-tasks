@@ -18,7 +18,10 @@ import {
   buildTaskCompletionUndoContext,
   showTaskCompletionFeedback,
 } from "@/features/tasks/lib/taskCompletionFeedback";
-import { showListItemCompletionFeedback } from "@/features/lists/lib/listItemCompletionFeedback";
+import {
+  showListItemCompletionFeedback,
+  showListItemPendingFeedback,
+} from "@/features/lists/lib/listItemCompletionFeedback";
 import { registerDualAuthRequiredHandler } from "@/lib/api/apiFetch";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
@@ -181,6 +184,9 @@ export default function BadAssTasks() {
     indentListItem,
     outdentListItem,
     clearCompletedListItems,
+    setListItemPending,
+    restorePendingListItems,
+    clearPendingListItems,
     createWorkspace,
     refreshRecentActivity,
     // C4 Phase A Home globals (separate slices)
@@ -1254,6 +1260,26 @@ export default function BadAssTasks() {
     [completeListItemFamily, listItems, toggleListItem],
   );
 
+  const handleSetListItemPending = useCallback(
+    async (id: string, pending: boolean) => {
+      const item = listItems.find((i) => i.id === id);
+      if (!item) return;
+
+      const markingPending = pending && !item.pending;
+      const ok = await setListItemPending(id, pending);
+      if (!ok || !markingPending) return;
+
+      showListItemPendingFeedback(item, {
+        undoListItemPending: async (itemId) => {
+          const current = useTaskStore.getState().listItems.find((i) => i.id === itemId);
+          if (!current?.pending) return false;
+          return setListItemPending(itemId, false);
+        },
+      });
+    },
+    [listItems, setListItemPending],
+  );
+
   const openListDetail = useCallback(
     (
       listId: string,
@@ -2021,6 +2047,9 @@ export default function BadAssTasks() {
         onIndentItem={(id) => { void indentListItem(id); }}
         onOutdentItem={(id) => { void outdentListItem(id); }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
+        onSetListItemPending={(id, pending) => { void handleSetListItemPending(id, pending); }}
+        onRestorePending={(listId) => { void restorePendingListItems(listId); }}
+        onClearPending={(listId) => { void clearPendingListItems(listId); }}
         highlightListId={highlightListId}
         onOpenDetail={(listId, options) =>
           openListDetail(listId, currentWorkspace.id, options)
@@ -3609,6 +3638,9 @@ export default function BadAssTasks() {
           void moveListItemToList(itemId, targetListId);
         }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
+        onSetListItemPending={(id, pending) => { void handleSetListItemPending(id, pending); }}
+        onRestorePending={(listId) => { void restorePendingListItems(listId); }}
+        onClearPending={(listId) => { void clearPendingListItems(listId); }}
       />
 
       {/* Note: rich detail is now inline inside renderNotesView() using TipTapEditor (legacy modal removed) */}

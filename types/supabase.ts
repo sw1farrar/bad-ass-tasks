@@ -467,6 +467,7 @@ export interface Database {
           workspace_id: string
           text: string
           completed: boolean
+          pending: boolean
           sort_order: number
           parent_item_id: string | null
           completed_at: string | null
@@ -479,6 +480,7 @@ export interface Database {
           workspace_id: string
           text: string
           completed?: boolean
+          pending?: boolean
           sort_order?: number
           parent_item_id?: string | null
           completed_at?: string | null
@@ -491,6 +493,7 @@ export interface Database {
           workspace_id?: string
           text?: string
           completed?: boolean
+          pending?: boolean
           sort_order?: number
           parent_item_id?: string | null
           completed_at?: string | null

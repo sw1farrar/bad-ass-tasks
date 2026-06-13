@@ -8,6 +8,7 @@ export const SHEET_DRAG_BLOCKER_SELECTOR = [
   ".list-item-actions-menu",
   ".list-item-check",
   ".list-item-menu",
+  ".list-item-pending-btn",
   '[data-sheet-drag-block="true"]',
 ].join(", ");
 

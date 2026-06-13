@@ -2571,7 +2571,10 @@
 [data-theme="light"] .list-detail-modal .list-item-indent-btn:not(:disabled),
 [data-theme="light"] .list-detail-modal .list-item-delete,
 [data-theme="light"] .list-detail-modal .list-completed-toggle:not([aria-pressed="true"]),
-[data-theme="light"] .list-detail-modal .list-item-menu-trigger {
+[data-theme="light"] .list-detail-modal .list-pending-toggle:not([aria-pressed="true"]),
+[data-theme="light"] .list-detail-modal .list-item-menu-trigger,
+[data-theme="light"] .list-detail-modal .list-item-pending-btn,
+[data-theme="light"] .lists-root .list-item-pending-btn {
   color: var(--list-icon-color, var(--list-item-text-color, #475569)) !important;
   opacity: 1 !important;
 }

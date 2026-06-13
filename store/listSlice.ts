@@ -172,7 +172,7 @@ export function createListSliceActions(get: Get, set: Set) {
       const items = flattenListItems(
         get().listItems.filter((i) => i.listId === listId),
       );
-      const open = items.filter((i) => !i.completed);
+      const open = items.filter((i) => !i.completed && !i.pending);
       return { total: items.length, open: open.length, preview: open.slice(0, 3).map((i) => i.text) };
     },
 
@@ -420,7 +420,7 @@ export function createListSliceActions(get: Get, set: Set) {
       return true;
     },
 
-    updateListItem: async (id: string, updates: Partial<Pick<ListItem, "text" | "completed">>) => {
+    updateListItem: async (id: string, updates: Partial<Pick<ListItem, "text" | "completed" | "pending">>) => {
       const now = new Date().toISOString();
       const current = get().listItems.find((i) => i.id === id);
       set((state) => ({
@@ -721,6 +721,71 @@ export function createListSliceActions(get: Get, set: Set) {
       if (workspaceId && shouldPersistLists(workspaceId)) {
         await Promise.all(
           completedIds.map((id) => deleteListItemSupabase(normalizeListEntityId(id), workspaceId)),
+        );
+      }
+      return true;
+    },
+
+    setListItemPending: async (id: string, pending: boolean) => {
+      const now = new Date().toISOString();
+      const current = get().listItems.find((i) => i.id === id);
+      if (!current) return false;
+      if (!!current.pending === pending) return true;
+
+      set((state) => ({
+        listItems: state.listItems.map((i) => {
+          if (i.id !== id) return i;
+          return {
+            ...i,
+            pending,
+            updatedAt: now,
+          };
+        }),
+      }));
+
+      if (pending) triggerHaptic("light");
+
+      if (shouldPersistLists(current.workspaceId)) {
+        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, { pending });
+      }
+      return true;
+    },
+
+    restorePendingListItems: async (listId: string) => {
+      const now = new Date().toISOString();
+      const pendingItems = get().listItems.filter((i) => i.listId === listId && i.pending);
+      if (pendingItems.length === 0) return true;
+
+      const workspaceId = pendingItems[0]?.workspaceId ?? wsId();
+      set((state) => ({
+        listItems: state.listItems.map((i) =>
+          i.listId === listId && i.pending
+            ? { ...i, pending: false, updatedAt: now }
+            : i,
+        ),
+      }));
+
+      if (shouldPersistLists(workspaceId)) {
+        await Promise.all(
+          pendingItems.map((item) =>
+            updateListItemSupabase(normalizeListEntityId(item.id), workspaceId, { pending: false }),
+          ),
+        );
+      }
+      return true;
+    },
+
+    clearPendingListItems: async (listId: string) => {
+      const pendingIds = get()
+        .listItems.filter((i) => i.listId === listId && i.pending)
+        .map((i) => i.id);
+      const workspaceId = get().listItems.find((i) => i.listId === listId)?.workspaceId ?? wsId();
+      set((state) => ({
+        listItems: state.listItems.filter((i) => !(i.listId === listId && i.pending)),
+      }));
+      if (workspaceId && shouldPersistLists(workspaceId)) {
+        await Promise.all(
+          pendingIds.map((id) => deleteListItemSupabase(normalizeListEntityId(id), workspaceId)),
         );
       }
       return true;

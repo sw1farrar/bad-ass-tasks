@@ -5506,6 +5506,7 @@ export function mapListItemRow(row: ListItemRow): ListItem {
     workspaceId: row.workspace_id,
     text: row.text,
     completed: row.completed,
+    pending: row.pending ?? false,
     sortOrder: row.sort_order,
     parentItemId: row.parent_item_id ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -5822,7 +5823,7 @@ export async function createListItem(input: {
 export async function updateListItem(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<ListItem, "text" | "completed" | "sortOrder" | "parentItemId" | "completedAt" | "listId">>,
+  updates: Partial<Pick<ListItem, "text" | "completed" | "pending" | "sortOrder" | "parentItemId" | "completedAt" | "listId">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isWorkspaceListPersistenceEnabled()) return true;
@@ -5832,6 +5833,7 @@ export async function updateListItem(
   const payload = stripListItemNestingField({
     ...(updates.text !== undefined ? { text: updates.text } : {}),
     ...(updates.completed !== undefined ? { completed: updates.completed } : {}),
+    ...(updates.pending !== undefined ? { pending: updates.pending } : {}),
     ...(updates.sortOrder !== undefined ? { sort_order: updates.sortOrder } : {}),
     ...(updates.parentItemId !== undefined ? { parent_item_id: updates.parentItemId ?? null } : {}),
     ...(updates.completedAt !== undefined ? { completed_at: updates.completedAt ?? null } : {}),

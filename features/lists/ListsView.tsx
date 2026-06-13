@@ -41,6 +41,9 @@ interface ListsViewProps {
   onIndentItem: (id: string) => void;
   onOutdentItem: (id: string) => void;
   onClearCompleted: (listId: string) => void;
+  onSetListItemPending: (id: string, pending: boolean) => void;
+  onRestorePending: (listId: string) => void;
+  onClearPending: (listId: string) => void;
   onArchiveList: (id: string) => void;
   onUnarchiveList: (id: string) => void;
   highlightListId?: string | null;
@@ -65,6 +68,9 @@ export function ListsView({
   onIndentItem,
   onOutdentItem,
   onClearCompleted,
+  onSetListItemPending,
+  onRestorePending,
+  onClearPending,
   onArchiveList,
   onUnarchiveList,
   highlightListId = null,
@@ -109,7 +115,7 @@ export function ListsView({
 
   const totalOpen = useMemo(() => {
     return visibleLists.reduce((sum, list) => {
-      return sum + getItemsForList(list.id).filter((i) => !i.completed).length;
+      return sum + getItemsForList(list.id).filter((i) => !i.completed && !i.pending).length;
     }, 0);
   }, [visibleLists, getItemsForList]);
 
@@ -403,6 +409,9 @@ export function ListsView({
               onIndentItem={onIndentItem}
               onOutdentItem={onOutdentItem}
               onClearCompleted={onClearCompleted}
+              onSetListItemPending={onSetListItemPending}
+              onRestorePending={onRestorePending}
+              onClearPending={onClearPending}
               onArchiveList={!isArchivedView ? onArchiveList : undefined}
               onUnarchiveList={isArchivedView ? onUnarchiveList : undefined}
               onNudgeList={onNudgeList}
