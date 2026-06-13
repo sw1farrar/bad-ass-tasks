@@ -898,6 +898,13 @@ textarea.input::placeholder {
     flex-shrink: 0;
   }
 
+  /* Home workspace tile bell — icon + corner badge (not a stretched 44px pill) */
+  .home-ws-notif__toggle {
+    min-height: 0 !important;
+    min-width: 0 !important;
+    padding: 0.125rem;
+  }
+
   /* Lists checkboxes — same circle fix as tasks */
   .lists-root .list-item-check {
     aspect-ratio: 1;

@@ -94,6 +94,7 @@ export interface WorkspaceList {
   color: string;
   sortOrder: number;
   pinned?: boolean;
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }

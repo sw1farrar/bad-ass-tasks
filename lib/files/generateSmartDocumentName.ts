@@ -150,7 +150,7 @@ async function resolveVisionImages(
   const images: XaiVisionImage[] = [];
 
   const push = (fileName: string, dataUrl: string) => {
-    const key = dataUrl.slice(0, 120);
+    const key = `${fileName}|${dataUrl.length}|${dataUrl.slice(-96)}`;
     if (seen.has(key)) return;
     seen.add(key);
     images.push({ dataUrl, label: fileName });

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { buildVisionUserContent } from "@/lib/ai/buildVisionUserContent";
+
 export type XaiVisionImage = {
   dataUrl: string;
   label?: string;
@@ -59,19 +61,7 @@ export async function callXaiChat(options: XaiChatOptions): Promise<XaiChatResul
   }
 
   const apiKey = resolveApiKey();
-  const userContent =
-    options.images?.length ?
-      [
-        { type: "text", text: options.userPrompt },
-        ...options.images.map((image) => ({
-          type: "image_url",
-          image_url: {
-            url: image.dataUrl,
-            detail: "high",
-          },
-        })),
-      ]
-    : options.userPrompt;
+  const userContent = buildVisionUserContent(options.userPrompt, options.images ?? []);
 
   const body: Record<string, unknown> = {
     model: process.env.XAI_MODEL?.trim() || "grok-4.3",
@@ -95,7 +85,11 @@ export async function callXaiChat(options: XaiChatOptions): Promise<XaiChatResul
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(options.images?.length ? 90_000 : 45_000),
+      signal: AbortSignal.timeout(
+        options.images?.length ?
+          Math.min(150_000, 75_000 + options.images.length * 20_000)
+        : 45_000,
+      ),
     });
 
     if (!res.ok) {

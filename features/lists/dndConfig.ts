@@ -5,6 +5,7 @@ import {
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
+  TraversalOrder,
   useSensor,
   useSensors,
   type AutoScrollOptions,
@@ -44,6 +45,18 @@ export function getStackListAutoScrollOptions(): AutoScrollOptions {
     interval: 4,
     activator: AutoScrollActivator.Pointer,
     layoutShiftCompensation: LIST_DRAG_LAYOUT_SHIFT,
+  };
+}
+
+/** List detail item drag — prefer the inner list scroller over the modal/window. */
+export function getDetailListAutoScrollOptions(isMobile = false): AutoScrollOptions {
+  return {
+    threshold: { x: 0, y: isMobile ? 0.18 : 0.14 },
+    acceleration: isMobile ? 26 : 20,
+    interval: 3,
+    activator: AutoScrollActivator.Pointer,
+    layoutShiftCompensation: LIST_DRAG_LAYOUT_SHIFT,
+    order: TraversalOrder.ReversedTreeOrder,
   };
 }
 

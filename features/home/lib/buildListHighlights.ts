@@ -1,5 +1,6 @@
 import type { HomeListHighlight, ListItem, WorkspaceList } from "@/types";
 import { flattenListItems } from "@/lib/lists/listItemTree";
+import { mergeRemoteListItemUpdate } from "@/lib/lists/listItemReorderSync";
 
 export function buildListHighlightsForWorkspace(
   lists: WorkspaceList[],
@@ -33,9 +34,14 @@ export function computeWorkspaceListStats(
   items: ListItem[],
   workspaceId: string,
 ): { listCount: number; openListItemsCount: number } {
-  const listCount = lists.filter((l) => l.workspaceId === workspaceId).length;
+  const activeListIds = new Set(
+    lists
+      .filter((l) => l.workspaceId === workspaceId && !l.archived)
+      .map((l) => l.id),
+  );
+  const listCount = activeListIds.size;
   const openListItemsCount = items.filter(
-    (i) => i.workspaceId === workspaceId && !i.completed,
+    (i) => activeListIds.has(i.listId) && !i.completed,
   ).length;
   return { listCount, openListItemsCount };
 }
@@ -55,7 +61,8 @@ export function mergeWorkspaceLists(
 export function mergeListItems(existing: ListItem[], incoming: ListItem[]): ListItem[] {
   const map = new Map(existing.map((i) => [i.id, i]));
   for (const item of incoming) {
-    map.set(item.id, item);
+    const current = map.get(item.id);
+    map.set(item.id, current ? mergeRemoteListItemUpdate(current, item) : item);
   }
   return [...map.values()];
 }

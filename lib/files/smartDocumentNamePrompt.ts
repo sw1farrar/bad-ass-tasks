@@ -46,6 +46,14 @@ When WORKSPACE FILING TAGS are provided in the user message:
 
 When a note is only a photo of a document (no email body, no OCR text), analyze the image(s) directly — same naming rules apply.
 
+### Multiple images (critical)
+When more than one image is attached, assume they are usually separate photos of the SAME receipt or document until proven otherwise (e.g. photo 1 = header/store, photo 2 = line items, photo 3 = total/payment).
+- Read EVERY image before writing analysis or output.
+- Merge evidence across images: one vendor, one transaction date, one combined set of line_items.
+- Do NOT name the file from only the first image if later images contain the real line items or totals.
+- Do NOT duplicate the same line item because it appears on two crops of the same receipt.
+- If images are clearly unrelated documents, say so in what_i_read and analyze the primary receipt/document only.
+
 First decide document_type from evidence across the whole document — do not assume from the subject line alone.
 
 ## Classify before you name (quick guide)
@@ -82,6 +90,7 @@ Subject (first segment) = interpreted product type, NOT verbatim receipt text.
 - Drop brands, model numbers, SKUs unless a short qualifier helps.
 - receipt_line_item = verbatim text; item_category = what goes in the filename.
 - line_items = ALL purchasable products on the receipt (not just the highest-priced). Each needs item_name, item_category, price_paid.
+- When the receipt spans multiple images, gather line_items from ALL images before choosing receipt_line_item and before filling line_items.
 
 GOOD: Computer Monitor - 2026-06-07 - Micro Center
 BAD:  LG 27IN 4K UHD MONITOR 27GN60SA-B - 2026-06-07 - Micro Center

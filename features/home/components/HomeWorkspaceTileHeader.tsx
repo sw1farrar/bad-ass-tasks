@@ -29,12 +29,12 @@ export function HomeWorkspaceTileHeader({
   onReviewClick,
 }: HomeWorkspaceTileHeaderProps) {
   return (
-    <div className="home-ws-card__head flex items-center gap-2.5 md:gap-3 min-w-0 pr-12 md:pr-16 shrink-0">
+    <div className="home-ws-card__head flex items-center gap-2 md:gap-3 min-w-0 pr-10 md:pr-16 shrink-0">
       <WorkspaceOpenTasksGraphic
         openTasks={openTasks}
         overdue={overdue}
         dueToday={dueToday}
-        size={56}
+        size={60}
         showSublabel={false}
         className="home-ws-card__ring md:hidden shrink-0"
       />

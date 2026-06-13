@@ -3,10 +3,18 @@ import type { ListItem } from "@/types";
 import {
   canIndentListItem,
   canOutdentListItem,
+  computeFlatListNudge,
   computeFlatListReorder,
+  computeMoveListSubtreeToList,
   computeIndentUpdate,
+  getFlatListNudgeTargets,
   computeOutdentUpdate,
   flattenListItems,
+  getFamilyRootIdForFlatItem,
+  getIncompleteSubtreeItems,
+  getSubtreeMaxRelativeDepth,
+  groupFlatListItemsIntoFamilies,
+  hasIncompleteDescendants,
   getIndentParentId,
   getOutdentParentId,
   firstSortOrderAmongSiblings,
@@ -30,6 +38,53 @@ function item(
     updatedAt: "",
   };
 }
+
+describe("family completion helpers", () => {
+  it("detects open descendants and lists incomplete subtree items in order", () => {
+    const items = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 1000, "a"),
+      item("d", 2000),
+    ];
+    const flat = flattenListItems(items);
+
+    expect(hasIncompleteDescendants("a", items)).toBe(true);
+    expect(hasIncompleteDescendants("b", items)).toBe(false);
+    expect(hasIncompleteDescendants("d", items)).toBe(false);
+    expect(getIncompleteSubtreeItems("a", items).map((row) => row.id)).toEqual(["a", "b", "c"]);
+    expect(getIncompleteSubtreeItems("b", items).map((row) => row.id)).toEqual(["b"]);
+    expect(flat.map((row) => row.id)).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+describe("getFamilyRootIdForFlatItem", () => {
+  it("returns the root id for nested items", () => {
+    const items = [item("a", 0), item("b", 0, "a"), item("c", 1000), item("d", 0, "c")];
+    const flat = flattenListItems(items);
+    expect(getFamilyRootIdForFlatItem(flat, "b")).toBe("a");
+    expect(getFamilyRootIdForFlatItem(flat, "d")).toBe("c");
+    expect(getFamilyRootIdForFlatItem(flat, "a")).toBe("a");
+  });
+});
+
+describe("groupFlatListItemsIntoFamilies", () => {
+  it("groups a root item with its nested descendants", () => {
+    const items = [item("a", 0), item("b", 0, "a"), item("c", 1000), item("d", 0, "c")];
+    const families = groupFlatListItemsIntoFamilies(flattenListItems(items));
+    expect(families).toHaveLength(2);
+    expect(families[0].items.map((row) => row.id)).toEqual(["a", "b"]);
+    expect(families[1].items.map((row) => row.id)).toEqual(["c", "d"]);
+  });
+
+  it("keeps standalone roots as single-item families", () => {
+    const items = [item("a", 0), item("b", 1000)];
+    const families = groupFlatListItemsIntoFamilies(flattenListItems(items));
+    expect(families).toHaveLength(2);
+    expect(families[0].items).toHaveLength(1);
+    expect(families[1].items).toHaveLength(1);
+  });
+});
 
 describe("flattenListItems", () => {
   it("orders parents before children", () => {
@@ -79,6 +134,12 @@ describe("indent/outdent", () => {
 
   it("cannot indent first item", () => {
     expect(canIndentListItem("a", items)).toBe(false);
+  });
+
+  it("indents below a parent instead of under its child when a top-level row follows a family", () => {
+    const items = [item("a", 0), item("b", 0, "a"), item("c", 1000)];
+    expect(getIndentParentId("c", items)).toBe("a");
+    expect(computeIndentUpdate(items, "c")?.parentItemId).toBe("a");
   });
 
   it("allows a second indent level but blocks a third", () => {
@@ -182,7 +243,7 @@ describe("computeFlatListReorder", () => {
       item("d", 2000),
     ];
 
-    const result = computeFlatListReorder(items, "b", "d");
+    const result = computeFlatListReorder(items, "b", "d", true);
     expect(result).not.toBeNull();
 
     const next = applyUpdates(items, result!.updates);
@@ -200,7 +261,7 @@ describe("computeFlatListReorder", () => {
       item("d", 2000),
     ];
 
-    const result = computeFlatListReorder(items, "b", "c");
+    const result = computeFlatListReorder(items, "b", "c", true);
     expect(result).not.toBeNull();
 
     const next = applyUpdates(items, result!.updates);
@@ -210,7 +271,7 @@ describe("computeFlatListReorder", () => {
     expect(flat.find((row) => row.id === "b")?.depth).toBe(1);
   });
 
-  it("moves a top-level item to become a child when dropped on a nested row", () => {
+  it("places a top-level item in the gap before a nested row", () => {
     const items = [item("a", 0), item("c", 0, "a"), item("b", 1000)];
 
     const result = computeFlatListReorder(items, "b", "c");
@@ -221,14 +282,49 @@ describe("computeFlatListReorder", () => {
     expect(next.find((row) => row.id === "b")?.parentItemId).toBe("a");
   });
 
-  it("reorders siblings at the same level", () => {
+  it("reorders top-level siblings without nesting onto a leaf row", () => {
     const items = [item("a", 0), item("b", 1000), item("c", 2000)];
 
-    const result = computeFlatListReorder(items, "a", "c");
+    const result = computeFlatListReorder(items, "a", "c", true);
     expect(result).not.toBeNull();
 
     const next = applyUpdates(items, result!.updates);
     expect(flattenListItems(next).map((row) => row.id)).toEqual(["b", "c", "a"]);
+    expect(next.find((row) => row.id === "a")?.parentItemId).toBeUndefined();
+    expect(flattenListItems(next).find((row) => row.id === "a")?.depth).toBe(0);
+  });
+
+  it("inserts a top-level item at the positional gap before a parent with children", () => {
+    const items = [item("a", 0), item("b", 1000), item("c", 2000), item("c1", 0, "c")];
+
+    const result = computeFlatListReorder(items, "a", "c", true);
+    expect(result).not.toBeNull();
+
+    const next = applyUpdates(items, result!.updates);
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["b", "c", "a", "c1"]);
+    expect(next.find((row) => row.id === "a")?.parentItemId).toBe("c");
+  });
+
+  it("places a top-level item in the gap before a child row", () => {
+    const items = [item("a", 0), item("a1", 0, "a"), item("b", 1000)];
+
+    const result = computeFlatListReorder(items, "b", "a1");
+    expect(result).not.toBeNull();
+
+    const next = applyUpdates(items, result!.updates);
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["a", "b", "a1"]);
+    expect(next.find((row) => row.id === "b")?.parentItemId).toBe("a");
+  });
+
+  it("keeps a top-level item top-level when dropped after a parent row", () => {
+    const items = [item("a", 0), item("a1", 0, "a"), item("b", 1000)];
+
+    const result = computeFlatListReorder(items, "b", "a", true);
+    expect(result).not.toBeNull();
+
+    const next = applyUpdates(items, result!.updates);
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["a", "b", "a1"]);
+    expect(next.find((row) => row.id === "b")?.parentItemId).toBe("a");
   });
 
   it("moves a parent and its nested descendants together", () => {
@@ -240,7 +336,7 @@ describe("computeFlatListReorder", () => {
       item("e", 2000),
     ];
 
-    const result = computeFlatListReorder(items, "a", "e");
+    const result = computeFlatListReorder(items, "a", "e", true);
     expect(result).not.toBeNull();
 
     const next = applyUpdates(items, result!.updates);
@@ -252,6 +348,23 @@ describe("computeFlatListReorder", () => {
     expect(flat.find((row) => row.id === "c")?.depth).toBe(2);
   });
 
+  it("moves a deep subtree while keeping the root top-level", () => {
+    const items = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 0, "b"),
+      item("d", 1000),
+    ];
+    expect(getSubtreeMaxRelativeDepth("a", items)).toBe(2);
+
+    const result = computeFlatListReorder(items, "a", "d", true);
+    expect(result).not.toBeNull();
+
+    const next = applyUpdates(items, result!.updates);
+    expect(next.find((row) => row.id === "a")?.parentItemId).toBeUndefined();
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["d", "a", "b", "c"]);
+  });
+
   it("refuses dropping a parent onto its own descendant", () => {
     const items = [
       item("a", 0),
@@ -260,6 +373,111 @@ describe("computeFlatListReorder", () => {
     ];
     expect(computeFlatListReorder(items, "a", "c")).toBeNull();
     expect(computeFlatListReorder(items, "a", "b")).toBeNull();
+  });
+});
+
+describe("computeFlatListNudge", () => {
+  it("moves a top-level item down one row", () => {
+    const items = [item("a", 0), item("b", 1000), item("c", 2000)];
+
+    const result = computeFlatListNudge(items, "a", "down");
+    expect(result).not.toBeNull();
+
+    const next = items.map((row) => {
+      const update = result!.updates.get(row.id);
+      if (!update) return row;
+      return {
+        ...row,
+        parentItemId: update.parentItemId === null ? undefined : update.parentItemId,
+        sortOrder: update.sortOrder,
+      };
+    });
+
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("moves a top-level item up one row", () => {
+    const items = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 0, "b"),
+      item("d", 1000),
+    ];
+
+    const targets = getFlatListNudgeTargets(items, "a");
+    expect(targets.canMoveUp).toBe(false);
+    expect(targets.canMoveDown).toBe(true);
+
+    const result = computeFlatListNudge(items, "d", "up");
+    expect(result).not.toBeNull();
+
+    const next = items.map((row) => {
+      const update = result!.updates.get(row.id);
+      if (!update) return row;
+      return {
+        ...row,
+        parentItemId: update.parentItemId === null ? undefined : update.parentItemId,
+        sortOrder: update.sortOrder,
+      };
+    });
+
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["a", "b", "d", "c"]);
+  });
+
+  it("respects a visible-item subset when nudging", () => {
+    const withCompleted: ListItem[] = [
+      { ...item("a", 0), completed: false },
+      {
+        ...item("b", 1000),
+        completed: true,
+        completedAt: new Date().toISOString(),
+      },
+      { ...item("c", 2000), completed: false },
+    ];
+    const visible = new Set(["a", "c"]);
+
+    expect(getFlatListNudgeTargets(withCompleted, "c", visible).upOverId).toBe("a");
+    expect(getFlatListNudgeTargets(withCompleted, "a", visible).downOverId).toBe("c");
+
+    const result = computeFlatListNudge(withCompleted, "c", "up", visible);
+    expect(result).not.toBeNull();
+
+    const next = withCompleted.map((row) => {
+      const update = result!.updates.get(row.id);
+      if (!update) return row;
+      return {
+        ...row,
+        parentItemId: update.parentItemId === null ? undefined : update.parentItemId,
+        sortOrder: update.sortOrder,
+      };
+    });
+
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("computeMoveListSubtreeToList", () => {
+  it("moves a subtree to another list with the root appended at top level", () => {
+    const items = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 1000),
+      { ...item("d", 0), listId: "list-2" },
+      { ...item("e", 1000), listId: "list-2" },
+    ];
+
+    const updates = computeMoveListSubtreeToList(items, "a", "list-2");
+    expect(updates).not.toBeNull();
+    expect(updates!.get("a")).toMatchObject({
+      listId: "list-2",
+      parentItemId: undefined,
+      sortOrder: 2000,
+    });
+    expect(updates!.get("b")).toMatchObject({
+      listId: "list-2",
+      parentItemId: "a",
+      sortOrder: 0,
+    });
   });
 });
 
@@ -284,11 +502,19 @@ describe("computeIndentUpdate", () => {
     expect(flattenListItems(next).map((row) => row.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("indents to the second level under the row above", () => {
+  it("indents one level under the nearest row at the same depth, not a nested row above", () => {
     const items = [item("a", 0), item("b", 0, "a"), item("c", 1000)];
+    expect(getIndentParentId("c", items)).toBe("a");
     const update = computeIndentUpdate(items, "c");
     expect(update).not.toBeNull();
-    expect(update!.parentItemId).toBe("b");
+    expect(update!.parentItemId).toBe("a");
+
+    const next = items.map((row) =>
+      row.id === "c"
+        ? { ...row, parentItemId: update!.parentItemId, sortOrder: update!.sortOrder }
+        : row,
+    );
+    expect(flattenListItems(next).find((row) => row.id === "c")?.depth).toBe(1);
   });
 
   it("refuses a third indent that would exceed max depth", () => {
@@ -296,35 +522,11 @@ describe("computeIndentUpdate", () => {
     expect(computeIndentUpdate(items, "c")).toBeNull();
   });
 
-  it("allows a second indent by promoting the parent row above", () => {
+  it("does not double-indent when the row above is already the parent", () => {
     const items = [item("a", 0), item("b", 1000), item("c", 0, "b")];
 
-    expect(canIndentListItem("c", items)).toBe(true);
-
-    const update = computeIndentUpdate(items, "c");
-    expect(update).not.toBeNull();
-    expect(update!.parentItemId).toBe("b");
-    expect(update!.parentPromotion).toEqual({ itemId: "b", parentItemId: "a" });
-
-    const next = items.map((row) => {
-      const sortOrder = update!.siblingSortOrders.get(row.id);
-      const parentItemId =
-        row.id === "c"
-          ? update!.parentItemId
-          : update!.parentPromotion?.itemId === row.id
-            ? update!.parentPromotion.parentItemId
-            : row.parentItemId;
-      if (sortOrder === undefined && parentItemId === row.parentItemId) return row;
-      return {
-        ...row,
-        parentItemId,
-        ...(sortOrder !== undefined ? { sortOrder } : {}),
-      };
-    });
-
-    const flat = flattenListItems(next);
-    expect(flat.map((row) => row.id)).toEqual(["a", "b", "c"]);
-    expect(flat.map((row) => row.depth)).toEqual([0, 1, 2]);
+    expect(canIndentListItem("c", items)).toBe(false);
+    expect(computeIndentUpdate(items, "c")).toBeNull();
   });
 });
 

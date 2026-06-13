@@ -244,17 +244,24 @@ export function HomeWorkspaceNotificationDropdown({
           toggleOpen();
         }}
         className={cn(
-          "inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-accent-on text-[9px] font-bold transition",
-          "bg-[var(--priority-p0)] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--priority-p0)]/50",
-          open && "ring-2 ring-[var(--priority-p0)]/40",
+          "home-ws-notif__toggle home-ws-vitals__icon-btn",
+          open && "home-ws-notif__toggle--open",
         )}
         title={`${unreadCount} unread notification${unreadCount === 1 ? "" : "s"} in ${workspaceName}`}
         aria-label={`${unreadCount} unread notifications in ${workspaceName}`}
         aria-expanded={open}
         aria-haspopup="dialog"
       >
-        <Bell className="h-2.5 w-2.5" aria-hidden />
-        {unreadCount > 99 ? "99+" : unreadCount}
+        <span className="home-ws-notif__icon-wrap home-ws-vitals__icon-wrap">
+          <Bell className="home-ws-notif__bell home-ws-vitals__icon" aria-hidden />
+          <span
+            className="nav-count-badge nav-count-badge--bottom nav-count-badge--overdue home-ws-notif__count"
+            aria-hidden
+          >
+            <span className="nav-count-badge__pulse" aria-hidden />
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        </span>
       </button>
       {panel}
     </div>

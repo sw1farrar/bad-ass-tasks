@@ -430,6 +430,7 @@ export interface Database {
           color: string
           sort_order: number
           pinned: boolean
+          archived: boolean
           created_by: string | null
           created_at: string
           updated_at: string
@@ -441,6 +442,7 @@ export interface Database {
           color?: string
           sort_order?: number
           pinned?: boolean
+          archived?: boolean
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -452,6 +454,7 @@ export interface Database {
           color?: string
           sort_order?: number
           pinned?: boolean
+          archived?: boolean
           created_by?: string | null
           created_at?: string
           updated_at?: string

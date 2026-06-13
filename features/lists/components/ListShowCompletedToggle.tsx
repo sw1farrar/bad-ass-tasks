@@ -24,10 +24,8 @@ export function ListShowCompletedToggle({
       type="button"
       onClick={onToggle}
       className={cn(
-        "list-completed-toggle inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition active:scale-[0.98]",
-        showCompleted
-          ? "border-neon-purple/35 bg-neon-purple/10 text-neon-purple"
-          : "border-border-glass bg-[color-mix(in_srgb,var(--list-bg,var(--bg-card))_72%,var(--surface-hover)_28%)] text-text-secondary hover:border-neon-purple/25 hover:text-text-primary",
+        "list-completed-toggle inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 transition active:scale-[0.98]",
+        showCompleted && "list-completed-toggle--active",
         className,
       )}
       aria-pressed={showCompleted}
@@ -38,11 +36,11 @@ export function ListShowCompletedToggle({
       }
     >
       {showCompleted ? (
-        <EyeOff className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
       ) : (
-        <Eye className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
       )}
-      <Check className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+      <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
       <span>
         {showCompleted
           ? "Hide completed"

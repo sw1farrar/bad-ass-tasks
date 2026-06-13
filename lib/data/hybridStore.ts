@@ -5493,6 +5493,7 @@ export function mapWorkspaceListRow(row: WorkspaceListRow): WorkspaceList {
     color: row.color,
     sortOrder: row.sort_order,
     pinned: row.pinned ?? false,
+    archived: row.archived ?? false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -5647,7 +5648,7 @@ export async function createWorkspaceList(input: {
 export async function updateWorkspaceList(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<WorkspaceList, "title" | "color" | "sortOrder" | "pinned">>,
+  updates: Partial<Pick<WorkspaceList, "title" | "color" | "sortOrder" | "pinned" | "archived">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isWorkspaceListPersistenceEnabled()) return true;
@@ -5658,6 +5659,7 @@ export async function updateWorkspaceList(
   if (updates.color !== undefined) payload.color = updates.color;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
   if (updates.pinned !== undefined) payload.pinned = updates.pinned;
+  if (updates.archived !== undefined) payload.archived = updates.archived;
   if (Object.keys(payload).length === 0) return true;
 
   if (!isCurrentlyOnline()) {
@@ -5820,7 +5822,7 @@ export async function createListItem(input: {
 export async function updateListItem(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<ListItem, "text" | "completed" | "sortOrder" | "parentItemId" | "completedAt">>,
+  updates: Partial<Pick<ListItem, "text" | "completed" | "sortOrder" | "parentItemId" | "completedAt" | "listId">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isWorkspaceListPersistenceEnabled()) return true;
@@ -5833,6 +5835,7 @@ export async function updateListItem(
     ...(updates.sortOrder !== undefined ? { sort_order: updates.sortOrder } : {}),
     ...(updates.parentItemId !== undefined ? { parent_item_id: updates.parentItemId ?? null } : {}),
     ...(updates.completedAt !== undefined ? { completed_at: updates.completedAt ?? null } : {}),
+    ...(updates.listId !== undefined ? { list_id: normalizeListEntityId(updates.listId) } : {}),
   } as Partial<ListItemInsert>);
   if (Object.keys(payload).length === 0) return true;
 

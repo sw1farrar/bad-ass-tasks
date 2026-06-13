@@ -50,10 +50,32 @@ describe("buildSmartDocumentNameUserPrompt", () => {
       { visionImages: [{ fileName: "receipt.jpg" }] },
     );
 
-    expect(prompt).toContain("DOCUMENT IMAGES");
+    expect(prompt).toContain("DOCUMENT IMAGE");
     expect(prompt).toContain("visual analysis");
     expect(prompt).toContain("receipt.jpg");
     expect(prompt).not.toContain("filenames only");
+  });
+
+  it("instructs Grok to merge evidence when multiple receipt photos are attached", () => {
+    const prompt = buildSmartDocumentNameUserPrompt(
+      {
+        attachmentFileNames: ["receipt-top.jpg", "receipt-items.jpg", "receipt-total.jpg"],
+      },
+      {
+        visionImages: [
+          { fileName: "receipt-top.jpg" },
+          { fileName: "receipt-items.jpg" },
+          { fileName: "receipt-total.jpg" },
+        ],
+      },
+    );
+
+    expect(prompt).toContain("multi-photo / multi-page");
+    expect(prompt).toContain("1. receipt-top.jpg");
+    expect(prompt).toContain("2. receipt-items.jpg");
+    expect(prompt).toContain("3. receipt-total.jpg");
+    expect(prompt).toContain("Merge line items from every image");
+    expect(prompt).toContain("full transaction");
   });
 });
 
@@ -226,6 +248,73 @@ describe("generateSmartDocumentName", () => {
     const { generateSmartDocumentName } = await import("@/lib/files/generateSmartDocumentName");
     await expect(generateSmartDocumentName(microCenterCtx)).rejects.toThrow(
       "ai_unavailable:missing_key",
+    );
+  });
+
+  it("sends all receipt photos to Grok vision with labels when note has multiple images", async () => {
+    const callXaiChat = vi.fn().mockResolvedValue(
+      mockXaiContent({
+        analysis: {
+          document_type: "receipt",
+          what_i_read: "Three photos of one Micro Center receipt: header, items, total.",
+          line_items: [
+            { item_name: "LG 27IN 4K MONITOR", item_category: "Computer Monitor", price_paid: 329.99 },
+            { item_name: "USB-C Cable", item_category: "Cable", price_paid: 12.99 },
+          ],
+        },
+        output: {
+          filename: "Computer Monitor - 2026-06-07 - Micro Center",
+          memo: "Micro Center receipt from June 7, 2026 with monitor and cable across three photos.",
+          tags: ["receipts"],
+          reasoning: "Merged line items from all receipt photos.",
+        },
+      }),
+    );
+
+    vi.doMock("@/lib/files/loadNoteAttachmentVisionImages", () => ({
+      loadNoteAttachmentVisionImages: vi.fn().mockResolvedValue([
+        {
+          fileName: "receipt-top.jpg",
+          mimeType: "image/jpeg",
+          dataUrl: "data:image/jpeg;base64,dG9w",
+        },
+        {
+          fileName: "receipt-items.jpg",
+          mimeType: "image/jpeg",
+          dataUrl: "data:image/jpeg;base64,aXRlbXM=",
+        },
+        {
+          fileName: "receipt-total.jpg",
+          mimeType: "image/jpeg",
+          dataUrl: "data:image/jpeg;base64,dG90YWw=",
+        },
+      ]),
+    }));
+
+    vi.doMock("@/lib/ai/xaiClient", () => ({
+      getXaiUnavailableReason: () => null,
+      callXaiChat,
+    }));
+
+    const { generateSmartDocumentName } = await import("@/lib/files/generateSmartDocumentName");
+    const result = await generateSmartDocumentName(
+      {
+        title: "Photos · Jun 7",
+        attachmentFileNames: ["receipt-top.jpg", "receipt-items.jpg", "receipt-total.jpg"],
+        createdAt: "2026-06-07T12:00:00.000Z",
+      },
+      { noteId: "note-1", userId: "user-1", workspaceTags: ["receipts"] },
+    );
+
+    expect(result.receiptLineItems).toHaveLength(2);
+    expect(callXaiChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        images: [
+          expect.objectContaining({ label: "receipt-top.jpg" }),
+          expect.objectContaining({ label: "receipt-items.jpg" }),
+          expect.objectContaining({ label: "receipt-total.jpg" }),
+        ],
+      }),
     );
   });
 

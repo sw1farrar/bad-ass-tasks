@@ -25,6 +25,7 @@ import { computeWorkspaceTaskStats } from "@/features/home/lib/computeWorkspaceT
 import { computeWorkspaceNoteCount } from "@/features/home/lib/computeWorkspaceNoteCount";
 import { countPendingReviewForWorkspace } from "@/lib/files/fileFilters";
 import { mergeWorkspaceTasksForNavCounts } from "@/lib/nav/workspaceNavCounts";
+import { mergeRemoteListItemUpdate } from "@/lib/lists/listItemReorderSync";
 import {
   createListSliceActions,
   SAMPLE_WORKSPACE_LISTS,
@@ -4500,7 +4501,9 @@ export const useTaskStore = create<TaskState>()(
             } else if (eventType === "UPDATE" && newRow) {
               const mapped = mapListItemRow(newRow);
               set({
-                listItems: items.map((i) => (i.id === mapped.id ? { ...i, ...mapped } : i)),
+                listItems: items.map((i) =>
+                  i.id === mapped.id ? mergeRemoteListItemUpdate(i, mapped) : i,
+                ),
               });
             } else if (eventType === "DELETE" && oldRow) {
               set({ listItems: items.filter((i) => i.id !== oldRow.id) });

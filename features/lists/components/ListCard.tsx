@@ -3,20 +3,17 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  pointerWithin,
-  type CollisionDetection,
-  type DragCancelEvent,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { sortableTranslateOnly } from "../lib/sortableTransform";
-import { GripVertical, MoreHorizontal, PenLine, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+  ChevronUp,
+  MoreHorizontal,
+  PenLine,
+  Pin,
+  PinOff,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ListItem, WorkspaceList } from "@/types";
 import type { FlatListItem } from "@/lib/lists/listItemTree";
@@ -26,18 +23,28 @@ import {
   canIndentListItem,
   canOutdentListItem,
   flattenListItems,
+  getFlatListNudgeTargets,
+  getIncompleteSubtreeItems,
+  groupFlatListItemsIntoFamilies,
+  hasIncompleteDescendants,
 } from "@/lib/lists/listItemTree";
+import type { ListItemFamilyChrome } from "@/lib/lists/listDragPreview";
+import { getFamilyChromeByItemId } from "@/lib/lists/listDragPreview";
 import {
   getListColorPresentation,
   getListColorsForTheme,
+  listColorPresentationStyleVars,
+  readListThemeVarsFromElement,
   type ListColorPresentation,
 } from "@/lib/lists/listColorStyles";
 import type { ListColorId } from "@/store/listSlice";
 import { useTaskStore } from "@/store/useTaskStore";
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
-import { useListDndSensors } from "../dndConfig";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
+import { ListFamilyCompleteConfirmModal } from "./ListFamilyCompleteConfirmModal";
+import { ListItemFamilyGroup } from "./ListItemFamilyGroup";
+import type { ListItemMoveTarget } from "./ListItemMoveMenu";
 import { ListItemRow } from "./ListItemRow";
 import { ListShowCompletedToggle } from "./ListShowCompletedToggle";
 
@@ -52,17 +59,32 @@ interface ListCardBodyProps {
   onTogglePinned: (id: string) => void;
   onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
+  onCompleteItemFamily: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;
-  onReorderItems: (listId: string, activeId: string, overId: string) => void;
   onIndentItem: (id: string) => void;
   onOutdentItem: (id: string) => void;
+  onNudgeListItem?: (
+    listId: string,
+    itemId: string,
+    direction: "up" | "down",
+    visibleItemIds: ReadonlySet<string>,
+  ) => void;
+  onMoveItemToList?: (itemId: string, targetListId: string) => void;
+  moveTargetLists?: ListItemMoveTarget[];
   onClearCompleted: (listId: string) => void;
-  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
-  dragHandleRef?: React.Ref<HTMLButtonElement>;
+  onArchiveList?: (id: string) => void;
+  onUnarchiveList?: (id: string) => void;
+  onNudgeList?: (listId: string, direction: "up" | "down") => void;
+  canNudgeListUp?: boolean;
+  canNudgeListDown?: boolean;
   onOpenDetail?: () => void;
   listColorStyle?: ListColorPresentation;
   focusAddItemOnOpen?: boolean;
+  listScrollRef?: React.Ref<HTMLDivElement>;
+  sheetListDragHandlers?: {
+    onPointerDown: (e: React.PointerEvent) => void;
+  };
 }
 
 export function ListCardBody({
@@ -74,37 +96,94 @@ export function ListCardBody({
   onTogglePinned,
   onAddItem,
   onToggleItem,
+  onCompleteItemFamily,
   onUpdateItem,
   onDeleteItem,
-  onReorderItems,
   onIndentItem,
   onOutdentItem,
+  onNudgeListItem,
+  onMoveItemToList,
+  moveTargetLists = [],
   onClearCompleted,
-  dragHandleProps,
-  dragHandleRef,
+  onArchiveList,
+  onUnarchiveList,
+  onNudgeList,
+  canNudgeListUp = false,
+  canNudgeListDown = false,
   onOpenDetail,
   listColorStyle,
   focusAddItemOnOpen = false,
+  listScrollRef,
+  sheetListDragHandlers,
 }: ListCardBodyProps) {
   const theme = useTaskStore((s) => s.theme);
   const listColors = getListColorsForTheme(theme);
   const activeColorRing = theme === "light" ? "#7c3aed" : "#f4f4f5";
   const [newItemText, setNewItemText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [titleEditMode, setTitleEditMode] = useState(false);
+  const [localTitle, setLocalTitle] = useState(list.title);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [familyCompleteConfirm, setFamilyCompleteConfirm] = useState<{
+    parentItem: ListItem;
+    itemsToComplete: ListItem[];
+  } | null>(null);
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [openActionsMenuItemId, setOpenActionsMenuItemId] = useState<string | null>(null);
+  const [clearCompletedConfirmOpen, setClearCompletedConfirmOpen] = useState(false);
+  const itemsStackRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const pendingTitleSelectAllRef = useRef(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [menuThemeVars, setMenuThemeVars] = useState<Record<string, string>>({});
   const addItemInputRef = useRef<HTMLInputElement>(null);
   const itemInputRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const isMobile = useIsMobileViewport();
   const isPreview = variant === "preview";
   const isDetail = variant === "detail";
   const mobileDetail = isDetail && isMobile;
+
+  useEffect(() => {
+    if (!isPreview || titleEditMode) return;
+    setLocalTitle(list.title);
+  }, [isPreview, list.id, list.title, titleEditMode]);
+
+  const selectAllTitle = useCallback(() => {
+    const input = titleInputRef.current;
+    if (!input) return;
+    input.focus();
+    const apply = () => input.setSelectionRange(0, input.value.length);
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }, []);
+
+  const enterTitleEdit = useCallback(() => {
+    setLocalTitle(list.title);
+    pendingTitleSelectAllRef.current = true;
+    setTitleEditMode(true);
+  }, [list.title]);
+
+  const commitTitle = useCallback(() => {
+    setTitleEditMode(false);
+    const next = localTitle.trim() || "Untitled list";
+    setLocalTitle(next);
+    const current = list.title.trim() || "Untitled list";
+    if (next !== current) {
+      onUpdateList(list.id, { title: next });
+    }
+  }, [list.id, list.title, localTitle, onUpdateList]);
+
+  useLayoutEffect(() => {
+    if (!isPreview || !titleEditMode || !pendingTitleSelectAllRef.current) return;
+    pendingTitleSelectAllRef.current = false;
+    selectAllTitle();
+  }, [isPreview, titleEditMode, selectAllTitle]);
 
   const flatItems = useMemo(() => {
     const withDepth = items as FlatListItem[];
@@ -123,6 +202,8 @@ export function ListCardBody({
     const anchor = menuRef.current?.getBoundingClientRect();
     const menuEl = menuPanelRef.current;
     if (!anchor || !menuEl) return;
+
+    setMenuThemeVars(readListThemeVarsFromElement(menuRef.current));
 
     const menuHeight = menuEl.offsetHeight;
     const menuWidth = menuEl.offsetWidth;
@@ -182,9 +263,34 @@ export function ListCardBody({
     if (!showCompleted) return openItems;
     return flatItems;
   }, [showCompleted, openItems, flatItems]);
-  const visibleItems = isPreview ? previewItems : detailVisibleItems;
-  const itemIds = useMemo(() => visibleItems.map((i) => i.id), [visibleItems]);
+  const detailVisibleItemIds = useMemo(
+    () => new Set(detailVisibleItems.map((row) => row.id)),
+    [detailVisibleItems],
+  );
   const rawItems = useMemo(() => items.map((i) => ({ ...i, parentItemId: i.parentItemId })), [items]);
+
+  const handleItemToggle = useCallback(
+    (id: string) => {
+      const item = rawItems.find((i) => i.id === id);
+      if (!item) return;
+
+      if (item.completed) {
+        onToggleItem(id);
+        return;
+      }
+
+      if (hasIncompleteDescendants(id, rawItems)) {
+        setFamilyCompleteConfirm({
+          parentItem: item,
+          itemsToComplete: getIncompleteSubtreeItems(id, rawItems),
+        });
+        return;
+      }
+
+      onToggleItem(id);
+    },
+    [onToggleItem, rawItems],
+  );
 
   useEffect(() => {
     setShowCompleted(false);
@@ -203,19 +309,44 @@ export function ListCardBody({
     if (completedCount === 0 && showCompleted) setShowCompleted(false);
   }, [completedCount, showCompleted]);
 
-  const sensors = useListDndSensors();
-  const activeItem = useMemo(
-    () => (activeItemId ? visibleItems.find((i) => i.id === activeItemId) : undefined),
-    [activeItemId, visibleItems],
-  );
+  useEffect(() => {
+    if (!isDetail || !activeRowId) return;
+    const frame = requestAnimationFrame(() => {
+      const row = itemsStackRef.current?.querySelector<HTMLElement>(
+        `[data-list-item-id="${activeRowId}"]`,
+      );
+      row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeRowId, detailVisibleItems, isDetail, rawItems]);
 
-  const handleAddItem = async () => {
+  useEffect(() => {
+    if (!isDetail) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (itemsStackRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".list-item-actions-menu, .list-item-move-menu")) {
+        return;
+      }
+      setActiveRowId(null);
+      setOpenActionsMenuItemId(null);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isDetail]);
+
+  const handleAddItem = async ({ refocusComposer = false }: { refocusComposer?: boolean } = {}) => {
     const trimmed = newItemText.trim();
     if (!trimmed) return;
-    const result = await onAddItem(list.id, trimmed);
+    await onAddItem(list.id, trimmed);
     setNewItemText("");
-    const newId = typeof result === "string" ? result : null;
-    if (newId) setFocusItemId(newId);
+    if (refocusComposer) {
+      requestAnimationFrame(() => {
+        addItemInputRef.current?.focus();
+      });
+    }
   };
 
   const handleInsertBelow = async (afterItemId: string) => {
@@ -233,23 +364,10 @@ export function ListCardBody({
     });
   }, [focusItemId, items]);
 
-  const handleItemDragStart = (event: DragStartEvent) => {
-    setActiveItemId(String(event.active.id));
-  };
-
-  const handleItemDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveItemId(null);
-    if (!over || active.id === over.id) return;
-    onReorderItems(list.id, String(active.id), String(over.id));
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
-      triggerHaptic("light");
-    }
-  };
-
-  const handleItemDragCancel = (_event: DragCancelEvent) => {
-    setActiveItemId(null);
-  };
+  const familyChromeByItemId = useMemo(
+    () => getFamilyChromeByItemId(detailVisibleItems),
+    [detailVisibleItems],
+  );
 
   const addItemInput = (
     <input
@@ -259,17 +377,17 @@ export function ListCardBody({
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          void handleAddItem();
+          void handleAddItem({ refocusComposer: true });
         }
       }}
       onBlur={() => {
         if (!mobileDetail && newItemText.trim()) void handleAddItem();
       }}
       placeholder="New item"
-      enterKeyHint="done"
+      enterKeyHint="next"
       className={cn(
-        "list-add-item-input min-w-0 flex-1 border-0 bg-transparent text-text-primary placeholder:text-text-muted outline-none",
-        mobileDetail ? "text-base" : "text-sm",
+        "list-add-item-input min-w-0 flex-1 border-0 bg-transparent outline-none",
+        isDetail ? "text-base" : "text-sm",
       )}
       aria-label="New item"
     />
@@ -279,7 +397,7 @@ export function ListCardBody({
     <div
       className={cn(
         "list-add-item-row shrink-0",
-        mobileDetail ? "list-add-item-row--mobile-top pb-2.5 pt-1" : "list-add-item-row--top pb-2 pt-1",
+        isDetail ? "list-add-item-row--mobile-top pb-2.5 pt-1" : "list-add-item-row--top pb-2 pt-1",
       )}
     >
       <div className="list-add-item-composer">
@@ -291,82 +409,131 @@ export function ListCardBody({
     </div>
   ) : null;
 
-  const itemCollisionDetection: CollisionDetection = (args) => {
-    const within = pointerWithin(args);
-    if (within.length > 0) return within;
-    return closestCenter(args);
-  };
-
-  const renderEditableItem = (item: FlatListItem, completedSection = false) => (
-    <ListItemRow
-      key={item.id}
-      item={item}
-      depth={item.depth}
-      onToggle={onToggleItem}
-      onDelete={onDeleteItem}
-      onTextChange={onUpdateItem}
-      onIndent={onIndentItem}
-      onOutdent={onOutdentItem}
-      canIndent={canIndentListItem(item.id, rawItems)}
-      canOutdent={canOutdentListItem(item.id, rawItems)}
-      insertBelowOnEnter={mobileDetail}
-      onInsertBelow={(id) => {
-        void handleInsertBelow(id);
-      }}
-      registerInputRef={(el) => {
-        if (el) itemInputRefs.current.set(item.id, el);
-        else itemInputRefs.current.delete(item.id);
-      }}
-      completedSection={completedSection}
-      showEditPencil={mobileDetail}
-      isRowActive={mobileDetail && activeRowId === item.id}
-      onRowActivate={mobileDetail ? setActiveRowId : undefined}
-    />
+  const handleNudgeItem = useCallback(
+    (itemId: string, direction: "up" | "down") => {
+      setActiveRowId(itemId);
+      onNudgeListItem?.(list.id, itemId, direction, detailVisibleItemIds);
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+        triggerHaptic("light");
+      }
+    },
+    [detailVisibleItemIds, list.id, onNudgeListItem],
   );
 
+  const handleMoveItemToList = useCallback(
+    (itemId: string, targetListId: string) => {
+      onMoveItemToList?.(itemId, targetListId);
+      setActiveRowId(null);
+      setOpenActionsMenuItemId(null);
+    },
+    [onMoveItemToList],
+  );
+
+  const renderEditableItem = (
+    item: FlatListItem,
+    completedSection = false,
+    options?: {
+      familyChrome?: ListItemFamilyChrome;
+    },
+  ) => {
+    const chrome = options?.familyChrome ?? familyChromeByItemId.get(item.id);
+    const nudgeTargets = isDetail
+      ? getFlatListNudgeTargets(rawItems, item.id, detailVisibleItemIds)
+      : null;
+
+    return (
+      <ListItemRow
+        key={item.id}
+        item={item}
+        depth={item.depth}
+        onToggle={handleItemToggle}
+        onDelete={onDeleteItem}
+        onTextChange={onUpdateItem}
+        onIndent={onIndentItem}
+        onOutdent={onOutdentItem}
+        canIndent={canIndentListItem(item.id, rawItems)}
+        canOutdent={canOutdentListItem(item.id, rawItems)}
+        showReorderNudges={isDetail && !!onNudgeListItem}
+        canMoveUp={nudgeTargets?.canMoveUp ?? false}
+        canMoveDown={nudgeTargets?.canMoveDown ?? false}
+        onMoveUp={(id) => handleNudgeItem(id, "up")}
+        onMoveDown={(id) => handleNudgeItem(id, "down")}
+        insertBelowOnEnter={mobileDetail}
+        onInsertBelow={(id) => {
+          void handleInsertBelow(id);
+        }}
+        registerInputRef={(el) => {
+          if (el) itemInputRefs.current.set(item.id, el);
+          else itemInputRefs.current.delete(item.id);
+        }}
+        completedSection={completedSection}
+        showEditPencil={mobileDetail}
+        clickTitleToEdit={isDetail && !isMobile}
+        rowSelectionMode={isDetail}
+        isRowActive={isDetail && activeRowId === item.id}
+        onRowActivate={isDetail ? setActiveRowId : undefined}
+        moveTargetLists={isDetail ? moveTargetLists : undefined}
+        onMoveToList={isDetail ? handleMoveItemToList : undefined}
+        actionsMenuOpen={isDetail && openActionsMenuItemId === item.id}
+        onActionsMenuOpenChange={
+          isDetail
+            ? (open) => {
+                setOpenActionsMenuItemId(open ? item.id : null);
+                if (open) setActiveRowId(item.id);
+              }
+            : undefined
+        }
+        familyChrome={chrome}
+      />
+    );
+  };
+
+  const renderItemFamilies = (
+    items: FlatListItem[],
+    renderRow: (item: FlatListItem, familyRootId: string) => React.ReactNode,
+    hoverFamilyRootId?: string,
+  ) =>
+    groupFlatListItemsIntoFamilies(items).map((family) => {
+      const isMultiFamily = family.items.length > 1;
+      const isDropTarget = !!hoverFamilyRootId && family.rootId === hoverFamilyRootId;
+
+      return (
+        <ListItemFamilyGroup
+          key={family.rootId}
+          familyId={family.rootId}
+          solo={!isMultiFamily}
+          isDropTarget={isDropTarget}
+        >
+          {family.items.map((item) => renderRow(item, family.rootId))}
+        </ListItemFamilyGroup>
+      );
+    });
+
   const editableItemsList = (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={isDetail ? itemCollisionDetection : closestCenter}
-      onDragStart={handleItemDragStart}
-      onDragEnd={handleItemDragEnd}
-      onDragCancel={handleItemDragCancel}
-    >
-      <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-        <div className="list-items-stack space-y-0.5">
-          {detailVisibleItems.map((item) =>
-            renderEditableItem(item, showCompleted && item.completed),
-          )}
-        </div>
-      </SortableContext>
-      <DragOverlay adjustScale={false} dropAnimation={null}>
-        {activeItem ? (
-          <div className="list-item-drag-overlay">
-            <ListItemRow
-              item={activeItem}
-              depth={activeItem.depth}
-              onToggle={onToggleItem}
-              onDelete={onDeleteItem}
-              onTextChange={onUpdateItem}
-              sortable={false}
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    <div ref={itemsStackRef} className="list-items-stack">
+      {detailVisibleItems.map((item) => {
+        const chrome = familyChromeByItemId.get(item.id);
+
+        return renderEditableItem(item, showCompleted && item.completed, {
+          familyChrome: chrome,
+        });
+      })}
+    </div>
   );
 
   const previewItemsList = (
-    <div className="list-items-stack space-y-0.5">
-      {previewItems.map((item) => (
+    <div className="list-items-stack">
+      {renderItemFamilies(previewItems, (item) => (
         <ListItemRow
           key={item.id}
           item={item}
           depth={item.depth}
           readOnly
-          onToggle={onToggleItem}
+          onToggle={handleItemToggle}
           onDelete={onDeleteItem}
           onTextChange={onUpdateItem}
+          inFamily
+          nestedInFamily={item.depth > 0}
         />
       ))}
       {hiddenCount > 0 && (
@@ -375,7 +542,7 @@ export function ListCardBody({
         </div>
       )}
       {completedCount > 0 && openCount === 0 && (
-        <div className="list-card-more-hint px-1 pt-1 text-[11px] text-text-secondary">
+        <div className="list-card-more-hint px-1 pt-1 text-[11px]">
           {completedCount} completed — open list to review
         </div>
       )}
@@ -385,46 +552,86 @@ export function ListCardBody({
   const detailColorVars = listColorStyle
     ? ({
         background: listColorStyle.bg,
-        ["--list-bg" as string]: listColorStyle.bg,
-        ["--list-border" as string]: listColorStyle.border,
-        ["--list-chip-bg" as string]: listColorStyle.bg,
-        ["--list-chip-border" as string]: listColorStyle.border,
-        ["--list-title-color" as string]: listColorStyle.titleColor,
-        ["--list-meta-color" as string]: listColorStyle.metaColor,
-        ["--list-item-text-color" as string]: listColorStyle.itemTextColor,
-        ["--list-check-border" as string]: listColorStyle.checkBorder,
+        ...listColorPresentationStyleVars(listColorStyle),
       } satisfies React.CSSProperties)
     : undefined;
 
   if (isDetail) {
     return (
-      <div
-        className={cn(
-          "list-detail-body flex min-h-0 flex-1 flex-col overflow-hidden",
-          "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]",
-          mobileDetail ? "pb-0 px-3 pt-1" : "px-4 pb-4 pt-2",
-        )}
-        style={detailColorVars}
-      >
-        {completedCount > 0 && (
+      <>
+        <div
+          className={cn(
+            "list-detail-body flex min-h-0 flex-1 flex-col overflow-hidden",
+            "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]",
+            isDetail ? "pb-0 px-3 pt-1" : "px-4 pb-4 pt-2",
+          )}
+          style={detailColorVars}
+        >
+          {completedCount > 0 && (
+            <div
+              className={cn(
+                "list-detail-toolbar shrink-0 flex items-center gap-2 pb-2",
+                isDetail ? "pt-0.5" : "pt-0",
+              )}
+            >
+              <ListShowCompletedToggle
+                completedCount={completedCount}
+                showCompleted={showCompleted}
+                onToggle={() => setShowCompleted((value) => !value)}
+              />
+              {showCompleted ? (
+                <button
+                  type="button"
+                  className="list-clear-completed-btn"
+                  onClick={() => setClearCompletedConfirmOpen(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>Delete all completed</span>
+                </button>
+              ) : null}
+            </div>
+          )}
+          {addItemRow}
           <div
+            ref={listScrollRef}
             className={cn(
-              "list-detail-toolbar shrink-0 flex items-center pb-2",
-              mobileDetail ? "pt-0.5" : "pt-0",
+              "list-detail-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain",
+              sheetListDragHandlers && "list-detail-sheet-drag-zone",
             )}
+            {...sheetListDragHandlers}
           >
-            <ListShowCompletedToggle
-              completedCount={completedCount}
-              showCompleted={showCompleted}
-              onToggle={() => setShowCompleted((value) => !value)}
-            />
+            {editableItemsList}
           </div>
-        )}
-        {addItemRow}
-        <div className="list-detail-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {editableItemsList}
         </div>
-      </div>
+
+        {familyCompleteConfirm ? (
+          <ListFamilyCompleteConfirmModal
+            open
+            onOpenChange={(open) => {
+              if (!open) setFamilyCompleteConfirm(null);
+            }}
+            parentItem={familyCompleteConfirm.parentItem}
+            itemsToComplete={familyCompleteConfirm.itemsToComplete}
+            onConfirm={() => onCompleteItemFamily(familyCompleteConfirm.parentItem.id)}
+          />
+        ) : null}
+
+        <ConfirmationModal
+          open={clearCompletedConfirmOpen}
+          onOpenChange={setClearCompletedConfirmOpen}
+          title="Delete all completed items?"
+          description={`This will permanently remove ${completedCount} completed item${completedCount === 1 ? "" : "s"} from this list. This action cannot be undone.`}
+          highlight={list.title.trim() || "Untitled list"}
+          confirmText="Delete all completed"
+          cancelText="Cancel"
+          variant="destructive"
+          onConfirm={() => {
+            onClearCompleted(list.id);
+            setShowCompleted(false);
+            setClearCompletedConfirmOpen(false);
+          }}
+        />
+      </>
     );
   }
 
@@ -443,34 +650,59 @@ export function ListCardBody({
       {list.pinned && (
         <div className="list-header-badge list-card-pinned-badge mb-1">Pinned</div>
       )}
-      <span className="list-header-title list-card-title block w-full tracking-tight">
-        {displayTitle}
+      <span className="list-card-title-row flex min-w-0 w-full items-start gap-2">
+        {titleEditMode ? (
+          <span
+            className="list-header-title-field min-w-0 flex-1"
+            data-no-open
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={titleInputRef}
+              value={localTitle}
+              onChange={(e) => setLocalTitle(e.target.value)}
+              onBlur={commitTitle}
+              onFocus={selectAllTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitTitle();
+                  e.currentTarget.blur();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setLocalTitle(list.title);
+                  setTitleEditMode(false);
+                  e.currentTarget.blur();
+                }
+              }}
+              className="list-header-title list-card-title w-full min-w-0 bg-transparent font-semibold outline-none tracking-tight"
+              placeholder="Title"
+              aria-label="List title"
+            />
+          </span>
+        ) : (
+          <span className="list-header-title list-card-title min-w-0 flex-1 tracking-tight">
+            {displayTitle}
+          </span>
+        )}
+        {openCount > 0 ? (
+          <span
+            className="list-card-title-count shrink-0 tabular-nums"
+            aria-label={`${openCount} open item${openCount === 1 ? "" : "s"}`}
+          >
+            {openCount}
+          </span>
+        ) : null}
       </span>
-      {(openCount > 0 || completedCount > 0) && (
-        <div className="list-header-meta list-card-stats mt-1.5 font-medium">
-          {openCount > 0
-            ? `${openCount} open${completedCount > 0 ? ` · ${completedCount} done` : ""}`
-            : `${completedCount} done`}
-        </div>
-      )}
     </>
   );
 
   return (
     <>
       <div className="list-header-band list-card-header-band shrink-0">
-        <header className="list-card-header flex items-stretch gap-2.5 px-4 pt-4 pb-2.5">
-          <button
-            type="button"
-            ref={dragHandleRef}
-            className="list-header-btn list-card-drag-handle shrink-0 self-center cursor-grab active:cursor-grabbing touch-none rounded-lg p-1.5 transition"
-            aria-label="Drag list"
-            data-no-open
-            {...dragHandleProps}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-          {onOpenDetail ? (
+        <header className="list-card-header flex items-stretch gap-2 px-4 pt-4 pb-2.5">
+          {onOpenDetail && !titleEditMode ? (
             <button
               type="button"
               className="list-card-header-open-target -my-1 min-w-0 flex-1 cursor-pointer rounded-lg border-0 bg-transparent px-1 py-1 text-left transition"
@@ -483,110 +715,200 @@ export function ListCardBody({
             <div className="min-w-0 flex-1">{titlePanel}</div>
           )}
           <div
-            className="relative shrink-0 self-center"
-            ref={menuRef}
+            className={cn("list-card-menu-anchor shrink-0 self-center", menuOpen && "is-open")}
             data-no-open
             onClick={(e) => e.stopPropagation()}
+            ref={menuRef}
           >
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="list-header-btn rounded-lg p-1.5 transition"
+              className="list-item-menu-trigger list-card-menu-trigger"
               aria-label="List options"
+              aria-haspopup="menu"
               aria-expanded={menuOpen}
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="list-item-menu-trigger-icon" strokeWidth={2.25} aria-hidden />
             </button>
-          {menuOpen &&
-            typeof document !== "undefined" &&
-            createPortal(
-              <div
-                id={`list-card-menu-portal-${list.id}`}
-                ref={menuPanelRef}
-                className="list-card-menu fixed z-[320] min-w-[10.5rem] rounded-xl border border-border-glass bg-bg-card py-1 text-xs shadow-xl"
-                style={
-                  menuPosition
-                    ? { top: menuPosition.top, left: menuPosition.left }
-                    : { top: -9999, left: -9999, visibility: "hidden" }
-                }
-                role="menu"
-                aria-label="List options"
-              >
-                {onOpenDetail && (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onOpenDetail();
-                    }}
-                  >
-                    <PenLine className="h-3.5 w-3.5" />
-                    Edit name
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover"
-                  onClick={() => {
-                    onTogglePinned(list.id);
-                    setMenuOpen(false);
-                  }}
-                >
-                  {list.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-                  {list.pinned ? "Unpin" : "Pin to top"}
-                </button>
+            {menuOpen &&
+              typeof document !== "undefined" &&
+              createPortal(
                 <div
-                  className="list-card-menu-colors"
-                  role="group"
-                  aria-label="List color"
-                  onClick={(e) => e.stopPropagation()}
+                  id={`list-card-menu-portal-${list.id}`}
+                  ref={menuPanelRef}
+                  className="list-card-menu list-item-actions-menu fixed z-[320]"
+                  style={
+                    menuPosition
+                      ? { top: menuPosition.top, left: menuPosition.left, width: 216, ...menuThemeVars }
+                      : { top: -9999, left: -9999, visibility: "hidden", width: 216, ...menuThemeVars }
+                  }
+                  role="menu"
+                  aria-label="List options"
                 >
-                  {listColors.map((c) => (
+                  {onNudgeList ? (
+                    <div className="list-item-actions-menu-section">
+                      <div className="list-item-actions-menu-grid">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="list-item-actions-menu-btn"
+                          disabled={!canNudgeListUp}
+                          onClick={() => {
+                            onNudgeList(list.id, "up");
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <ChevronUp className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          <span>Move up</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="list-item-actions-menu-btn"
+                          disabled={!canNudgeListDown}
+                          onClick={() => {
+                            onNudgeList(list.id, "down");
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <ChevronDown className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          <span>Move down</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="list-item-actions-menu-section">
                     <button
-                      key={c.id}
                       type="button"
-                      title={c.label}
-                      aria-label={c.label}
-                      aria-pressed={list.color === c.id}
-                      className={cn("list-color-dot", list.color === c.id && "is-active")}
-                      style={{
-                        background: c.bg,
-                        borderColor: list.color === c.id ? activeColorRing : c.border,
-                      }}
+                      role="menuitem"
+                      className="list-item-actions-menu-row"
                       onClick={() => {
-                        onUpdateList(list.id, { color: c.id as ListColorId });
                         setMenuOpen(false);
+                        enterTitleEdit();
                       }}
-                    />
-                  ))}
-                </div>
-                {completedCount > 0 && (
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left text-text-secondary hover:bg-surface-hover"
-                    onClick={() => {
-                      onClearCompleted(list.id);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    Delete completed
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--priority-p0)] hover:bg-surface-hover"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setDeleteConfirmOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete list
-                </button>
-              </div>,
-              document.body,
-            )}
+                    >
+                      <span className="list-item-actions-menu-row-leading">
+                        <PenLine className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                        <span>Edit name</span>
+                      </span>
+                    </button>
+                    {!list.archived ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="list-item-actions-menu-row"
+                        onClick={() => {
+                          onTogglePinned(list.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <span className="list-item-actions-menu-row-leading">
+                          {list.pinned ? (
+                            <PinOff className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          ) : (
+                            <Pin className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          )}
+                          <span>{list.pinned ? "Unpin" : "Pin to top"}</span>
+                        </span>
+                      </button>
+                    ) : null}
+                    {onArchiveList && !list.archived ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="list-item-actions-menu-row"
+                        onClick={() => {
+                          onArchiveList(list.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <span className="list-item-actions-menu-row-leading">
+                          <Archive className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          <span>Archive list</span>
+                        </span>
+                      </button>
+                    ) : null}
+                    {onUnarchiveList && list.archived ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="list-item-actions-menu-row"
+                        onClick={() => {
+                          onUnarchiveList(list.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <span className="list-item-actions-menu-row-leading">
+                          <ArchiveRestore className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          <span>Restore list</span>
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="list-item-actions-menu-section">
+                    <div
+                      className="list-card-menu-colors"
+                      role="group"
+                      aria-label="List color"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {listColors.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          title={c.label}
+                          aria-label={c.label}
+                          aria-pressed={list.color === c.id}
+                          className={cn("list-color-dot", list.color === c.id && "is-active")}
+                          style={{
+                            background: c.bg,
+                            borderColor: list.color === c.id ? activeColorRing : c.border,
+                          }}
+                          onClick={() => {
+                            onUpdateList(list.id, { color: c.id as ListColorId });
+                            setMenuOpen(false);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {completedCount > 0 ? (
+                    <div className="list-item-actions-menu-section">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="list-item-actions-menu-row"
+                        onClick={() => {
+                          onClearCompleted(list.id);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <span className="list-item-actions-menu-row-leading">
+                          <Trash2 className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          <span>Delete completed</span>
+                        </span>
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="list-item-actions-menu-section list-item-actions-menu-section--footer">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="list-item-actions-menu-row list-item-actions-menu-row--danger"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setDeleteConfirmOpen(true);
+                      }}
+                    >
+                      <span className="list-item-actions-menu-row-leading">
+                        <Trash2 className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                        <span>Delete list</span>
+                      </span>
+                    </button>
+                  </div>
+                </div>,
+                document.body,
+              )}
           </div>
         </header>
       </div>
@@ -612,6 +934,18 @@ export function ListCardBody({
         variant="destructive"
         onConfirm={() => onDeleteList(list.id)}
       />
+
+      {familyCompleteConfirm ? (
+        <ListFamilyCompleteConfirmModal
+          open
+          onOpenChange={(open) => {
+            if (!open) setFamilyCompleteConfirm(null);
+          }}
+          parentItem={familyCompleteConfirm.parentItem}
+          itemsToComplete={familyCompleteConfirm.itemsToComplete}
+          onConfirm={() => onCompleteItemFamily(familyCompleteConfirm.parentItem.id)}
+        />
+      ) : null}
     </>
   );
 }
@@ -625,14 +959,25 @@ interface ListCardProps {
   onTogglePinned: (id: string) => void;
   onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
+  onCompleteItemFamily: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;
-  onReorderItems: (listId: string, activeId: string, overId: string) => void;
   onIndentItem: (id: string) => void;
   onOutdentItem: (id: string) => void;
+  onNudgeListItem?: (
+    listId: string,
+    itemId: string,
+    direction: "up" | "down",
+    visibleItemIds: ReadonlySet<string>,
+  ) => void;
+  onMoveItemToList?: (itemId: string, targetListId: string) => void;
+  moveTargetLists?: ListItemMoveTarget[];
   onClearCompleted: (listId: string) => void;
-  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
-  dragHandleRef?: React.Ref<HTMLButtonElement>;
+  onArchiveList?: (id: string) => void;
+  onUnarchiveList?: (id: string) => void;
+  onNudgeList?: (listId: string, direction: "up" | "down") => void;
+  canNudgeListUp?: boolean;
+  canNudgeListDown?: boolean;
   isHighlighted?: boolean;
 }
 
@@ -645,18 +990,24 @@ export function ListCard({
   onTogglePinned,
   onAddItem,
   onToggleItem,
+  onCompleteItemFamily,
   onUpdateItem,
   onDeleteItem,
-  onReorderItems,
   onIndentItem,
   onOutdentItem,
+  onNudgeListItem,
+  onMoveItemToList,
+  moveTargetLists,
   onClearCompleted,
-  dragHandleProps,
-  dragHandleRef,
+  onArchiveList,
+  onUnarchiveList,
+  onNudgeList,
+  canNudgeListUp = false,
+  canNudgeListDown = false,
   isHighlighted = false,
 }: ListCardProps) {
   const theme = useTaskStore((s) => s.theme);
-  const presentation = getListColorPresentation(list.color, theme);
+  const presentation = getListColorPresentation(list.color, theme, { opaque: true });
 
   return (
     <article
@@ -666,14 +1017,7 @@ export function ListCard({
       style={{
         background: presentation.bg,
         borderColor: presentation.border,
-        ["--list-bg" as string]: presentation.bg,
-        ["--list-border" as string]: presentation.border,
-        ["--list-chip-bg" as string]: presentation.bg,
-        ["--list-chip-border" as string]: presentation.border,
-        ["--list-title-color" as string]: presentation.titleColor,
-        ["--list-meta-color" as string]: presentation.metaColor,
-        ["--list-item-text-color" as string]: presentation.itemTextColor,
-        ["--list-check-border" as string]: presentation.checkBorder,
+        ...listColorPresentationStyleVars(presentation),
       }}
     >
       <ListCardBody
@@ -685,84 +1029,23 @@ export function ListCard({
         onTogglePinned={onTogglePinned}
         onAddItem={onAddItem}
         onToggleItem={onToggleItem}
+        onCompleteItemFamily={onCompleteItemFamily}
         onUpdateItem={onUpdateItem}
         onDeleteItem={onDeleteItem}
-        onReorderItems={onReorderItems}
         onIndentItem={onIndentItem}
         onOutdentItem={onOutdentItem}
+        onNudgeListItem={onNudgeListItem}
+        onMoveItemToList={onMoveItemToList}
+        moveTargetLists={moveTargetLists}
         onClearCompleted={onClearCompleted}
-        dragHandleProps={dragHandleProps}
-        dragHandleRef={dragHandleRef}
+        onArchiveList={onArchiveList}
+        onUnarchiveList={onUnarchiveList}
+        onNudgeList={onNudgeList}
+        canNudgeListUp={canNudgeListUp}
+        canNudgeListDown={canNudgeListDown}
         onOpenDetail={onOpenDetail}
       />
     </article>
   );
 }
 
-export type ListDragSlotSize = { width: number; height: number };
-
-type ListCardLayoutMode = "stack" | "grid";
-
-interface SortableListCardProps extends Omit<ListCardProps, "dragHandleProps" | "dragHandleRef"> {
-  id: string;
-  layoutMode?: ListCardLayoutMode;
-  dragSlotSize?: ListDragSlotSize | null;
-}
-
-export function SortableListCard(props: SortableListCardProps) {
-  const { dragSlotSize, layoutMode = "grid", ...cardProps } = props;
-  const isStackLayout = layoutMode === "stack";
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isSorting,
-    isOver,
-    overIndex,
-    index,
-  } = useSortable({
-    id: props.id,
-    animateLayoutChanges: () => false,
-    transition: null,
-  });
-
-  const isDropSlot = isDragging && overIndex >= 0 && overIndex !== index;
-
-  const style: React.CSSProperties = {
-    transform: isStackLayout ? CSS.Translate.toString(transform) : sortableTranslateOnly(transform),
-    transition: isStackLayout || isDragging ? undefined : transition,
-    ...(isDragging && dragSlotSize
-      ? {
-          width: dragSlotSize.width,
-          minWidth: dragSlotSize.width,
-          maxWidth: dragSlotSize.width,
-          minHeight: dragSlotSize.height,
-          height: dragSlotSize.height,
-        }
-      : null),
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "sortable-list-card",
-        isSorting && "is-sorting",
-        isDragging && "is-dragging-source",
-        isDropSlot && "is-drop-slot",
-        isOver && !isDragging && isSorting && "is-drop-target",
-      )}
-    >
-      <ListCard
-        {...cardProps}
-        dragHandleRef={setActivatorNodeRef}
-        dragHandleProps={{ ...attributes, ...listeners }}
-      />
-    </div>
-  );
-}

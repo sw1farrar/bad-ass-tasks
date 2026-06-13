@@ -48,7 +48,7 @@ import { useNoteKeyboard } from "@/features/notes/hooks";
 import { hasOpenOverlay } from "@/lib/dom/hasOpenOverlay";
 import { HomeView, getGreeting } from "@/features/home";
 import { ListDetailModal } from "@/features/lists/components/ListDetailModal";
-import { flattenListItems } from "@/lib/lists/listItemTree";
+import { flattenListItems, getIncompleteSubtreeItems } from "@/lib/lists/listItemTree";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import {
   AnimatedBottomNavItemContent,
@@ -163,18 +163,21 @@ export default function BadAssTasks() {
     updateNote,
     deleteNote,
     getWorkspaceLists,
+    getArchivedWorkspaceLists,
     getListItemsForList,
     getListSummary,
     addList,
     updateList,
     deleteList,
-    reorderLists,
+    nudgeList,
     toggleListPinned,
     addListItem,
     toggleListItem,
+    completeListItemFamily,
     updateListItem,
     deleteListItem,
-    reorderListItems,
+    nudgeListItem,
+    moveListItemToList,
     indentListItem,
     outdentListItem,
     clearCompletedListItems,
@@ -1223,6 +1226,34 @@ export default function BadAssTasks() {
     [listItems, toggleListItem],
   );
 
+  const handleCompleteListItemFamily = useCallback(
+    async (id: string) => {
+      const item = listItems.find((i) => i.id === id);
+      if (!item) return;
+
+      const listScopedItems = listItems.filter(
+        (i) => i.listId === item.listId && i.workspaceId === item.workspaceId,
+      );
+      const completedSnapshot = getIncompleteSubtreeItems(id, listScopedItems);
+      const ok = await completeListItemFamily(id);
+      if (!ok) return;
+
+      showListItemCompletionFeedback(item, {
+        undoListItemCompletion: async () => {
+          let allOk = true;
+          for (const snapshotItem of completedSnapshot) {
+            const current = useTaskStore.getState().listItems.find((i) => i.id === snapshotItem.id);
+            if (!current?.completed) continue;
+            const undone = await toggleListItem(snapshotItem.id);
+            if (!undone) allOk = false;
+          }
+          return allOk;
+        },
+      });
+    },
+    [completeListItemFamily, listItems, toggleListItem],
+  );
+
   const openListDetail = useCallback(
     (
       listId: string,
@@ -1960,24 +1991,33 @@ export default function BadAssTasks() {
 
   const renderListsView = () => {
     const lists = getWorkspaceLists();
+    const archivedLists = getArchivedWorkspaceLists();
     return (
       <div className="lists-root flex flex-col min-h-0 flex-1">
       <ListsView
         workspaceName={currentWorkspace.name}
         lists={lists}
+        archivedLists={archivedLists}
         getItemsForList={getListItemsForList}
         onAddList={(title) => addList(title)}
         onUpdateList={(id, updates) => { void updateList(id, updates); }}
         onDeleteList={(id) => { void deleteList(id); }}
         onTogglePinned={(id) => { void toggleListPinned(id); }}
+        onArchiveList={(id) => {
+          void updateList(id, { archived: true, pinned: false });
+          if (listDetailTarget?.listId === id) closeListDetail();
+        }}
+        onUnarchiveList={(id) => {
+          void updateList(id, { archived: false });
+        }}
         onAddItem={(listId, text, options) =>
           addListItem(listId, text, options).then((item) => item?.id ?? null)
         }
         onToggleItem={(id) => { void handleToggleListItem(id); }}
+        onCompleteItemFamily={(id) => { void handleCompleteListItemFamily(id); }}
         onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
         onDeleteItem={(id) => { void deleteListItem(id); }}
-        onReorderLists={reorderLists}
-        onReorderItems={reorderListItems}
+        onNudgeList={nudgeList}
         onIndentItem={(id) => { void indentListItem(id); }}
         onOutdentItem={(id) => { void outdentListItem(id); }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
@@ -3559,11 +3599,15 @@ export default function BadAssTasks() {
           addListItem(listId, text, options).then((item) => item?.id ?? null)
         }
         onToggleItem={(id) => { void handleToggleListItem(id); }}
+        onCompleteItemFamily={(id) => { void handleCompleteListItemFamily(id); }}
         onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
         onDeleteItem={(id) => { void deleteListItem(id); }}
-        onReorderItems={reorderListItems}
         onIndentItem={(id) => { void indentListItem(id); }}
         onOutdentItem={(id) => { void outdentListItem(id); }}
+        onNudgeListItem={nudgeListItem}
+        onMoveItemToList={(itemId, targetListId) => {
+          void moveListItemToList(itemId, targetListId);
+        }}
         onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
       />
 

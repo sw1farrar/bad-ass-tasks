@@ -36,12 +36,26 @@ export function buildSmartDocumentNameUserPrompt(
   }
 
   const visionImages = options?.visionImages ?? [];
-  if (visionImages.length) {
-    const names = visionImages.map((image) => image.fileName).join(", ");
+  if (visionImages.length === 1) {
+    const name = visionImages[0].fileName;
     sections.push(
-      `=== DOCUMENT IMAGES (${visionImages.length} attached for visual analysis) ===`,
-      `Read store names, dates, line items, form headers, and issuer names directly from the image(s): ${names}`,
-      "When there is little or no extracted text, the image(s) are your primary evidence.",
+      "=== DOCUMENT IMAGE (1 attached for visual analysis) ===",
+      `Read store names, dates, line items, form headers, and issuer names directly from the image: ${name}`,
+      "When there is little or no extracted text, the image is your primary evidence.",
+      "",
+    );
+  } else if (visionImages.length > 1) {
+    const numbered = visionImages
+      .map((image, index) => `${index + 1}. ${image.fileName}`)
+      .join("\n");
+    sections.push(
+      `=== DOCUMENT IMAGES (${visionImages.length} attached — multi-photo / multi-page) ===`,
+      "You will receive each image separately in upload order (Image 1 of N, Image 2 of N, …).",
+      "Treat them as parts of ONE document unless they are clearly unrelated.",
+      "For receipts split across photos: read ALL images before extracting vendor, date, line_items, and totals.",
+      "Merge line items from every image; do not list the same purchasable item twice; ignore duplicate subtotals/tax/total rows across pages.",
+      "Filename and memo must reflect the full transaction, not only the first photo.",
+      numbered,
       "",
     );
   }

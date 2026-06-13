@@ -8,12 +8,12 @@ import { isDueDateTomorrow } from "./buildUpcomingFocus";
 import type { HomeFocusItem } from "./buildAttentionItems";
 import type { WorkspaceDueTaskGroups } from "./groupWorkspaceDueTasks";
 
-export const HOME_TILE_TASK_ROWS = 6;
+export const HOME_TILE_TASK_ROWS = 5;
 export const HOME_TILE_TASK_COLS = 2;
 export const HOME_TILE_TASK_SLOTS = HOME_TILE_TASK_ROWS * HOME_TILE_TASK_COLS;
 
 /** Single assignee column on shared workspace tiles (Me / Anyone). */
-export const HOME_TILE_COLUMN_ROWS = 6;
+export const HOME_TILE_COLUMN_ROWS = 5;
 
 export const HOME_TILE_ME_SECTION_LABEL = "Me";
 export const HOME_TILE_ALL_SECTION_LABEL = "Anyone";

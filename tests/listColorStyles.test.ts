@@ -4,6 +4,7 @@ import {
   getListColorPresentation,
   getListColorStyleForTheme,
   getListColorsForTheme,
+  mixColors,
 } from "@/lib/lists/listColorStyles";
 
 describe("getListColorStyleForTheme", () => {
@@ -37,6 +38,25 @@ describe("getListColorPresentation", () => {
   it("keeps light mode colors unchanged when opaque is requested", () => {
     expect(getListColorPresentation("purple", "light", { opaque: true }).bg).toBe("#ede9fe");
   });
+
+  it("derives lighter item surfaces than the canvas in dark mode", () => {
+    const presentation = getListColorPresentation("purple", "dark", { opaque: true });
+    const canvas = flattenColorOverBackground("rgba(124, 58, 237, 0.28)");
+    expect(presentation.itemSurface).toBe(mixColors(canvas, "#ffffff", 0.94));
+    expect(presentation.familySurface).toBe(mixColors(canvas, "#ffffff", 0.92));
+    expect(presentation.focusSurface).toBe(mixColors(canvas, "#ffffff", 0.52));
+    expect(presentation.controlSurface).toBe(presentation.itemSurface);
+    expect(presentation.addItemSurface).toBe(presentation.itemSurface);
+    expect(presentation.placeholderColor).toBe(presentation.metaColor);
+    expect(presentation.itemSurface).not.toBe(presentation.bg);
+    expect(presentation.familySurface).not.toBe(presentation.bg);
+  });
+
+  it("derives lighter item surfaces than the canvas in light mode", () => {
+    const presentation = getListColorPresentation("purple", "light");
+    expect(presentation.itemSurface).toBe(mixColors("#ede9fe", "#ffffff", 0.94));
+    expect(presentation.familySurface).toBe(mixColors("#ede9fe", "#ffffff", 0.92));
+  });
 });
 
 describe("flattenColorOverBackground", () => {
@@ -46,5 +66,11 @@ describe("flattenColorOverBackground", () => {
 
   it("returns hex colors unchanged", () => {
     expect(flattenColorOverBackground("#1c1c22")).toBe("#1c1c22");
+  });
+});
+
+describe("mixColors", () => {
+  it("blends two hex colors by weight", () => {
+    expect(mixColors("#000000", "#ffffff", 0.25)).toBe("#bfbfbf");
   });
 });

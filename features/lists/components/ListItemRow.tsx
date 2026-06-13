@@ -1,15 +1,17 @@
 "use client";
 
-import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Check, CornerDownRight, CornerLeftUp, GripVertical, Pencil, X } from "lucide-react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
+
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { cn } from "@/lib/utils";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import type { ListItemFamilyChrome } from "@/lib/lists/listDragPreview";
 import type { ListItem } from "@/types";
+import { ListItemActionsMenu } from "./ListItemActionsMenu";
+import type { ListItemMoveTarget } from "./ListItemMoveMenu";
 
-const INDENT_STEP_REM = 1.25;
+export const LIST_ITEM_INDENT_STEP_REM = 1.625;
 
 function syncTextareaHeight(el: HTMLTextAreaElement) {
   el.style.height = "0px";
@@ -26,8 +28,12 @@ interface ListItemRowProps {
   onOutdent?: (id: string) => void;
   canIndent?: boolean;
   canOutdent?: boolean;
+  showReorderNudges?: boolean;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: (id: string) => void;
+  onMoveDown?: (id: string) => void;
   readOnly?: boolean;
-  sortable?: boolean;
   insertBelowOnEnter?: boolean;
   onInsertBelow?: (id: string) => void;
   registerInputRef?: (el: HTMLTextAreaElement | null) => void;
@@ -35,9 +41,22 @@ interface ListItemRowProps {
   completedSection?: boolean;
   /** Mobile list detail modal — show edit pencil that selects all on tap */
   showEditPencil?: boolean;
-  /** Mobile detail — row selected for action buttons (parent-controlled) */
+  /** Desktop detail — tap the item text (not the row) to edit with select-all */
+  clickTitleToEdit?: boolean;
+  /** Detail view — row selected for quick actions (parent-controlled) */
   isRowActive?: boolean;
   onRowActivate?: (id: string | null) => void;
+  /** Keep selection visible without requiring text focus */
+  rowSelectionMode?: boolean;
+  moveTargetLists?: ListItemMoveTarget[];
+  onMoveToList?: (itemId: string, targetListId: string) => void;
+  actionsMenuOpen?: boolean;
+  onActionsMenuOpenChange?: (open: boolean) => void;
+  /** Rendered inside a family group container (shared border with parent/children) */
+  inFamily?: boolean;
+  nestedInFamily?: boolean;
+  /** Flat drag layout — family border chrome on the row itself */
+  familyChrome?: ListItemFamilyChrome;
 }
 
 export function ListItemRow({
@@ -50,35 +69,65 @@ export function ListItemRow({
   onOutdent,
   canIndent = true,
   canOutdent = true,
+  showReorderNudges = false,
+  canMoveUp = false,
+  canMoveDown = false,
+  onMoveUp,
+  onMoveDown,
   readOnly = false,
-  sortable = true,
   insertBelowOnEnter = false,
   onInsertBelow,
   registerInputRef,
   completedSection = false,
   showEditPencil = false,
+  clickTitleToEdit = false,
   isRowActive = false,
   onRowActivate,
+  rowSelectionMode = false,
+  moveTargetLists = [],
+  onMoveToList,
+  actionsMenuOpen = false,
+  onActionsMenuOpenChange,
+  inFamily = false,
+  nestedInFamily = false,
+  familyChrome,
 }: ListItemRowProps) {
   const [focused, setFocused] = useState(false);
   const [titleEditMode, setTitleEditMode] = useState(false);
+  const [localText, setLocalText] = useState(item.text);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingSelectAllRef = useRef(false);
+  const selectAllOnActivateRef = useRef(false);
   const isMobile = useIsMobileViewport();
+  const useTitleDisplayMode = showEditPencil || clickTitleToEdit;
+  const isEditingText = focused || titleEditMode;
   const showTitleAsLabel =
-    showEditPencil && !titleEditMode && item.text.trim().length > 0;
-  const isRowFocused = !readOnly && (showEditPencil ? isRowActive || titleEditMode : focused);
+    useTitleDisplayMode && !titleEditMode && item.text.trim().length > 0;
+  const isRowFocused =
+    !readOnly &&
+    (isRowActive ||
+      actionsMenuOpen ||
+      (showEditPencil ? titleEditMode : clickTitleToEdit ? titleEditMode : focused));
+  const showActionsMenu = !readOnly && !!onActionsMenuOpenChange;
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: item.id,
-    disabled: !sortable || readOnly,
-  });
+  const selectRow = useCallback(() => {
+    onRowActivate?.(item.id);
+  }, [item.id, onRowActivate]);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition: isDragging ? undefined : transition,
-    paddingLeft: depth > 0 ? `${depth * INDENT_STEP_REM}rem` : undefined,
+  useEffect(() => {
+    if (!isEditingText) {
+      setLocalText(item.text);
+    }
+  }, [item.id, item.text, isEditingText]);
+
+  const useFlatChrome = !!familyChrome;
+  const inFamilyGroup = inFamily && !useFlatChrome;
+  const nestedInFamilyRow =
+    nestedInFamily || (useFlatChrome && !!familyChrome?.isNestedInFamily);
+
+  const depthStyle = {
+    ["--list-item-depth" as string]: depth,
   };
 
   const setTextareaRef = useCallback(
@@ -92,13 +141,13 @@ export function ListItemRow({
 
   useLayoutEffect(() => {
     if (textareaRef.current) syncTextareaHeight(textareaRef.current);
-  }, [item.text]);
+  }, [localText, item.text, isEditingText]);
 
   useLayoutEffect(() => {
-    if (showEditPencil && !item.text.trim()) {
+    if (useTitleDisplayMode && !item.text.trim()) {
       setTitleEditMode(true);
     }
-  }, [showEditPencil, item.id, item.text]);
+  }, [useTitleDisplayMode, item.id, item.text]);
 
   const applySelectAll = useCallback(() => {
     const input = textareaRef.current;
@@ -111,7 +160,6 @@ export function ListItemRow({
         input.scrollIntoView({ block: "nearest", behavior: "smooth" });
       }
     };
-    // Double rAF helps iOS apply the selection after the textarea mounts/focuses
     requestAnimationFrame(() => {
       selectAll();
       requestAnimationFrame(selectAll);
@@ -152,12 +200,24 @@ export function ListItemRow({
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
-    if (showEditPencil && !titleEditMode) {
+    if (useTitleDisplayMode && !titleEditMode) {
       e.currentTarget.blur();
       return;
     }
     setFocused(true);
     const input = e.currentTarget;
+
+    if (selectAllOnActivateRef.current || pendingSelectAllRef.current) {
+      selectAllOnActivateRef.current = false;
+      pendingSelectAllRef.current = false;
+      const selectAll = () => input.setSelectionRange(0, input.value.length);
+      selectAll();
+      requestAnimationFrame(() => {
+        selectAll();
+        requestAnimationFrame(selectAll);
+      });
+    }
+
     requestAnimationFrame(() => {
       syncTextareaHeight(input);
       if (isMobile) {
@@ -166,18 +226,29 @@ export function ListItemRow({
     });
   };
 
-  const focusAndSelectAll = useCallback(() => {
-    onRowActivate?.(item.id);
+  const activateTitleEdit = useCallback(() => {
+    if (showEditPencil) onRowActivate?.(item.id);
+    setLocalText(item.text);
     setFocused(true);
+    selectAllOnActivateRef.current = true;
+    pendingSelectAllRef.current = true;
 
     if (textareaRef.current) {
       applySelectAll();
+      selectAllOnActivateRef.current = false;
+      pendingSelectAllRef.current = false;
       return;
     }
 
-    pendingSelectAllRef.current = true;
     setTitleEditMode(true);
-  }, [item.id, onRowActivate, applySelectAll]);
+  }, [item.text, showEditPencil, onRowActivate, applySelectAll]);
+
+  const handleTitleLabelPointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (e.button !== 0 || !useTitleDisplayMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    activateTitleEdit();
+  };
 
   const focusItemInput = (row: HTMLElement) => {
     const input = row.querySelector<HTMLTextAreaElement>(".list-item-text");
@@ -188,16 +259,13 @@ export function ListItemRow({
     if (readOnly) return;
     const target = e.target as HTMLElement;
     if (target.closest("button, a, input, textarea, select")) return;
-    if (showEditPencil) {
+    if (rowSelectionMode || showEditPencil) {
       onRowActivate?.(item.id);
-      return;
+      if (clickTitleToEdit || showEditPencil) return;
     }
+    if (clickTitleToEdit) return;
     setFocused(true);
     focusItemInput(e.currentTarget);
-  };
-
-  const keepFocusForRowControl = (e: React.MouseEvent | React.PointerEvent) => {
-    e.preventDefault();
   };
 
   const handleInputBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
@@ -218,7 +286,9 @@ export function ListItemRow({
 
       setFocused(false);
       setTitleEditMode(false);
-      onRowActivate?.(null);
+      if (!rowSelectionMode && !actionsMenuOpen) {
+        onRowActivate?.(null);
+      }
 
       if (!trimmed) {
         if (!isMobile) onDelete(item.id);
@@ -230,133 +300,119 @@ export function ListItemRow({
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
+      style={depthStyle}
       className={cn(
         "list-item-row group",
+        (inFamilyGroup || useFlatChrome) && "list-item-row--in-family",
+        nestedInFamilyRow && "list-item-row--nested",
+        useFlatChrome && "list-item-row--flat-family",
+        familyChrome?.isFamilyRoot && "list-item-row--family-root",
+        familyChrome?.isFamilyLast && "list-item-row--family-last",
+        familyChrome?.isSoloFamily && "list-item-row--family-solo",
         completedSection && "list-item-row--completed-section",
-        isDragging && sortable && "is-dragging-source",
         isRowFocused && "is-row-focused",
+        isRowActive && "is-row-selected",
+        actionsMenuOpen && "is-actions-menu-open",
       )}
+      data-list-item-id={item.id}
       data-no-open={readOnly ? undefined : true}
       onPointerDown={handleRowPointerDown}
     >
-      {sortable && !readOnly && (
-        <button
-          type="button"
-          className="list-item-drag shrink-0 text-text-secondary cursor-grab active:cursor-grabbing touch-none"
-          aria-label="Drag to reorder"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
-      )}
       <button
         type="button"
-        onClick={() => onToggle(item.id)}
+        onClick={() => {
+          selectRow();
+          onToggle(item.id);
+        }}
         className={cn("list-item-check", item.completed && "is-done")}
         aria-label={item.completed ? "Mark incomplete" : "Mark complete"}
         data-no-open
       >
-        {item.completed && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+        {item.completed && <Check className="list-item-check-icon" strokeWidth={3} />}
       </button>
-      {readOnly ? (
-        <span
-          className={cn(
-            "list-item-text bg-transparent outline-none border-none w-full",
-            item.completed && "is-done",
-          )}
-        >
-          {item.text}
-        </span>
-      ) : (
-        <div className="list-item-text-field">
-          {showTitleAsLabel ? (
+
+      <div className="list-item-row-content" style={depthStyle}>
+        {readOnly ? (
+          <div className="list-item-text-field">
             <span
               className={cn(
-                "list-item-text list-item-text--display block w-full",
+                "list-item-text bg-transparent outline-none border-none w-full",
                 item.completed && "is-done",
               )}
             >
               {item.text}
             </span>
-          ) : (
-            <textarea
-              ref={setTextareaRef}
-              rows={1}
-              value={item.text}
-              onChange={(e) => {
-                onTextChange(item.id, e.target.value);
-                syncTextareaHeight(e.target);
-              }}
-              onFocus={handleFocus}
-              onBlur={handleInputBlur}
-              onKeyDown={handleKeyDown}
-              enterKeyHint={insertBelowOnEnter ? "next" : "done"}
-              readOnly={showEditPencil && !titleEditMode}
-              tabIndex={showEditPencil && !titleEditMode ? -1 : undefined}
-              className={cn(
-                "list-item-text list-item-text--editable bg-transparent outline-none border-none w-full",
-                item.completed && "is-done",
-              )}
-              aria-label="List item"
-            />
-          )}
-        </div>
-      )}
-      {!readOnly && (
-        <div className="list-item-actions shrink-0 flex items-center">
-          {canOutdent ? (
-            <button
-              type="button"
-              onMouseDown={keepFocusForRowControl}
-              onClick={() => onOutdent?.(item.id)}
-              className="list-item-indent-btn shrink-0 text-text-secondary hover:text-neon-purple transition"
-              aria-label="Outdent item"
-              title="Outdent (Shift+Tab)"
-            >
-              <CornerLeftUp className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          {canIndent ? (
-            <button
-              type="button"
-              onMouseDown={keepFocusForRowControl}
-              onClick={() => canIndent && onIndent?.(item.id)}
-              className="list-item-indent-btn shrink-0 text-text-secondary hover:text-neon-purple transition"
-              aria-label="Indent item"
-              title="Indent (Tab)"
-            >
-              <CornerDownRight className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          {showEditPencil ? (
-            <button
-              type="button"
-              onMouseDown={keepFocusForRowControl}
-              onClick={(e) => {
-                e.stopPropagation();
-                focusAndSelectAll();
-              }}
-              className="list-item-edit-btn shrink-0"
-              aria-label="Edit item name"
-              title="Edit name"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onMouseDown={keepFocusForRowControl}
-            onClick={() => setDeleteConfirmOpen(true)}
-            className="list-item-delete shrink-0 text-text-faint hover:text-[var(--priority-p0)] transition"
-            aria-label="Remove item"
+          </div>
+        ) : (
+          <div
+            className={cn(
+              "list-item-text-field",
+              showTitleAsLabel && "list-item-text-field--display",
+            )}
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+            {showTitleAsLabel ? (
+              <span
+                className={cn(
+                  "list-item-text list-item-text--display",
+                  useTitleDisplayMode && "list-item-text--display-clickable",
+                  item.completed && "is-done",
+                )}
+                onPointerDown={useTitleDisplayMode ? handleTitleLabelPointerDown : undefined}
+              >
+                {item.text}
+              </span>
+            ) : (
+              <textarea
+                ref={setTextareaRef}
+                rows={1}
+                value={localText}
+                onChange={(e) => {
+                  setLocalText(e.target.value);
+                  syncTextareaHeight(e.target);
+                }}
+                onMouseDown={(e) => {
+                  if (selectAllOnActivateRef.current || pendingSelectAllRef.current) {
+                    e.preventDefault();
+                  }
+                }}
+                onFocus={handleFocus}
+                onBlur={handleInputBlur}
+                onKeyDown={handleKeyDown}
+                enterKeyHint={insertBelowOnEnter ? "next" : "done"}
+                readOnly={useTitleDisplayMode && !titleEditMode}
+                tabIndex={useTitleDisplayMode && !titleEditMode ? -1 : undefined}
+                className={cn(
+                  "list-item-text list-item-text--editable bg-transparent outline-none border-none w-full",
+                  item.completed && "is-done",
+                )}
+                aria-label="List item"
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      {showActionsMenu ? (
+        <ListItemActionsMenu
+          open={actionsMenuOpen}
+          onOpenChange={onActionsMenuOpenChange}
+          onMenuInteract={selectRow}
+          showReorder={showReorderNudges}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          onMoveUp={() => canMoveUp && onMoveUp?.(item.id)}
+          onMoveDown={() => canMoveDown && onMoveDown?.(item.id)}
+          canIndent={canIndent}
+          canOutdent={canOutdent}
+          onIndent={() => canIndent && onIndent?.(item.id)}
+          onOutdent={() => canOutdent && onOutdent?.(item.id)}
+          moveTargetLists={moveTargetLists}
+          onMoveToList={(targetListId) => onMoveToList?.(item.id, targetListId)}
+          showEdit={showEditPencil}
+          onEdit={activateTitleEdit}
+          onDelete={() => setDeleteConfirmOpen(true)}
+        />
+      ) : null}
 
       <ConfirmationModal
         open={deleteConfirmOpen}

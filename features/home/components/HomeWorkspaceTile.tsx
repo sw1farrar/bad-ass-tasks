@@ -21,7 +21,6 @@ interface HomeWorkspaceTileProps {
   globalOpenTaskFocus: HomeFocusItem[];
   globalTodayFocus: HomeFocusItem[];
   taskLoadingStates?: Record<string, boolean>;
-  tileMinHeight?: number;
   onActivate: (workspaceId: string) => void;
   onCompleteTask: (item: HomeFocusItem) => void | Promise<void>;
   onOpenTask: (item: HomeFocusItem) => void | Promise<void>;
@@ -44,7 +43,6 @@ export function HomeWorkspaceTile({
   globalOpenTaskFocus,
   globalTodayFocus,
   taskLoadingStates,
-  tileMinHeight,
   onActivate,
   onCompleteTask,
   onOpenTask,
@@ -95,13 +93,12 @@ export function HomeWorkspaceTile({
   return (
     <div
       className={cn(
-        "home-ws-card glass rounded-2xl p-4 md:p-5 border border-border-glass transition relative text-left cursor-pointer",
+        "home-ws-card glass rounded-2xl px-2.5 py-2 md:p-5 border border-border-glass transition relative text-left cursor-pointer",
         "flex flex-col items-stretch h-full",
         "focus-within:outline-none focus-within:ring-2 focus-within:ring-neon-purple/40",
         isCurrent && "home-ws-card--current",
         notificationPanelOpen && "home-ws-card--notif-open",
       )}
-      style={tileMinHeight ? { minHeight: tileMinHeight } : undefined}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("[data-no-activate]")) return;
         activateWorkspace();
@@ -121,7 +118,7 @@ export function HomeWorkspaceTile({
       }
       aria-current={isCurrent ? "true" : undefined}
     >
-      <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
+      <div className="absolute top-2 right-2 md:top-3 md:right-3 flex items-center gap-1 z-10">
         {isPrivateWorkspace && (
           <span
             className="inline-flex items-center justify-center shrink-0 h-5 w-5 rounded border border-border-glass bg-surface-overlay text-text-secondary"

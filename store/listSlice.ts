@@ -1,13 +1,21 @@
 import type { ListItem, WorkspaceList } from "@/types";
 import {
+  computeFlatListNudge,
   computeFlatListReorder,
+  computeMoveListSubtreeToList,
   computeIndentUpdate,
   computeOutdentUpdate,
   flattenListItems,
+  getIncompleteSubtreeItems,
   getIndentParentId,
   firstSortOrderAmongSiblings,
   sortOrderForInsertAfter,
 } from "@/lib/lists/listItemTree";
+import {
+  enqueueListReorderPersist,
+  notePersistedListItemPlacement,
+  type ListItemPlacementUpdate,
+} from "@/lib/lists/listItemReorderSync";
 import { generateId, triggerHaptic } from "@/lib/utils";
 import {
   createListItem as createListItemSupabase,
@@ -118,12 +126,39 @@ function newListEntityId(workspaceId: string): string {
   return isLiveListWorkspace(workspaceId) ? generateClientId() : generateId();
 }
 
+function persistListItemPlacementUpdates(
+  listId: string,
+  workspaceId: string,
+  updates: Map<string, ListItemPlacementUpdate>,
+  includeParentForId?: string,
+) {
+  if (!shouldPersistLists(workspaceId)) return;
+
+  enqueueListReorderPersist(listId, async () => {
+    for (const [id, update] of updates) {
+      await updateListItemSupabase(normalizeListEntityId(id), workspaceId, {
+        sortOrder: update.sortOrder,
+        ...(id === includeParentForId ? { parentItemId: update.parentItemId } : {}),
+      });
+      notePersistedListItemPlacement(id, update);
+    }
+  });
+}
+
 export function createListSliceActions(get: Get, set: Set) {
   const wsId = () => get().currentWorkspace.id;
 
   return {
     getWorkspaceLists: (): WorkspaceList[] => {
-      return sortLists(get().workspaceLists.filter((l) => l.workspaceId === wsId()));
+      return sortLists(
+        get().workspaceLists.filter((l) => l.workspaceId === wsId() && !l.archived),
+      );
+    },
+
+    getArchivedWorkspaceLists: (): WorkspaceList[] => {
+      return sortLists(
+        get().workspaceLists.filter((l) => l.workspaceId === wsId() && !!l.archived),
+      );
     },
 
     getListItemsForList: (listId: string): ListItem[] => {
@@ -201,13 +236,20 @@ export function createListSliceActions(get: Get, set: Set) {
 
     reorderLists: (activeId: string, overId: string) => {
       const workspaceId = wsId();
-      const lists = sortLists(get().workspaceLists.filter((l) => l.workspaceId === workspaceId));
+      const draggedList = get().workspaceLists.find((l) => l.id === activeId);
+      const archivedBucket = !!draggedList?.archived;
+      const lists = sortLists(
+        get().workspaceLists.filter(
+          (l) => l.workspaceId === workspaceId && !!l.archived === archivedBucket,
+        ),
+      );
       const oldIndex = lists.findIndex((l) => l.id === activeId);
       const newIndex = lists.findIndex((l) => l.id === overId);
       if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
       const reordered = [...lists];
-      const [moved] = reordered.splice(oldIndex, 1);
-      reordered.splice(newIndex, 0, moved);
+      const [reorderedList] = reordered.splice(oldIndex, 1);
+      if (!reorderedList) return;
+      reordered.splice(newIndex, 0, reorderedList);
       const normalized = renormalizeSortOrders(reordered);
       const idToOrder = new Map(normalized.map((l) => [l.id, l.sortOrder]));
       const now = new Date().toISOString();
@@ -221,6 +263,26 @@ export function createListSliceActions(get: Get, set: Set) {
           void updateWorkspaceListSupabase(normalizeListEntityId(listId), workspaceId, { sortOrder });
         }
       }
+    },
+
+    nudgeList: (listId: string, direction: "up" | "down") => {
+      const workspaceId = wsId();
+      const targetList = get().workspaceLists.find((l) => l.id === listId);
+      if (!targetList) return;
+      const archivedBucket = !!targetList.archived;
+      const lists = sortLists(
+        get().workspaceLists.filter(
+          (l) => l.workspaceId === workspaceId && !!l.archived === archivedBucket,
+        ),
+      );
+      const index = lists.findIndex((l) => l.id === listId);
+      if (index < 0) return;
+      const neighborIndex = direction === "up" ? index - 1 : index + 1;
+      if (neighborIndex < 0 || neighborIndex >= lists.length) return;
+      const neighbor = lists[neighborIndex];
+      if (!neighbor) return;
+      createListSliceActions(get, set).reorderLists(listId, neighbor.id);
+      triggerHaptic("light");
     },
 
     toggleListPinned: async (id: string) => {
@@ -320,6 +382,44 @@ export function createListSliceActions(get: Get, set: Set) {
       return true;
     },
 
+    completeListItemFamily: async (id: string) => {
+      const now = new Date().toISOString();
+      const current = get().listItems.find((i) => i.id === id);
+      if (!current || current.completed) return false;
+
+      const listItems = get().listItems.filter(
+        (i) => i.listId === current.listId && i.workspaceId === current.workspaceId,
+      );
+      const toComplete = getIncompleteSubtreeItems(id, listItems);
+      if (toComplete.length === 0) return false;
+
+      const completeIds = new Set(toComplete.map((i) => i.id));
+      set((state) => ({
+        listItems: state.listItems.map((i) => {
+          if (!completeIds.has(i.id)) return i;
+          return {
+            ...i,
+            completed: true,
+            completedAt: now,
+            updatedAt: now,
+          };
+        }),
+      }));
+
+      triggerHaptic("success");
+      get().triggerCelebration();
+
+      if (shouldPersistLists(current.workspaceId)) {
+        for (const item of toComplete) {
+          void updateListItemSupabase(normalizeListEntityId(item.id), current.workspaceId, {
+            completed: true,
+            completedAt: now,
+          });
+        }
+      }
+      return true;
+    },
+
     updateListItem: async (id: string, updates: Partial<Pick<ListItem, "text" | "completed">>) => {
       const now = new Date().toISOString();
       const current = get().listItems.find((i) => i.id === id);
@@ -389,13 +489,18 @@ export function createListSliceActions(get: Get, set: Set) {
       return true;
     },
 
-    reorderListItems: (listId: string, activeId: string, overId: string) => {
+    reorderListItems: (
+      listId: string,
+      activeId: string,
+      overId: string,
+      insertAfterOver = false,
+    ) => {
       const allItems = get().listItems.filter((i) => i.listId === listId);
       const active = allItems.find((i) => i.id === activeId);
       const over = allItems.find((i) => i.id === overId);
       if (!active || !over) return;
 
-      const result = computeFlatListReorder(allItems, activeId, overId);
+      const result = computeFlatListReorder(allItems, activeId, overId, insertAfterOver);
       if (!result) return;
 
       const now = new Date().toISOString();
@@ -418,14 +523,98 @@ export function createListSliceActions(get: Get, set: Set) {
         }),
       }));
 
-      if (workspaceId && shouldPersistLists(workspaceId)) {
-        for (const [itemId, update] of result.updates) {
-          void updateListItemSupabase(normalizeListEntityId(itemId), workspaceId, {
+      persistListItemPlacementUpdates(
+        listId,
+        workspaceId,
+        result.updates,
+        activeId,
+      );
+    },
+
+    moveListItemToList: async (itemId: string, targetListId: string) => {
+      const current = get().listItems.find((i) => i.id === itemId);
+      if (!current || current.listId === targetListId) return false;
+
+      const listItems = get().listItems.filter(
+        (i) => i.workspaceId === current.workspaceId,
+      );
+      const updates = computeMoveListSubtreeToList(listItems, itemId, targetListId);
+      if (!updates || updates.size === 0) return false;
+
+      const now = new Date().toISOString();
+      const workspaceId = current.workspaceId ?? wsId();
+      set((state) => ({
+        listItems: state.listItems.map((row) => {
+          const update = updates.get(row.id);
+          if (!update) return row;
+          return {
+            ...row,
+            listId: update.listId,
+            parentItemId:
+              update.parentItemId === null
+                ? undefined
+                : update.parentItemId === undefined
+                  ? row.parentItemId
+                  : update.parentItemId,
             sortOrder: update.sortOrder,
-            ...(itemId === activeId ? { parentItemId: update.parentItemId } : {}),
+            updatedAt: now,
+          };
+        }),
+      }));
+
+      if (workspaceId && shouldPersistLists(workspaceId)) {
+        for (const [id, update] of updates) {
+          void updateListItemSupabase(normalizeListEntityId(id), workspaceId, {
+            listId: update.listId,
+            sortOrder: update.sortOrder,
+            parentItemId: update.parentItemId,
           });
         }
       }
+
+      triggerHaptic("light");
+      return true;
+    },
+
+    nudgeListItem: (
+      listId: string,
+      itemId: string,
+      direction: "up" | "down",
+      visibleItemIds?: ReadonlySet<string>,
+    ) => {
+      const allItems = get().listItems.filter((i) => i.listId === listId);
+      const item = allItems.find((i) => i.id === itemId);
+      if (!item) return;
+
+      const result = computeFlatListNudge(allItems, itemId, direction, visibleItemIds);
+      if (!result) return;
+
+      const now = new Date().toISOString();
+      const workspaceId = item.workspaceId ?? wsId();
+      set((state) => ({
+        listItems: state.listItems.map((i) => {
+          const update = result.updates.get(i.id);
+          if (!update) return i;
+          return {
+            ...i,
+            parentItemId:
+              update.parentItemId === null
+                ? undefined
+                : update.parentItemId === undefined
+                  ? i.parentItemId
+                  : update.parentItemId,
+            sortOrder: update.sortOrder,
+            updatedAt: now,
+          };
+        }),
+      }));
+
+      persistListItemPlacementUpdates(
+        listId,
+        workspaceId,
+        result.updates,
+        itemId,
+      );
     },
 
     indentListItem: async (id: string) => {
@@ -442,26 +631,20 @@ export function createListSliceActions(get: Get, set: Set) {
       set((state) => ({
         listItems: state.listItems.map((i) => {
           const sortOrder = update.siblingSortOrders.get(i.id);
-          const promotedParent =
-            update.parentPromotion?.itemId === i.id
-              ? update.parentPromotion.parentItemId
-              : undefined;
-
-          if (sortOrder === undefined && promotedParent === undefined) return i;
+          if (sortOrder === undefined && i.id !== id) return i;
 
           if (i.id === id) {
             return {
               ...i,
               parentItemId: update.parentItemId,
-              ...(sortOrder !== undefined ? { sortOrder } : {}),
+              sortOrder: sortOrder ?? i.sortOrder,
               updatedAt: now,
             };
           }
 
           return {
             ...i,
-            ...(sortOrder !== undefined ? { sortOrder } : {}),
-            ...(promotedParent !== undefined ? { parentItemId: promotedParent } : {}),
+            sortOrder: sortOrder ?? i.sortOrder,
             updatedAt: now,
           };
         }),
@@ -469,36 +652,14 @@ export function createListSliceActions(get: Get, set: Set) {
 
       if (shouldPersistLists(current.workspaceId)) {
         for (const [itemId, sortOrder] of update.siblingSortOrders) {
-          const promotedParent =
-            update.parentPromotion?.itemId === itemId
-              ? update.parentPromotion.parentItemId
-              : undefined;
           void updateListItemSupabase(normalizeListEntityId(itemId), current.workspaceId, {
             ...(itemId === id
               ? {
                   parentItemId: normalizeListEntityId(update.parentItemId),
                   sortOrder,
                 }
-              : promotedParent !== undefined
-                ? {
-                    parentItemId: normalizeListEntityId(promotedParent),
-                    sortOrder,
-                  }
-                : { sortOrder }),
+              : { sortOrder }),
           });
-        }
-
-        if (
-          update.parentPromotion &&
-          !update.siblingSortOrders.has(update.parentPromotion.itemId)
-        ) {
-          void updateListItemSupabase(
-            normalizeListEntityId(update.parentPromotion.itemId),
-            current.workspaceId,
-            {
-              parentItemId: normalizeListEntityId(update.parentPromotion.parentItemId),
-            },
-          );
         }
       }
       return true;

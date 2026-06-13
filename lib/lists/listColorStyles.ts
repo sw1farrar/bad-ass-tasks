@@ -127,6 +127,28 @@ export type ListColorPresentation = {
   metaColor: string;
   itemTextColor: string;
   checkBorder: string;
+  /** Elevated row / chip surface — lighter than canvas bg */
+  itemSurface: string;
+  /** Grouped family container surface */
+  familySurface: string;
+  /** Header band tint */
+  headerBand: string;
+  /** Add-item composer field */
+  addItemSurface: string;
+  /** Focused inputs, title fields, and active rows */
+  focusSurface: string;
+  /** Checkboxes, add-item icon circles */
+  controlSurface: string;
+  /** Focus rings and active borders */
+  focusBorder: string;
+  /** Portaled row action menu */
+  menuSurface: string;
+  /** Placeholders, hints, dividers */
+  placeholderColor: string;
+  /** Completed item text */
+  doneTextColor: string;
+  /** Secondary icons and chrome */
+  iconColor: string;
 };
 
 /** Dark app card surface — used to flatten translucent list tints for full-screen drawers. */
@@ -177,6 +199,18 @@ function toHex({ r, g, b }: Pick<Rgba, "r" | "g" | "b">): string {
   return `#${channel(r)}${channel(g)}${channel(b)}`;
 }
 
+/** Blend two colors; `weightA` is the proportion of the first color (0–1). */
+export function mixColors(colorA: string, colorB: string, weightA: number): string {
+  const a = parseColor(colorA);
+  const b = parseColor(colorB);
+  const inverse = 1 - weightA;
+  return toHex({
+    r: a.r * weightA + b.r * inverse,
+    g: a.g * weightA + b.g * inverse,
+    b: a.b * weightA + b.b * inverse,
+  });
+}
+
 /** Flatten translucent list colors over a solid surface for opaque mobile drawers. */
 export function flattenColorOverBackground(color: string, background = DARK_DRAWER_BASE): string {
   const fg = parseColor(color);
@@ -189,6 +223,45 @@ export function flattenColorOverBackground(color: string, background = DARK_DRAW
     g: fg.g * fg.a + bg.g * inverse,
     b: fg.b * fg.a + bg.b * inverse,
   });
+}
+
+function buildListSurfaces(
+  base: {
+    bg: string;
+    border: string;
+    titleColor: string;
+    metaColor: string;
+    itemTextColor: string;
+    checkBorder: string;
+  },
+  theme: ThemeMode,
+) {
+  const effectiveCanvas =
+    theme === "dark" ? flattenColorOverBackground(base.bg) : base.bg;
+  const effectiveBorder =
+    theme === "dark" ? flattenColorOverBackground(base.border) : base.border;
+
+  const itemSurface = mixColors(effectiveCanvas, "#ffffff", 0.94);
+  const focusBlend = theme === "light" ? 0.22 : 0.52;
+  const controlBlend = theme === "light" ? 0.45 : 0.35;
+
+  return {
+    itemSurface,
+    familySurface: mixColors(effectiveCanvas, "#ffffff", 0.92),
+    headerBand: mixColors(effectiveCanvas, effectiveBorder, 0.7),
+    addItemSurface: itemSurface,
+    focusSurface: mixColors(effectiveCanvas, "#ffffff", focusBlend),
+    controlSurface: itemSurface,
+    focusBorder: mixColors(
+      effectiveBorder,
+      theme === "light" ? "#334155" : "#d4d4d8",
+      theme === "light" ? 0.42 : 0.5,
+    ),
+    menuSurface: mixColors(effectiveCanvas, "#ffffff", theme === "light" ? 0.96 : 0.88),
+    placeholderColor: base.metaColor,
+    doneTextColor: base.metaColor,
+    iconColor: base.metaColor,
+  };
 }
 
 export type ListColorPresentationOptions = {
@@ -212,12 +285,88 @@ export function getListColorPresentation(
 ): ListColorPresentation {
   const vibrant = theme === "light" ? LIST_COLORS_LIGHT_VIBRANT : LIST_COLORS_DARK_VIBRANT;
   const base = vibrant[colorId] ?? vibrant.default;
-  if (!options?.opaque || theme === "light") return base;
+  const surfaces = buildListSurfaces(base, theme);
+
+  if (options?.opaque && theme === "dark") {
+    return {
+      ...base,
+      bg: flattenColorOverBackground(base.bg),
+      border: flattenColorOverBackground(base.border),
+      checkBorder: flattenColorOverBackground(base.checkBorder),
+      ...surfaces,
+    };
+  }
 
   return {
     ...base,
-    bg: flattenColorOverBackground(base.bg),
-    border: flattenColorOverBackground(base.border),
-    checkBorder: flattenColorOverBackground(base.checkBorder),
+    ...surfaces,
   };
+}
+
+/** Shared CSS custom properties for list cards and detail drawers. */
+export function listColorPresentationStyleVars(
+  presentation: ListColorPresentation,
+): Record<string, string> {
+  return {
+    ["--list-bg"]: presentation.bg,
+    ["--list-border"]: presentation.border,
+    ["--list-chip-bg"]: presentation.bg,
+    ["--list-chip-border"]: presentation.border,
+    ["--list-title-color"]: presentation.titleColor,
+    ["--list-meta-color"]: presentation.metaColor,
+    ["--list-item-text-color"]: presentation.itemTextColor,
+    ["--list-check-border"]: presentation.checkBorder,
+    ["--list-item-surface"]: presentation.itemSurface,
+    ["--list-family-surface"]: presentation.familySurface,
+    ["--list-header-band"]: presentation.headerBand,
+    ["--list-add-item-surface"]: presentation.addItemSurface,
+    ["--list-focus-surface"]: presentation.focusSurface,
+    ["--list-control-surface"]: presentation.controlSurface,
+    ["--list-focus-border"]: presentation.focusBorder,
+    ["--list-menu-surface"]: presentation.menuSurface,
+    ["--list-text-color"]: presentation.itemTextColor,
+    ["--list-placeholder-color"]: presentation.placeholderColor,
+    ["--list-done-text-color"]: presentation.doneTextColor,
+    ["--list-icon-color"]: presentation.iconColor,
+  };
+}
+
+/** CSS variable names propagated to portaled list menus. */
+export const LIST_THEME_CSS_VAR_KEYS = [
+  "--list-bg",
+  "--list-border",
+  "--list-title-color",
+  "--list-meta-color",
+  "--list-item-text-color",
+  "--list-check-border",
+  "--list-item-surface",
+  "--list-family-surface",
+  "--list-header-band",
+  "--list-add-item-surface",
+  "--list-focus-surface",
+  "--list-control-surface",
+  "--list-focus-border",
+  "--list-menu-surface",
+  "--list-text-color",
+  "--list-placeholder-color",
+  "--list-done-text-color",
+  "--list-icon-color",
+] as const;
+
+export function readListThemeVarsFromElement(
+  element: Element | null | undefined,
+): Record<string, string> {
+  if (!element || typeof window === "undefined") return {};
+  const source = element.closest<HTMLElement>(
+    "[data-list-color], .list-card, .list-detail-modal",
+  );
+  if (!source) return {};
+
+  const computed = getComputedStyle(source);
+  const vars: Record<string, string> = {};
+  for (const key of LIST_THEME_CSS_VAR_KEYS) {
+    const value = computed.getPropertyValue(key).trim();
+    if (value) vars[key] = value;
+  }
+  return vars;
 }

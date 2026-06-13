@@ -8,7 +8,7 @@ interface WorkspaceOpenTasksGraphicProps {
   openTasks: number;
   overdue?: number;
   dueToday?: number;
-  size?: 56 | 72 | 80 | 96;
+  size?: 48 | 56 | 60 | 72 | 80 | 96;
   className?: string;
   showSublabel?: boolean;
 }

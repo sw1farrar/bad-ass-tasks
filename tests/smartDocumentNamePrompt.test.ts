@@ -34,4 +34,10 @@ describe("SMART_DOCUMENT_NAME_SYSTEM_PROMPT", () => {
     expect(SMART_DOCUMENT_NAME_SYSTEM_PROMPT).toContain("Computer Monitor");
     expect(SMART_DOCUMENT_NAME_SYSTEM_PROMPT).toContain("item_category");
   });
+
+  it("documents multi-image receipt merging rules", () => {
+    expect(SMART_DOCUMENT_NAME_SYSTEM_PROMPT).toContain("Multiple images");
+    expect(SMART_DOCUMENT_NAME_SYSTEM_PROMPT).toContain("Merge evidence across images");
+    expect(SMART_DOCUMENT_NAME_SYSTEM_PROMPT).toContain("gather line_items from ALL images");
+  });
 });

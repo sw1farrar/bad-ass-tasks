@@ -1,20 +1,26 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, MoreHorizontal, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import {
+  isActiveListDetailDragTarget,
+  isListDetailHeaderDragTarget,
+  isListDetailTitleLabelTarget,
+} from "@/lib/motion/sheetDragTarget";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import type { ListItem, WorkspaceList } from "@/types";
 import {
   getListColorPresentation,
   getListColorsForTheme,
+  listColorPresentationStyleVars,
 } from "@/lib/lists/listColorStyles";
 import type { ListColorId } from "@/store/listSlice";
 import { useTaskStore } from "@/store/useTaskStore";
@@ -32,11 +38,18 @@ interface ListDetailModalProps {
   onTogglePinned: (id: string) => void;
   onAddItem: OnAddListItem;
   onToggleItem: (id: string) => void;
+  onCompleteItemFamily: (id: string) => void;
   onUpdateItem: (id: string, text: string) => void;
   onDeleteItem: (id: string) => void;
-  onReorderItems: (listId: string, activeId: string, overId: string) => void;
   onIndentItem: (id: string) => void;
   onOutdentItem: (id: string) => void;
+  onNudgeListItem: (
+    listId: string,
+    itemId: string,
+    direction: "up" | "down",
+    visibleItemIds: ReadonlySet<string>,
+  ) => void;
+  onMoveItemToList: (itemId: string, targetListId: string) => void;
   onClearCompleted: (listId: string) => void;
 }
 
@@ -54,35 +67,95 @@ export function ListDetailModal({
   onTogglePinned,
   onAddItem,
   onToggleItem,
+  onCompleteItemFamily,
   onUpdateItem,
   onDeleteItem,
-  onReorderItems,
   onIndentItem,
   onOutdentItem,
+  onNudgeListItem,
+  onMoveItemToList,
   onClearCompleted,
 }: ListDetailModalProps) {
   const [mounted, setMounted] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
+  const [titleEditMode, setTitleEditMode] = useState(false);
+  const [localTitle, setLocalTitle] = useState(list?.title ?? "");
   const menuRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobileViewport();
   const theme = useTaskStore((s) => s.theme);
+  const workspaceLists = useTaskStore((s) => s.workspaceLists);
   const listColors = getListColorsForTheme(theme);
+  const moveTargetLists = useMemo(() => {
+    if (!list) return [];
+    return workspaceLists
+      .filter(
+        (candidate) =>
+          candidate.workspaceId === list.workspaceId &&
+          !candidate.archived &&
+          candidate.id !== list.id,
+      )
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((candidate) => ({
+        id: candidate.id,
+        title: candidate.title,
+        colorStyle: getListColorPresentation(candidate.color, theme, { opaque: true }),
+      }));
+  }, [list, theme, workspaceLists]);
   const activeColorRing = theme === "light" ? "#7c3aed" : "#f4f4f5";
   const colorStyle = list
-    ? getListColorPresentation(list.color, theme, { opaque: isMobile })
+    ? getListColorPresentation(list.color, theme, { opaque: true })
     : null;
+  const openCount = useMemo(() => items.filter((item) => !item.completed).length, [items]);
+  const displayTitle = list ? list.title.trim() || "Untitled list" : "";
+
+  useEffect(() => {
+    if (!titleEditMode && list) {
+      setLocalTitle(list.title);
+    }
+  }, [list?.id, list?.title, titleEditMode]);
+
+  const selectAllTitle = useCallback(() => {
+    const input = titleInputRef.current;
+    if (!input) return;
+    input.focus();
+    const apply = () => input.setSelectionRange(0, input.value.length);
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }, []);
+
+  const enterTitleEdit = useCallback(() => {
+    if (!list) return;
+    setLocalTitle(list.title);
+    setTitleEditMode(true);
+  }, [list]);
+
+  const commitTitle = useCallback(() => {
+    if (!list) return;
+    setTitleEditMode(false);
+    const next = localTitle.trim() || "Untitled list";
+    setLocalTitle(next);
+    const current = list.title.trim() || "Untitled list";
+    if (next !== current) {
+      onUpdateList(list.id, { title: next });
+    }
+  }, [list, localTitle, onUpdateList]);
+
+  useLayoutEffect(() => {
+    if (!titleEditMode) return;
+    selectAllTitle();
+  }, [titleEditMode, selectAllTitle]);
 
   const applyListColorToPanel = useCallback((el: HTMLElement | null) => {
     if (!el || !colorStyle) return;
-    el.style.setProperty("--list-bg", colorStyle.bg);
-    el.style.setProperty("--list-border", colorStyle.border);
-    el.style.setProperty("--list-chip-bg", colorStyle.bg);
-    el.style.setProperty("--list-chip-border", colorStyle.border);
-    el.style.setProperty("--list-title-color", colorStyle.titleColor);
-    el.style.setProperty("--list-meta-color", colorStyle.metaColor);
-    el.style.setProperty("--list-item-text-color", colorStyle.itemTextColor);
-    el.style.setProperty("--list-check-border", colorStyle.checkBorder);
+    const vars = listColorPresentationStyleVars(colorStyle);
+    for (const [key, value] of Object.entries(vars)) {
+      el.style.setProperty(key, value);
+    }
     el.style.backgroundColor = colorStyle.bg;
     el.style.borderColor = colorStyle.border;
   }, [colorStyle]);
@@ -105,13 +178,16 @@ export function ListDetailModal({
   }, [isOpen, applyListColorToPanel, list?.color, list?.id, theme]);
 
   const handleClose = useCallback(() => {
+    if (isMobile) triggerHaptic("light");
     onClose();
-  }, [onClose]);
+  }, [isMobile, onClose]);
 
   const {
     dragY,
+    backdropOpacity,
     resetDrag,
     startDrag,
+    createDeferredDragHandlers,
     handleDragEnd,
     handleDrag,
     drag,
@@ -125,11 +201,31 @@ export function ListDetailModal({
     dragMode: "handle",
   });
 
+  const headerSheetDragHandlers = useMemo(
+    () =>
+      createDeferredDragHandlers({
+        canStart: isListDetailHeaderDragTarget,
+        onTapFromTarget: (target) =>
+          isListDetailTitleLabelTarget(target) ? enterTitleEdit : undefined,
+      }),
+    [createDeferredDragHandlers, enterTitleEdit],
+  );
+
+  const listSheetDragHandlers = useMemo(
+    () =>
+      createDeferredDragHandlers({
+        getScrollEl: () => listScrollRef.current,
+        canStart: isActiveListDetailDragTarget,
+      }),
+    [createDeferredDragHandlers],
+  );
+
   useScrollLock(isOpen);
 
   useEffect(() => {
     if (!isOpen) {
       setColorOpen(false);
+      setTitleEditMode(false);
     }
   }, [isOpen]);
 
@@ -171,9 +267,9 @@ export function ListDetailModal({
               isMobile ? "sheet-backdrop" : "overlay-scrim backdrop-blur-sm",
             )}
             initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            animate={{ opacity: isMobile ? backdropOpacity : 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={isMobile && dragY > 0 ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
             onClick={handleClose}
             aria-hidden="true"
           />
@@ -194,14 +290,8 @@ export function ListDetailModal({
             style={{
               backgroundColor: colorStyle.bg,
               borderColor: colorStyle.border,
-              ["--list-bg" as string]: colorStyle.bg,
-              ["--list-border" as string]: colorStyle.border,
-              ["--list-chip-bg" as string]: colorStyle.bg,
-              ["--list-chip-border" as string]: colorStyle.border,
-              ["--list-title-color" as string]: colorStyle.titleColor,
-              ["--list-meta-color" as string]: colorStyle.metaColor,
-              ["--list-item-text-color" as string]: colorStyle.itemTextColor,
-              ["--list-check-border" as string]: colorStyle.checkBorder,
+              ...listColorPresentationStyleVars(colorStyle),
+              ...(isMobile ? { touchAction: "pan-y" as const } : {}),
             }}
             drag={isMobile ? drag : false}
             dragControls={isMobile ? dragControlsProp : undefined}
@@ -212,7 +302,7 @@ export function ListDetailModal({
             onDragEnd={isMobile ? handleDragEnd : undefined}
             initial={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
             animate={isMobile ? { y: dragY, opacity: 1 } : { scale: 1, opacity: 1 }}
-            exit={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
+            exit={isMobile ? { y: "100%", opacity: 0.92 } : { scale: 0.96, opacity: 0 }}
             transition={SHEET_SPRING}
             onClick={(e) => e.stopPropagation()}
           >
@@ -225,17 +315,16 @@ export function ListDetailModal({
               className="list-detail-modal-surface relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden"
               style={{
                 backgroundColor: colorStyle.bg,
-                ["--list-bg" as string]: colorStyle.bg,
-                ["--list-border" as string]: colorStyle.border,
-                ["--list-chip-bg" as string]: colorStyle.bg,
-                ["--list-chip-border" as string]: colorStyle.border,
-                ["--list-title-color" as string]: colorStyle.titleColor,
-                ["--list-meta-color" as string]: colorStyle.metaColor,
-                ["--list-item-text-color" as string]: colorStyle.itemTextColor,
-                ["--list-check-border" as string]: colorStyle.checkBorder,
+                ...listColorPresentationStyleVars(colorStyle),
               }}
             >
-            <div className="list-header-band shrink-0">
+            <div
+              className={cn(
+                "list-header-band shrink-0",
+                isMobile && "list-detail-sheet-drag-zone",
+              )}
+              {...(isMobile ? headerSheetDragHandlers : {})}
+            >
               {isMobile && (
                 <SheetDragHandle
                   onPointerDown={startDrag}
@@ -262,59 +351,96 @@ export function ListDetailModal({
                   </button>
                 )}
 
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 flex flex-col items-start">
                   {list.pinned && (
                     <div className="list-header-badge list-card-pinned-badge mb-1">Pinned</div>
                   )}
-                  <div className="list-header-title-field">
-                    <input
-                      id="list-detail-title"
-                      value={list.title}
-                      onChange={(e) => onUpdateList(list.id, { title: e.target.value })}
-                      onBlur={(e) => {
-                        const trimmed = e.target.value.trim();
-                        onUpdateList(list.id, { title: trimmed || "Untitled list" });
-                      }}
-                      className="list-header-title w-full bg-transparent text-lg font-semibold outline-none"
-                      placeholder="Title"
-                      aria-label="List title"
-                    />
+                  <div className="list-card-title-row list-detail-title-row inline-flex max-w-full items-baseline gap-2">
+                    {titleEditMode ? (
+                      <div className="list-header-title-field list-detail-title-field min-w-0 max-w-full w-fit">
+                        <input
+                          ref={titleInputRef}
+                          id="list-detail-title"
+                          value={localTitle}
+                          onChange={(e) => setLocalTitle(e.target.value)}
+                          onBlur={commitTitle}
+                          onFocus={selectAllTitle}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitTitle();
+                              e.currentTarget.blur();
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setLocalTitle(list.title);
+                              setTitleEditMode(false);
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          className="list-header-title list-card-title bg-transparent text-lg font-semibold outline-none"
+                          style={{
+                            width: `${Math.min(Math.max(localTitle.length + 1, 4), 48)}ch`,
+                            maxWidth: "100%",
+                          }}
+                          placeholder="Title"
+                          aria-label="List title"
+                        />
+                      </div>
+                    ) : (
+                      <span
+                        id="list-detail-title"
+                        role="button"
+                        tabIndex={0}
+                        className="list-header-title list-card-title list-detail-title-label text-lg font-semibold"
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          enterTitleEdit();
+                        }}
+                      >
+                        {displayTitle}
+                      </span>
+                    )}
                   </div>
-                  {(items.some((i) => !i.completed) || items.some((i) => i.completed)) && (
-                    <div className="list-header-meta mt-1 text-[11px]">
-                      {items.filter((i) => !i.completed).length > 0
-                        ? `${items.filter((i) => !i.completed).length} open${
-                            items.some((i) => i.completed)
-                              ? ` · ${items.filter((i) => i.completed).length} done`
-                              : ""
-                          }`
-                        : `${items.filter((i) => i.completed).length} done`}
-                    </div>
-                  )}
                 </div>
 
-                <div className="relative flex shrink-0 items-center gap-0.5" ref={menuRef}>
+                <div
+                  className="list-detail-header-actions relative flex shrink-0 items-center gap-1"
+                  ref={menuRef}
+                >
+                  {openCount > 0 ? (
+                    <span
+                      className="list-detail-header-count shrink-0 tabular-nums"
+                      aria-label={`${openCount} open item${openCount === 1 ? "" : "s"}`}
+                    >
+                      {openCount}
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => setColorOpen((v) => !v)}
-                    className="list-header-btn min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl transition"
+                    className="list-header-btn list-detail-header-btn min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl transition"
                     aria-label="Change list color"
                     aria-expanded={colorOpen}
                   >
-                    <MoreHorizontal className="h-4 w-4" />
+                    <MoreHorizontal className="h-5 w-5" strokeWidth={2.25} />
                   </button>
                   {!isMobile && (
                     <button
                       type="button"
                       onClick={handleClose}
-                      className="list-header-btn min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl transition"
+                      className="list-header-btn list-detail-header-btn min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl transition"
                       aria-label="Close list"
                     >
-                      <X className="h-5 w-5" />
+                      <X className="h-5 w-5" strokeWidth={2.25} />
                     </button>
                   )}
                 {colorOpen && (
-                  <div className="absolute right-0 top-full z-30 mt-1 flex gap-2 rounded-xl border border-border-glass bg-bg-card p-2.5 shadow-xl">
+                  <div
+                    className="list-detail-color-picker absolute right-0 top-full z-30 mt-1 flex gap-2 rounded-xl p-2.5"
+                    style={listColorPresentationStyleVars(colorStyle)}
+                  >
                     {listColors.map((c) => (
                       <button
                         key={c.id}
@@ -343,16 +469,21 @@ export function ListDetailModal({
               variant="detail"
               focusAddItemOnOpen={focusAddItemOnOpen}
               listColorStyle={colorStyle}
+              listScrollRef={listScrollRef}
+              sheetListDragHandlers={isMobile ? listSheetDragHandlers : undefined}
               onUpdateList={onUpdateList}
               onDeleteList={onDeleteList}
               onTogglePinned={onTogglePinned}
               onAddItem={onAddItem}
               onToggleItem={onToggleItem}
+              onCompleteItemFamily={onCompleteItemFamily}
               onUpdateItem={onUpdateItem}
               onDeleteItem={onDeleteItem}
-              onReorderItems={onReorderItems}
               onIndentItem={onIndentItem}
               onOutdentItem={onOutdentItem}
+              onNudgeListItem={onNudgeListItem}
+              onMoveItemToList={onMoveItemToList}
+              moveTargetLists={moveTargetLists}
               onClearCompleted={onClearCompleted}
             />
             </div>

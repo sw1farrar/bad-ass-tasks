@@ -91,13 +91,17 @@ export function HomeView({
   );
   const pulseById = new Map(workspacePulse.map((p) => [p.id, p]));
 
-  const { gridRef, tileMinHeight } = useEqualHomeTileHeights([
+  const { gridRef } = useEqualHomeTileHeights([
     workspaces,
     workspacePulse,
     tasks,
     globalTodayFocus,
     globalOpenTaskFocus,
     taskLoadingStates,
+    showTaskAssignee,
+    members,
+    notifications,
+    openNotificationWorkspaceId,
   ]);
 
   return (
@@ -107,7 +111,7 @@ export function HomeView({
           <div className="home-workspaces-section__scroll">
             <div
               ref={gridRef}
-              className="home-workspaces-grid grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6"
+              className="home-workspaces-grid grid grid-cols-1 md:grid-cols-2 gap-0.5 md:gap-6"
             >
               {workspaces.map((ws) => (
                 <HomeWorkspaceTile
@@ -118,7 +122,6 @@ export function HomeView({
                   globalOpenTaskFocus={globalOpenTaskFocus}
                   globalTodayFocus={globalTodayFocus}
                   taskLoadingStates={taskLoadingStates}
-                  tileMinHeight={tileMinHeight}
                   onActivate={switchWorkspace}
                   onCompleteTask={onCompleteFocusTask}
                   onOpenTask={onOpenFocusTask}

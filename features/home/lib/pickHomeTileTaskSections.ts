@@ -34,7 +34,7 @@ export function isHomeTileTaskUnassigned(
   return isAllAssigneePool(task.assigneeIds, task.assignee);
 }
 
-/** Me (left) + Anyone pool (right); excludes other assignees. Each column capped at six rows. */
+/** Me (left) + Anyone pool (right); excludes other assignees. Each column capped at five rows. */
 export function pickHomeTileTaskSections(
   groups: WorkspaceDueTaskGroups,
   members: WorkspaceMember[],

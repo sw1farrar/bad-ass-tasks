@@ -15,6 +15,8 @@ interface ConfirmationModalProps {
   description?: string;
   /** Emphasized item name shown inside the description area */
   highlight?: string;
+  /** Optional extra content below the description (e.g. item lists) */
+  details?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   variant?: 'default' | 'destructive';
@@ -26,6 +28,7 @@ function ConfirmationBody({
   title,
   description,
   highlight,
+  details,
   confirmText,
   cancelText,
   variant,
@@ -38,6 +41,7 @@ function ConfirmationBody({
   title: string;
   description?: string;
   highlight?: string;
+  details?: React.ReactNode;
   confirmText: string;
   cancelText: string;
   variant: 'default' | 'destructive';
@@ -74,6 +78,7 @@ function ConfirmationBody({
               {description && (
                 <p className="text-sm text-text-secondary leading-relaxed">{description}</p>
               )}
+              {details}
             </div>
           )}
         </div>
@@ -123,6 +128,7 @@ export function ConfirmationModal({
   title,
   description,
   highlight,
+  details,
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   variant = 'default',
@@ -178,6 +184,7 @@ export function ConfirmationModal({
           title={title}
           description={description}
           highlight={highlight}
+          details={details}
           confirmText={confirmText}
           cancelText={cancelText}
           variant={variant}
@@ -215,6 +222,7 @@ export function ConfirmationModal({
           title={title}
           description={description}
           highlight={highlight}
+          details={details}
           confirmText={confirmText}
           cancelText={cancelText}
           variant={variant}
