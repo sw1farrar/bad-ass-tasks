@@ -2,50 +2,48 @@
 
 import React from "react";
 import { Loader2, Plus, Search } from "lucide-react";
-import { NotesMeetingsToggle } from "@/features/meetings/components/NotesMeetingsToggle";
+import { NotesMeetingsToggle } from "./NotesMeetingsToggle";
 import type { NotesPageMode } from "@/types";
 
-interface NotebookRailProps {
-  onNewNotebook: () => void;
-  isCreating?: boolean;
+interface MeetingRailProps {
   isDesktop?: boolean;
-  notesPageMode?: NotesPageMode;
-  onNotesPageModeChange?: (mode: NotesPageMode) => void;
+  notesPageMode: NotesPageMode;
+  onNotesPageModeChange: (mode: NotesPageMode) => void;
+  onNewMeeting: () => void;
+  isCreating?: boolean;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
   listContent?: React.ReactNode;
 }
 
-export function NotebookRail({
-  onNewNotebook,
-  isCreating,
+export function MeetingRail({
   isDesktop = false,
-  notesPageMode = "notes",
+  notesPageMode,
   onNotesPageModeChange,
+  onNewMeeting,
+  isCreating,
   searchQuery = "",
   onSearchQueryChange,
   listContent,
-}: NotebookRailProps) {
+}: MeetingRailProps) {
   if (!isDesktop) return null;
 
   return (
     <aside
       className="files-browse-panel w-80 xl:w-[22rem] shrink-0 border-r border-border-glass bg-bg flex flex-col min-h-0 gap-3"
-      aria-label="Notebooks browse"
+      aria-label="Meetings browse"
     >
       <div className="files-browse-toolbar files-action-bar shrink-0 p-4 border-b border-border-glass space-y-3">
-        {onNotesPageModeChange && (
-          <NotesMeetingsToggle mode={notesPageMode} onModeChange={onNotesPageModeChange} />
-        )}
+        <NotesMeetingsToggle mode={notesPageMode} onModeChange={onNotesPageModeChange} />
 
         <button
           type="button"
-          onClick={onNewNotebook}
+          onClick={onNewMeeting}
           disabled={isCreating}
           className="w-full btn btn-primary py-2.5 text-sm flex items-center justify-center gap-2"
         >
           <Plus className="h-4 w-4" />
-          Add Notebook
+          Schedule meeting
         </button>
 
         <div className="relative">
@@ -54,9 +52,9 @@ export function NotebookRail({
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchQueryChange?.(e.target.value)}
-            placeholder="Search notebooks…"
+            placeholder="Search meetings…"
             className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint"
-            aria-label="Search notebooks"
+            aria-label="Search meetings"
           />
         </div>
       </div>

@@ -102,6 +102,52 @@ export interface Notebook {
   updatedAt: string;
 }
 
+export type MeetingStatus = "draft" | "scheduled" | "in_progress" | "completed";
+export type AgendaItemStatus = "open" | "in_progress" | "completed" | "continued";
+export type NotesPageMode = "notes" | "meetings";
+
+export interface Meeting {
+  id: string;
+  workspaceId: string;
+  title: string;
+  status: MeetingStatus;
+  scheduledAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  previousMeetingId?: string | null;
+  notebookId?: string | null;
+  attendeeIds: string[];
+  summaryHtml?: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingAgendaItem {
+  id: string;
+  meetingId: string;
+  title: string;
+  description?: string | null;
+  sortOrder: number;
+  ownerId?: string | null;
+  status: AgendaItemStatus;
+  continuedFromItemId?: string | null;
+  linkedTaskIds: string[];
+  timeBudgetMinutes?: number | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingAgendaEntry {
+  id: string;
+  agendaItemId: string;
+  body: string;
+  authorId?: string | null;
+  isDecision?: boolean;
+  createdAt: string;
+}
+
 /** Google Keep–style checklist list (workspace-scoped). */
 export interface WorkspaceList {
   id: string;

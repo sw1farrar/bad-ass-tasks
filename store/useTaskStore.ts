@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
 import { parseWorkspaceSettings, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
@@ -43,6 +43,14 @@ import {
   SAMPLE_NOTEBOOKS,
   type NotebookSliceActions,
 } from "@/store/notebookSlice";
+import {
+  createMeetingSliceActions,
+  getInitialNotesPageMode,
+  SAMPLE_MEETINGS,
+  SAMPLE_AGENDA_ITEMS,
+  SAMPLE_AGENDA_ENTRIES,
+  type MeetingSliceActions,
+} from "@/store/meetingSlice";
 import {
   TASK_ASSIGNEE_ALL_LABEL,
   buildAssigneeBreakdown,
@@ -91,6 +99,8 @@ import {
   getNotebooks,
   ensureNotebookPersistenceReady,
   areNotebookTablesReady,
+  getMeetings,
+  areMeetingTablesReady,
   remapLegacyListIdsInState,
   createTask as createTaskSupabase,
   updateTask as updateTaskSupabase,
@@ -377,7 +387,7 @@ type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "teams" | "s
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksFolderFilterMode = "all" | "none" | string;
 
-interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions {
+interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, MeetingSliceActions {
   // Data
   tasks: Task[];
   notes: Note[];
@@ -385,6 +395,12 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   listItems: ListItem[];
   taskFolders: TaskFolder[];
   notebooks: Notebook[];
+  meetings: Meeting[];
+  meetingAgendaItems: MeetingAgendaItem[];
+  meetingAgendaEntries: MeetingAgendaEntry[];
+  notesPageMode: NotesPageMode;
+  selectedMeetingId: string | null;
+  selectedAgendaItemId: string | null;
   currentWorkspace: Workspace;
   workspaces: Workspace[];
   recentActivity: ActivityLog[];
@@ -923,6 +939,12 @@ export const useTaskStore = create<TaskState>()(
       listItems: SAMPLE_LIST_ITEMS,
       taskFolders: SAMPLE_TASK_FOLDERS,
       notebooks: SAMPLE_NOTEBOOKS,
+      meetings: SAMPLE_MEETINGS,
+      meetingAgendaItems: SAMPLE_AGENDA_ITEMS,
+      meetingAgendaEntries: SAMPLE_AGENDA_ENTRIES,
+      notesPageMode: getInitialNotesPageMode(),
+      selectedMeetingId: null,
+      selectedAgendaItemId: null,
       currentWorkspace: DEFAULT_WORKSPACE,
       workspaces: [
         DEFAULT_WORKSPACE,
@@ -1360,9 +1382,10 @@ export const useTaskStore = create<TaskState>()(
 
           const keptTaskFolders = get().taskFolders.filter((f) => f.workspaceId === workspaceId);
           const keptNotebooks = get().notebooks.filter((nb) => nb.workspaceId === workspaceId);
+          const keptMeetings = get().meetings.filter((m) => m.workspaceId === workspaceId);
 
           // Load in parallel for speed (include activity logs for Phase 1 basic logging UI)
-          const [realTasks, realNotes, realActivity, realLists, realListItems, realTaskFolders, realNotebooks] =
+          const [realTasks, realNotes, realActivity, realLists, realListItems, realTaskFolders, realNotebooks, meetingBundle] =
             await Promise.all([
             getTasks(workspaceId),
             getNotes(workspaceId),
@@ -1371,6 +1394,7 @@ export const useTaskStore = create<TaskState>()(
             getListItems(workspaceId),
             getTaskFolders(workspaceId),
             getNotebooks(workspaceId),
+            getMeetings(workspaceId),
           ]);
 
           let nextLists = realLists;
@@ -1449,6 +1473,30 @@ export const useTaskStore = create<TaskState>()(
 
           const otherWsTaskFolders = get().taskFolders.filter((f) => f.workspaceId !== workspaceId);
           const otherWsNotebooks = get().notebooks.filter((nb) => nb.workspaceId !== workspaceId);
+          const otherWsMeetings = get().meetings.filter((m) => m.workspaceId !== workspaceId);
+          const otherWsAgendaItems = get().meetingAgendaItems.filter((i) => {
+            const meeting = get().meetings.find((m) => m.id === i.meetingId);
+            return meeting && meeting.workspaceId !== workspaceId;
+          });
+          const otherWsAgendaEntries = get().meetingAgendaEntries.filter((e) => {
+            const item = get().meetingAgendaItems.find((i) => i.id === e.agendaItemId);
+            if (!item) return false;
+            const meeting = get().meetings.find((m) => m.id === item.meetingId);
+            return meeting && meeting.workspaceId !== workspaceId;
+          });
+
+          let nextMeetings = meetingBundle.meetings;
+          let nextAgendaItems = meetingBundle.agendaItems;
+          let nextAgendaEntries = meetingBundle.entries;
+          if (!areMeetingTablesReady()) {
+            nextMeetings = keptMeetings;
+            nextAgendaItems = get().meetingAgendaItems.filter((i) =>
+              keptMeetings.some((m) => m.id === i.meetingId),
+            );
+            nextAgendaEntries = get().meetingAgendaEntries.filter((e) =>
+              nextAgendaItems.some((i) => i.id === e.agendaItemId),
+            );
+          }
 
           set({
             tasks: enrichTasksWithAssignees(mergedTasks, members, userId),
@@ -1457,6 +1505,9 @@ export const useTaskStore = create<TaskState>()(
             listItems: nextItems,
             taskFolders: [...otherWsTaskFolders, ...nextTaskFolders],
             notebooks: [...otherWsNotebooks, ...nextNotebooks],
+            meetings: [...otherWsMeetings, ...nextMeetings],
+            meetingAgendaItems: [...otherWsAgendaItems, ...nextAgendaItems],
+            meetingAgendaEntries: [...otherWsAgendaEntries, ...nextAgendaEntries],
             recentActivity: realActivity,
             taskLoadingStates: {},
             pendingSyncCount: getPendingCount(),
@@ -2981,6 +3032,11 @@ export const useTaskStore = create<TaskState>()(
       ...createTaskFolderSliceActions(get, set),
 
       ...createNotebookSliceActions(get, set),
+
+      ...createMeetingSliceActions(
+        get as Parameters<typeof createMeetingSliceActions>[0],
+        set as Parameters<typeof createMeetingSliceActions>[1],
+      ),
 
       toggleTaskStarred: async (id) => {
         const task = resolveTaskInStore(get(), id);
@@ -4987,11 +5043,15 @@ export const useTaskStore = create<TaskState>()(
             listItems: state.listItems,
             taskFolders: state.taskFolders,
             notebooks: state.notebooks,
+            meetings: state.meetings,
+            meetingAgendaItems: state.meetingAgendaItems,
+            meetingAgendaEntries: state.meetingAgendaEntries,
             currentWorkspace: state.currentWorkspace,
             workspaces: state.workspaces,
             currentView: state.currentView,
             selectedNotebookId: state.selectedNotebookId,
             selectedNotebookNoteId: state.selectedNotebookNoteId,
+            selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
             theme: state.theme,
             myProfile: state.myProfile,
@@ -5005,10 +5065,14 @@ export const useTaskStore = create<TaskState>()(
           listItems: state.listItems,
           taskFolders: state.taskFolders,
           notebooks: state.notebooks,
+          meetings: state.meetings,
+          meetingAgendaItems: state.meetingAgendaItems,
+          meetingAgendaEntries: state.meetingAgendaEntries,
           currentWorkspace: state.currentWorkspace,
           workspaces: state.workspaces,
           selectedNotebookId: state.selectedNotebookId,
           selectedNotebookNoteId: state.selectedNotebookNoteId,
+          selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
           myProfile: state.myProfile,
           taskCommentsReadAt: state.taskCommentsReadAt,

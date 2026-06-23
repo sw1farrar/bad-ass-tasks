@@ -1,0 +1,119 @@
+.meetings-root {
+  width: 100%;
+  min-height: 0;
+}
+
+.meetings-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.meetings-agenda-rail {
+  width: 16rem;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+  background: var(--bg);
+}
+
+.meetings-topic-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.meetings-sidebar {
+  width: 18rem;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.15));
+}
+
+.meeting-entry-timeline__item {
+  border-left: 2px solid rgba(139, 92, 246, 0.35);
+  padding-left: 0.75rem;
+  margin-left: 0.25rem;
+}
+
+.meeting-summary-doc,
+.meeting-agenda-doc {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  color: var(--text-primary, #18181b);
+  line-height: 1.6;
+}
+
+.meeting-summary-doc__title,
+.meeting-agenda-doc__title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.meeting-summary-doc__meta,
+.meeting-agenda-doc__date {
+  color: var(--text-muted, #71717a);
+  margin-bottom: 1rem;
+}
+
+.meeting-summary-doc__section h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.75rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding-bottom: 0.35rem;
+}
+
+.meeting-summary-doc__topic h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1rem 0 0.25rem;
+}
+
+.meeting-summary-doc__entries {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.meeting-summary-doc__entries li {
+  font-size: 0.875rem;
+  margin-bottom: 0.35rem;
+}
+
+.meeting-summary-doc__entries time {
+  color: var(--text-muted, #71717a);
+  font-size: 0.75rem;
+}
+
+.meeting-agenda-doc__topics {
+  padding-left: 1.25rem;
+}
+
+.meeting-agenda-doc__topics li {
+  margin-bottom: 0.75rem;
+}
+
+@media print {
+  .meetings-header-actions,
+  .meetings-agenda-rail,
+  .meetings-sidebar,
+  .meeting-entry-composer,
+  .notes-meetings-toggle,
+  .files-browse-toolbar {
+    display: none !important;
+  }
+
+  .meetings-workspace {
+    display: block !important;
+  }
+
+  .meeting-summary-doc,
+  .meeting-agenda-doc {
+    padding: 0;
+  }
+}

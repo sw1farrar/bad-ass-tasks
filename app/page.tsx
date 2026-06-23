@@ -241,14 +241,38 @@ export default function BadAssTasks() {
     setFilesCaptureOpen,
     getNotebooks,
     getNotebookNotes,
+    getMeetings,
+    getMeetingAgendaItems,
     selectedNotebookId,
     selectedNotebookNoteId,
+    selectedMeetingId,
+    selectedAgendaItemId,
+    notesPageMode,
     setSelectedNotebookId,
     setSelectedNotebookNoteId,
+    setNotesPageMode,
+    setSelectedMeetingId,
+    setSelectedAgendaItemId,
     addNotebook,
     updateNotebook,
     deleteNotebook,
     hydrateNoteDetail,
+    addMeeting,
+    updateMeeting,
+    deleteMeeting,
+    addAgendaItem,
+    updateAgendaItem,
+    reorderAgendaItems,
+    addAgendaEntry,
+    completeAgendaItem,
+    continueAgendaItem,
+    reopenAgendaItem,
+    startMeeting,
+    completeMeeting,
+    reopenMeeting,
+    startNextMeeting,
+    meetingAgendaItems,
+    meetingAgendaEntries,
   } = useTaskStore();
 
   const bottomNavViews = useMemo(
@@ -2812,13 +2836,25 @@ export default function BadAssTasks() {
         return (
           <NotebooksView
             workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
             notebooks={getNotebooks()}
             notes={getNotebookNotes(selectedNotebookId)}
+            meetings={getMeetings()}
+            meetingAgendaItems={meetingAgendaItems}
+            meetingAgendaEntries={meetingAgendaEntries}
+            members={members}
+            currentUserId={user?.id}
+            notesPageMode={notesPageMode}
             selectedNotebookId={selectedNotebookId}
             selectedNoteId={selectedNotebookNoteId}
+            selectedMeetingId={selectedMeetingId}
+            selectedAgendaItemId={selectedAgendaItemId}
             isLive={isSupabaseConfigured()}
+            onNotesPageModeChange={setNotesPageMode}
             onSelectNotebook={setSelectedNotebookId}
             onSelectNote={setSelectedNotebookNoteId}
+            onSelectMeeting={setSelectedMeetingId}
+            onSelectAgendaItem={setSelectedAgendaItemId}
             onAddNotebook={addNotebook}
             onUpdateNotebook={updateNotebook}
             onDeleteNotebook={deleteNotebook}
@@ -2826,6 +2862,45 @@ export default function BadAssTasks() {
             onUpdateNote={updateNote}
             onDeleteNote={deleteNote}
             onHydrateNote={hydrateNoteDetail}
+            onAddMeeting={addMeeting}
+            onUpdateMeeting={updateMeeting}
+            onDeleteMeeting={deleteMeeting}
+            onAddAgendaItem={addAgendaItem}
+            onUpdateAgendaItem={updateAgendaItem}
+            onReorderAgendaItems={reorderAgendaItems}
+            onAddAgendaEntry={addAgendaEntry}
+            onCompleteAgendaItem={completeAgendaItem}
+            onContinueAgendaItem={continueAgendaItem}
+            onReopenAgendaItem={reopenAgendaItem}
+            onStartMeeting={startMeeting}
+            onCompleteMeeting={completeMeeting}
+            onReopenMeeting={reopenMeeting}
+            onStartNextMeeting={startNextMeeting}
+            onSaveSummaryAsNote={async (meeting) => {
+              const items = getMeetingAgendaItems(meeting.id);
+              const itemIds = new Set(items.map((i) => i.id));
+              const entries = meetingAgendaEntries.filter((e) => itemIds.has(e.agendaItemId));
+              const { buildMeetingSummaryMarkdown } = await import("@/lib/meetings/summaryBuilder");
+              const md = buildMeetingSummaryMarkdown({
+                meeting,
+                items,
+                entries,
+                members,
+                currentUserId: user?.id,
+              });
+              const content = JSON.stringify({
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: md }] }],
+              });
+              const created = await addNote(`${meeting.title} — Summary`, content, {
+                notebookId: meeting.notebookId ?? getNotebooks()[0]?.id,
+              });
+              if (created) {
+                setNotesPageMode("notes");
+                if (created.notebookId) setSelectedNotebookId(created.notebookId);
+                setSelectedNotebookNoteId(created.id);
+              }
+            }}
           />
         );
       case "lists": return renderListsView();
