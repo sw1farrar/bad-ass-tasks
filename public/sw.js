@@ -7,9 +7,8 @@ const CACHE_NAME = 'badazz-tasks-shell-v2';
 const SHELL_ASSETS = [
   '/',
   '/manifest.json',
+  '/brand/donkey-logo.jpg',
   '/favicon.svg',
-  '/icon-192.jpg',
-  '/icon-512.jpg',
   // Agent 27 offline polish: more shell for premium offline lists/views (Next chunks dynamic but critical html/css/js covered by runtime)
   '/?source=pwa',
   '/?view=today&source=pwa',

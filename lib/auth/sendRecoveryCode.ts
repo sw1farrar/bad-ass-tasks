@@ -1,8 +1,9 @@
 import { getBrevoConfig, isBrevoConfigured, sendPasswordResetEmail } from "@/lib/brevo";
+import { buildRecoveryCallbackUrl } from "@/lib/auth/recoverySession";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 
 export type SendRecoveryCodeResult =
-  | { ok: true; sent: boolean; messageId?: string }
+  | { ok: true; sent: boolean; messageId?: string; userId?: string }
   | { ok: false; reason: string; status: number };
 
 function isUserNotFoundError(message: string): boolean {
@@ -27,14 +28,14 @@ export async function sendRecoveryCode(email: string): Promise<SendRecoveryCodeR
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  const appBaseUrl = getBrevoConfig().appBaseUrl.replace(/\/$/, "");
+  const appBaseUrl = getBrevoConfig().appBaseUrl;
   const admin = createAdminSupabaseClient();
 
   const { data, error } = await admin.auth.admin.generateLink({
     type: "recovery",
     email: normalizedEmail,
     options: {
-      redirectTo: `${appBaseUrl}/login?mode=reset-verify`,
+      redirectTo: buildRecoveryCallbackUrl(appBaseUrl),
     },
   });
 
@@ -69,5 +70,7 @@ export async function sendRecoveryCode(email: string): Promise<SendRecoveryCodeR
     };
   }
 
-  return { ok: true, sent: true, messageId: emailResult.messageId };
+  const userId = data?.user?.id?.trim() || undefined;
+
+  return { ok: true, sent: true, messageId: emailResult.messageId, userId };
 }

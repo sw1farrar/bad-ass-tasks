@@ -39,7 +39,7 @@ export function NoteMobileImageGallery({
 }: NoteMobileImageGalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<GalleryImage | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -131,7 +131,7 @@ export function NoteMobileImageGallery({
                 <button
                   key={image.id}
                   type="button"
-                  onClick={() => setPreview(image)}
+                  onClick={() => setPreviewIndex(index)}
                   className="note-mobile-image-gallery__thumb relative"
                   style={{ animationDelay: `${index * 40}ms` }}
                   aria-label={`Open ${image.fileName}${
@@ -145,12 +145,21 @@ export function NoteMobileImageGallery({
         </div>
       </section>
 
-      <ImagePreviewModal
-        src={preview?.url ?? null}
-        alt={preview?.fileName}
-        mimeType={preview?.mimeType}
-        onClose={() => setPreview(null)}
-      />
+      {previewIndex !== null && images.length > 0 ? (
+        <ImagePreviewModal
+          onClose={() => setPreviewIndex(null)}
+          gallery={{
+            items: images.map((image) => ({
+              src: image.url,
+              alt: image.fileName,
+              mimeType: image.mimeType,
+            })),
+            index: previewIndex,
+            onIndexChange: setPreviewIndex,
+            loop: true,
+          }}
+        />
+      ) : null}
     </>
   );
 }

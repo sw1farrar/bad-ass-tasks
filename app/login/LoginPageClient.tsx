@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckSquare } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { AuthPanel, type AuthMode } from "@/components/AuthPanel";
+import { AuthTransitionPanel } from "@/components/AuthTransitionPanel";
+import { isRecoverySession } from "@/lib/auth/recoverySession";
 import { useTaskStore } from "@/store/useTaskStore";
 
 function sanitizeNextPath(raw: string | null): string {
@@ -16,6 +18,9 @@ function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const user = useTaskStore((s) => s.user);
+  const session = useTaskStore((s) => s.session);
+  const isAuthLoading = useTaskStore((s) => s.isAuthLoading);
+  const [authReady, setAuthReady] = useState(false);
 
   const next = sanitizeNextPath(searchParams.get("next"));
   const modeParam = searchParams.get("mode");
@@ -24,25 +29,36 @@ function LoginPageInner() {
       ? "signup"
       : modeParam === "reset-verify"
         ? "reset-verify"
-        : "signin";
+        : modeParam === "reset-request"
+          ? "reset-request"
+          : "signin";
+  const initialEmail = searchParams.get("email")?.trim().toLowerCase() ?? "";
 
   const goToApp = useCallback(() => {
     router.replace(next);
   }, [router, next]);
 
   useEffect(() => {
-    if (user) {
+    void useTaskStore
+      .getState()
+      .initializeAuth()
+      .finally(() => setAuthReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (user && !isRecoverySession(session)) {
       goToApp();
     }
-  }, [user, goToApp]);
+  }, [user, session, goToApp]);
+
+  const completingRecovery = !!user && isRecoverySession(session);
+  const showTransition = !authReady || isAuthLoading || (!!user && !completingRecovery);
 
   return (
     <div className="min-h-screen min-h-[100dvh] bg-bg text-text-primary flex flex-col">
       <header className="flex shrink-0 items-center justify-between px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-4 sm:px-10">
         <Link href="/" className="flex items-center gap-2.5 text-text-primary hover:opacity-90 transition">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neon-purple">
-            <CheckSquare className="h-4 w-4 text-on-accent" strokeWidth={2.5} />
-          </div>
+          <BrandLogo size="md" />
           <span className="text-[15px] font-semibold tracking-tight sm:text-base">Badazz Tasks</span>
         </Link>
         <Link
@@ -54,7 +70,13 @@ function LoginPageInner() {
       </header>
 
       <main className="flex flex-1 items-center justify-center px-4 pb-[max(2rem,env(safe-area-inset-bottom))]">
-        <AuthPanel initialMode={initialMode} onSuccess={goToApp} />
+        {showTransition ? (
+          <AuthTransitionPanel
+            subtitle={user?.email ? `Signed in as ${user.email}` : "Just a moment"}
+          />
+        ) : (
+          <AuthPanel initialMode={initialMode} initialEmail={initialEmail} />
+        )}
       </main>
     </div>
   );

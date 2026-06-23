@@ -35,10 +35,19 @@ const XAI_KEY_PLACEHOLDERS = new Set([
 ]);
 
 function resolveApiKey(): string {
-  const raw =
-    process.env.XAI_API_KEY?.trim() || process.env.NEXT_PUBLIC_XAI_API_KEY?.trim() || "";
-  if (XAI_KEY_PLACEHOLDERS.has(raw.toLowerCase())) return "";
-  return raw;
+  const serverKey = process.env.XAI_API_KEY?.trim() ?? "";
+  if (serverKey && !XAI_KEY_PLACEHOLDERS.has(serverKey.toLowerCase())) {
+    return serverKey;
+  }
+
+  if (process.env.NODE_ENV === "production") return "";
+
+  const devPublicKey = process.env.NEXT_PUBLIC_XAI_API_KEY?.trim() ?? "";
+  if (devPublicKey && !XAI_KEY_PLACEHOLDERS.has(devPublicKey.toLowerCase())) {
+    return devPublicKey;
+  }
+
+  return "";
 }
 
 /** Why Grok is unavailable before making a request. */

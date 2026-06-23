@@ -1,4 +1,9 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
+import {
+  mergeWorkspaceSettings,
+  parseWorkspaceSettings,
+  type WorkspaceSettings,
+} from "@/lib/workspace/workspaceSettings";
 
 export type UpdateWorkspaceDetailsResult =
   | { ok: true }
@@ -20,15 +25,18 @@ export async function executeUpdateWorkspaceDetails(params: {
   workspaceId: string;
   name?: string;
   slug?: string;
+  settings?: WorkspaceSettings;
+  existingSettings?: unknown;
 }): Promise<UpdateWorkspaceDetailsResult> {
   const { workspaceId } = params;
   const name = params.name?.trim();
   const slug = params.slug !== undefined ? sanitizeSlug(params.slug) : undefined;
+  const settingsPatch = params.settings;
 
   if (!workspaceId) {
     return { ok: false, error: "Missing workspace id", status: 400 };
   }
-  if (!name && slug === undefined) {
+  if (!name && slug === undefined && !settingsPatch) {
     return { ok: false, error: "No changes provided", status: 400 };
   }
   if (name !== undefined && !name) {
@@ -39,9 +47,15 @@ export async function executeUpdateWorkspaceDetails(params: {
   }
 
   const admin = createAdminSupabaseClient();
-  const updates: { name?: string; slug?: string } = {};
+  const updates: { name?: string; slug?: string; settings?: WorkspaceSettings } = {};
   if (name) updates.name = name;
   if (slug !== undefined) updates.slug = slug;
+  if (settingsPatch) {
+    updates.settings = mergeWorkspaceSettings(
+      parseWorkspaceSettings(params.existingSettings),
+      settingsPatch,
+    );
+  }
 
   const { error } = await (admin.from("workspaces") as ReturnType<typeof admin.from>)
     .update(updates)

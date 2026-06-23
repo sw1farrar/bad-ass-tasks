@@ -12,6 +12,8 @@ import {
   fetchActiveDualAuthChallenge,
   retryAfterForActiveChallenge,
 } from "@/lib/auth/dualAuthChallenges";
+import { logDualAuthPrompted } from "@/lib/auth/logDualAuthEvents";
+import { logAuthLoginEventFromRequest } from "@/lib/auth/loginEvents";
 import { decideDualAuthSend } from "@/lib/auth/dualAuthSendPolicy";
 import { sendDualAuthEmail } from "@/lib/brevo";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
@@ -104,6 +106,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (decision.action === "already_sent") {
+      await logDualAuthPrompted(request, user.id, user.email, {
+        alreadySent: true,
+        force,
+      });
       return NextResponse.json({
         ok: true,
         alreadySent: true,
@@ -112,6 +118,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (decision.action === "cooldown") {
+      await logAuthLoginEventFromRequest(request, {
+        eventType: "dual_auth_failed",
+        userId: user.id,
+        email: user.email,
+        metadata: { reason: "cooldown", codeEntered: false, force },
+      });
       return NextResponse.json(
         {
           error: "Please wait before requesting a new code.",
@@ -122,6 +134,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (decision.action === "rate_limited") {
+      await logAuthLoginEventFromRequest(request, {
+        eventType: "dual_auth_failed",
+        userId: user.id,
+        email: user.email,
+        metadata: { reason: "rate_limited", codeEntered: false, force },
+      });
       return NextResponse.json(
         { error: "Too many codes requested. Wait a few minutes and try again." },
         { status: 429 },
@@ -141,6 +159,10 @@ export async function POST(request: NextRequest) {
       });
 
       if (atomicResult.action === "already_sent") {
+        await logDualAuthPrompted(request, user.id, user.email, {
+          alreadySent: true,
+          force,
+        });
         return NextResponse.json({
           ok: true,
           alreadySent: true,
@@ -149,6 +171,12 @@ export async function POST(request: NextRequest) {
       }
 
       if (atomicResult.action === "cooldown") {
+        await logAuthLoginEventFromRequest(request, {
+          eventType: "dual_auth_failed",
+          userId: user.id,
+          email: user.email,
+          metadata: { reason: "cooldown", codeEntered: false, force },
+        });
         return NextResponse.json(
           {
             error: "Please wait before requesting a new code.",
@@ -159,6 +187,12 @@ export async function POST(request: NextRequest) {
       }
 
       if (atomicResult.action === "rate_limited") {
+        await logAuthLoginEventFromRequest(request, {
+          eventType: "dual_auth_failed",
+          userId: user.id,
+          email: user.email,
+          metadata: { reason: "rate_limited", codeEntered: false, force },
+        });
         return NextResponse.json(
           { error: "Too many codes requested. Wait a few minutes and try again." },
           { status: 429 },
@@ -183,6 +217,12 @@ export async function POST(request: NextRequest) {
     const emailResult = await sendDualAuthEmail({ to: user.email, code });
     if (!emailResult.ok) {
       await challenges.delete().eq("user_id", user.id).eq("code_hash", codeHash);
+      await logAuthLoginEventFromRequest(request, {
+        eventType: "dual_auth_failed",
+        userId: user.id,
+        email: user.email,
+        metadata: { reason: "send_failed", codeEntered: false, force, detail: emailResult.reason },
+      });
       return NextResponse.json(
         { error: "Verification email could not be sent.", reason: emailResult.reason },
         { status: 502 },
@@ -190,6 +230,12 @@ export async function POST(request: NextRequest) {
     }
 
     const activeAfter = await fetchActiveDualAuthChallenge(admin as never, user.id);
+    await logAuthLoginEventFromRequest(request, {
+      eventType: "dual_auth_sent",
+      userId: user.id,
+      email: user.email,
+      metadata: { force, codeEntered: false },
+    });
     return NextResponse.json({
       ok: true,
       messageId: emailResult.messageId,

@@ -1,0 +1,115 @@
+.notebooks-root {
+  width: 100%;
+  min-height: 0;
+}
+
+.main-content:has(.notebooks-root) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.notebooks-notes-panel {
+  min-height: 0;
+}
+
+.notebooks-note-editor {
+  background: var(--bg);
+}
+
+.notebooks-note-editor__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.notebooks-note-editor .notes-rich-editor--sticky-chrome {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+.notebooks-note-editor .notes-editor-sticky-chrome {
+  flex-shrink: 0;
+  z-index: 25;
+  background: var(--note-canvas-bg, #f8f8f6);
+  border-bottom: 1px solid var(--note-canvas-border, rgba(24, 24, 27, 0.1));
+  box-shadow: 0 8px 20px -14px rgba(0, 0, 0, 0.2);
+}
+
+.notebooks-note-editor .notes-editor-sticky-chrome .note-attachments-embedded {
+  border-bottom: 0;
+}
+
+.notebooks-note-editor .notes-editor-scroll-body {
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+.notebooks-note-editor .ProseMirror {
+  min-height: 12rem;
+  padding: 1rem 1.25rem 2rem;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome {
+  background: #25252b;
+  border-bottom-color: #2f2f38;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .notes-editor-toolbar--full,
+[data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .notes-editor-toolbar--compact {
+  background: #25252b !important;
+  border-bottom-color: #2f2f38 !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .notes-editor-toolbar__group {
+  background: #1a1a1f !important;
+  border-color: #2f2f38 !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .note-attachments-embedded {
+  background: #1a1a1f !important;
+  border-bottom-color: #2f2f38 !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-scroll-body {
+  background: #fafafc;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-scroll-body .notes-editor-body {
+  --note-canvas-bg: #ffffff;
+  --note-canvas-surface: #fafafc;
+  --note-canvas-text: #0f172a;
+  --note-canvas-text-secondary: #64748b;
+  --note-canvas-text-muted: #94a3b8;
+  --note-canvas-border: rgba(15, 23, 42, 0.1);
+}
+
+@media (max-width: 767px) {
+  /* Notebook selected, no note: full-width note list only. */
+  .notebooks-root.files-mobile-detail:not(.notebooks-mobile-note-detail) .notebooks-notes-panel {
+    flex-direction: column;
+  }
+
+  .notebooks-root.files-mobile-detail:not(.notebooks-mobile-note-detail) .notebooks-note-list {
+    width: 100%;
+    flex: 1;
+    border-right: none;
+  }
+
+  .notebooks-root.files-mobile-detail:not(.notebooks-mobile-note-detail) .notebooks-note-editor {
+    display: none;
+  }
+
+  /* Note selected: full-screen editor only. */
+  .notebooks-root.notebooks-mobile-note-detail .notebooks-note-list {
+    display: none;
+  }
+
+  .notebooks-root:not(.files-mobile-detail) .files-detail-column {
+    display: none;
+  }
+}

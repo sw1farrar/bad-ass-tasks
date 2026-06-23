@@ -37,6 +37,12 @@ function projectRefFromUrl(url) {
   return match?.[1] ?? null;
 }
 
+function databaseUrlFromPassword(projectRef, password) {
+  if (!projectRef || !password) return null;
+  const encoded = encodeURIComponent(password);
+  return `postgresql://postgres:${encoded}@db.${projectRef}.supabase.co:5432/postgres`;
+}
+
 async function applyViaManagementApi(sql, projectRef, token) {
   const statements = sql
     .split(/;\s*(?:\r?\n|$)/)
@@ -83,10 +89,12 @@ async function main() {
   const sql = fs.readFileSync(sqlPath, "utf8");
 
   const accessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
-  const databaseUrl = process.env.DATABASE_URL?.trim();
   const projectRef =
     process.env.SUPABASE_PROJECT_REF?.trim() ||
     projectRefFromUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const databaseUrl =
+    process.env.DATABASE_URL?.trim() ||
+    databaseUrlFromPassword(projectRef, process.env.SUPABASE_DB_PASSWORD?.trim());
 
   if (accessToken && projectRef) {
     await applyViaManagementApi(sql, projectRef, accessToken);
@@ -105,6 +113,7 @@ async function main() {
       "Add ONE of the following to .env.local (or your shell env):",
       "  SUPABASE_ACCESS_TOKEN=<personal access token from supabase.com/dashboard/account/tokens>",
       "  DATABASE_URL=<postgres connection string from Supabase → Settings → Database>",
+      "  SUPABASE_DB_PASSWORD=<database password from Supabase → Settings → Database>",
       "",
       `Project ref detected: ${projectRef ?? "(unknown — set NEXT_PUBLIC_SUPABASE_URL)"}`,
     ].join("\n"),

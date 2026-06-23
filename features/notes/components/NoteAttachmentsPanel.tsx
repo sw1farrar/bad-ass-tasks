@@ -75,6 +75,13 @@ const ATTACHMENT_FILE_STYLES: Record<
   generic: { railClass: "bg-[#e4e4e7]", label: "File" },
 };
 
+/** Desktop file preview + edit — ~2× the previous compact strip size. */
+const DESKTOP_PREVIEW_IMAGE_TILE = "h-20 w-20";
+const DESKTOP_PREVIEW_FILE_TILE = "h-20 w-[14.5rem] rounded-lg";
+const DESKTOP_PREVIEW_FILE_RAIL = "w-16";
+const DESKTOP_PREVIEW_FILE_ICON = "h-10 w-10";
+const DESKTOP_PREVIEW_IMAGE_FALLBACK_ICON = "h-8 w-8";
+
 function AttachmentFileTypeIcon({
   kind,
   className = "h-5 w-5",
@@ -211,7 +218,7 @@ function AttachmentIconSkeleton({
       className={cn(
         "shrink-0 animate-pulse border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-black/[0.06]",
         previewCompact
-          ? "h-10 w-10 rounded-md"
+          ? cn(DESKTOP_PREVIEW_IMAGE_TILE, "rounded-lg")
           : compact
             ? "h-10 w-10 rounded-md"
             : cn("h-12 rounded-lg", wide ? "w-[7.75rem]" : "w-12"),
@@ -434,8 +441,12 @@ export function NoteAttachmentsPanel({
 
   const tight = previewCompact || compact;
 
-  const tileGap = previewCompact ? "gap-1.5" : compact ? "gap-1.5" : "gap-2";
-  const iconSizeClass = previewCompact ? "h-5 w-5" : compact ? "h-5 w-5" : "h-5 w-5";
+  const tileGap = previewCompact ? "gap-2.5" : compact ? "gap-1.5" : "gap-2";
+  const iconSizeClass = previewCompact
+    ? DESKTOP_PREVIEW_FILE_ICON
+    : compact
+      ? "h-5 w-5"
+      : "h-5 w-5";
 
   const labelClass = cn(
     "flex items-center gap-1.5 text-[var(--note-canvas-text-muted,#71717a)] shrink-0 font-medium",
@@ -541,11 +552,15 @@ export function NoteAttachmentsPanel({
               const isImage = isImageAttachment(att.mimeType, att.fileName);
               if (hideImageAttachments && isImage) return null;
               const thumbSize = previewCompact
-                ? "h-10 w-10"
+                ? DESKTOP_PREVIEW_IMAGE_TILE
                 : compact
                   ? "h-10 w-10"
                   : "h-12 w-12";
-              const thumbRadius = previewCompact ? "rounded-md" : compact ? "rounded-md" : "rounded-lg";
+              const thumbRadius = previewCompact
+                ? "rounded-lg"
+                : compact
+                  ? "rounded-md"
+                  : "rounded-lg";
 
               if (isImage) {
                 return (
@@ -573,12 +588,19 @@ export function NoteAttachmentsPanel({
                         <div className="flex h-full w-full items-center justify-center text-text-muted">
                           <ImageIcon
                             className={
-                              previewCompact ? "h-4 w-4" : compact ? "h-4 w-4" : "h-5 w-5"
+                              previewCompact
+                                ? DESKTOP_PREVIEW_IMAGE_FALLBACK_ICON
+                                : compact
+                                  ? "h-4 w-4"
+                                  : "h-5 w-5"
                             }
                           />
                         </div>
                       )}
-                      <AttachmentImageSizeBadge sizeBytes={att.sizeBytes} />
+                      <AttachmentImageSizeBadge
+                        sizeBytes={att.sizeBytes}
+                        className={previewCompact ? "text-[9px] px-1 py-0.5" : undefined}
+                      />
                     </button>
                     {!readOnly && (
                       <AttachmentRemoveButton
@@ -599,7 +621,7 @@ export function NoteAttachmentsPanel({
                   className={cn(
                     "group relative flex shrink-0 overflow-hidden border border-[var(--note-canvas-border,rgba(24,24,27,0.12))] bg-white shadow-sm",
                     previewCompact
-                      ? "h-10 w-[7.25rem] rounded-md"
+                      ? DESKTOP_PREVIEW_FILE_TILE
                       : compact
                         ? "h-10 w-[6.75rem] rounded-md"
                         : "h-12 w-[7.75rem] rounded-lg",
@@ -614,7 +636,11 @@ export function NoteAttachmentsPanel({
                     <div
                       className={cn(
                         "flex shrink-0 items-center justify-center",
-                        previewCompact ? "w-8" : compact ? "w-8" : "w-9",
+                        previewCompact
+                          ? DESKTOP_PREVIEW_FILE_RAIL
+                          : compact
+                            ? "w-8"
+                            : "w-9",
                         fileStyle.railClass,
                       )}
                       aria-label={fileStyle.label}
@@ -624,13 +650,21 @@ export function NoteAttachmentsPanel({
                     <div
                       className={cn(
                         "flex min-w-0 flex-1 flex-col justify-center",
-                        previewCompact ? "px-0.5 py-0" : compact ? "px-1 py-0.5" : "px-1.5 py-1",
+                        previewCompact
+                          ? "px-2 py-1"
+                          : compact
+                            ? "px-1 py-0.5"
+                            : "px-1.5 py-1",
                       )}
                     >
                       <span
                         className={cn(
                           "truncate font-medium leading-tight text-[var(--note-canvas-text,#18181b)]",
-                          previewCompact ? "text-[9px]" : compact ? "text-[9px]" : "text-[10px]",
+                          previewCompact
+                            ? "text-[11px]"
+                            : compact
+                              ? "text-[9px]"
+                              : "text-[10px]",
                         )}
                       >
                         {att.fileName}
@@ -638,7 +672,11 @@ export function NoteAttachmentsPanel({
                       <div
                         className={cn(
                           "truncate leading-tight text-[var(--note-canvas-text-muted,#71717a)]",
-                          previewCompact ? "text-[8px]" : compact ? "text-[8px]" : "text-[9px]",
+                          previewCompact
+                            ? "text-[10px]"
+                            : compact
+                              ? "text-[8px]"
+                              : "text-[9px]",
                         )}
                       >
                         {formatBytes(att.sizeBytes)}
@@ -673,7 +711,7 @@ export function NoteAttachmentsPanel({
                 previewCompact && "note-attachments-embedded--preview",
                 tight
                   ? previewCompact
-                    ? "px-3 py-0.5"
+                    ? "px-3 py-1.5"
                     : "note-attachments-embedded--compact px-3 py-1"
                   : "px-3 py-2 md:px-4",
               )

@@ -1,4 +1,8 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const devWatchIgnored = [
   "**/node_modules/**",
@@ -13,6 +17,10 @@ const devWatchIgnored = [
 const usingTurbopack = process.env.BADAZZ_DEV_BUNDLER === "turbopack";
 
 const nextConfig: NextConfig = {
+  // Pin Turbopack root so pnpm junctions / dual lockfiles do not confuse resolution.
+  turbopack: {
+    root: projectRoot,
+  },
   serverExternalPackages: ["word-extractor"],
   // Keep more routes warm during rapid edits to reduce full recompiles.
   onDemandEntries: {
@@ -78,7 +86,7 @@ const nextConfig: NextConfig = {
       },
       {
         // PWA Icons
-        source: "/icon-:name*.(jpg|png|svg)",
+        source: "/icon-:size.:ext(jpg|png|svg)",
         headers: [
           {
             key: "Cache-Control",

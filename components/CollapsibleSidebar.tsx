@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Home,
   ListChecks,
+  Notebook,
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
@@ -27,16 +28,20 @@ import {
   type SidebarDisplayMode,
 } from "@/lib/sidebarPreferences";
 import type { Workspace } from "@/types";
+import { getSidebarWorkspaceViews, type WorkspaceNavViewId } from "@/lib/nav/workspaceViews";
 
-type AppViewId = "home" | "tasks" | "notes" | "lists" | "teams" | "settings" | "admin";
+type AppViewId = WorkspaceNavViewId;
 
-const WORKSPACE_VIEWS: Array<{ id: AppViewId; label: string; Icon: LucideIcon }> = [
-  { id: "tasks", label: "Tasks", Icon: Check },
-  { id: "notes", label: "Files", Icon: FolderOpen },
-  { id: "lists", label: "Lists", Icon: ListChecks },
-  { id: "teams", label: "Team", Icon: Users },
-  { id: "settings", label: "Workspace Settings", Icon: Settings },
-];
+const VIEW_ICONS: Record<AppViewId, LucideIcon> = {
+  home: Home,
+  tasks: Check,
+  notes: FolderOpen,
+  notebooks: Notebook,
+  lists: ListChecks,
+  teams: Users,
+  settings: Settings,
+  admin: Shield,
+};
 
 function modeIcon(mode: SidebarDisplayMode) {
   switch (mode) {
@@ -217,10 +222,10 @@ export function CollapsibleSidebar({
         )}
 
         <div className={cn("space-y-0.5 px-1 flex-1 min-h-0", isCollapsed && "px-0")}>
-          {WORKSPACE_VIEWS.map((v) => {
-            const Icon = v.Icon;
+          {getSidebarWorkspaceViews(workspace).map((v) => {
+            const Icon = VIEW_ICONS[v.id];
             const isActive = currentView === v.id;
-            const label = v.id === "settings" ? "Settings" : v.label;
+            const label = v.shortLabel ?? v.label;
 
             return (
               <SidebarTooltip key={v.id} label={label} show={showTooltips}>

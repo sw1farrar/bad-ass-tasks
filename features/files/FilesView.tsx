@@ -52,6 +52,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { MobileAddNoteChoiceSheet } from "./components/MobileAddNoteChoiceSheet";
 import { MobilePhotoCaptureFlow } from "./components/MobilePhotoCaptureFlow";
 import { ReceiptItemsModal } from "./components/ReceiptItemsModal";
+import { usePreemptiveReviewAnalysis } from "@/lib/hooks/usePreemptiveReviewAnalysis";
+import { apiFetch } from "@/lib/api/apiFetch";
 import "./files-workspace.css";
 
 const EMPTY_NOTE_DOC = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
@@ -102,8 +104,15 @@ export function FilesView({
     [filedFiles, pendingFiles],
   );
 
+  usePreemptiveReviewAnalysis({
+    pendingFiles,
+    workspaceTags,
+    enabled: isDesktop && notesProps.isLive,
+  });
+
   const [filter, setFilter] = useState<FilesBrowseFilter>(DEFAULT_FILES_BROWSE_FILTER);
   const filterChosenByUser = useRef(false);
+  const prevWorkspaceIdRef = useRef(workspaceId);
   const [approveTarget, setApproveTarget] = useState<Note | null>(null);
   const [reviewPaused, setReviewPaused] = useState(false);
   const [fileEditorNote, setFileEditorNote] = useState<Note | null>(null);
@@ -211,6 +220,14 @@ export function FilesView({
       filterChosenByUser.current = true;
     }
   }, [pendingFiles.length, openReviewOnMount]);
+
+  useEffect(() => {
+    if (prevWorkspaceIdRef.current === workspaceId) return;
+    prevWorkspaceIdRef.current = workspaceId;
+    filterChosenByUser.current = false;
+    setFilter(DEFAULT_FILES_BROWSE_FILTER);
+    clearSearch();
+  }, [workspaceId, clearSearch]);
 
   const handleLibraryChange = useCallback(
     (library: "review" | "archive") => {
@@ -395,6 +412,22 @@ export function FilesView({
     [notesProps.onUpdateNote],
   );
 
+  const handleClearReviewAiSuggestion = useCallback(
+    async (noteId: string) => {
+      await notesProps.onUpdateNote(noteId, { aiSuggestion: null });
+      try {
+        await apiFetch("/api/ai/clear-review-suggestion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ noteId, status: "rejected" }),
+        });
+      } catch {
+        // local store already cleared
+      }
+    },
+    [notesProps.onUpdateNote],
+  );
+
   const handlePhotoCaptureComplete = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
@@ -412,7 +445,7 @@ export function FilesView({
       }
 
       if (isSupabaseConfigured() && notesProps.isLive) {
-        const uploaded = await uploadFilesToNote(created.id, files);
+        const { uploaded } = await uploadFilesToNote(created.id, files);
         if (uploaded === 0) {
           toast.warning("Photos could not be uploaded");
         } else if (uploaded < files.length) {
@@ -594,6 +627,7 @@ export function FilesView({
           setApproveTarget(null);
           setReviewPaused(false);
         }}
+        onClearAiSuggestion={handleClearReviewAiSuggestion}
         workspaceTags={workspaceTags}
         remainingInQueue={pendingFiles.length}
         onApprove={handleApprove}

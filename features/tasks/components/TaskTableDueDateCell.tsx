@@ -21,6 +21,7 @@ export function TaskTableDueDateCell({
   return (
     <DateTimePicker
       variant="inline"
+      inlinePlacement="popover"
       value={dueDate}
       displayLabel={due?.label}
       placeholder="—"

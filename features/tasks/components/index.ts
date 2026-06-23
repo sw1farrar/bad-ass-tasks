@@ -28,3 +28,6 @@ export { TaskTableAssigneeCell } from "./TaskTableAssigneeCell";
 export { TaskRecurrenceEditor } from "./TaskRecurrenceEditor";
 export { TaskRecurrenceSelectModal } from "./TaskRecurrenceSelectModal";
 export { TaskTableRepeatCell } from "./TaskTableRepeatCell";
+export { TaskLinkedFileIndicator } from "./TaskLinkedFileIndicator";
+export { TaskLinkedFileModal } from "./TaskLinkedFileModal";
+export { TaskLinkedFilePickerSheet } from "./TaskLinkedFilePickerSheet";

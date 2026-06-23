@@ -96,8 +96,10 @@ export function LinkedTasksPanel({
 
   const canAdd = !!newTaskTitle.trim();
   const useTaskRows = compact || previewMode;
+  /** Mobile file preview: linked list only — add/link lives in the edit modal. */
+  const showTaskManagement = !(previewMode && compact);
 
-  if (previewMode && linkedTasks.length === 0) {
+  if (previewMode && linkedTasks.length === 0 && (compact || !onCreateTaskAndLink)) {
     return null;
   }
 
@@ -105,9 +107,12 @@ export function LinkedTasksPanel({
     <div
       className={cn(
         "linked-tasks-panel",
-        !embedded && "border-t",
+        !embedded && !previewMode && "border-t",
         previewMode
-          ? "linked-tasks-panel--preview border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)] px-4 md:px-6 py-4"
+          ? cn(
+              "linked-tasks-panel--preview border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-bg,#f8f8f6)]",
+              compact ? "px-0 py-3" : "px-4 md:px-6 py-4",
+            )
           : embedded
             ? "border-0 bg-transparent"
             : "border-border-glass border-t bg-bg/50",
@@ -140,7 +145,16 @@ export function LinkedTasksPanel({
         )}
       </div>
 
-      <div className={cn(useTaskRows ? "space-y-0 mb-0" : "mb-3 space-y-1", compact && "mb-2")}>
+      <div
+        className={cn(
+          useTaskRows
+            ? previewMode && compact
+              ? "space-y-2 mb-0"
+              : "space-y-0 mb-0"
+            : "mb-3 space-y-1",
+          compact && !previewMode && "mb-2",
+        )}
+      >
         {linkedTasks.length === 0 ? (
           <div className="text-[11px] text-text-muted italic py-1">No tasks linked yet</div>
         ) : useTaskRows ? (
@@ -290,8 +304,9 @@ export function LinkedTasksPanel({
         )}
       </div>
 
-      {!previewMode && (
+      {showTaskManagement && (
       <div className={cn("flex flex-col", compact ? "gap-2" : "gap-2")}>
+        {!previewMode && (
         <select
           className={cn(
             "w-full text-sm bg-bg-secondary border border-border-glass rounded-xl px-3 focus:outline-none focus:border-neon-purple/50 focus:ring-1 focus:ring-neon-purple/30 touch-manipulation",
@@ -316,6 +331,7 @@ export function LinkedTasksPanel({
               </option>
             ))}
         </select>
+        )}
 
         {compact ? (
           <div className="linked-tasks-panel__mobile-create space-y-2">

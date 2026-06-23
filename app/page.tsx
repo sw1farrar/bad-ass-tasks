@@ -4,16 +4,16 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation";
 import {
   Check, Plus, Command, Users, Settings,
-  ChevronRight, ChevronDown, Clock, Star, ArrowUpRight, ListChecks, Shield,
-  Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat, FolderOpen,
-  Trash2, Search, RefreshCw, FileText, Download,
+  ChevronDown, Clock, Star, ListChecks, Shield,
+  Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat, FolderOpen, Notebook,
+  Trash2, Search, Download, KeyRound, Lock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
 import { useTaskStore } from "@/store/useTaskStore";
-import { Task, TaskStatus, ActivityLog, Notification } from "@/types";
-import { cn, formatDueDate, triggerHaptic, getUserGreetingName, getNameInitials, formatLocalDateShort } from "@/lib/utils";
+import { Task, Notification } from "@/types";
+import { cn, triggerHaptic, getUserGreetingName, getNameInitials } from "@/lib/utils";
 import {
   buildTaskCompletionUndoContext,
   showTaskCompletionFeedback,
@@ -22,8 +22,10 @@ import {
   showListItemCompletionFeedback,
   showListItemPendingFeedback,
 } from "@/features/lists/lib/listItemCompletionFeedback";
-import { registerDualAuthRequiredHandler } from "@/lib/api/apiFetch";
+import { apiFetch, registerDualAuthRequiredHandler } from "@/lib/api/apiFetch";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { usePullToRefresh } from "@/lib/hooks/usePullToRefresh";
+import { isStandalonePwa } from "@/lib/pwa/isStandalonePwa";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { isDueDatePast } from "@/lib/datetime";
 import { formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
@@ -32,19 +34,29 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { Confetti } from "@/components/Confetti";
 import { SupabaseSetupBanner } from "@/components/SupabaseSetupBanner";
+import {
+  applyDualAuthBootstrap,
+  consumeDualAuthBootstrap,
+  fetchDualAuthStatus,
+} from "@/lib/auth/dualAuthClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 import { CreateWorkspaceGate } from "@/components/CreateWorkspaceGate";
 import { DualAuthGate } from "@/components/DualAuthGate";
 import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
+import { BrandLogo } from "@/components/BrandLogo";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
+import { LoginActivityModal } from "@/components/LoginActivityModal";
 import { FilesView } from "@/features/files";
+import { NotebooksView } from "@/features/notebooks";
+import { getBottomNavViews } from "@/lib/nav/workspaceViews";
 import {
   CaptureFileModal,
   type CaptureFileInput,
   type CaptureFileSubmitMode,
 } from "@/features/files/components/CaptureFileModal";
-import { collectWorkspaceTags, filterFiledNotes, hasUserFilingTags, isFiledNote } from "@/lib/files/fileFilters";
+import { collectWorkspaceTags, hasUserFilingTags, isFiledNote } from "@/lib/files/fileFilters";
 import "@/features/files/files-workspace.css";
 import { useNoteOperations } from "@/features/notes/hooks";
 import { useNoteKeyboard } from "@/features/notes/hooks";
@@ -115,15 +127,6 @@ function workspaceAccessLabel(
   return formatRoleLabel(role);
 }
 
-const VIEWS = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "tasks", label: "Tasks", icon: Check },
-  { id: "notes", label: "Files", icon: FolderOpen },
-  { id: "lists", label: "Lists", icon: ListChecks },
-  { id: "teams", label: "Team", icon: Users },
-  { id: "settings", label: "Workspace Settings", icon: Settings },
-] as const;
-
 export default function BadAssTasks() {
   const {
     tasks,
@@ -140,7 +143,6 @@ export default function BadAssTasks() {
     isSigningOut,
     isInitializing,
     isSiteAdmin,
-    initializeAuth,
     signOut,
     setView,
     setTaskFilter,
@@ -152,7 +154,6 @@ export default function BadAssTasks() {
     triggerCelebration,
     addTask,
     updateTask,
-    deleteTask,
     completeTask,
     undoTaskCompletion,
     taskLoadingStates,
@@ -168,7 +169,6 @@ export default function BadAssTasks() {
     getWorkspaceLists,
     getArchivedWorkspaceLists,
     getListItemsForList,
-    getListSummary,
     addList,
     updateList,
     deleteList,
@@ -188,7 +188,6 @@ export default function BadAssTasks() {
     restorePendingListItems,
     clearPendingListItems,
     createWorkspace,
-    refreshRecentActivity,
     // C4 Phase A Home globals (separate slices)
     globalTodayFocus,
     globalOpenTaskFocus,
@@ -203,7 +202,6 @@ export default function BadAssTasks() {
     isOnline,
     isSyncing,
     pendingSyncCount,
-    lastSyncAt,
     syncPendingWrites,
     refreshOfflineStatus,
     // Phase 2 collab
@@ -211,7 +209,6 @@ export default function BadAssTasks() {
     invites,
     onlineUsers,
     isLoadingMembers,
-    fetchMembers,
     fetchInvites,
     sendInvite,
     acceptInviteLink,
@@ -223,18 +220,6 @@ export default function BadAssTasks() {
     updateMyProfile, // self name + location profile editing
     searchPotentialTeammates, // new backend search for name/username/city in empty owner invite state
     myProfile,
-    setupWorkspaceRealtime,
-    // Agent 14 realtime presence polish
-    updatePresenceMeta,
-    // Agent 30 live collab polish
-    remoteCursors,
-    updateCursorPosition,
-    clearCursorPosition,
-    activeConflicts,
-    resolveConflict,
-    // Live collab (lightweight broadcast)
-    liveEditing,
-    broadcastLiveNoteContent,
     // Agent 31 notifications
     notifications,
     unreadNotifCount,
@@ -245,8 +230,6 @@ export default function BadAssTasks() {
     markAllNotifsRead,
     deleteNotification,
     clearAllNotifications,
-    notificationPrefs,
-    updateNotificationPrefs,
     exitWorkspace,
     filesOpenReview,
     setFilesOpenReview,
@@ -256,7 +239,22 @@ export default function BadAssTasks() {
     setFilesSelectNoteId,
     filesCaptureOpen,
     setFilesCaptureOpen,
+    getNotebooks,
+    getNotebookNotes,
+    selectedNotebookId,
+    selectedNotebookNoteId,
+    setSelectedNotebookId,
+    setSelectedNotebookNoteId,
+    addNotebook,
+    updateNotebook,
+    deleteNotebook,
+    hydrateNoteDetail,
   } = useTaskStore();
+
+  const bottomNavViews = useMemo(
+    () => getBottomNavViews(currentWorkspace),
+    [currentWorkspace],
+  );
 
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
   // This replaces the previous fragile direct-query + undefined-supabase pattern. Since fetchNotifications
@@ -303,6 +301,8 @@ export default function BadAssTasks() {
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
+  const [showLoginActivity, setShowLoginActivity] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const isMobileViewport = useIsMobileViewport();
   useScrollLock((showNotifications || showProfilePopover) && isMobileViewport);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
@@ -559,11 +559,12 @@ export default function BadAssTasks() {
     pendingSyncCount: 0,
   });
 
-  // Pull-to-refresh state (Agent 27 mobile native)
-  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const pullDistanceRef = useRef(0);
+  useEffect(() => {
+    setSyncDisplay({ isOnline, isSyncing, pendingSyncCount });
+  }, [isOnline, isSyncing, pendingSyncCount]);
+
   const listDetailOpenRef = useRef(false);
+  const [pwaStandalone, setPwaStandalone] = useState(false);
 
   // Phase 2 collaboration UI state (inline, no new files)
   const [showInviteDialog, setShowInviteDialog] = useState(false);
@@ -721,48 +722,64 @@ export default function BadAssTasks() {
       return;
     }
 
+    const bootstrap = consumeDualAuthBootstrap();
+    if (bootstrap) {
+      const status = applyDualAuthBootstrap(bootstrap);
+      setDualAuthRequired(!!status.required);
+      setDualAuthVerified(!!status.verified);
+      setDualAuthEmail(status.email || user.email || "your email");
+      setDualAuthChecked(true);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
-      const maxAttempts = 5;
+      const maxAttempts = 8;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (cancelled) return;
         try {
-          const response = await fetch("/api/auth/dual-auth/status", { cache: "no-store" });
-          const payload = (await response.json().catch(() => ({}))) as {
-            required?: boolean;
-            verified?: boolean;
-            enforced?: boolean;
-            email?: string;
-            error?: string;
-          };
+          const payload = await fetchDualAuthStatus();
+          const unauthorized = payload.error === "Unauthorized";
 
-          if (response.status === 401 && attempt < maxAttempts - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+          if (unauthorized && attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
             continue;
           }
 
           if (cancelled) return;
 
-          if (!response.ok) {
-            // Fail closed: require verification when status cannot be confirmed for a live session.
-            setDualAuthRequired(true);
-            setDualAuthVerified(false);
-            setDualAuthEmail(payload.email || user.email || "your email");
+          if (unauthorized || payload.error) {
+            // Session cookies may still be propagating — avoid showing the gate incorrectly.
+            setDualAuthRequired(false);
+            setDualAuthVerified(true);
+            setDualAuthEmail(user.email || "your email");
+
+            window.setTimeout(() => {
+              if (cancelled) return;
+              void fetchDualAuthStatus().then((retry) => {
+                if (cancelled || retry.error) return;
+                if (retry.required && !retry.verified) {
+                  setDualAuthRequired(true);
+                  setDualAuthVerified(false);
+                  setDualAuthEmail(retry.email || user.email || "your email");
+                }
+              });
+            }, 2000);
             break;
           }
 
           setDualAuthRequired(!!payload.required);
           setDualAuthVerified(!!payload.verified);
-          setDualAuthEmail(payload.email || "your email");
+          setDualAuthEmail(payload.email || user.email || "your email");
           break;
         } catch {
           if (cancelled) return;
           if (attempt < maxAttempts - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+            await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
             continue;
           }
-          setDualAuthRequired(true);
-          setDualAuthVerified(false);
+          setDualAuthRequired(false);
+          setDualAuthVerified(true);
           setDualAuthEmail(user.email || "your email");
         }
       }
@@ -878,9 +895,9 @@ export default function BadAssTasks() {
         : rawView === "files"
           ? "notes"
           : rawView;
-    const validViews = VIEWS.map(v => v.id);
-    if (urlView && validViews.includes(urlView as (typeof VIEWS)[number]["id"]) && urlView !== currentView) {
-      setView(urlView as (typeof VIEWS)[number]["id"]);
+    const validViews = getBottomNavViews(currentWorkspace).map((v) => v.id);
+    if (urlView && validViews.includes(urlView as (typeof validViews)[number]) && urlView !== currentView) {
+      setView(urlView as typeof currentView);
     }
   }, []); // one-time init on mount
 
@@ -899,70 +916,41 @@ export default function BadAssTasks() {
     listDetailOpenRef.current = !!listDetailTarget;
   }, [listDetailTarget]);
 
-  // Pull-to-refresh for mobile. Threshold + haptic + optimistic refresh.
-  // Uses passive touch on .main-content when near top. No new libs.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const isMobileNow = window.innerWidth < 768;
-    if (!isMobileNow) return;
+    setPwaStandalone(isStandalonePwa());
+  }, []);
 
-    let startY = 0;
-    let isPulling = false;
-    const mainEl = document.querySelector('.main-content') as HTMLElement | null;
-    if (!mainEl) return;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (mainEl.scrollTop > 8) return;
-      if (listDetailOpenRef.current) return;
-      if (document.querySelector(".files-root")) return;
-      if (document.querySelector(".list-detail-modal-root")) return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.closest(
-          ".list-item-drag, .list-card-drag-handle, .list-item-drag-overlay, .list-card-drag-overlay, .lists-board--dragging",
-        )
-      ) {
-        return;
+  const handlePullRefresh = useCallback(async () => {
+    triggerHaptic("medium");
+    const store = useTaskStore.getState();
+    try {
+      await store.syncPendingWrites?.().catch(() => undefined);
+      await store.initializeFromSupabase?.().catch(() => undefined);
+      await Promise.all([
+        store.fetchNotifications?.(false).catch(() => undefined),
+        store.refreshRecentActivity?.().catch(() => undefined),
+      ]);
+      if (currentView === "home") {
+        await store.fetchGlobalHomeAggregates?.().catch(() => undefined);
       }
-      isPulling = true;
-      startY = e.touches[0].clientY;
-    };
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!isPulling) return;
-      const dy = Math.max(0, e.touches[0].clientY - startY);
-      const next = Math.min(dy, 70);
-      pullDistanceRef.current = next;
-      setPullDistance(next);
-    };
-    const handleTouchEnd = async () => {
-      if (!isPulling) return;
-      const dist = pullDistanceRef.current;
-      isPulling = false;
-      pullDistanceRef.current = 0;
-      setPullDistance(0);
-      if (dist > 52) {
-        setIsPullRefreshing(true);
-        triggerHaptic('medium');
-        try {
-          if (refreshRecentActivity) {
-            await refreshRecentActivity();
-          }
-          toast.success("Refreshed", { description: "Data and activity synced." });
-        } catch {}
-        setTimeout(() => setIsPullRefreshing(false), 350);
-      }
-    };
+      toast.success("Refreshed", { description: "Your workspace data is up to date." });
+    } catch {
+      toast.error("Could not refresh");
+    }
+  }, [currentView]);
 
-    mainEl.addEventListener('touchstart', handleTouchStart, { passive: true });
-    mainEl.addEventListener('touchmove', handleTouchMove, { passive: true });
-    mainEl.addEventListener('touchend', handleTouchEnd, { passive: true });
+  const canStartPullToRefresh = useCallback(() => {
+    if (listDetailOpenRef.current) return false;
+    if (filesCaptureOpen) return false;
+    if (showFullTaskModal) return false;
+    return true;
+  }, [filesCaptureOpen, showFullTaskModal]);
 
-    return () => {
-      mainEl.removeEventListener('touchstart', handleTouchStart);
-      mainEl.removeEventListener('touchmove', handleTouchMove);
-      mainEl.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [refreshRecentActivity]);
+  const { pullDistance, isRefreshing: isPullRefreshing } = usePullToRefresh({
+    enabled: isMobileViewport && pwaStandalone,
+    onRefresh: handlePullRefresh,
+    canStartPull: canStartPullToRefresh,
+  });
 
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user && dualAuthVerified;
@@ -985,65 +973,6 @@ export default function BadAssTasks() {
       await deleteNote(noteId);
     },
     [deleteNote],
-  );
-
-  const handleCaptureFile = useCallback(
-    async (input: CaptureFileInput, mode: CaptureFileSubmitMode, draftNoteId?: string) => {
-      const reviewStatus = mode === "review" ? ("pending_review" as const) : ("filed" as const);
-      const tags =
-        input.tags.length > 0 ? input.tags : mode === "file" ? ["uncategorized"] : [];
-
-      let noteId = draftNoteId ?? null;
-
-      if (noteId) {
-        await updateNote(noteId, {
-          title: input.title,
-          content: input.content,
-          tags,
-          memo: input.memo || null,
-          recordType: input.recordType,
-          reviewStatus,
-        });
-      } else {
-        const created = await addNote(input.title, input.content, {
-          tags,
-          memo: input.memo || null,
-          recordType: input.recordType,
-          reviewStatus,
-        });
-        noteId = created?.id ?? null;
-      }
-
-      if (!noteId) {
-        toast.error("Could not capture file");
-        return;
-      }
-
-      if (mode === "file") {
-        await updateNote(noteId, {
-          workspaceId: currentWorkspace.id,
-          reviewedBy: user?.id ?? null,
-          filedAt: new Date().toISOString(),
-        });
-      }
-
-      setView("notes");
-      setSelectedNoteId(noteId);
-      if (mode === "review") {
-        setFilesOpenReview(true);
-        toast.success("Added to Review");
-      } else {
-        toast.success("Filed to library");
-      }
-    },
-    [
-      addNote,
-      updateNote,
-      currentWorkspace.id,
-      user?.id,
-      setView,
-      setFilesOpenReview,
-    ],
   );
 
   const isMarketingCapture =
@@ -1554,6 +1483,31 @@ export default function BadAssTasks() {
           </div>
         </div>
 
+        <div className="border-t border-border-glass pt-3 space-y-1">
+          <button
+            type="button"
+            onClick={() => {
+              setShowProfilePopover(false);
+              setShowChangePassword(true);
+            }}
+            className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium text-text-primary hover:bg-surface-hover"
+          >
+            <Lock className="h-4 w-4 text-neon-purple" />
+            Change password
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowProfilePopover(false);
+              setShowLoginActivity(true);
+            }}
+            className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium text-text-primary hover:bg-surface-hover"
+          >
+            <KeyRound className="h-4 w-4 text-neon-purple" />
+            Login activity
+          </button>
+        </div>
+
         <div className="border-t border-border-glass pt-4">
           <ThemeToggle compact onThemeChange={() => setShowProfilePopover(false)} />
         </div>
@@ -1749,6 +1703,7 @@ export default function BadAssTasks() {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
         if (typing || paletteOpen) return;
         e.preventDefault();
+        setSelectedNoteId(null);
         setFilesCaptureOpen(true);
         setView("notes");
         return;
@@ -2015,6 +1970,70 @@ export default function BadAssTasks() {
     isTrulyLive,
   });
 
+  const handleCaptureFile = useCallback(
+    async (input: CaptureFileInput, mode: CaptureFileSubmitMode, draftNoteId?: string) => {
+      const reviewStatus = mode === "review" ? ("pending_review" as const) : ("filed" as const);
+      const tags =
+        input.tags.length > 0 ? input.tags : mode === "file" ? ["uncategorized"] : [];
+
+      let noteId = draftNoteId ?? null;
+
+      if (noteId) {
+        await updateNote(noteId, {
+          title: input.title,
+          content: input.content,
+          tags,
+          memo: input.memo || null,
+          recordType: input.recordType,
+          reviewStatus,
+        });
+      } else {
+        const created = await addNote(input.title, input.content, {
+          tags,
+          memo: input.memo || null,
+          recordType: input.recordType,
+          reviewStatus,
+        });
+        noteId = created?.id ?? null;
+      }
+
+      if (!noteId) {
+        toast.error("Could not capture file");
+        return;
+      }
+
+      if (mode === "file") {
+        await updateNote(noteId, {
+          workspaceId: currentWorkspace.id,
+          reviewedBy: user?.id ?? null,
+          filedAt: new Date().toISOString(),
+        });
+      }
+
+      for (const taskTitle of input.pendingTaskTitles ?? []) {
+        await noteOps.onCreateTaskAndLink(noteId, taskTitle);
+      }
+
+      setView("notes");
+      setSelectedNoteId(noteId);
+      if (mode === "review") {
+        setFilesOpenReview(true);
+        toast.success("Added to Review");
+      } else {
+        toast.success("Filed to library");
+      }
+    },
+    [
+      addNote,
+      updateNote,
+      noteOps.onCreateTaskAndLink,
+      currentWorkspace.id,
+      user?.id,
+      setView,
+      setFilesOpenReview,
+    ],
+  );
+
   const renderListsView = () => {
     const lists = getWorkspaceLists();
     const archivedLists = getArchivedWorkspaceLists();
@@ -2106,14 +2125,27 @@ export default function BadAssTasks() {
             reviewStatus: "filed",
             filedAt: new Date().toISOString(),
             reviewedBy: user?.id ?? null,
+            aiSuggestion: null,
           });
+          try {
+            await apiFetch("/api/ai/clear-review-suggestion", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ noteId: id, status: "approved" }),
+            });
+          } catch {
+            // filed locally even if server clear fails
+          }
         }}
 
         openReviewOnMount={filesOpenReview}
         onOpenReviewConsumed={() => setFilesOpenReview(false)}
         openReviewNoteIdOnMount={filesOpenReviewNoteId}
         onOpenReviewNoteConsumed={() => setFilesOpenReviewNoteId(null)}
-        onOpenCapture={() => setFilesCaptureOpen(true)}
+        onOpenCapture={() => {
+          setSelectedNoteId(null);
+          setFilesCaptureOpen(true);
+        }}
         members={members}
         currentUserId={user?.id}
       />
@@ -2488,8 +2520,6 @@ export default function BadAssTasks() {
                       </div>
                       <button
                         onClick={async () => {
-                          console.log("[DEBUG] Clicked 'Invite' button on search result", result);
-
                           // Clear search UI immediately for clean experience
                           setTeamSearchQuery("");
                           setTeamSearchResults([]);
@@ -2778,6 +2808,26 @@ export default function BadAssTasks() {
       case "home": return renderHomeView();
       case "tasks": return renderTasksView();
       case "notes": return renderNotesView();
+      case "notebooks":
+        return (
+          <NotebooksView
+            workspaceId={currentWorkspace.id}
+            notebooks={getNotebooks()}
+            notes={getNotebookNotes(selectedNotebookId)}
+            selectedNotebookId={selectedNotebookId}
+            selectedNoteId={selectedNotebookNoteId}
+            isLive={isSupabaseConfigured()}
+            onSelectNotebook={setSelectedNotebookId}
+            onSelectNote={setSelectedNotebookNoteId}
+            onAddNotebook={addNotebook}
+            onUpdateNotebook={updateNotebook}
+            onDeleteNotebook={deleteNotebook}
+            onCreateNote={addNote}
+            onUpdateNote={updateNote}
+            onDeleteNote={deleteNote}
+            onHydrateNote={hydrateNoteDetail}
+          />
+        );
       case "lists": return renderListsView();
       case "teams": return renderTeamsView();
       case "settings": return <WorkspaceSettingsView />;
@@ -2846,9 +2896,8 @@ export default function BadAssTasks() {
         <div className="top-bar-layout w-full md:px-5 md:flex md:items-center md:justify-between md:gap-4">
           <div className="top-bar-leading md:flex md:items-center md:gap-4 md:min-w-0 md:flex-1">
             <div className="top-bar-brand flex items-center gap-2 min-w-0 overflow-hidden">
-              <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center flex-shrink-0">
-                <Check className="h-4 w-4 md:h-4.5 md:w-4.5 text-accent-on" />
-              </div>
+              <BrandLogo size="sm" className="md:hidden" priority />
+              <BrandLogo size="md" className="hidden md:block" priority />
               <div className="min-w-0 flex-1">
                 <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none truncate">Badazz Tasks</div>
               </div>
@@ -2928,7 +2977,7 @@ export default function BadAssTasks() {
                       key={ws.id}
                       onClick={() => { switchWorkspace(ws.id); setShowWorkspaceMenu(false); }}
                       className={cn(
-                        "workspace-menu-item w-full text-left px-4 py-3 md:py-3 hover:bg-surface-hover flex justify-between items-center gap-3",
+                        "workspace-menu-item w-full text-left px-4 py-3 md:py-2 hover:bg-surface-hover flex justify-between items-center gap-3",
                         ws.id === currentWorkspace.id && "workspace-menu-item--active text-neon-purple",
                       )}
                     >
@@ -2949,7 +2998,7 @@ export default function BadAssTasks() {
                         </span>
                       </span>
                       {ws.id === currentWorkspace.id && (
-                        <Check className="h-4 w-4 md:h-5 md:w-5 shrink-0" aria-hidden />
+                        <Check className="h-4 w-4 shrink-0" aria-hidden />
                       )}
                     </button>
                     );
@@ -3341,7 +3390,7 @@ export default function BadAssTasks() {
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <CollapsibleSidebar
-          currentView={currentView as "home" | "tasks" | "notes" | "lists" | "teams" | "settings" | "admin"}
+          currentView={currentView as "home" | "tasks" | "notes" | "notebooks" | "lists" | "teams" | "settings" | "admin"}
           onNavigate={(view) => setView(view as typeof currentView)}
           workspace={currentWorkspace}
           openTaskCount={currentWorkspaceTaskCounts.openCount}
@@ -3351,21 +3400,31 @@ export default function BadAssTasks() {
         />
 
         {/* Main Content — mobile gets extra pb via .main-content + globals.css for bottom nav. a11y: main landmark */}
-        <main className="main-content relative flex-1 overflow-auto p-6 lg:p-8">
-          {/* Pull-to-refresh visual (mobile native, triggered by touch at scrollTop=0) */}
+        <main
+          className={cn(
+            "main-content relative flex-1 overflow-auto p-6 lg:p-8",
+            pwaStandalone && isMobileViewport && "main-content--pwa-standalone",
+          )}
+        >
           {(pullDistance > 4 || isPullRefreshing) && (
-            <div 
+            <div
               className={cn(
                 "pull-to-refresh-indicator",
                 (pullDistance > 4 || isPullRefreshing) && "visible",
-                isPullRefreshing && "refreshing"
+                isPullRefreshing && "refreshing",
               )}
               style={{ transform: `translateX(-50%) translateY(${Math.min(pullDistance * 0.6, 18)}px)` }}
               aria-live="polite"
             >
               {isPullRefreshing ? (
-                <><span className="spinner" /> RefreshingΓÇª</>
-              ) : pullDistance > 52 ? "Release to refresh" : "Pull to refresh"}
+                <>
+                  <span className="spinner" /> Refreshing…
+                </>
+              ) : pullDistance > 52 ? (
+                "Release to refresh"
+              ) : (
+                "Pull to refresh"
+              )}
             </div>
           )}
 
@@ -3501,7 +3560,7 @@ export default function BadAssTasks() {
           workspaceId={currentWorkspace.id}
           variant="bottom-nav"
         />
-        {VIEWS.map((v, navIndex) => {
+        {bottomNavViews.map((v, navIndex) => {
           const navMeta =
             v.id === "settings"
               ? { label: "Settings", Icon: Settings }
@@ -3584,6 +3643,12 @@ export default function BadAssTasks() {
         onSubmit={handleCaptureFile}
         onCreateDraftNote={handleCreateCaptureDraft}
         onDeleteDraftNote={handleDeleteCaptureDraft}
+        tasks={tasks}
+        onCreateTaskAndLink={noteOps.onCreateTaskAndLink}
+        onOpenTask={(taskId) => {
+          const t = tasks.find((x) => x.id === taskId);
+          if (t) openTask(t);
+        }}
       />
 
       {/* Confetti on completions */}
@@ -3829,6 +3894,19 @@ export default function BadAssTasks() {
         variant="destructive"
         isLoading={isSigningOut}
         onConfirm={signOut}
+      />
+
+      <LoginActivityModal
+        open={showLoginActivity}
+        onOpenChange={setShowLoginActivity}
+        enabled={isTrulyLive}
+      />
+
+      <ChangePasswordModal
+        open={showChangePassword}
+        onOpenChange={setShowChangePassword}
+        enabled={isTrulyLive}
+        user={user}
       />
 
     </div>

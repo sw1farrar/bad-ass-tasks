@@ -29,14 +29,19 @@ const REQUIRED_TABLES = [
   "workspace_invites",
   "notifications",
   "dual_auth_challenges",
+  "auth_login_events",
   "workspace_lists",
   "list_items",
+  "notebooks",
+  "workspace_receipt_items",
 ] as const;
 
 const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "notes", column: "linked_note_ids" },
   { table: "notes", column: "sort_order" },
   { table: "notes", column: "snapshots" },
+  { table: "notes", column: "ai_suggestion" },
+  { table: "notes", column: "notebook_id" },
   { table: "profiles", column: "username" },
   { table: "profiles", column: "location" },
   { table: "profiles", column: "access_paused" },

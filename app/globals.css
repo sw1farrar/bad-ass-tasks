@@ -283,6 +283,7 @@ body {
 [data-theme="dark"] {
   --workspace-header-name-size: 22px;
   --workspace-header-trigger-min-height: 39.2px;
+  --workspace-menu-item-font-size: 22px;
   --workspace-menu-item-min-height: 36.4px;
   --workspace-chevron-size: 22.4px;
 }
@@ -293,7 +294,8 @@ body {
   [data-theme="light"] {
     --workspace-header-name-size: 1.7325rem;
     --workspace-header-trigger-min-height: 2.275rem;
-    --workspace-menu-item-min-height: 2.275rem;
+    --workspace-menu-item-font-size: 0.875rem;
+    --workspace-menu-item-min-height: 2rem;
     --workspace-chevron-size: 25.2px;
     --top-bar-min-height: 2.8rem;
   }
@@ -309,10 +311,10 @@ body {
 }
 
 .workspace-menu-item {
-  font-size: var(--workspace-header-name-size);
-  font-weight: 600;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
+  font-size: var(--workspace-menu-item-font-size);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
   transition: background var(--transition-premium, 0.18s ease), color var(--transition-premium, 0.18s ease);
 }
@@ -347,8 +349,8 @@ body {
   }
 
   .workspace-menu-item {
-    padding-top: 0.35rem !important;
-    padding-bottom: 0.35rem !important;
+    padding-top: 0.375rem !important;
+    padding-bottom: 0.375rem !important;
   }
 }
 
@@ -532,6 +534,24 @@ textarea.input::placeholder {
 /* Modals & sheets */
 .modal {
   animation: scaleIn 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Receipt ledger — always full viewport when portaled to body */
+body > [data-receipt-ledger-portal] {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  z-index: 920;
+}
+
+body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
+  width: 100vw;
+  height: 90dvh;
+  max-height: 90dvh;
+  max-width: none;
 }
 
 /* Clear modal edge on desktop — visible frame against dark backdrops */
@@ -1916,11 +1936,15 @@ textarea.input::placeholder {
 }
 .pull-to-refresh-indicator.visible {
   opacity: 1;
-  top: 8px;
+  top: max(8px, env(safe-area-inset-top, 8px));
 }
 .pull-to-refresh-indicator.refreshing {
-  top: 8px;
+  top: max(8px, env(safe-area-inset-top, 8px));
   opacity: 1;
+}
+
+.main-content--pwa-standalone {
+  overscroll-behavior-y: contain;
 }
 .pull-to-refresh-indicator .spinner {
   width: 14px;

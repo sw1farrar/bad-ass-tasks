@@ -36,9 +36,14 @@ describe("sendRecoveryCode", () => {
     expect(generateLink).toHaveBeenCalledWith({
       type: "recovery",
       email: "user@example.com",
-      options: { redirectTo: expect.stringContaining("/login?mode=reset-verify") },
+      options: {
+        redirectTo: "https://badazztasks.com/auth/callback?next=%2Flogin%3Fmode%3Dreset-verify",
+      },
     });
-    expect(sendPasswordResetEmail).toHaveBeenCalledWith({ to: "user@example.com", code: "123456" });
+    expect(sendPasswordResetEmail).toHaveBeenCalledWith({
+      to: "user@example.com",
+      code: "123456",
+    });
   });
 
   it("returns ok without sending when the user does not exist", async () => {

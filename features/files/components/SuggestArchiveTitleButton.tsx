@@ -5,6 +5,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api/apiFetch";
 import type { ArchiveTitleContext } from "@/lib/files/archiveTitleRules";
+import type { EnrichedReceiptLineItem } from "@/lib/files/enrichReceiptItemPolicies";
 import { fetchNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
 import { useTaskStore } from "@/store/useTaskStore";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,8 @@ export type ArchiveTitleSuggestion = {
   title: string;
   memo?: string;
   tags?: string[];
+  isReceipt?: boolean;
+  receiptLineItems?: EnrichedReceiptLineItem[];
 };
 
 interface SuggestArchiveTitleButtonProps {
@@ -114,7 +117,8 @@ export function SuggestArchiveTitleButton({
         tags?: string[];
         reasoning?: string;
         source?: "ai";
-        receiptItemsLogged?: number;
+        isReceipt?: boolean;
+        receiptLineItems?: EnrichedReceiptLineItem[];
         error?: string;
         reason?: string;
         message?: string;
@@ -143,15 +147,22 @@ export function SuggestArchiveTitleButton({
 
       const memo = data.memo?.trim();
       const tags = (data.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+      const receiptLineItems = (data.receiptLineItems ?? []).filter((item) =>
+        item.itemName?.trim(),
+      );
+
       onSuggested({
         title: filename,
         memo: memo || undefined,
         tags: tags.length ? tags : undefined,
+        isReceipt: !!data.isReceipt && receiptLineItems.length > 0,
+        receiptLineItems: receiptLineItems.length ? receiptLineItems : undefined,
       });
+
       const tagSummary = tags.length ? `Tags: ${tags.join(", ")}` : undefined;
       const receiptSummary =
-        data.receiptItemsLogged && data.receiptItemsLogged > 0
-          ? `${data.receiptItemsLogged} receipt item${data.receiptItemsLogged === 1 ? "" : "s"} logged`
+        receiptLineItems.length > 0
+          ? `${receiptLineItems.length} receipt item${receiptLineItems.length === 1 ? "" : "s"} ready to review`
           : undefined;
       toast.success("AI filled review details", {
         description: receiptSummary || tagSummary || memo || data.reasoning?.trim() || undefined,

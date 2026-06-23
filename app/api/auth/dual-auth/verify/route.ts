@@ -5,6 +5,7 @@ import {
   isDualAuthSatisfied,
   setDualAuthCookie,
 } from "@/lib/auth/dualAuth";
+import { logAuthLoginEventFromRequest } from "@/lib/auth/loginEvents";
 import { checkRateLimit, resetRateLimit } from "@/lib/auth/rateLimit";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -39,6 +40,12 @@ export async function POST(request: NextRequest) {
   const rateKey = `dual-auth-verify:${user.id}`;
   const rate = checkRateLimit(rateKey, 10, 15 * 60 * 1000);
   if (!rate.allowed) {
+    await logAuthLoginEventFromRequest(request, {
+      eventType: "dual_auth_failed",
+      userId: user.id,
+      email: user.email,
+      metadata: { reason: "rate_limited", codeEntered: false },
+    });
     return NextResponse.json(
       { error: "Too many verification attempts. Try again shortly." },
       { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
@@ -77,6 +84,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (!challenge) {
+    await logAuthLoginEventFromRequest(request, {
+      eventType: "dual_auth_failed",
+      userId: user.id,
+      email: user.email,
+      metadata: { reason: "invalid_or_expired_code", codeEntered: true },
+    });
     return NextResponse.json({ error: "Invalid or expired code." }, { status: 400 });
   }
 
@@ -94,5 +107,11 @@ export async function POST(request: NextRequest) {
   });
   setDualAuthCookie(response, user.id, !!body.rememberDevice);
   resetRateLimit(rateKey);
+  await logAuthLoginEventFromRequest(request, {
+    eventType: "dual_auth_verified",
+    userId: user.id,
+    email: user.email,
+    metadata: { rememberDevice: !!body.rememberDevice },
+  });
   return response;
 }

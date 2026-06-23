@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BarChart3,
+  KeyRound,
   Loader2,
   Pause,
   Play,
@@ -22,11 +23,14 @@ import {
   formatPlatformActivityDetail,
   formatPlatformActivityHeadline,
 } from "@/lib/admin/activityAnalytics";
-import type {
-  PlatformActivityRow,
-  PlatformAnalytics,
-  PlatformStats,
-  PlatformUserRow,
+import { formatLoginEventDetail } from "@/lib/auth/loginActivityShared";
+import {
+  formatLoginEventLabel,
+  type PlatformActivityRow,
+  type PlatformAnalytics,
+  type PlatformLoginEventRow,
+  type PlatformStats,
+  type PlatformUserRow,
 } from "@/lib/admin/platformData";
 import {
   AdminActivityMixDonut,
@@ -37,7 +41,7 @@ import {
 } from "./components/AdminPlatformCharts";
 import "./site-admin.css";
 
-type AdminTab = "overview" | "users" | "activity";
+type AdminTab = "overview" | "users" | "activity" | "logins";
 
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -61,6 +65,7 @@ export function SiteAdminView() {
   const [analytics, setAnalytics] = useState<PlatformAnalytics | null>(null);
   const [users, setUsers] = useState<PlatformUserRow[]>([]);
   const [activity, setActivity] = useState<PlatformActivityRow[]>([]);
+  const [loginEvents, setLoginEvents] = useState<PlatformLoginEventRow[]>([]);
   const [search, setSearch] = useState("");
   const [showAddUser, setShowAddUser] = useState(false);
   const [newEmail, setNewEmail] = useState("");
@@ -72,10 +77,11 @@ export function SiteAdminView() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
 
-    const [statsResult, usersResult, activityResult] = await Promise.allSettled([
+    const [statsResult, usersResult, activityResult, loginEventsResult] = await Promise.allSettled([
       adminFetch<{ ok: true; stats: PlatformStats; analytics?: PlatformAnalytics }>("/api/admin/stats"),
       adminFetch<{ ok: true; users: PlatformUserRow[] }>("/api/admin/users"),
       adminFetch<{ ok: true; activity: PlatformActivityRow[] }>("/api/admin/activity?limit=100"),
+      adminFetch<{ ok: true; events: PlatformLoginEventRow[] }>("/api/admin/login-activity?limit=200"),
     ]);
 
     let hadError = false;
@@ -103,6 +109,13 @@ export function SiteAdminView() {
       setActivity([]);
     }
 
+    if (loginEventsResult.status === "fulfilled") {
+      setLoginEvents(loginEventsResult.value.events);
+    } else {
+      hadError = true;
+      setLoginEvents([]);
+    }
+
     if (hadError) {
       const reason =
         statsResult.status === "rejected"
@@ -111,7 +124,9 @@ export function SiteAdminView() {
             ? usersResult.reason
             : activityResult.status === "rejected"
               ? activityResult.reason
-              : null;
+              : loginEventsResult.status === "rejected"
+                ? loginEventsResult.reason
+                : null;
       toast.error(reason instanceof Error ? reason.message : "Some admin data failed to load");
     }
 
@@ -250,6 +265,7 @@ export function SiteAdminView() {
             { id: "overview" as const, label: "Overview", icon: BarChart3 },
             { id: "users" as const, label: "Users", icon: Users },
             { id: "activity" as const, label: "Activity", icon: Activity },
+            { id: "logins" as const, label: "Logins", icon: KeyRound },
           ] as const
         ).map((t) => (
           <button
@@ -410,6 +426,69 @@ export function SiteAdminView() {
             </table>
             {filteredUsers.length === 0 && (
               <div className="py-12 text-center text-sm text-text-muted">No users match your search.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "logins" && (
+        <div className="space-y-4">
+          <p className="text-sm text-text-muted">
+            Authentication audit trail — successful sign-ins, failed attempts, verification prompts, and sign-outs with IP and timestamp.
+          </p>
+          <div className="site-admin-table-wrap overflow-x-auto">
+            <table className="site-admin-table w-full text-sm">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>User</th>
+                  <th>Event</th>
+                  <th>Method</th>
+                  <th>IP address</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loginEvents.map((event) => {
+                  const eventDetail = formatLoginEventDetail({
+                    id: event.id,
+                    eventType: event.eventType,
+                    authMethod: event.authMethod,
+                    ipAddress: event.ipAddress,
+                    userAgent: event.userAgent,
+                    createdAt: event.createdAt,
+                    metadata: event.metadata,
+                  });
+                  return (
+                  <tr key={event.id}>
+                    <td className="whitespace-nowrap text-text-secondary">
+                      {formatLocalTimestamp(event.createdAt)}
+                    </td>
+                    <td>
+                      <div className="font-medium text-text-primary">
+                        {event.email ?? event.userName ?? event.userId ?? "Unknown"}
+                      </div>
+                      {event.userName && event.email ? (
+                        <div className="text-xs text-text-muted">{event.userName}</div>
+                      ) : null}
+                    </td>
+                    <td>
+                      <div>{formatLoginEventLabel(event.eventType)}</div>
+                      {eventDetail ? (
+                        <div className="text-xs text-text-muted mt-0.5">{eventDetail}</div>
+                      ) : null}
+                    </td>
+                    <td className="text-text-secondary">{event.authMethod ?? "—"}</td>
+                    <td className="font-mono text-xs text-text-secondary">{event.ipAddress ?? "—"}</td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {loginEvents.length === 0 && (
+              <div className="py-12 text-center text-sm text-text-muted">
+                No login events yet. Run <code className="text-xs">supabase/add-auth-login-events.sql</code> on your
+                project if this tab fails to load.
+              </div>
             )}
           </div>
         </div>

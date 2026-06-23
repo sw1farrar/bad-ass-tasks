@@ -23,7 +23,8 @@ describe("suggestArchiveTitleLocal", () => {
     });
 
     expect(result.parts.institution).toBe("Micro Center");
-    expect(result.parts.subject).toContain("monitor");
+    expect(result.parts.subject).toContain("lg 27 inch 4k");
+    expect(result.parts.subject).toContain("receipt");
   });
 
   it("ignores a previously saved bad archive title on the note", () => {
@@ -38,7 +39,8 @@ describe("suggestArchiveTitleLocal", () => {
 
     expect(result.title).not.toMatch(/\bUs!?\b/);
     expect(result.parts.institution).toBe("Micro Center");
-    expect(result.parts.subject).toContain("monitor");
+    expect(result.parts.subject).toContain("lg 27 inch 4k");
+    expect(result.parts.subject).toContain("receipt");
   });
 
   it("handles thank you for shopping with us without naming Us! as merchant", () => {

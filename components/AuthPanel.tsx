@@ -3,6 +3,22 @@
 import { useEffect, useState } from "react";
 import { Mail, KeyRound, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import {
+  completeClientSignIn,
+  completeClientSignInFromSession,
+} from "@/lib/auth/completeClientSignIn";
+import { stashDualAuthBootstrap, type DualAuthBootstrap } from "@/lib/auth/dualAuthClient";
+import {
+  clearResetEmail,
+  consumeResetEmail,
+  stashResetEmail,
+} from "@/lib/auth/passwordResetClient";
+import {
+  clearRecoveryFlow,
+  isRecoverySession,
+  markRecoveryFlow,
+  sessionHasRecoveryAuth,
+} from "@/lib/auth/recoverySession";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useTaskStore } from "@/store/useTaskStore";
 
@@ -33,12 +49,13 @@ function GoogleIcon() {
 
 export interface AuthPanelProps {
   initialMode?: AuthMode;
+  initialEmail?: string;
   onSuccess?: () => void;
   className?: string;
 }
 
-export function AuthPanel({ initialMode = "signin", onSuccess, className }: AuthPanelProps) {
-  const { user } = useTaskStore();
+export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess, className }: AuthPanelProps) {
+  const { user, session } = useTaskStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otpCode, setOtpCode] = useState("");
@@ -56,10 +73,26 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
   }, [initialMode]);
 
   useEffect(() => {
-    if (user) {
-      onSuccess?.();
+    const rememberedEmail = consumeResetEmail();
+    const seedEmail = initialEmail || rememberedEmail;
+    if (seedEmail) {
+      setEmail(seedEmail);
     }
-  }, [user, onSuccess]);
+  }, [initialEmail]);
+
+  useEffect(() => {
+    if (session && isRecoverySession(session)) {
+      markRecoveryFlow();
+      setRecoverySessionReady(true);
+      setMode("reset-verify");
+      if (user?.email) setEmail(user.email);
+      return;
+    }
+
+    if (user && onSuccess) {
+      onSuccess();
+    }
+  }, [user, session, onSuccess]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -69,26 +102,23 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (event === "PASSWORD_RECOVERY") {
+        markRecoveryFlow();
         setRecoverySessionReady(true);
         setMode("reset-verify");
         setAuthError(null);
         setOtpCode("");
+        return;
+      }
+
+      if (event === "SIGNED_IN" && nextSession && !sessionHasRecoveryAuth(nextSession)) {
+        clearRecoveryFlow();
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
-
-  if (user) {
-    return (
-      <div className={`glass modal-panel w-full max-w-md rounded-3xl p-8 text-center ${className ?? ""}`}>
-        <h2 className="text-2xl font-semibold tracking-tight mb-2">You&apos;re already signed in</h2>
-        <p className="text-text-secondary">{user.email}</p>
-      </div>
-    );
-  }
 
   const switchMode = (next: AuthMode) => {
     setMode(next);
@@ -161,23 +191,67 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
       return;
     }
 
+    let keepLoading = false;
+
     try {
       if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          const needsVerify = /not confirmed|confirm your email/i.test(error.message || "");
-          if (needsVerify) {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, password }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          needsVerification?: boolean;
+          dualAuth?: DualAuthBootstrap;
+          session?: { access_token?: string; refresh_token?: string };
+        };
+
+        if (!response.ok) {
+          if (payload.needsVerification) {
             setAuthError("Please verify your email before signing in.");
             toast.info("Verify your email", { description: "Enter the code we sent you to finish signing up." });
             switchMode("signup-verify");
           } else {
-            setAuthError(error.message || "Sign in failed. Please check your credentials.");
-            toast.error("Sign in failed", { description: error.message });
+            const message = payload.error || "Sign in failed. Please check your credentials.";
+            setAuthError(message);
+            toast.error("Sign in failed", { description: message });
           }
         } else {
-          toast.success("Signed in", {
-            description: "Enter the verification code we email you next.",
+          const accessToken = payload.session?.access_token;
+          const refreshToken = payload.session?.refresh_token;
+          if (!accessToken || !refreshToken) {
+            const message = "Sign in succeeded but the session could not be established. Please try again.";
+            setAuthError(message);
+            toast.error("Sign in incomplete", { description: message });
+            return;
+          }
+
+          const signInResult = await completeClientSignIn({
+            access_token: accessToken,
+            refresh_token: refreshToken,
           });
+          if (!signInResult.ok) {
+            const message = signInResult.error || "Could not complete sign in. Please try again.";
+            setAuthError(message);
+            toast.error("Sign in incomplete", { description: message });
+            return;
+          }
+
+          if (payload.dualAuth) {
+            stashDualAuthBootstrap(payload.dualAuth);
+          }
+
+          const needsDualAuth =
+            payload.dualAuth?.required === true && payload.dualAuth?.verified !== true;
+          if (needsDualAuth) {
+            toast.success("Signed in", {
+              description: "Check your email for a verification code.",
+            });
+          }
+
+          keepLoading = true;
         }
       } else if (mode === "signup") {
         const response = await fetch("/api/auth/signup", {
@@ -200,7 +274,9 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
       setAuthError("Something went wrong. Please try again.");
       toast.error("Authentication error");
     } finally {
-      setLoading(false);
+      if (!keepLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -226,9 +302,10 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
       return false;
     }
 
+    stashResetEmail(email);
     toast.success("Check your inbox", {
       description:
-        "We sent an 8-digit recovery code (and a one-click link) if an account exists. Check spam.",
+        "If an account exists, we sent a recovery code and one-click link. Check spam.",
     });
     return true;
   };
@@ -293,8 +370,10 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
       return;
     }
 
+    let keepLoading = false;
+
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: otpCode.trim(),
         type: "signup",
@@ -304,13 +383,25 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
         setAuthError(error.message || "Invalid or expired code. Request a new one.");
         toast.error("Invalid code", { description: error.message });
       } else {
-        toast.success("Email verified — welcome to Badazz Tasks");
+        const signInResult = await completeClientSignInFromSession(data.session);
+        if (!signInResult.ok) {
+          const message = signInResult.error || "Email verified but sign-in could not finish. Please sign in.";
+          setAuthError(message);
+          toast.error("Sign in incomplete", { description: message });
+          switchMode("signin");
+          return;
+        }
+
+        toast.success("Welcome to Badazz Tasks");
+        keepLoading = true;
       }
     } catch {
       setAuthError("Something went wrong. Please try again.");
       toast.error("Verification error");
     } finally {
-      setLoading(false);
+      if (!keepLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -374,9 +465,11 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
       return;
     }
 
+    let keepLoading = false;
+
     try {
       if (!recoverySessionReady && otpCode) {
-        const { error: verifyError } = await supabase.auth.verifyOtp({
+        const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
           email,
           token: otpCode.trim(),
           type: "recovery",
@@ -385,6 +478,15 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
         if (verifyError) {
           setAuthError(verifyError.message || "Invalid or expired code. Request a new one.");
           toast.error("Invalid code", { description: verifyError.message });
+          setLoading(false);
+          return;
+        }
+
+        const recoverySignIn = await completeClientSignInFromSession(verifyData.session);
+        if (!recoverySignIn.ok) {
+          const message = recoverySignIn.error || "Recovery code accepted but sign-in could not finish.";
+          setAuthError(message);
+          toast.error("Sign in incomplete", { description: message });
           setLoading(false);
           return;
         }
@@ -399,14 +501,28 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
         setAuthError(updateError.message || "Could not update password.");
         toast.error("Update failed", { description: updateError.message });
       } else {
-        toast.success("Password updated — you are signed in");
-        switchMode("signin");
+        const { data: sessionData } = await supabase.auth.getSession();
+        const signInResult = await completeClientSignInFromSession(sessionData.session);
+        if (!signInResult.ok) {
+          const message = signInResult.error || "Password updated but sign-in could not finish. Please sign in.";
+          setAuthError(message);
+          toast.error("Sign in incomplete", { description: message });
+          switchMode("signin");
+          return;
+        }
+
+        clearResetEmail();
+        clearRecoveryFlow();
+        toast.success("Password updated — opening your workspace");
+        keepLoading = true;
       }
     } catch {
       setAuthError("Something went wrong. Please try again.");
       toast.error("Reset error");
     } finally {
-      setLoading(false);
+      if (!keepLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -414,18 +530,20 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
     mode === "reset-request"
       ? "Reset password"
       : mode === "reset-verify"
-        ? "Enter reset code"
+        ? recoverySessionReady
+          ? "Set a new password"
+          : "Enter reset code"
         : mode === "signup-verify"
           ? "Verify your email"
           : "Welcome";
 
   const subtitle =
     mode === "reset-request"
-      ? "Enter your email and we will send a reset code"
+      ? "We will email a recovery code and a one-click reset link"
       : mode === "reset-verify"
         ? recoverySessionReady
           ? "Choose a new password for your account"
-          : "Enter the 8-digit code from your inbox and choose a new password"
+          : "Enter the code from your email, or use the one-click reset link"
         : mode === "signup-verify"
           ? "Enter the verification code we sent to your inbox"
           : mode === "signin"
@@ -538,7 +656,10 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
           {mode === "signin" && (
             <button
               type="button"
-              onClick={() => switchMode("reset-request")}
+              onClick={() => {
+                setAuthError(null);
+                switchMode("reset-request");
+              }}
               className="text-xs text-neon-purple hover:text-neon-purple-tint transition w-full text-right"
             >
               Forgot password?
@@ -575,12 +696,15 @@ export function AuthPanel({ initialMode = "signin", onSuccess, className }: Auth
             required
             autoComplete="email"
           />
+          <p className="text-[11px] text-text-muted text-center -mt-1">
+            You will get a numeric code and a secure one-click link. Either one lets you set a new password.
+          </p>
           <button
             type="submit"
             disabled={loading || !email}
             className="btn btn-primary w-full py-3 text-base disabled:opacity-60"
           >
-            {loading ? "Sending…" : "Send reset code"}
+            {loading ? "Sending…" : "Email me a reset link"}
           </button>
         </form>
       )}

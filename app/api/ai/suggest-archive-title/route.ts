@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server";
-import { loadWorkspaceFilingTags } from "@/lib/files/loadWorkspaceFilingTags";
-import { mergeWorkspaceFilingTags } from "@/lib/files/resolveSuggestedFilingTags";
-import {
-  generateSmartDocumentName,
-  type ArchiveTitleContext,
-} from "@/lib/files/generateSmartDocumentName";
-import { enrichReceiptItemPolicies } from "@/lib/files/enrichReceiptItemPolicies";
-import { persistReceiptLineItems } from "@/lib/files/persistReceiptLineItems";
+import type { ArchiveTitleContext } from "@/lib/files/generateSmartDocumentName";
+import { runArchiveTitleAnalysis } from "@/lib/files/runArchiveTitleAnalysis";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type RequestBody = {
   noteId?: string;
   context?: ArchiveTitleContext;
   availableTags?: string[];
+  /** When true, store the result on notes.ai_suggestion for the review queue. */
+  persist?: boolean;
 };
 
 function aiUnavailableMessage(reason: string): string {
@@ -61,71 +57,6 @@ async function assertNoteAccess(noteId: string, userId: string) {
   };
 }
 
-async function loadAttachmentContext(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  noteId: string,
-): Promise<{ fileNames: string[]; texts: string[] }> {
-  const fullSelect = await (supabase.from("note_attachments") as any)
-    .select("file_name, extracted_text")
-    .eq("note_id", noteId);
-
-  if (fullSelect.error?.code === "42703") {
-    const legacySelect = await (supabase.from("note_attachments") as any)
-      .select("file_name")
-      .eq("note_id", noteId);
-    if (legacySelect.error) return { fileNames: [], texts: [] };
-    const rows = (legacySelect.data ?? []) as Array<{ file_name: string }>;
-    return { fileNames: rows.map((r) => r.file_name), texts: [] };
-  }
-
-  if (fullSelect.error) return { fileNames: [], texts: [] };
-
-  const rows = (fullSelect.data ?? []) as Array<{
-    file_name: string;
-    extracted_text?: string | null;
-  }>;
-
-  return {
-    fileNames: rows.map((r) => r.file_name),
-    texts: rows
-      .map((r) => r.extracted_text?.trim())
-      .filter((t): t is string => !!t),
-  };
-}
-
-function mergeContext(
-  dbNote: Record<string, unknown> | null,
-  clientContext?: ArchiveTitleContext,
-): ArchiveTitleContext {
-  const content =
-    typeof dbNote?.content === "string"
-      ? dbNote.content
-      : dbNote?.content != null
-        ? JSON.stringify(dbNote.content)
-        : undefined;
-
-  return {
-    title: (clientContext?.title ?? (dbNote?.title as string) ?? "").trim() || undefined,
-    searchPlain:
-      clientContext?.searchPlain ??
-      (typeof dbNote?.search_plain === "string" ? dbNote.search_plain : null),
-    emailHtml:
-      clientContext?.emailHtml ??
-      (typeof dbNote?.raw_html === "string" ? dbNote.raw_html : null),
-    noteContent: clientContext?.noteContent ?? content,
-    searchDocument: clientContext?.searchDocument ?? undefined,
-    memo: clientContext?.memo ?? (typeof dbNote?.memo === "string" ? dbNote.memo : null),
-    recordType:
-      clientContext?.recordType ??
-      (typeof dbNote?.record_type === "string" ? dbNote.record_type : undefined),
-    createdAt:
-      clientContext?.createdAt ??
-      (typeof dbNote?.created_at === "string" ? dbNote.created_at : undefined),
-    attachmentFileNames: clientContext?.attachmentFileNames,
-    attachmentTexts: clientContext?.attachmentTexts,
-  };
-}
-
 export async function POST(request: Request) {
   const supabase = await createServerSupabaseClient();
   const {
@@ -151,70 +82,32 @@ export async function POST(request: Request) {
 
   try {
     const { supabase: scoped, note, workspaceId } = await assertNoteAccess(noteId, user.id);
-    const attachments = await loadAttachmentContext(scoped, noteId);
-    const ctx = mergeContext(note, body.context);
-    const workspaceTags = mergeWorkspaceFilingTags(
-      await loadWorkspaceFilingTags(scoped, workspaceId),
-      body.availableTags,
-    );
-
-    if (!ctx.attachmentFileNames?.length && attachments.fileNames.length) {
-      ctx.attachmentFileNames = attachments.fileNames;
-    }
-    if (!ctx.attachmentTexts?.length && attachments.texts.length) {
-      ctx.attachmentTexts = attachments.texts;
-    }
-
-    const result = await generateSmartDocumentName(ctx, {
+    const suggestion = await runArchiveTitleAnalysis({
+      scoped,
+      note,
       noteId,
       userId: user.id,
-      workspaceTags,
+      workspaceId,
+      clientContext: body.context,
+      availableTags: body.availableTags,
     });
 
-    let receiptItemsLogged = 0;
-    if (result.isReceipt && result.receiptLineItems?.length) {
-      const vendor =
-        result.receiptLineItems.find((item) => item.vendor)?.vendor ??
-        result.receiptLineItems[0]?.vendor ??
-        "";
-      const transactionDate = result.receiptLineItems[0]?.transactionDate ?? null;
-      const receiptContext = [
-        ctx.searchPlain,
-        ...(ctx.attachmentTexts ?? []),
-        result.memo,
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      const enriched = await enrichReceiptItemPolicies(
-        vendor,
-        transactionDate,
-        result.receiptLineItems,
-        receiptContext,
-      );
-
-      try {
-        const persisted = await persistReceiptLineItems(
-          scoped,
-          workspaceId,
-          noteId,
-          enriched,
-        );
-        receiptItemsLogged = persisted.inserted;
-      } catch (persistErr) {
-        console.warn("[suggest-archive-title] receipt items persist failed", persistErr);
-      }
+    if (body.persist) {
+      await (scoped.from("notes") as any)
+        .update({ ai_suggestion: suggestion })
+        .eq("id", noteId);
     }
 
     return NextResponse.json({
       ok: true,
-      filename: result.filename,
-      title: result.filename,
-      memo: result.memo,
-      tags: result.tags,
-      reasoning: result.reasoning,
-      source: result.source,
-      receiptItemsLogged,
+      filename: suggestion.title,
+      title: suggestion.title,
+      memo: suggestion.memo,
+      tags: suggestion.tags,
+      reasoning: suggestion.reasoning,
+      source: "ai",
+      isReceipt: suggestion.isReceipt,
+      receiptLineItems: suggestion.receiptLineItems,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "suggest_failed";

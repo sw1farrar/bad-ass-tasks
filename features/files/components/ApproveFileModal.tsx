@@ -15,10 +15,21 @@ import type { CreateTaskAndLinkOptions } from "@/features/notes/hooks";
 import { defaultTaskDueDateInput, dueDateFromUserInput } from "@/lib/datetime";
 import { cn, defaultTaskDueDate, formatDueDate } from "@/lib/utils";
 import type { FileRecordType, Note, Task, WorkspaceMember } from "@/types";
+import { toast } from "sonner";
+import { apiFetch } from "@/lib/api/apiFetch";
 import { TagPicker } from "./TagPicker";
 import { FileBookmarkButton } from "./FileBookmarkButton";
-import { SuggestArchiveTitleButton } from "./SuggestArchiveTitleButton";
+import {
+  buildReceiptItemDrafts,
+  ReceiptItemsReviewPanel,
+  type ReceiptItemDraft,
+} from "./ReceiptItemsReviewPanel";
+import { SuggestArchiveTitleButton, type ArchiveTitleSuggestion } from "./SuggestArchiveTitleButton";
 import { MobileDrawerShell } from "@/components/MobileDrawerShell";
+import {
+  fileAiSuggestionToArchivePayload,
+  isActionableFileAiSuggestion,
+} from "@/lib/files/fileAiSuggestion";
 
 export type ApproveFileResult = "close" | "next";
 
@@ -48,6 +59,38 @@ interface ApproveFileModalProps {
     options?: CreateTaskAndLinkOptions,
   ) => Promise<string | null>;
   onOpenTask?: (taskId: string) => void;
+  /** Wipe preemptive AI suggestion when the user dismisses review without filing. */
+  onClearAiSuggestion?: (noteId: string) => Promise<void>;
+}
+
+function applyArchiveSuggestion(
+  noteId: string,
+  suggestion: ArchiveTitleSuggestion,
+  setters: {
+    setTitle: (v: string) => void;
+    setMemo: (v: string) => void;
+    setTags: (v: string[]) => void;
+    setRecordType: (v: FileRecordType) => void;
+    setReceiptItemDrafts: (v: ReceiptItemDraft[]) => void;
+    setTagNudgeVisible: (v: boolean) => void;
+  },
+) {
+  setters.setTitle(suggestion.title);
+  if (suggestion.memo) setters.setMemo(suggestion.memo);
+  if (suggestion.tags?.length) {
+    setters.setTags(suggestion.tags);
+    setters.setTagNudgeVisible(false);
+  }
+  if (suggestion.isReceipt) {
+    setters.setRecordType("receipt");
+  }
+  if (suggestion.receiptLineItems?.length) {
+    setters.setReceiptItemDrafts(
+      buildReceiptItemDrafts(noteId, suggestion.receiptLineItems),
+    );
+  } else {
+    setters.setReceiptItemDrafts([]);
+  }
 }
 
 export function ApproveFileModal({
@@ -64,6 +107,7 @@ export function ApproveFileModal({
   currentUserId,
   onCreateTaskAndLink,
   onOpenTask,
+  onClearAiSuggestion,
 }: ApproveFileModalProps) {
   const [title, setTitle] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -78,10 +122,13 @@ export function ApproveFileModal({
   const [creatingTask, setCreatingTask] = useState(false);
   const showAssigneePicker = isSharedWorkspace(members);
   const [tagNudgeVisible, setTagNudgeVisible] = useState(false);
+  const [receiptItemDrafts, setReceiptItemDrafts] = useState<ReceiptItemDraft[]>([]);
+  const [addingReceiptItems, setAddingReceiptItems] = useState(false);
   const [mounted, setMounted] = useState(false);
   const tagsSectionRef = useRef<HTMLDivElement>(null);
   const titleTouchedRef = useRef(false);
   const activeFileIdRef = useRef<string | null>(null);
+  const appliedAiSuggestionAtRef = useRef<string | null>(null);
   const isMobile = useIsMobileViewport();
 
   useScrollLock(isOpen);
@@ -102,6 +149,7 @@ export function ApproveFileModal({
     if (isNewFile) {
       activeFileIdRef.current = file.id;
       titleTouchedRef.current = false;
+      appliedAiSuggestionAtRef.current = null;
       setTitle(file.title || "Untitled");
       setTags((file.tags ?? []).filter((t) => t !== "from-email").map((t) => t.toLowerCase()));
       setMemo(file.memo ?? "");
@@ -110,11 +158,32 @@ export function ApproveFileModal({
       setNewTaskDueDate(defaultTaskDueDateInput());
       setNewTaskAssigneeId(null);
       setTagNudgeVisible(false);
-      return;
+      setReceiptItemDrafts([]);
     }
 
     if (!titleTouchedRef.current) {
       setTitle(file.title || "Untitled");
+    }
+
+    const aiKey = file.aiSuggestion?.analyzedAt ?? file.aiSuggestion?.status ?? "";
+    if (
+      isActionableFileAiSuggestion(file.aiSuggestion) &&
+      appliedAiSuggestionAtRef.current !== `${file.id}:${aiKey}`
+    ) {
+      appliedAiSuggestionAtRef.current = `${file.id}:${aiKey}`;
+      titleTouchedRef.current = true;
+      applyArchiveSuggestion(
+        file.id,
+        fileAiSuggestionToArchivePayload(file.aiSuggestion),
+        {
+          setTitle,
+          setMemo,
+          setTags,
+          setRecordType,
+          setReceiptItemDrafts,
+          setTagNudgeVisible,
+        },
+      );
     }
   }, [file, isOpen]);
 
@@ -130,6 +199,21 @@ export function ApproveFileModal({
   if (!mounted || !isOpen || !file) return null;
 
   const canFile = hasUserFilingTags(tags);
+  const aiAnalyzing = file.aiSuggestion?.status === "pending";
+  const aiReady = isActionableFileAiSuggestion(file.aiSuggestion);
+
+  const handleDismiss = () => {
+    const noteId = file.id;
+    const hadAiSuggestion =
+      !!file.aiSuggestion &&
+      (file.aiSuggestion.status === "ready" ||
+        file.aiSuggestion.status === "pending" ||
+        file.aiSuggestion.status === "failed");
+    onClose();
+    if (hadAiSuggestion && onClearAiSuggestion) {
+      void onClearAiSuggestion(noteId);
+    }
+  };
 
   const handleCreateLinkedTask = async () => {
     const trimmed = newTaskTitle.trim();
@@ -163,6 +247,55 @@ export function ApproveFileModal({
     tagsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
 
+  const handleAddReceiptItemsToLedger = async () => {
+    if (!file || addingReceiptItems || saving) return;
+    const selected = receiptItemDrafts.filter((item) => item.selected);
+    if (!selected.length) return;
+
+    setAddingReceiptItems(true);
+    try {
+      const res = await apiFetch("/api/files/receipt-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: file.workspaceId,
+          noteId: file.id,
+          items: selected.map(({ key: _key, selected: _selected, ...item }) => item),
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        inserted?: number;
+        skipped?: number;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? "persist_failed");
+      }
+
+      const inserted = data.inserted ?? 0;
+      const skipped = data.skipped ?? 0;
+      setReceiptItemDrafts((current) => current.filter((item) => !item.selected));
+
+      if (inserted > 0) {
+        toast.success(
+          `Added ${inserted} item${inserted === 1 ? "" : "s"} to receipt ledger`,
+          skipped > 0
+            ? { description: `${skipped} duplicate${skipped === 1 ? "" : "s"} skipped` }
+            : undefined,
+        );
+      } else if (skipped > 0) {
+        toast.message("Receipt items already in ledger");
+      }
+    } catch {
+      toast.error("Could not add receipt items", {
+        description: "Try again or adjust your selection.",
+      });
+    } finally {
+      setAddingReceiptItems(false);
+    }
+  };
+
   const handleApprove = async (result: ApproveFileResult) => {
     if (!canFile) {
       showTagRequiredNudge();
@@ -190,10 +323,14 @@ export function ApproveFileModal({
   return createPortal(
     <MobileDrawerShell
       open={isOpen}
-      onClose={onClose}
+      onClose={handleDismiss}
       isMobile={isMobile}
       zIndex={280}
-      panelClassName={cn("approve-file-modal-shell sm:max-w-lg", !isMobile && "max-h-[92dvh]")}
+      panelClassName={cn(
+        "approve-file-modal-shell",
+        isMobile ? "sm:max-w-lg" : "sm:max-w-3xl",
+        !isMobile && "max-h-[92dvh]",
+      )}
       ariaLabelledBy="review-file-title"
     >
         <div
@@ -218,7 +355,7 @@ export function ApproveFileModal({
             )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleDismiss}
               className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-surface-hover text-text-muted"
               aria-label="Close"
             >
@@ -226,10 +363,23 @@ export function ApproveFileModal({
             </button>
           </div>
         </div>
-        {remainingInQueue > 0 && (
+        {(remainingInQueue > 0 || aiAnalyzing || aiReady) && (
           <p className="text-xs text-text-muted mb-4">
-            {remainingInQueue} in queue
-            {hasNext ? " — file & next keeps you moving" : ""}
+            {remainingInQueue > 0 ? (
+              <>
+                {remainingInQueue} in queue
+                {hasNext ? " — file & next keeps you moving" : ""}
+              </>
+            ) : null}
+            {remainingInQueue > 0 && (aiAnalyzing || aiReady) ? " · " : null}
+            {aiAnalyzing ? (
+              <span className="inline-flex items-center gap-1 text-neon-purple-dark">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                AI analyzing…
+              </span>
+            ) : aiReady ? (
+              <span className="text-neon-purple-dark">AI suggestions ready — edit or file below</span>
+            ) : null}
           </p>
         )}
 
@@ -252,14 +402,15 @@ export function ApproveFileModal({
                 disabled={!!saving}
                 onSuggested={(suggestion) => {
                   titleTouchedRef.current = true;
-                  setTitle(suggestion.title);
-                  if (suggestion.memo) {
-                    setMemo(suggestion.memo);
-                  }
-                  if (suggestion.tags?.length) {
-                    setTags(suggestion.tags);
-                    setTagNudgeVisible(false);
-                  }
+                  appliedAiSuggestionAtRef.current = `${file.id}:manual`;
+                  applyArchiveSuggestion(file.id, suggestion, {
+                    setTitle,
+                    setMemo,
+                    setTags,
+                    setRecordType,
+                    setReceiptItemDrafts,
+                    setTagNudgeVisible,
+                  });
                 }}
               />
             </div>
@@ -291,6 +442,16 @@ export function ApproveFileModal({
               disabled={!!saving}
             />
           </div>
+
+          {receiptItemDrafts.length > 0 ? (
+            <ReceiptItemsReviewPanel
+              items={receiptItemDrafts}
+              onChange={setReceiptItemDrafts}
+              onAddToLedger={() => void handleAddReceiptItemsToLedger()}
+              adding={addingReceiptItems}
+              disabled={!!saving}
+            />
+          ) : null}
 
           <label className="block text-xs text-text-secondary">
             Memo <span className="text-text-faint">(optional)</span>
@@ -498,7 +659,7 @@ export function ApproveFileModal({
           )}
 
           <div className={cn("flex gap-2", isMobile ? "flex-col" : "flex-col-reverse sm:flex-row")}>
-          <button type="button" onClick={onClose} className="btn btn-ghost flex-1 py-2.5 text-sm">
+          <button type="button" onClick={handleDismiss} className="btn btn-ghost flex-1 py-2.5 text-sm">
             Cancel
           </button>
           {onEdit && (

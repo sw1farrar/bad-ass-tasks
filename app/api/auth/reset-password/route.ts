@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logAuthLoginEventFromRequest } from "@/lib/auth/loginEvents";
 import { sendRecoveryCode } from "@/lib/auth/sendRecoveryCode";
 import { checkRateLimit } from "@/lib/auth/rateLimit";
 
@@ -37,6 +38,14 @@ export async function POST(request: Request) {
   if (!result.ok) {
     return NextResponse.json({ error: result.reason }, { status: result.status });
   }
+
+  await logAuthLoginEventFromRequest(request, {
+    eventType: "password_reset_requested",
+    userId: result.userId ?? null,
+    email,
+    authMethod: "otp_recovery",
+    metadata: { sent: result.sent },
+  });
 
   return NextResponse.json({
     ok: true,

@@ -1,12 +1,13 @@
 import type { FileRecordType, FileReviewStatus, Note } from "@/types";
 import { FILE_REVIEW_FILED, FILE_REVIEW_PENDING, inferRecordTypeFromTags } from "@/lib/files/fileTypes";
+import { parseFileAiSuggestion } from "@/lib/files/fileAiSuggestion";
 import type { Database } from "@/types/supabase";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
 
 /** Columns needed for file list, filters, search metadata, and badges — excludes heavy bodies. */
 export const NOTE_LIST_SELECT =
-  "id,workspace_id,title,created_at,updated_at,tags,linked_task_ids,linked_note_ids,parent_note_id,sort_order,search_plain,email_source,email_pipeline_version,review_status,record_type,memo,filed_at,reviewed_by,search_document,is_archived";
+  "id,workspace_id,title,created_at,updated_at,tags,linked_task_ids,linked_note_ids,parent_note_id,sort_order,search_plain,email_source,email_pipeline_version,review_status,record_type,memo,filed_at,reviewed_by,search_document,is_archived,ai_suggestion,notebook_id";
 
 export type NoteListRow = Pick<
   NoteRow,
@@ -26,11 +27,13 @@ export type NoteListRow = Pick<
   | "search_document"
   | "is_archived"
 > & {
+  notebook_id?: string | null;
   linked_note_ids?: string[] | null;
   sort_order?: number | null;
   search_plain?: string | null;
   email_source?: string | null;
   email_pipeline_version?: number | null;
+  ai_suggestion?: unknown;
 };
 
 function normalizeReviewStatus(value: unknown): FileReviewStatus {
@@ -67,6 +70,8 @@ export function mapNoteListRow(row: NoteListRow): Note {
     reviewedBy: row.reviewed_by ?? null,
     searchDocument: row.search_document ?? null,
     isArchived: row.is_archived ?? false,
+    aiSuggestion: parseFileAiSuggestion(row.ai_suggestion),
+    notebookId: row.notebook_id ?? null,
     bodyHydrated: false,
   };
 }

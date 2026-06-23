@@ -378,7 +378,7 @@
   background: var(--bg) !important;
 }
 
-[data-theme="dark"] .landing-page .landing-brand-icon {
+[data-theme="dark"] .top-bar-brand .brand-logo {
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.32);
 }
 

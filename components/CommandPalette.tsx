@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { Command } from "cmdk";
+import * as Dialog from "@radix-ui/react-dialog";
 import { 
   Search, Plus, CheckSquare, FileText, ListChecks, Users, Settings,
-  ArrowRight, Briefcase, FilePlus, Hash, Filter, Download, FolderOpen,
+  ArrowRight, Briefcase, FilePlus, Hash, Filter, Download, FolderOpen, Notebook,
 } from "lucide-react";
+import { getBottomNavViews } from "@/lib/nav/workspaceViews";
 import { searchNotesLocal } from "@/lib/files/searchNotesLocal";
 import { filterPendingReview } from "@/lib/files/fileFilters";
 import { useTaskStore } from "@/store/useTaskStore";
@@ -17,26 +19,6 @@ import {
 } from "@/features/tasks/lib/taskCompletionFeedback";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 
-// Small local VisuallyHidden component to satisfy Radix Dialog accessibility
-// without adding new dependencies.
-const VisuallyHidden = ({ children }: { children?: React.ReactNode }) => (
-  <span
-    style={{
-      position: "absolute",
-      width: 1,
-      height: 1,
-      padding: 0,
-      margin: -1,
-      overflow: "hidden",
-      clip: "rect(0, 0, 0, 0)",
-      whiteSpace: "nowrap",
-      border: 0,
-    }}
-  >
-    {children}
-  </span>
-);
-
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,7 +29,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     setView, 
     addTask, 
     addList,
-    toggleCommandPalette,
     toggleKeyboardCheatsheet,
     tasks,
     notes,
@@ -59,10 +40,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     switchWorkspace,
     selectTask,
     setTaskFilter,
-    recentActivity,
     setFilesOpenReview,
     setFilesSelectNoteId,
     setFilesCaptureOpen,
+    setSelectedNoteId,
   } = useTaskStore();
 
   const runCommand = (action: () => void | Promise<void>) => {
@@ -115,6 +96,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   };
 
   const handleCaptureFile = () => {
+    setSelectedNoteId(null);
     setFilesCaptureOpen(true);
     setView("notes");
   };
@@ -213,10 +195,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         if (e.key === "Escape") onOpenChange(false);
       }}
     >
-      {/* Visually hidden title to satisfy Radix Dialog accessibility requirements */}
-      <VisuallyHidden>
-        Command Palette
-      </VisuallyHidden>
+      <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
+      <Dialog.Description className="sr-only">
+        Search commands, tasks, notes, and workspace actions
+      </Dialog.Description>
 
       <div 
         className="fixed inset-0 overlay-scrim backdrop-blur-sm" 
@@ -363,13 +345,26 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
             {/* Navigation - all views + current indicator */}
             <Command.Group heading="Navigate Views" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
-              {[
-                { label: "All Tasks", view: "tasks" as const, icon: CheckSquare, shortcut: "1" },
-                { label: "Files", view: "notes" as const, icon: FileText, shortcut: "2" },
-                { label: "Lists", view: "lists" as const, icon: ListChecks, shortcut: "3" },
-                { label: "Team", view: "teams" as const, icon: Users, shortcut: "4" },
-                { label: "Workspace Settings", view: "settings" as const, icon: Settings, shortcut: "5" },
-              ].map((item) => (
+              {getBottomNavViews(currentWorkspace)
+                .filter((v) => v.id !== "home")
+                .map((v, index) => ({
+                  label: v.id === "notes" ? "Files" : v.label,
+                  view: v.id,
+                  icon:
+                    v.id === "tasks"
+                      ? CheckSquare
+                      : v.id === "notes"
+                        ? FileText
+                        : v.id === "notebooks"
+                          ? Notebook
+                          : v.id === "lists"
+                            ? ListChecks
+                            : v.id === "teams"
+                              ? Users
+                              : Settings,
+                  shortcut: String(index + 1),
+                }))
+                .map((item) => (
                 <Command.Item
                   key={item.view}
                   onSelect={() => runCommand(() => setView(item.view))}

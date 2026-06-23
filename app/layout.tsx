@@ -28,7 +28,8 @@ export const metadata: Metadata = {
   title: "Badazz Tasks — Get shit done. Beautifully.",
   description: "The most powerful, delightful, and addictive notes + task management app on the planet. Built for people who ship.",
   icons: {
-    icon: "/favicon.svg",
+    icon: "/brand/donkey-logo.jpg",
+    apple: "/brand/donkey-logo.jpg",
   },
   manifest: "/manifest.json",
   appleWebApp: {
@@ -61,9 +62,8 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body className="min-h-screen bg-bg text-text-primary antialiased">
-        <ErrorBoundary>
-          <ThemeProvider>{children}</ThemeProvider>
-        </ErrorBoundary>
+        <ThemeProvider />
+        <ErrorBoundary>{children}</ErrorBoundary>
         <AppToaster />
       </body>
     </html>

@@ -6,7 +6,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Download, FileText, Loader2 } from "lucide-react";
 import { PreviewMobileActions } from "@/components/PreviewMobileActions";
 import { toast } from "sonner";
-import { ImagePreviewModal } from "@/features/notes/editor/components/ImagePreviewModal";
+import {
+  ImagePreviewModal,
+  type ImagePreviewGallery,
+  type ImagePreviewNavigation,
+} from "@/features/notes/editor/components/ImagePreviewModal";
+import { fetchNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
+import {
+  attachmentsToImagePreviewItems,
+  findImagePreviewIndexFromAttachments,
+} from "@/lib/notes/noteImageGallery";
+import { isImageMime } from "@/lib/preview/imageMime";
 import {
   PdfAnnotationPreview,
   type PdfAnnotationPreviewHandle,
@@ -43,12 +53,10 @@ interface FilePreviewModalProps {
   file: FilePreviewTarget | null;
   onClose: () => void;
   onPdfAnnotationsSaved?: (attachmentId: string, annotations: PdfHighlightAnnotation[]) => void;
+  imageNavigation?: ImagePreviewNavigation;
 }
 
-function isImageMime(mime?: string, fileName?: string): boolean {
-  if (mime?.startsWith("image/")) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName ?? "");
-}
+export type { ImagePreviewNavigation };
 
 function isPdfMime(mime?: string, fileName?: string): boolean {
   if (mime === "application/pdf") return true;
@@ -350,7 +358,67 @@ function OfficePreview({ file, compact = false }: { file: FilePreviewTarget; com
   return null;
 }
 
-export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FilePreviewModalProps) {
+function FileImagePreview({
+  file,
+  onClose,
+  imageNavigation,
+}: {
+  file: FilePreviewTarget;
+  onClose: () => void;
+  imageNavigation?: ImagePreviewNavigation;
+}) {
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [galleryItems, setGalleryItems] = useState<ImagePreviewGallery["items"]>([]);
+
+  useEffect(() => {
+    if (imageNavigation || !file.noteId) {
+      setGalleryItems([]);
+      return;
+    }
+
+    let cancelled = false;
+    void fetchNoteAttachments(file.noteId).then((attachments) => {
+      if (cancelled) return;
+      const items = attachmentsToImagePreviewItems(attachments);
+      setGalleryItems(items);
+      setGalleryIndex(
+        findImagePreviewIndexFromAttachments(attachments, file.attachmentId, file.url),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file.noteId, file.attachmentId, file.url, imageNavigation]);
+
+  const gallery: ImagePreviewGallery | undefined =
+    !imageNavigation && galleryItems.length > 1
+      ? {
+          items: galleryItems,
+          index: galleryIndex,
+          onIndexChange: setGalleryIndex,
+          loop: true,
+        }
+      : undefined;
+
+  return (
+    <ImagePreviewModal
+      src={file.url}
+      alt={file.fileName}
+      mimeType={file.mimeType}
+      onClose={onClose}
+      gallery={gallery}
+      navigation={imageNavigation}
+    />
+  );
+}
+
+export function FilePreviewModal({
+  file,
+  onClose,
+  onPdfAnnotationsSaved,
+  imageNavigation,
+}: FilePreviewModalProps) {
   const [mounted, setMounted] = useState(false);
   const [pdfDirty, setPdfDirty] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
@@ -407,11 +475,10 @@ export function FilePreviewModal({ file, onClose, onPdfAnnotationsSaved }: FileP
 
   if (isImageMime(previewFile.mimeType, previewFile.fileName)) {
     return (
-      <ImagePreviewModal
-        src={previewFile.url}
-        alt={previewFile.fileName}
-        mimeType={previewFile.mimeType}
+      <FileImagePreview
+        file={previewFile}
         onClose={finishClose}
+        imageNavigation={imageNavigation}
       />
     );
   }

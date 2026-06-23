@@ -2166,6 +2166,7 @@
 
 .list-detail-scroll {
   background: var(--list-bg, transparent);
+  padding-bottom: 1rem;
 }
 
 .list-detail-scroll--item-dragging {
@@ -3080,6 +3081,7 @@
   .list-detail-modal .list-detail-scroll {
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 12px));
   }
 
   .list-detail-modal.list-detail-sheet--mobile .list-detail-toolbar--mobile {

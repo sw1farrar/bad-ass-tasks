@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildReceiptDedupeKey,
+  defaultReceiptLedgerSortDirection,
   filterReceiptLineItems,
   parseReceiptLineItemsFromAnalysis,
+  receiptLedgerSortToDbColumn,
+  resolveReceiptLedgerSort,
   type ReceiptLineItemRecord,
 } from "@/lib/files/receiptLineItems";
 
@@ -102,5 +105,31 @@ describe("receiptLineItems", () => {
 
     expect(filterReceiptLineItems(rows, { vendor: "Amazon" })).toHaveLength(1);
     expect(filterReceiptLineItems(rows, { query: "monitor" })).toHaveLength(1);
+  });
+
+  it("resolves receipt ledger sort params with safe defaults", () => {
+    expect(resolveReceiptLedgerSort(null, null)).toEqual({
+      column: "transactionDate",
+      direction: "desc",
+    });
+    expect(resolveReceiptLedgerSort("vendor", "asc")).toEqual({
+      column: "vendor",
+      direction: "asc",
+    });
+    expect(resolveReceiptLedgerSort("not_a_column", "sideways")).toEqual({
+      column: "transactionDate",
+      direction: "desc",
+    });
+  });
+
+  it("maps receipt ledger sort columns to database fields", () => {
+    expect(receiptLedgerSortToDbColumn("itemName")).toBe("item_name");
+    expect(receiptLedgerSortToDbColumn("returnPolicy")).toBe("return_policy");
+  });
+
+  it("picks sensible default directions for new sort columns", () => {
+    expect(defaultReceiptLedgerSortDirection("transactionDate")).toBe("desc");
+    expect(defaultReceiptLedgerSortDirection("pricePaid")).toBe("desc");
+    expect(defaultReceiptLedgerSortDirection("vendor")).toBe("asc");
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BrandLogo } from "@/components/BrandLogo";
 import {
   CheckSquare,
   FileText,
@@ -44,15 +45,7 @@ export function LandingPage({ onSignIn, isCheckingSession }: LandingPageProps) {
         <div className="landing-page__grid pointer-events-none absolute inset-0" aria-hidden />
 
         <div className="relative flex h-full flex-col">
-          <header className="landing-header flex shrink-0 items-center justify-between px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-2 sm:px-10">
-            <div className="flex items-center gap-2.5">
-              <div className="landing-brand-icon flex h-8 w-8 items-center justify-center rounded-lg bg-neon-purple">
-                <CheckSquare className="h-4 w-4 text-on-accent" strokeWidth={2.5} />
-              </div>
-              <span className="text-[15px] font-semibold tracking-tight sm:text-base">
-                Badazz Tasks
-              </span>
-            </div>
+          <header className="landing-header flex shrink-0 items-center justify-end px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-2 sm:px-10">
             <button
               onClick={onSignIn}
               disabled={isCheckingSession}
@@ -64,11 +57,17 @@ export function LandingPage({ onSignIn, isCheckingSession }: LandingPageProps) {
 
           <main className="landing-main flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-10">
             <div className="landing-hero w-full max-w-2xl text-center">
-              <p className="landing-eyebrow text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted sm:text-xs">
+              <div className="landing-hero-mark flex justify-center">
+                <BrandLogo size="hero" className="landing-hero-logo" priority />
+              </div>
+              <p className="landing-brand-name mt-5 text-[15px] font-semibold tracking-tight text-text-primary sm:text-base">
+                Badazz Tasks
+              </p>
+              <p className="landing-eyebrow mt-3 text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted sm:text-xs">
                 Workspace for people who ship
               </p>
 
-              <h1 className="landing-headline mt-5 text-[2.5rem] font-semibold leading-[1.05] tracking-[-0.04em] sm:mt-6 sm:text-[3.25rem] md:text-[3.75rem]">
+              <h1 className="landing-headline mt-4 text-[2.5rem] font-semibold leading-[1.05] tracking-[-0.04em] sm:mt-5 sm:text-[3.25rem] md:text-[3.75rem]">
                 Get shit done.
                 <span className="landing-headline-accent block font-normal text-text-secondary">
                   Beautifully.

@@ -710,13 +710,8 @@
 }
 
 /* ── Top bar brand & workspace switcher ── */
-[data-theme="light"] .top-bar-brand .bg-gradient-to-br {
-  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+[data-theme="light"] .top-bar-brand .brand-logo {
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28);
-}
-
-[data-theme="light"] .top-bar-brand .text-black {
-  color: #ffffff !important;
 }
 
 [data-theme="light"] .top-bar-brand .font-semibold {
@@ -2173,7 +2168,7 @@
 }
 
 [data-theme="light"] .files-root .note-attachments-embedded--preview {
-  padding: 0.625rem 1.75rem !important;
+  padding: 0.875rem 1.75rem !important;
 }
 
 [data-theme="light"] .files-root .note-attachments-embedded .note-attachments-inline-row {

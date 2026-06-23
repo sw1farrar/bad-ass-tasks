@@ -1,4 +1,5 @@
 import type { Note } from "@/types";
+import { isFileNote } from "@/lib/notebooks/notebookFilters";
 import { FILE_REVIEW_FILED, FILE_REVIEW_PENDING, type FileReviewStatus } from "./fileTypes";
 
 export function getNoteReviewStatus(note: Note): FileReviewStatus {
@@ -14,11 +15,11 @@ export function isFiledNote(note: Note): boolean {
 }
 
 export function filterPendingReview(notes: Note[]): Note[] {
-  return notes.filter(isPendingReview);
+  return notes.filter((n) => isFileNote(n) && isPendingReview(n));
 }
 
 export function filterFiledNotes(notes: Note[]): Note[] {
-  return notes.filter(isFiledNote);
+  return notes.filter((n) => isFileNote(n) && isFiledNote(n));
 }
 
 /** Match if the note has any of the selected tags. */

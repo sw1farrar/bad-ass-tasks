@@ -66,12 +66,13 @@ export async function middleware(request: NextRequest) {
 
   const isDualAuthExemptApi =
     pathname.startsWith("/api/auth/dual-auth") ||
+    pathname.startsWith("/api/auth/login") ||
     pathname.startsWith("/api/auth/signup") ||
     pathname.startsWith("/api/auth/resend-verification") ||
     pathname.startsWith("/api/auth/reset-password") ||
+    pathname.startsWith("/api/auth/change-password") ||
     pathname.startsWith("/api/webhooks/brevo-inbound") ||
-    pathname.startsWith("/api/invite/") ||
-    pathname === "/api/ai/suggest-archive-title";
+    pathname.startsWith("/api/invite/");
 
   // Block paused users (platform admin can pause accounts)
   if (user && !isAuthPage) {
@@ -107,6 +108,14 @@ export async function middleware(request: NextRequest) {
     !(await isDualAuthSatisfied(request, user.id))
   ) {
     return NextResponse.json({ error: "dual_auth_required" }, { status: 403 });
+  }
+
+  // Signed-in users should not linger on the login page
+  if (user && pathname.startsWith("/login")) {
+    const nextParam = request.nextUrl.searchParams.get("next");
+    const destination =
+      nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
+    return NextResponse.redirect(new URL(destination, request.url));
   }
 
   // Unauthenticated API calls → JSON 401 (never HTML redirect)

@@ -1144,7 +1144,7 @@ export function NotesView({
                 />
               ) : undefined
             }
-            belowScrollContent={
+            aboveScrollContent={
               filesDesktopPreview || filesMobilePreview ? (
                 <LinkedTasksPanel
                   selectedNote={selectedNote}
@@ -1153,6 +1153,10 @@ export function NotesView({
                   onUnlinkTaskFromNote={onUnlinkTaskFromNote}
                   onOpenTask={onOpenTask}
                   onToggleTaskComplete={onToggleTaskComplete}
+                  onCreateTaskAndLink={
+                    filesMobilePreview ? undefined : onCreateTaskAndLink
+                  }
+                  compact={filesMobilePreview}
                   previewMode
                 />
               ) : undefined

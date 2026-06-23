@@ -52,6 +52,19 @@ export type PlatformActivityRow = {
   metadata: Record<string, unknown>;
 };
 
+export type PlatformLoginEventRow = {
+  id: string;
+  userId: string | null;
+  email: string | null;
+  userName: string | null;
+  eventType: string;
+  authMethod: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  metadata: Record<string, unknown>;
+};
+
 export type PlatformAnalytics = {
   activityByDay: DailyEngagementPoint[];
   signupsByDay: DailyCountPoint[];
@@ -226,6 +239,58 @@ export async function fetchPlatformUsers(): Promise<PlatformUserRow[]> {
   );
 
   return enriched;
+}
+
+export { formatLoginEventLabel } from "@/lib/auth/loginActivityShared";
+
+export async function fetchPlatformLoginActivity(limit = 100): Promise<PlatformLoginEventRow[]> {
+  const admin = createAdminSupabaseClient();
+
+  type LoginEventRow = {
+    id: string;
+    user_id: string | null;
+    email: string | null;
+    event_type: string;
+    auth_method: string | null;
+    ip_address: string | null;
+    user_agent: string | null;
+    metadata: Record<string, unknown> | null;
+    created_at: string;
+  };
+
+  const { data: eventsRaw, error } = await admin
+    .from("auth_login_events")
+    .select("id, user_id, email, event_type, auth_method, ip_address, user_agent, metadata, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(error.message || "Failed to load login activity");
+  }
+
+  const events = (eventsRaw ?? []) as LoginEventRow[];
+  const userIds = [...new Set(events.map((e) => e.user_id).filter(Boolean))] as string[];
+
+  const profilesRes = userIds.length
+    ? await admin.from("profiles").select("id, full_name").in("id", userIds)
+    : { data: [] };
+
+  const profileMap = new Map(
+    ((profilesRes.data ?? []) as Array<{ id: string; full_name: string | null }>).map((p) => [p.id, p.full_name]),
+  );
+
+  return events.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    email: row.email,
+    userName: row.user_id ? (profileMap.get(row.user_id) ?? null) : null,
+    eventType: row.event_type,
+    authMethod: row.auth_method,
+    ipAddress: row.ip_address,
+    userAgent: row.user_agent,
+    createdAt: row.created_at,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+  }));
 }
 
 export async function fetchPlatformActivity(limit = 80): Promise<PlatformActivityRow[]> {

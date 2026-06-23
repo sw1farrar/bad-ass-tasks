@@ -183,6 +183,8 @@ export interface Database {
           reviewed_by?: string | null
           search_document?: string | null
           bookmarked?: boolean
+          notebook_id?: string | null
+          ai_suggestion?: Json | null
         }
         Insert: {
           id?: string
@@ -211,6 +213,8 @@ export interface Database {
           reviewed_by?: string | null
           search_document?: string | null
           bookmarked?: boolean
+          notebook_id?: string | null
+          ai_suggestion?: Json | null
         }
         Update: {
           id?: string
@@ -232,6 +236,8 @@ export interface Database {
           email_source?: string | null
           search_plain?: string | null
           email_pipeline_version?: number | null
+          notebook_id?: string | null
+          ai_suggestion?: Json | null
           review_status?: string
           record_type?: string
           memo?: string | null
@@ -239,6 +245,32 @@ export interface Database {
           reviewed_by?: string | null
           search_document?: string | null
           bookmarked?: boolean
+        }
+      },
+      notebooks: {
+        Row: {
+          id: string
+          workspace_id: string
+          name: string
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          name: string
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          name?: string
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
         }
       },
       // Added for Phase 2 collaboration (workspace_members was missing from prior types)
@@ -525,6 +557,44 @@ export interface Database {
           expires_at?: string
           created_at?: string
           consumed_at?: string | null
+        }
+      },
+      auth_login_events: {
+        Row: {
+          id: string
+          user_id: string | null
+          email: string | null
+          event_type: string
+          auth_method: string | null
+          ip_address: string | null
+          user_agent: string | null
+          device_id: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          email?: string | null
+          event_type: string
+          auth_method?: string | null
+          ip_address?: string | null
+          user_agent?: string | null
+          device_id?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          email?: string | null
+          event_type?: string
+          auth_method?: string | null
+          ip_address?: string | null
+          user_agent?: string | null
+          device_id?: string | null
+          metadata?: Json
+          created_at?: string
         }
       },
       note_email_inboxes: {

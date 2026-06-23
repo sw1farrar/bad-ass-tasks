@@ -9,6 +9,7 @@ import { DatabaseBlockNodeView } from '../features/notes/editor/extensions/datab
 import { SyncedBlockNodeView } from '../features/notes/editor/extensions/synced-block-node-view';
 // M2 server round-trip contract tests: direct access to hardened onPersistSnapshot + isSupabaseLive guard
 import * as hybridStore from '@/lib/data/hybridStore';
+import { dueDateFromUserInput } from '@/lib/datetime';
 
 // Heavy mocks to keep tests isolated, fast, and deterministic (no real TipTap/ProseMirror, no real icons, no DOM side effects)
 vi.mock('@tiptap/react', () => ({
@@ -486,7 +487,7 @@ describe('Bidirectional linking in useNoteOperations (task-to-note and note-to-n
     });
 
     expect(updateTask).toHaveBeenCalledWith('new-task-2', {
-      dueDate: '2026-06-15',
+      dueDate: dueDateFromUserInput('2026-06-15'),
       assigneeIds: ['user-abc'],
     });
     expect(updateTask).toHaveBeenCalledWith('new-task-2', { linkedNoteIds: [noteUuid] });

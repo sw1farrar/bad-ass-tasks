@@ -2,14 +2,16 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Check, Loader2, Search } from "lucide-react";
-import { cn, formatDueDate, getRecurringLabel, triggerHaptic } from "@/lib/utils";
+import { cn, formatDueDate, triggerHaptic } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskRow } from "./TaskRow";
 import { TaskCommentIndicator } from "./TaskCommentIndicator";
+import { TaskLinkedFileIndicator } from "./TaskLinkedFileIndicator";
+import { TaskLinkedFileModal } from "./TaskLinkedFileModal";
+import { TaskLinkedFilePickerSheet } from "./TaskLinkedFilePickerSheet";
+import { getTaskLinkedFileNotes, taskHasLinkedFiles } from "@/features/tasks/lib/taskLinkedFiles";
 import { resolveAssigneeLabel } from "@/lib/assignee";
 import { TaskAssigneeSelectModal } from "./TaskAssigneeSelectModal";
-import { TaskFolderSelectModal } from "./TaskFolderSelectModal";
-import { TaskRecurrenceSelectModal } from "./TaskRecurrenceSelectModal";
 import { TaskTableAssigneeCell } from "./TaskTableAssigneeCell";
 import { TaskStarButton } from "./TaskStarButton";
 import { TaskTableDueDateCell } from "./TaskTableDueDateCell";
@@ -57,9 +59,9 @@ export function TasksTable({
   const [quickTitle, setQuickTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
-  const [folderPickerTaskId, setFolderPickerTaskId] = useState<string | null>(null);
-  const [repeatPickerTaskId, setRepeatPickerTaskId] = useState<string | null>(null);
   const [assigneePickerTaskId, setAssigneePickerTaskId] = useState<string | null>(null);
+  const [linkedFileNoteId, setLinkedFileNoteId] = useState<string | null>(null);
+  const [linkedFilePickerTask, setLinkedFilePickerTask] = useState<Task | null>(null);
   const quickAddInputRef = useRef<HTMLInputElement>(null);
   const refocusQuickAddRef = useRef(false);
   const isMobile = useIsMobileViewport();
@@ -70,17 +72,11 @@ export function TasksTable({
     getTaskFolders,
     toggleTaskStarred,
     setTaskFolder,
-    addTaskFolder,
     updateTask,
     members,
+    notes,
   } = useTaskStore();
   const folders = getTaskFolders();
-  const folderPickerTask = folderPickerTaskId
-    ? tasks.find((t) => t.id === folderPickerTaskId)
-    : undefined;
-  const repeatPickerTask = repeatPickerTaskId
-    ? tasks.find((t) => t.id === repeatPickerTaskId)
-    : undefined;
   const assigneePickerTask = assigneePickerTaskId
     ? tasks.find((t) => t.id === assigneePickerTaskId)
     : undefined;
@@ -139,6 +135,20 @@ export function TasksTable({
     e.preventDefault();
     void submitQuickAdd();
   };
+
+  const handleOpenLinkedFile = (task: Task) => {
+    const linkedIds = task.linkedNoteIds ?? [];
+    if (linkedIds.length === 0) return;
+    if (linkedIds.length === 1) {
+      setLinkedFileNoteId(linkedIds[0]);
+      return;
+    }
+    setLinkedFilePickerTask(task);
+  };
+
+  const linkedFilePickerNotes = linkedFilePickerTask
+    ? getTaskLinkedFileNotes(linkedFilePickerTask, notes)
+    : [];
 
   return (
     <div className={cn("tasks-table-root flex flex-col gap-3 md:gap-0 min-h-0", className)}>
@@ -236,6 +246,7 @@ export function TasksTable({
                 onComplete={onComplete}
                 onSwipeComplete={onSwipeComplete}
                 showOrganize
+                onOpenLinkedFile={handleOpenLinkedFile}
               />
             );
           })
@@ -252,7 +263,7 @@ export function TasksTable({
                 <th className="tasks-desktop-table__title-col p-3 font-medium" scope="col">
                   Title
                 </th>
-                <th className="p-3 font-medium w-40 hidden lg:table-cell" scope="col">
+                <th className="tasks-desktop-table__folder-col p-3 font-medium w-40 hidden lg:table-cell" scope="col">
                   Folder
                 </th>
                 {showWorkspaceColumn ? (
@@ -291,11 +302,7 @@ export function TasksTable({
                     task.workspaceId,
                     user?.id,
                   );
-                  const recurringLabel = task.recurringRule
-                    ? getRecurringLabel(task.recurringRule)
-                    : null;
                   const workspaceName = getWorkspaceName?.(task);
-                  const folderName = folders.find((f) => f.id === task.folderId)?.name;
 
                   return (
                     <tr
@@ -341,6 +348,15 @@ export function TasksTable({
                           >
                             {task.title}
                           </div>
+                          {taskHasLinkedFiles(task) ? (
+                            <TaskLinkedFileIndicator
+                              count={task.linkedNoteIds?.length ?? 0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenLinkedFile(task);
+                              }}
+                            />
+                          ) : null}
                           {commentState.hasComments ? (
                             <TaskCommentIndicator
                               count={commentState.count}
@@ -351,13 +367,14 @@ export function TasksTable({
                         </div>
                       </td>
                       <td
-                        className="p-2 align-middle hidden lg:table-cell min-w-[9rem] max-w-[12rem]"
+                        className="tasks-desktop-table__folder-cell p-2 align-middle hidden lg:table-cell min-w-[9rem] max-w-[12rem]"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <TaskTableFolderCell
-                          folderName={folderName}
+                          folders={folders}
+                          folderId={task.folderId}
                           disabled={loading}
-                          onOpen={() => setFolderPickerTaskId(task.id)}
+                          onChange={(folderId) => void setTaskFolder(task.id, folderId)}
                         />
                       </td>
                       {showWorkspaceColumn ? (
@@ -388,11 +405,7 @@ export function TasksTable({
                         className="tasks-desktop-table__repeat-cell p-2 align-top hidden md:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <TaskTableRepeatCell
-                          label={recurringLabel ?? undefined}
-                          disabled={loading}
-                          onOpen={() => setRepeatPickerTaskId(task.id)}
-                        />
+                        <TaskTableRepeatCell task={task} disabled={loading} />
                       </td>
                       {showAssignee ? (
                         <td
@@ -415,34 +428,6 @@ export function TasksTable({
         </div>
       </div>
 
-      <TaskFolderSelectModal
-        open={!!folderPickerTask}
-        onOpenChange={(open) => {
-          if (!open) setFolderPickerTaskId(null);
-        }}
-        taskTitle={folderPickerTask?.title}
-        selectedFolderId={folderPickerTask?.folderId}
-        folders={folders}
-        onSelectFolder={(folderId) => {
-          if (!folderPickerTask) return;
-          void setTaskFolder(folderPickerTask.id, folderId);
-        }}
-        onAddFolder={(name) => addTaskFolder(name)}
-      />
-
-      <TaskRecurrenceSelectModal
-        open={!!repeatPickerTask}
-        onOpenChange={(open) => {
-          if (!open) setRepeatPickerTaskId(null);
-        }}
-        task={repeatPickerTask}
-        disabled={!!repeatPickerTask && !!taskLoadingStates?.[repeatPickerTask.id]}
-        onSave={(updates) => {
-          if (!repeatPickerTask) return;
-          void updateTask(repeatPickerTask.id, updates);
-        }}
-      />
-
       <TaskAssigneeSelectModal
         open={!!assigneePickerTask}
         onOpenChange={(open) => {
@@ -458,6 +443,20 @@ export function TasksTable({
           const assignee = resolveAssigneeLabel(assigneeIds, members, user?.id);
           void updateTask(assigneePickerTask.id, { assigneeIds, assignee });
         }}
+      />
+
+      <TaskLinkedFilePickerSheet
+        open={!!linkedFilePickerTask}
+        onClose={() => setLinkedFilePickerTask(null)}
+        taskTitle={linkedFilePickerTask?.title}
+        notes={linkedFilePickerNotes}
+        onSelect={(noteId) => setLinkedFileNoteId(noteId)}
+      />
+
+      <TaskLinkedFileModal
+        open={!!linkedFileNoteId}
+        onClose={() => setLinkedFileNoteId(null)}
+        noteId={linkedFileNoteId}
       />
     </div>
   );

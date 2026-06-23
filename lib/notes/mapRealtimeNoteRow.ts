@@ -1,5 +1,6 @@
 import type { FileRecordType, FileReviewStatus, Note } from "@/types";
 import { inferRecordTypeFromTags } from "@/lib/files/fileTypes";
+import { parseFileAiSuggestion } from "@/lib/files/fileAiSuggestion";
 
 /** Normalize notes.content from a Supabase realtime payload row. */
 export function contentFromNoteRow(raw: unknown): string {
@@ -54,6 +55,8 @@ export function mapRealtimeNoteRow(row: Record<string, unknown>): Note {
     searchPlain: typeof row.search_plain === "string" ? row.search_plain : null,
     rawHtml,
     snapshots: Array.isArray(row.snapshots) ? (row.snapshots as Note["snapshots"]) : [],
+    aiSuggestion: parseFileAiSuggestion(row.ai_suggestion),
+    notebookId: (row.notebook_id as string | null | undefined) ?? null,
     bodyHydrated: hasBody,
   };
 }
@@ -107,6 +110,12 @@ export function mergeRealtimeNoteUpdate(existing: Note, row: Record<string, unkn
   }
   if (row.search_plain !== undefined) {
     next.searchPlain = typeof row.search_plain === "string" ? row.search_plain : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(row, "ai_suggestion")) {
+    next.aiSuggestion = parseFileAiSuggestion(row.ai_suggestion);
+  }
+  if (Object.prototype.hasOwnProperty.call(row, "notebook_id")) {
+    next.notebookId = (row.notebook_id as string | null | undefined) ?? null;
   }
 
   return next;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { fetchDualAuthStatus, type DualAuthStatusResponse } from "@/lib/auth/dualAuthClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 type DualAuthGateProps = {
@@ -16,28 +17,17 @@ type GatePhase = "loading" | "sending" | "enter_code";
 
 type SendCodeResult = {
   ok: boolean;
+  alreadyVerified?: boolean;
   alreadySent?: boolean;
   retryAfterSeconds?: number;
   error?: string;
 };
 
-type DualAuthStatus = {
-  verified?: boolean;
-  hasActiveCode?: boolean;
-  retryAfterSeconds?: number;
-};
-
-async function fetchDualAuthStatus(): Promise<DualAuthStatus> {
-  const response = await fetch("/api/auth/dual-auth/status", { cache: "no-store" });
-  const payload = (await response.json().catch(() => ({}))) as DualAuthStatus & { error?: string };
-  if (!response.ok) return {};
-  return payload;
-}
-
 async function requestDualAuthCode(options?: { force?: boolean }): Promise<SendCodeResult> {
   const response = await fetch("/api/auth/dual-auth/send", {
     method: "POST",
     headers: { "content-type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(options?.force ? { force: true, confirm: true } : { confirm: true }),
   });
 
@@ -49,7 +39,11 @@ async function requestDualAuthCode(options?: { force?: boolean }): Promise<SendC
   };
 
   if (payload.alreadyVerified) {
-    return { ok: true, alreadySent: true };
+    return { ok: true, alreadyVerified: true };
+  }
+
+  if (response.status === 503) {
+    return { ok: true, alreadyVerified: true };
   }
 
   if (!response.ok) {
@@ -117,6 +111,11 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
 
       try {
         const result = await requestDualAuthCode({ force: options?.force });
+        if (result.alreadyVerified) {
+          onVerifiedRef.current();
+          return result;
+        }
+
         if (!result.ok) {
           const message = result.error || "Could not send verification code.";
           setError(message);
@@ -165,10 +164,10 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
 
     void (async () => {
       try {
-        const status = await fetchDualAuthStatus();
+        const status: DualAuthStatusResponse = await fetchDualAuthStatus();
         if (cancelled || generation !== initGenerationRef.current) return;
 
-        if (status.verified) {
+        if (!status.required || status.verified) {
           onVerifiedRef.current();
           return;
         }
@@ -221,6 +220,7 @@ export function DualAuthGate({ maskedEmail, onVerified, onSignOut }: DualAuthGat
       const response = await fetch("/api/auth/dual-auth/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ code: code.trim(), rememberDevice }),
       });
       const payload = (await response.json().catch(() => ({}))) as {

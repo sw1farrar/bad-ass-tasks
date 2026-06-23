@@ -8,6 +8,9 @@ import { useScrollLock } from '@/lib/hooks/useScrollLock';
 import { useIsMobileViewport } from '@/lib/hooks/useIsMobileViewport';
 import { BottomSheet } from '@/components/BottomSheet';
 
+/** Above receipt ledger drawer (920) and policy tooltips (960); below file preview (10050). */
+const CONFIRMATION_MODAL_Z_INDEX = 1000;
+
 interface ConfirmationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -172,7 +175,7 @@ export function ConfirmationModal({
         open={open}
         onClose={close}
         title={title}
-        zIndex={850}
+        zIndex={CONFIRMATION_MODAL_Z_INDEX}
         panelClassName="confirmation-modal"
         showClose={false}
         showDragHandle
@@ -199,7 +202,10 @@ export function ConfirmationModal({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[850] flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 flex items-center justify-center p-4"
+      style={{ zIndex: CONFIRMATION_MODAL_Z_INDEX }}
+    >
       <div
         className="absolute inset-0 overlay-scrim backdrop-blur-[3px]"
         onClick={close}

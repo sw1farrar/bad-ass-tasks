@@ -15,7 +15,7 @@
 import { apiFetch } from "@/lib/api/apiFetch";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
-import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem, TaskFolder } from "@/types";
+import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem, TaskFolder, Notebook } from "@/types";
 import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
 import {
   NOTE_LIST_SELECT,
@@ -24,6 +24,7 @@ import {
 } from "@/lib/files/noteListProjection";
 import { hasUserFilingTags } from "@/lib/files/fileFilters";
 import { FILE_REVIEW_FILED, FILE_REVIEW_PENDING, inferRecordTypeFromTags } from "@/lib/files/fileTypes";
+import { parseFileAiSuggestion } from "@/lib/files/fileAiSuggestion";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
@@ -773,6 +774,8 @@ function mapNoteRow(row: NoteRow): Note {
     reviewedBy: (row as any).reviewed_by ?? null,
     searchDocument: (row as any).search_document ?? null,
     bookmarked: (row as any).bookmarked === true,
+    aiSuggestion: parseFileAiSuggestion((row as any).ai_suggestion),
+    notebookId: (row as any).notebook_id ?? null,
   };
 }
 
@@ -2361,6 +2364,7 @@ export async function createNote(input: {
   // Optional pre-generated client UUID for offline create consistency
   id?: string;
   parentNoteId?: string | null; // Milestone 2: hierarchy
+  notebookId?: string | null;
   reviewStatus?: FileReviewStatus;
   recordType?: FileRecordType;
   memo?: string | null;
@@ -2370,12 +2374,15 @@ export async function createNote(input: {
   const supabase = getClient();
   if (!supabase) return null;
 
+  const isNotebookNote = !!input.notebookId;
   await probeFilesWorkflow();
-  const reviewStatus =
-    input.reviewStatus ??
-    (filesWorkflowAvailable ? FILE_REVIEW_PENDING : FILE_REVIEW_FILED);
-  const recordType =
-    input.recordType ?? inferRecordTypeFromTags(input.tags ?? []);
+  const reviewStatus = isNotebookNote
+    ? undefined
+    : input.reviewStatus ??
+      (filesWorkflowAvailable ? FILE_REVIEW_PENDING : FILE_REVIEW_FILED);
+  const recordType = isNotebookNote
+    ? undefined
+    : input.recordType ?? inferRecordTypeFromTags(input.tags ?? []);
   const online = isCurrentlyOnline();
 
   if (!online) {
@@ -2392,6 +2399,7 @@ export async function createNote(input: {
       reviewStatus,
       recordType,
       memo: input.memo ?? null,
+      notebookId: input.notebookId ?? null,
     };
 
     const contentJson = noteContentToJson(input.content);
@@ -2401,8 +2409,9 @@ export async function createNote(input: {
       tags: input.tags ?? [],
       is_archived: false,
       ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
+      ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
     };
-    if (filesWorkflowAvailable) {
+    if (filesWorkflowAvailable && !isNotebookNote) {
       pendingPayload.review_status = reviewStatus;
       pendingPayload.record_type = recordType;
       if (input.memo) pendingPayload.memo = input.memo;
@@ -2434,8 +2443,9 @@ export async function createNote(input: {
     tags: input.tags ?? [],
     is_archived: false,
     ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
+    ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
   };
-  if (filesWorkflowAvailable) {
+  if (filesWorkflowAvailable && !isNotebookNote) {
     insertPayload.review_status = reviewStatus;
     insertPayload.record_type = recordType;
     if (input.memo) insertPayload.memo = input.memo;
@@ -2467,6 +2477,8 @@ export async function createNote(input: {
           content: contentJson,
           tags: input.tags ?? [],
           is_archived: false,
+          ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
+          ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
         },
         workspaceId: input.workspaceId,
       });
@@ -2481,22 +2493,25 @@ export async function createNote(input: {
         tags: input.tags ?? [],
         linkedTaskIds: [],
         parentNoteId: input.parentNoteId ?? null,
+        notebookId: input.notebookId ?? null,
       };
     }
 
     const created = mapNoteRow(data);
 
-    const {
-      data: { user: actor },
-    } = await supabase.auth.getUser();
-    fanoutNoteAddedNotifications({
-      workspaceId: input.workspaceId,
-      noteId: created.id,
-      noteTitle: created.title,
-      actorUserId: actor?.id ?? null,
-      source: (input.tags ?? []).includes("from-email") ? "email" : "manual",
-      supabase: supabase as any,
-    }).catch(() => {});
+    if (!isNotebookNote) {
+      const {
+        data: { user: actor },
+      } = await supabase.auth.getUser();
+      fanoutNoteAddedNotifications({
+        workspaceId: input.workspaceId,
+        noteId: created.id,
+        noteTitle: created.title,
+        actorUserId: actor?.id ?? null,
+        source: (input.tags ?? []).includes("from-email") ? "email" : "manual",
+        supabase: supabase as any,
+      }).catch(() => {});
+    }
 
     return created;
   } catch (err) {
@@ -2510,6 +2525,8 @@ export async function createNote(input: {
         content: noteContentToJson(input.content),
         tags: input.tags ?? [],
         is_archived: false,
+        ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
+        ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
       },
       workspaceId: input.workspaceId,
     });
@@ -2524,6 +2541,7 @@ export async function createNote(input: {
       tags: input.tags ?? [],
       linkedTaskIds: [],
       parentNoteId: input.parentNoteId ?? null,
+      notebookId: input.notebookId ?? null,
     };
   }
 }
@@ -2605,6 +2623,12 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
   }
   if (updates.bookmarked !== undefined) {
     (payload as any).bookmarked = updates.bookmarked;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "aiSuggestion")) {
+    (payload as any).ai_suggestion =
+      updates.aiSuggestion === null || updates.aiSuggestion === undefined
+        ? null
+        : (updates.aiSuggestion as Json);
   }
   if (
     filesWorkflowAvailable &&
@@ -4391,7 +4415,7 @@ export async function sendInviteEmail(
 /** Update workspace name and/or slug (owner only — enforced server-side via API). */
 export async function updateWorkspace(
   workspaceId: string,
-  updates: { name?: string; slug?: string }
+  updates: { name?: string; slug?: string; settings?: import("@/lib/workspace/workspaceSettings").WorkspaceSettings }
 ): Promise<boolean> {
   if (!isSupabaseLive()) return false;
   if (["w1", "w2"].includes(workspaceId)) return false;
@@ -4404,6 +4428,7 @@ export async function updateWorkspace(
         workspaceId,
         name: updates.name?.trim(),
         slug: updates.slug?.trim(),
+        settings: updates.settings,
       }),
     });
 
@@ -6302,6 +6327,261 @@ export async function backfillTaskFoldersIfNeeded(
 
   for (const folder of folders) {
     await upsertTaskFolder(folder);
+  }
+
+  return true;
+}
+
+// ------------------------------------------------------------------
+// Notebooks (workspace Notes feature)
+// ------------------------------------------------------------------
+
+type NotebookRow = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+let notebookTablesAvailable: boolean | null = null;
+
+function markNotebookTablesMissing(): void {
+  notebookTablesAvailable = false;
+}
+
+function markNotebookTablesAvailable(): void {
+  notebookTablesAvailable = true;
+}
+
+export function areNotebookTablesReady(): boolean {
+  return notebookTablesAvailable !== false;
+}
+
+export function isNotebookPersistenceEnabled(): boolean {
+  return notebookTablesAvailable === true;
+}
+
+async function probeNotebookTables(force = false): Promise<void> {
+  if (!force && notebookTablesAvailable !== null) return;
+  const supabase = getClient();
+  if (!supabase) {
+    markNotebookTablesMissing();
+    return;
+  }
+  try {
+    const { error } = await (supabase.from("notebooks") as any).select("id").limit(1);
+    if (error) {
+      if (isSchemaTableMissing(error)) markNotebookTablesMissing();
+      else logHybridError("probeNotebookTables", error);
+      return;
+    }
+    const { error: columnError } = await (supabase.from("notes") as any)
+      .select("notebook_id")
+      .limit(1);
+    if (columnError) {
+      const e = columnError as { code?: string; message?: string };
+      const missingColumn =
+        e?.code === "PGRST204" ||
+        (typeof e?.message === "string" &&
+          e.message.toLowerCase().includes("notebook_id"));
+      if (missingColumn || isSchemaTableMissing(columnError)) {
+        markNotebookTablesMissing();
+        return;
+      }
+      logHybridError("probeNotebookTables:notebook_id", columnError);
+      return;
+    }
+    markNotebookTablesAvailable();
+  } catch (err) {
+    if (isSchemaTableMissing(err)) markNotebookTablesMissing();
+    else logHybridError("probeNotebookTables", err);
+  }
+}
+
+export async function ensureNotebookPersistenceReady(): Promise<boolean> {
+  if (notebookTablesAvailable === true) return true;
+  await probeNotebookTables(true);
+  return notebookTablesAvailable !== false && notebookTablesAvailable !== null;
+}
+
+export function mapNotebookRow(row: NotebookRow): Notebook {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getNotebooks(workspaceId: string): Promise<Notebook[]> {
+  if (!isLiveDataWorkspace(workspaceId) || !isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.from("notebooks") as any)
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markNotebookTablesMissing();
+        return [];
+      }
+      logHybridError("getNotebooks", error);
+      return [];
+    }
+    markNotebookTablesAvailable();
+    return (data ?? []).map((row: NotebookRow) => mapNotebookRow(row));
+  } catch (err) {
+    logHybridError("getNotebooks", err);
+    return [];
+  }
+}
+
+export async function createNotebook(input: {
+  id?: string;
+  workspaceId: string;
+  name: string;
+  sortOrder?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}): Promise<boolean> {
+  if (!isLiveDataWorkspace(input.workspaceId)) return false;
+  if (!(await ensureNotebookPersistenceReady())) return true;
+
+  const now = new Date().toISOString();
+  const payload = {
+    id: input.id || generateClientId(),
+    workspace_id: input.workspaceId,
+    name: input.name,
+    sort_order: input.sortOrder ?? 0,
+    created_at: input.createdAt ?? now,
+    updated_at: input.updatedAt ?? now,
+  };
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("notebooks") as any).insert(payload);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markNotebookTablesMissing();
+        return false;
+      }
+      logHybridError("createNotebook", error);
+      return false;
+    }
+    markNotebookTablesAvailable();
+    return true;
+  } catch (err) {
+    logHybridError("createNotebook", err);
+    return false;
+  }
+}
+
+export async function updateNotebook(
+  id: string,
+  workspaceId: string,
+  updates: Partial<Pick<Notebook, "name" | "sortOrder">>,
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isNotebookPersistenceEnabled()) return true;
+
+  const payload: Partial<NotebookRow> = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (Object.keys(payload).length === 0) return true;
+  payload.updated_at = new Date().toISOString();
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("notebooks") as any)
+      .update(payload)
+      .eq("id", id)
+      .eq("workspace_id", workspaceId);
+    if (error) {
+      if (isSchemaTableMissing(error)) {
+        markNotebookTablesMissing();
+        return true;
+      }
+      logHybridError("updateNotebook", error);
+    }
+    return true;
+  } catch (err) {
+    logHybridError("updateNotebook", err);
+    return true;
+  }
+}
+
+export async function deleteNotebook(id: string, workspaceId: string): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!isNotebookPersistenceEnabled()) return true;
+
+  if (!isCurrentlyOnline()) return true;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("notebooks") as any)
+      .delete()
+      .eq("id", id)
+      .eq("workspace_id", workspaceId);
+    if (error && error.code !== "PGRST116") {
+      if (isSchemaTableMissing(error)) {
+        markNotebookTablesMissing();
+        return true;
+      }
+      logHybridError("deleteNotebook", error);
+    }
+    return true;
+  } catch (err) {
+    logHybridError("deleteNotebook", err);
+    return true;
+  }
+}
+
+/** Push local-only notebooks into Supabase after migration (one-time backfill). */
+export async function backfillNotebooksIfNeeded(
+  workspaceId: string,
+  localNotebooks: Notebook[],
+): Promise<boolean> {
+  if (!isLiveDataWorkspace(workspaceId)) return false;
+  if (!(await ensureNotebookPersistenceReady())) return false;
+  if (!isNotebookPersistenceEnabled()) return false;
+
+  const serverNotebooks = await getNotebooks(workspaceId);
+  if (serverNotebooks.length > 0) return false;
+
+  const notebooks = localNotebooks.filter(
+    (nb) => nb.workspaceId === workspaceId && !nb.id.startsWith("nb-demo-"),
+  );
+  if (notebooks.length === 0) return false;
+
+  for (const notebook of notebooks) {
+    const ok = await createNotebook({
+      id: notebook.id,
+      workspaceId: notebook.workspaceId,
+      name: notebook.name,
+      sortOrder: notebook.sortOrder,
+      createdAt: notebook.createdAt,
+      updatedAt: notebook.updatedAt,
+    });
+    if (!ok) return false;
   }
 
   return true;

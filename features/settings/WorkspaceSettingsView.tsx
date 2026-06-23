@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Settings, Trash2, Bell, Mail, Pencil, Check, X } from "lucide-react";
+import { Settings, Trash2, Bell, Mail, Pencil, Check, X, Notebook } from "lucide-react";
+import { isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 import { cn } from "@/lib/utils";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { NoteEmailInboxesPanel } from "./components/NoteEmailInboxesPanel";
@@ -52,6 +53,8 @@ export function WorkspaceSettingsView() {
   const [settingsName, setSettingsName] = useState(currentWorkspace.name);
   const [isEditingName, setIsEditingName] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingNotesFeature, setIsSavingNotesFeature] = useState(false);
+  const notesEnabled = isNotesFeatureEnabled(currentWorkspace.settings);
 
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
@@ -201,6 +204,33 @@ export function WorkspaceSettingsView() {
           </div>
         )}
       </div>
+
+      {isOwner && (
+        <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3">
+          <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
+            <Notebook className="h-4 w-4 text-neon-purple shrink-0" />
+            Notes
+          </div>
+          <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
+            Enable notebooks and rich-text notes in workspace navigation. Off by default.
+          </p>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notesEnabled}
+              disabled={isSavingNotesFeature}
+              onChange={(e) => {
+                setIsSavingNotesFeature(true);
+                void updateWorkspaceDetails({
+                  settings: { features: { notesEnabled: e.target.checked } },
+                }).finally(() => setIsSavingNotesFeature(false));
+              }}
+              className="h-4 w-4 accent-neon-purple"
+            />
+            <span className="text-sm text-text-primary">Enable Notes in navigation</span>
+          </label>
+        </div>
+      )}
 
       {/* Notifications — all members */}
       <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3 md:space-y-4">

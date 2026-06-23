@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook } from "@/types";
+import { parseWorkspaceSettings, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -37,6 +38,11 @@ import {
   SAMPLE_TASK_FOLDERS,
   type TaskFolderSliceActions,
 } from "@/store/taskFolderSlice";
+import {
+  createNotebookSliceActions,
+  SAMPLE_NOTEBOOKS,
+  type NotebookSliceActions,
+} from "@/store/notebookSlice";
 import {
   TASK_ASSIGNEE_ALL_LABEL,
   buildAssigneeBreakdown,
@@ -80,7 +86,11 @@ import {
   ensureTaskFolderPersistenceReady,
   areTaskFolderTablesReady,
   backfillTaskFoldersIfNeeded,
+  backfillNotebooksIfNeeded,
   upsertTaskFolder,
+  getNotebooks,
+  ensureNotebookPersistenceReady,
+  areNotebookTablesReady,
   remapLegacyListIdsInState,
   createTask as createTaskSupabase,
   updateTask as updateTaskSupabase,
@@ -178,6 +188,7 @@ import {
 let notificationsFetchGeneration = 0;
 let deadlineRemindersRanForUser: string | null = null;
 let deadlineRemindersPromise: Promise<void> | null = null;
+let authStateListenerAttached = false;
 
 /** Invalidate in-flight notification fetches (call on sign-out and optimistic mutations). */
 function bumpNotificationsFetchGeneration(): number {
@@ -361,18 +372,19 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "lists" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksFolderFilterMode = "all" | "none" | string;
 
-interface TaskState extends ListSliceActions, TaskFolderSliceActions {
+interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions {
   // Data
   tasks: Task[];
   notes: Note[];
   workspaceLists: WorkspaceList[];
   listItems: ListItem[];
   taskFolders: TaskFolder[];
+  notebooks: Notebook[];
   currentWorkspace: Workspace;
   workspaces: Workspace[];
   recentActivity: ActivityLog[];
@@ -396,6 +408,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions {
   };
   selectedTaskId: string | null;
   selectedNoteId: string | null;
+  selectedNotebookId: string | null;
+  selectedNotebookNoteId: string | null;
   isCommandPaletteOpen: boolean;
   isKeyboardCheatsheetOpen: boolean;
   /** One-shot: Files view should open on Review drawer (Home, ⌘K). */
@@ -499,6 +513,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions {
       memo?: string | null;
       recordType?: import("@/types").FileRecordType;
       reviewStatus?: import("@/lib/files/fileTypes").FileReviewStatus;
+      notebookId?: string | null;
     },
   ) => Promise<Note | null>;
   updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
@@ -532,6 +547,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions {
 
   // Auth + data init (Phase 1 UX)
   initializeAuth: () => Promise<void>;
+  syncAuthFromSession: (session: Session | null) => void;
   initializeFromSupabase: () => Promise<void>;
   signOut: () => Promise<void>;
 
@@ -564,7 +580,11 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions {
   resendInvite: (inviteId: string) => Promise<boolean>; // resend UX: create fresh invite (same email/role, new expiry) then revoke old. Small increment.
   declineReceivedInvite: (inviteId: string) => Promise<boolean>; // recipient declines → fully removes the invite for everyone
   exitWorkspace: (workspaceId?: string) => Promise<boolean>; // self-service offboarding (world-class symmetric exit)
-  updateWorkspaceDetails: (updates: { name?: string; slug?: string }) => Promise<boolean>;
+  updateWorkspaceDetails: (updates: {
+    name?: string;
+    slug?: string;
+    settings?: import("@/lib/workspace/workspaceSettings").WorkspaceSettings;
+  }) => Promise<boolean>;
   deleteCurrentWorkspace: () => Promise<boolean>;
   setupWorkspaceRealtime: () => void; // wires subs + presence (idempotent per ws)
   teardownWorkspaceRealtime: () => void;
@@ -902,6 +922,7 @@ export const useTaskStore = create<TaskState>()(
       workspaceLists: SAMPLE_WORKSPACE_LISTS,
       listItems: SAMPLE_LIST_ITEMS,
       taskFolders: SAMPLE_TASK_FOLDERS,
+      notebooks: SAMPLE_NOTEBOOKS,
       currentWorkspace: DEFAULT_WORKSPACE,
       workspaces: [
         DEFAULT_WORKSPACE,
@@ -941,6 +962,8 @@ export const useTaskStore = create<TaskState>()(
       taskFilter: { search: "", recurring: "incomplete", starred: "all", folderFilter: "all" },
       selectedTaskId: null,
       selectedNoteId: null,
+      selectedNotebookId: null,
+      selectedNotebookNoteId: null,
       isCommandPaletteOpen: false,
       isKeyboardCheatsheetOpen: false,
       filesOpenReview: false,
@@ -1117,6 +1140,11 @@ export const useTaskStore = create<TaskState>()(
           get().updatePresenceMeta({ view: "home" });
           return;
         }
+        if (resolved === "notebooks" && !isNotesFeatureEnabled(get().currentWorkspace.settings)) {
+          set({ currentView: "home" });
+          get().updatePresenceMeta({ view: "home" });
+          return;
+        }
         set({ currentView: resolved });
         // Realtime presence: update meta so collaborators see where you are (across views)
         get().updatePresenceMeta({ view: resolved });
@@ -1178,6 +1206,8 @@ export const useTaskStore = create<TaskState>()(
             comments: [],
             selectedTaskId: null,
             selectedNoteId: null,
+            selectedNotebookId: null,
+            selectedNotebookNoteId: null,
             isInitializing: true,
           });
           saveLastWorkspaceId(get().user?.id, id);
@@ -1326,11 +1356,13 @@ export const useTaskStore = create<TaskState>()(
 
           await ensureWorkspaceListPersistenceReady();
           await ensureTaskFolderPersistenceReady();
+          await ensureNotebookPersistenceReady();
 
           const keptTaskFolders = get().taskFolders.filter((f) => f.workspaceId === workspaceId);
+          const keptNotebooks = get().notebooks.filter((nb) => nb.workspaceId === workspaceId);
 
           // Load in parallel for speed (include activity logs for Phase 1 basic logging UI)
-          const [realTasks, realNotes, realActivity, realLists, realListItems, realTaskFolders] =
+          const [realTasks, realNotes, realActivity, realLists, realListItems, realTaskFolders, realNotebooks] =
             await Promise.all([
             getTasks(workspaceId),
             getNotes(workspaceId),
@@ -1338,11 +1370,13 @@ export const useTaskStore = create<TaskState>()(
             getWorkspaceLists(workspaceId),
             getListItems(workspaceId),
             getTaskFolders(workspaceId),
+            getNotebooks(workspaceId),
           ]);
 
           let nextLists = realLists;
           let nextItems = realListItems;
           let nextTaskFolders = realTaskFolders;
+          let nextNotebooks = realNotebooks;
 
           if (!areTaskFolderTablesReady()) {
             nextTaskFolders = keptTaskFolders;
@@ -1402,7 +1436,19 @@ export const useTaskStore = create<TaskState>()(
             return;
           }
 
+          if (!areNotebookTablesReady()) {
+            nextNotebooks = keptNotebooks;
+          } else if (realNotebooks.length === 0 && keptNotebooks.length > 0) {
+            const backfilled = await backfillNotebooksIfNeeded(workspaceId, keptNotebooks);
+            if (backfilled) {
+              nextNotebooks = await getNotebooks(workspaceId);
+            } else {
+              nextNotebooks = keptNotebooks;
+            }
+          }
+
           const otherWsTaskFolders = get().taskFolders.filter((f) => f.workspaceId !== workspaceId);
+          const otherWsNotebooks = get().notebooks.filter((nb) => nb.workspaceId !== workspaceId);
 
           set({
             tasks: enrichTasksWithAssignees(mergedTasks, members, userId),
@@ -1410,6 +1456,7 @@ export const useTaskStore = create<TaskState>()(
             workspaceLists: nextLists,
             listItems: nextItems,
             taskFolders: [...otherWsTaskFolders, ...nextTaskFolders],
+            notebooks: [...otherWsNotebooks, ...nextNotebooks],
             recentActivity: realActivity,
             taskLoadingStates: {},
             pendingSyncCount: getPendingCount(),
@@ -1450,6 +1497,25 @@ export const useTaskStore = create<TaskState>()(
       // ------------------------------------------------------------------
       // Auth (Phase 1 scaffolding)
       // ------------------------------------------------------------------
+
+      syncAuthFromSession: (session) => {
+        const previousUser = get().user;
+        const newUser = session?.user ?? null;
+
+        set({ session, user: newUser, isAuthLoading: false });
+
+        if (!previousUser && newUser && isSupabaseLive()) {
+          set({
+            tasks: [],
+            notes: [],
+            recentActivity: [],
+            workspaces: [],
+            currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
+            taskLoadingStates: {},
+          });
+          get().loadNotificationPrefs?.().catch(() => {});
+        }
+      },
 
       initializeAuth: async () => {
         set({ isAuthLoading: true });
@@ -1500,7 +1566,9 @@ export const useTaskStore = create<TaskState>()(
         }
 
         // Listen for auth changes (login, logout, token refresh)
-        supabase.auth.onAuthStateChange((_event, newSession) => {
+        if (!authStateListenerAttached) {
+          authStateListenerAttached = true;
+          supabase.auth.onAuthStateChange((_event, newSession) => {
           const previousUser = get().user;
           const newUser = newSession?.user ?? null;
 
@@ -1561,6 +1629,7 @@ export const useTaskStore = create<TaskState>()(
             }
           }
         });
+        }
 
         set({ isAuthLoading: false });
 
@@ -1696,7 +1765,7 @@ export const useTaskStore = create<TaskState>()(
             .from("workspace_members")
             .select(`
               role,
-              workspaces (id, name, slug, owner_id, created_at)
+              workspaces (id, name, slug, owner_id, created_at, settings)
             `)
             .eq("user_id", currentUser.id);
 
@@ -1719,6 +1788,7 @@ export const useTaskStore = create<TaskState>()(
                 role: fromDbRole(m.role),
                 owner_id: ws.owner_id ?? null,
                 createdAt: ws.created_at ?? undefined,
+                settings: parseWorkspaceSettings(ws.settings),
               } as Workspace;
             })
             .filter((w): w is Workspace => w !== null);
@@ -2731,11 +2801,14 @@ export const useTaskStore = create<TaskState>()(
         }
 
         const noteId = isSupabaseLive() ? generateClientId() : generateId();
+        const notebookId = options?.notebookId ?? null;
+        const isNotebookNote = !!notebookId;
 
-        const reviewStatus =
-          options?.reviewStatus ?? (isSupabaseLive() ? "pending_review" : "filed");
+        const reviewStatus = isNotebookNote
+          ? undefined
+          : options?.reviewStatus ?? (isSupabaseLive() ? "pending_review" : "filed");
         const tags = options?.tags ?? [];
-        const recordType = options?.recordType ?? "note";
+        const recordType = isNotebookNote ? undefined : options?.recordType ?? "note";
         const memo = options?.memo ?? null;
         const filedAt = reviewStatus === "filed" ? new Date().toISOString() : null;
 
@@ -2752,6 +2825,7 @@ export const useTaskStore = create<TaskState>()(
           recordType,
           memo,
           filedAt,
+          notebookId,
         };
 
         set((state) => {
@@ -2772,6 +2846,7 @@ export const useTaskStore = create<TaskState>()(
                 memo: newNote.memo,
                 recordType: newNote.recordType,
                 reviewStatus: newNote.reviewStatus,
+                notebookId: newNote.notebookId,
               });
 
               if (created) {
@@ -2796,7 +2871,9 @@ export const useTaskStore = create<TaskState>()(
               }
             } catch {
               toast.warning("Saved locally (queued for sync)", {
-                description: "Note kept in Review/Files. Will sync when back online.",
+                description: isNotebookNote
+                  ? "Note kept in Notes. Will sync when back online."
+                  : "Note kept in Review/Files. Will sync when back online.",
                 duration: 4500,
               });
             }
@@ -2853,7 +2930,12 @@ export const useTaskStore = create<TaskState>()(
 
         set((state) => {
           const notes = state.notes.filter((n) => n.id !== id);
-          return withNotesNavStats(state, workspaceId, notes);
+          return {
+            ...withNotesNavStats(state, workspaceId, notes),
+            selectedNotebookNoteId:
+              state.selectedNotebookNoteId === id ? null : state.selectedNotebookNoteId,
+            selectedNoteId: state.selectedNoteId === id ? null : state.selectedNoteId,
+          };
         });
 
         if (isSupabaseLive()) {
@@ -2897,6 +2979,8 @@ export const useTaskStore = create<TaskState>()(
       // Task folders + starred (workspace-scoped, local-first)
       // ------------------------------------------------------------------
       ...createTaskFolderSliceActions(get, set),
+
+      ...createNotebookSliceActions(get, set),
 
       toggleTaskStarred: async (id) => {
         const task = resolveTaskInStore(get(), id);
@@ -4044,6 +4128,19 @@ export const useTaskStore = create<TaskState>()(
           toast.error("Only the workspace owner can change the name or URL");
           return false;
         }
+        if (updates.settings) {
+          const merged = parseWorkspaceSettings(get().currentWorkspace.settings);
+          const nextSettings = {
+            features: { ...merged.features, ...updates.settings.features },
+          };
+          set((state) => ({
+            currentWorkspace: { ...state.currentWorkspace, settings: nextSettings },
+            workspaces: state.workspaces.map((w) =>
+              w.id === wsId ? { ...w, settings: nextSettings } : w,
+            ),
+          }));
+        }
+
         const ok = await updateWorkspace(wsId, updates);
         if (ok) {
           // Refresh the authoritative list from the database
@@ -4055,6 +4152,12 @@ export const useTaskStore = create<TaskState>()(
 
           if (updated) {
             set({ currentWorkspace: updated });
+            if (
+              get().currentView === "notebooks" &&
+              !isNotesFeatureEnabled(updated.settings)
+            ) {
+              get().setView("home");
+            }
           }
 
           toast.success("Workspace updated");
@@ -4883,9 +4986,12 @@ export const useTaskStore = create<TaskState>()(
             workspaceLists: state.workspaceLists,
             listItems: state.listItems,
             taskFolders: state.taskFolders,
+            notebooks: state.notebooks,
             currentWorkspace: state.currentWorkspace,
             workspaces: state.workspaces,
             currentView: state.currentView,
+            selectedNotebookId: state.selectedNotebookId,
+            selectedNotebookNoteId: state.selectedNotebookNoteId,
             taskFilter: state.taskFilter,
             theme: state.theme,
             myProfile: state.myProfile,
@@ -4898,8 +5004,11 @@ export const useTaskStore = create<TaskState>()(
           workspaceLists: state.workspaceLists,
           listItems: state.listItems,
           taskFolders: state.taskFolders,
+          notebooks: state.notebooks,
           currentWorkspace: state.currentWorkspace,
           workspaces: state.workspaces,
+          selectedNotebookId: state.selectedNotebookId,
+          selectedNotebookNoteId: state.selectedNotebookNoteId,
           theme: state.theme,
           myProfile: state.myProfile,
           taskCommentsReadAt: state.taskCommentsReadAt,
@@ -4926,6 +5035,12 @@ if (typeof window !== "undefined") {
 
     const persistedView = (state as { currentView?: string })?.currentView;
     if (persistedView === "calendar" || persistedView === "today") {
+      useTaskStore.setState({ currentView: "home" });
+    }
+    if (
+      persistedView === "notebooks" &&
+      !isNotesFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
+    ) {
       useTaskStore.setState({ currentView: "home" });
     }
     const persistedFilter = (state as { taskFilter?: TaskState["taskFilter"] })?.taskFilter;
@@ -4963,12 +5078,15 @@ if (typeof window !== "undefined") {
         useTaskStore.setState({
           tasks: [],
           notes: [],
+          notebooks: [],
           workspaceLists: [],
           listItems: [],
           recentActivity: [],
           workspaces: [],
           currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
           taskLoadingStates: {},
+          selectedNotebookId: null,
+          selectedNotebookNoteId: null,
         });
       }
     }

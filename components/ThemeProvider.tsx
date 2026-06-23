@@ -5,7 +5,7 @@ import { applyThemeToDocument, readThemeMode } from "@/lib/themePreferences";
 import { useTaskStore } from "@/store/useTaskStore";
 
 /** Keeps document theme in sync with persisted store preference after hydration. */
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export function ThemeProvider() {
   const theme = useTaskStore((s) => s.theme);
 
   useEffect(() => {
@@ -25,5 +25,5 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  return <>{children}</>;
+  return null;
 }

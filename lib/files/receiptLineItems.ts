@@ -192,6 +192,83 @@ export function filterReceiptLineItems(
   });
 }
 
+export const RECEIPT_LEDGER_PAGE_SIZE = 20;
+
+export const RECEIPT_LEDGER_SORT_COLUMNS = [
+  "transactionDate",
+  "vendor",
+  "itemName",
+  "itemCategory",
+  "pricePaid",
+  "warranty",
+  "returnPolicy",
+] as const;
+
+export type ReceiptLedgerSortColumn = (typeof RECEIPT_LEDGER_SORT_COLUMNS)[number];
+export type ReceiptLedgerSortDirection = "asc" | "desc";
+
+export const RECEIPT_LEDGER_DEFAULT_SORT_COLUMN: ReceiptLedgerSortColumn = "transactionDate";
+export const RECEIPT_LEDGER_DEFAULT_SORT_DIRECTION: ReceiptLedgerSortDirection = "desc";
+
+const RECEIPT_LEDGER_SORT_COLUMN_SET = new Set<string>(RECEIPT_LEDGER_SORT_COLUMNS);
+
+const RECEIPT_LEDGER_DB_SORT_COLUMNS: Record<ReceiptLedgerSortColumn, string> = {
+  transactionDate: "transaction_date",
+  vendor: "vendor",
+  itemName: "item_name",
+  itemCategory: "item_category",
+  pricePaid: "price_paid",
+  warranty: "warranty",
+  returnPolicy: "return_policy",
+};
+
+export function isReceiptLedgerSortColumn(value: string): value is ReceiptLedgerSortColumn {
+  return RECEIPT_LEDGER_SORT_COLUMN_SET.has(value);
+}
+
+export function parseReceiptLedgerSortDirection(
+  value: string | null | undefined,
+): ReceiptLedgerSortDirection | null {
+  if (value === "asc" || value === "desc") return value;
+  return null;
+}
+
+export function defaultReceiptLedgerSortDirection(
+  column: ReceiptLedgerSortColumn,
+): ReceiptLedgerSortDirection {
+  return column === "transactionDate" || column === "pricePaid" ? "desc" : "asc";
+}
+
+export function resolveReceiptLedgerSort(
+  sortBy: string | null | undefined,
+  sortDir: string | null | undefined,
+): { column: ReceiptLedgerSortColumn; direction: ReceiptLedgerSortDirection } {
+  const column = sortBy && isReceiptLedgerSortColumn(sortBy) ? sortBy : RECEIPT_LEDGER_DEFAULT_SORT_COLUMN;
+  const direction = parseReceiptLedgerSortDirection(sortDir) ?? RECEIPT_LEDGER_DEFAULT_SORT_DIRECTION;
+  return { column, direction };
+}
+
+export function receiptLedgerSortToDbColumn(column: ReceiptLedgerSortColumn): string {
+  return RECEIPT_LEDGER_DB_SORT_COLUMNS[column];
+}
+
+export function escapeReceiptSearchPattern(value: string): string {
+  return value.replace(/[%_\\]/g, "\\$&");
+}
+
+export function buildReceiptSearchOrFilter(query: string): string | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  const pattern = `%${escapeReceiptSearchPattern(trimmed)}%`;
+  return [
+    `item_name.ilike.${pattern}`,
+    `vendor.ilike.${pattern}`,
+    `item_category.ilike.${pattern}`,
+    `warranty.ilike.${pattern}`,
+    `return_policy.ilike.${pattern}`,
+  ].join(",");
+}
+
 export function collectReceiptFilterOptions(items: ReceiptLineItemRecord[]): {
   vendors: string[];
   categories: string[];

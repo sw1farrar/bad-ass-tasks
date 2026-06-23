@@ -8,6 +8,8 @@ import { Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseLocalDate, safeFormatDate, toLocalDateString } from '@/lib/datetime';
 import { useScrollLock } from '@/lib/hooks/useScrollLock';
+import { useAnchoredPopoverPosition, type PopoverBoundaryMode } from '@/lib/hooks/useAnchoredPopoverPosition';
+import { isClickInsideTaskTablePopover } from '@/lib/dom/taskTablePopoverDismiss';
 import { MobileDrawerShell } from '@/components/MobileDrawerShell';
 
 
@@ -19,6 +21,10 @@ interface DatePickerProps {
   label?: string;
   /** Full input trigger (default) or compact text trigger for table cells */
   variant?: 'default' | 'inline';
+  /** Desktop inline: popover anchored to trigger (table) vs centered modal vs in-flow panel */
+  inlinePlacement?: 'popover' | 'modal' | 'embedded';
+  /** When inline popover: use viewport bounds so table cells aren't clipped */
+  popoverBoundaryMode?: PopoverBoundaryMode;
   /** Inline variant: override trigger label (e.g. Today / Tomorrow from formatDueDate) */
   displayLabel?: string;
   triggerClassName?: string;
@@ -95,6 +101,8 @@ export function DateTimePicker({
   className,
   label,
   variant = 'default',
+  inlinePlacement = 'popover',
+  popoverBoundaryMode = 'viewport',
   displayLabel,
   triggerClassName,
   triggerLabelClassName,
@@ -105,6 +113,18 @@ export function DateTimePicker({
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useMobileViewport();
+  const useInlinePopover =
+    variant === 'inline' && inlinePlacement === 'popover' && !isMobile;
+  const useEmbeddedPanel = inlinePlacement === 'embedded' && !isMobile;
+  const popoverPosition = useAnchoredPopoverPosition({
+    open: isOpen && useInlinePopover,
+    anchorRef: triggerRef,
+    panelRef,
+    estimatedWidth: 320,
+    estimatedHeight: 420,
+    horizontalAlign: 'auto',
+    boundaryMode: popoverBoundaryMode,
+  });
 
   const selectedDate = parseToLocalDate(value);
 
@@ -140,7 +160,7 @@ export function DateTimePicker({
     ];
   }, []);
 
-  useScrollLock(isOpen);
+  useScrollLock(isOpen && !useInlinePopover && !useEmbeddedPanel);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -151,14 +171,13 @@ export function DateTimePicker({
 
     window.addEventListener('keydown', onKeyDown);
 
-    // Desktop only: mobile uses MobileDrawerShell backdrop for dismiss. Without a
-    // panel ref on the sheet, capture-phase mousedown here closes the picker before
-    // DayPicker onSelect runs (due date never applies on phones).
-    if (!isMobile) {
+    // Desktop modal: backdrop dismiss. Inline popover: same capture handler.
+    if (!isMobile && !useEmbeddedPanel) {
       const onPointerDown = (e: MouseEvent) => {
         const target = e.target as Node;
         if (triggerRef.current?.contains(target)) return;
         if (panelRef.current?.contains(target)) return;
+        if (isClickInsideTaskTablePopover(e.target)) return;
         close();
       };
 
@@ -173,32 +192,45 @@ export function DateTimePicker({
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [isOpen, close, isMobile]);
+  }, [isOpen, close, isMobile, useEmbeddedPanel]);
 
   const panelBody = (
     <>
-      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border-glass shrink-0">
-        <span className="text-sm font-semibold text-text-primary tracking-tight">Due date</span>
-        <div className="flex items-center gap-1">
+      {!useEmbeddedPanel ? (
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border-glass shrink-0">
+          <span className="text-sm font-semibold text-text-primary tracking-tight">Due date</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => applyDate(undefined)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-[var(--priority-p0)] hover:bg-surface-hover transition min-h-[36px]"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={close}
+              className="h-9 w-9 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition flex items-center justify-center"
+              aria-label="Close date picker"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-border-glass shrink-0">
+          <span className="text-xs font-semibold text-text-primary">Pick date</span>
           <button
             type="button"
-            onClick={() => applyDate(undefined)}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-[var(--priority-p0)] hover:bg-surface-hover transition min-h-[36px]"
+            onClick={() => applyDate(undefined, false)}
+            className="px-2 py-1 rounded-lg text-[10px] font-medium text-text-muted hover:text-[var(--priority-p0)] hover:bg-surface-hover transition"
           >
             Clear
           </button>
-          <button
-            type="button"
-            onClick={close}
-            className="h-9 w-9 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition flex items-center justify-center"
-            aria-label="Close date picker"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
-      </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 min-h-0">
+      <div className={cn('flex-1 overflow-y-auto min-h-0', useEmbeddedPanel ? 'px-1 py-2' : 'px-3 py-3')}>
         <DayPicker
           mode="single"
           required
@@ -235,25 +267,27 @@ export function DateTimePicker({
         />
       </div>
 
-      <div
-        className="shrink-0 px-4 py-3 flex gap-2 border-t border-border-glass"
-        style={
-          isMobile
-            ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 12px))' }
-            : undefined
-        }
-      >
-        {shortcuts.map((s) => (
-          <button
-            key={s.label}
-            type="button"
-            onClick={() => applyDate(s.date)}
-            className="flex-1 min-h-[44px] rounded-xl text-sm font-medium border border-border-glass text-text-soft hover:border-neon-purple/40 hover:bg-neon-purple/10 hover:text-text-primary active:scale-[0.98] transition"
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      {!useEmbeddedPanel ? (
+        <div
+          className="shrink-0 px-4 py-3 flex gap-2 border-t border-border-glass"
+          style={
+            isMobile
+              ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 12px))' }
+              : undefined
+          }
+        >
+          {shortcuts.map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              onClick={() => applyDate(s.date)}
+              className="flex-1 min-h-[44px] rounded-xl text-sm font-medium border border-border-glass text-text-soft hover:border-neon-purple/40 hover:bg-neon-purple/10 hover:text-text-primary active:scale-[0.98] transition"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 
@@ -272,9 +306,26 @@ export function DateTimePicker({
     <div
       ref={panelRef}
       role="dialog"
-      aria-modal="true"
+      aria-modal={useInlinePopover ? undefined : true}
       aria-label="Choose due date"
-      className="date-picker-panel date-picker-sheet-desktop bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden fixed z-[720] rounded-2xl"
+      className={cn(
+        'date-picker-panel bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden',
+        useInlinePopover
+          ? 'date-picker-popover tasks-table-popover tasks-anchor-popover fixed w-[min(320px,calc(100vw-16px))] rounded-2xl'
+          : useEmbeddedPanel
+            ? 'tasks-anchor-popover absolute left-0 top-full z-30 mt-1 w-[min(280px,calc(100vw-2rem))] rounded-xl shadow-xl'
+            : 'date-picker-sheet-desktop fixed z-[720] rounded-2xl',
+      )}
+      data-popover-placement={popoverPosition?.placement}
+      style={
+        useInlinePopover && popoverPosition
+          ? {
+              top: popoverPosition.top,
+              left: popoverPosition.left,
+              maxHeight: popoverPosition.maxHeight,
+            }
+          : undefined
+      }
       onClick={(e) => e.stopPropagation()}
     >
       {panelBody}
@@ -329,10 +380,17 @@ export function DateTimePicker({
         ) : null}
       </button>
 
+      {isOpen && mounted && useEmbeddedPanel ? panel : null}
+
       {isOpen &&
         mounted &&
+        !useEmbeddedPanel &&
+        (!useInlinePopover || popoverPosition) &&
+        typeof document !== 'undefined' &&
         createPortal(
           isMobile ? (
+            panel
+          ) : useInlinePopover ? (
             panel
           ) : (
             <div className="fixed inset-0 z-[710]">

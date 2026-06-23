@@ -3,10 +3,13 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { executeUpdateWorkspaceDetails } from "@/lib/workspace/updateWorkspaceDetails";
 
+import type { WorkspaceSettings } from "@/lib/workspace/workspaceSettings";
+
 type UpdateDetailsBody = {
   workspaceId?: string;
   name?: string;
   slug?: string;
+  settings?: WorkspaceSettings;
 };
 
 export async function POST(request: Request) {
@@ -62,10 +65,18 @@ export async function POST(request: Request) {
     );
   }
 
+  const { data: workspaceRow } = await supabase
+    .from("workspaces")
+    .select("settings")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
   const result = await executeUpdateWorkspaceDetails({
     workspaceId,
     name: body.name,
     slug: body.slug,
+    settings: body.settings,
+    existingSettings: (workspaceRow as { settings?: unknown } | null)?.settings,
   });
 
   if (!result.ok) {

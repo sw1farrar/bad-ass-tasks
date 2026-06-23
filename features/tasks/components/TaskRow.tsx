@@ -7,6 +7,8 @@ import { cn, getRecurringLabel } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
 import { TaskCommentIndicator } from "./TaskCommentIndicator";
+import { TaskLinkedFileIndicator } from "./TaskLinkedFileIndicator";
+import { taskHasLinkedFiles } from "@/features/tasks/lib/taskLinkedFiles";
 import { TaskFolderPicker } from "./TaskFolderPicker";
 import { TaskStarButton } from "./TaskStarButton";
 import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
@@ -31,6 +33,7 @@ interface TaskRowProps {
   onSwipeComplete?: (id: string) => void;
   /** Tasks workspace: star + folder controls */
   showOrganize?: boolean;
+  onOpenLinkedFile?: (task: Task) => void;
 }
 
 export function TaskRow({
@@ -48,7 +51,10 @@ export function TaskRow({
   onComplete,
   onSwipeComplete,
   showOrganize = false,
+  onOpenLinkedFile,
 }: TaskRowProps) {
+  const linkedFileCount = task.linkedNoteIds?.length ?? 0;
+  const hasLinkedFile = taskHasLinkedFiles(task);
   const {
     getTaskFolders,
     toggleTaskStarred,
@@ -195,8 +201,17 @@ export function TaskRow({
             >
               {task.title}
             </div>
-            {(commentState.hasComments || onlineEditorsCount > 0) && (
+            {(hasLinkedFile || commentState.hasComments || onlineEditorsCount > 0) && (
               <div className="flex items-center gap-1.5 shrink-0 ml-auto pl-1">
+                {hasLinkedFile && (
+                  <TaskLinkedFileIndicator
+                    count={linkedFileCount}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenLinkedFile?.(task);
+                    }}
+                  />
+                )}
                 {commentState.hasComments && (
                   <TaskCommentIndicator count={commentState.count} unread={commentState.unread} />
                 )}
@@ -278,6 +293,15 @@ export function TaskRow({
             >
               {task.title}
             </div>
+            {hasLinkedFile && (
+              <TaskLinkedFileIndicator
+                count={linkedFileCount}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenLinkedFile?.(task);
+                }}
+              />
+            )}
             {commentState.hasComments && (
               <TaskCommentIndicator count={commentState.count} unread={commentState.unread} />
             )}

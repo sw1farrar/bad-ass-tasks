@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Loader2, Plus, CheckSquare, Link2 } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { TagPicker } from "./TagPicker";
 import { FileBookmarkButton } from "./FileBookmarkButton";
 import { MobileDrawerShell } from "@/components/MobileDrawerShell";
+import { useTaskStore } from "@/store/useTaskStore";
 
 export type CaptureFileSubmitMode = "review" | "file";
 
@@ -169,10 +170,16 @@ export function CaptureFileModal({
   const draftPromiseRef = useRef<Promise<Note | null> | null>(null);
   const submittedRef = useRef(false);
   const [mounted, setMounted] = useState(false);
+  const [captureSession, setCaptureSession] = useState(0);
 
   const activeNote = isEdit ? initialNote : captureNote;
   const activeNoteId = activeNote?.id;
   const supportsLiveAttachments = isLive && isSupabaseConfigured() && !!activeNoteId;
+  const liveLinkedTaskIds = useTaskStore((s) => {
+    if (!activeNoteId) return undefined;
+    return s.notes.find((n) => n.id === activeNoteId)?.linkedTaskIds;
+  });
+  const liveTasks = useTaskStore((s) => s.tasks);
 
   useEffect(() => {
     setMounted(true);
@@ -185,8 +192,10 @@ export function CaptureFileModal({
   const initialNoteId = initialNote?.id;
   const initialNoteRevision = initialNote?.updatedAt ?? initialNote?.createdAt;
 
-  useEffect(() => {
+  // Reset form state before paint so TipTap never mounts with stale content from the prior session.
+  useLayoutEffect(() => {
     if (!isOpen) return;
+    setCaptureSession((session) => session + 1);
     if (isEdit && initialNote) {
       const resolvedContent = resolveNoteEditorContent(initialNote);
       setTitle(initialNote.title || "");
@@ -263,9 +272,9 @@ export function CaptureFileModal({
           return;
         }
 
-        const uploaded = await uploadFilesToNote(note.id, files);
+        const { uploaded, errors } = await uploadFilesToNote(note.id, files);
         if (uploaded === 0) {
-          toast.error("Could not upload attachment");
+          toast.error(errors[0] || "Could not upload attachment");
           return;
         }
         if (uploaded < files.length) {
@@ -358,7 +367,19 @@ export function CaptureFileModal({
       setCreatingTask(true);
       try {
         const taskId = await onCreateTaskAndLink(noteForLinking.id, trimmed);
-        if (taskId) setNewTaskTitle("");
+        if (taskId) {
+          setNewTaskTitle("");
+          setCaptureNote((prev) =>
+            prev?.id === noteForLinking.id
+              ? {
+                  ...prev,
+                  linkedTaskIds: Array.from(
+                    new Set([...(prev.linkedTaskIds ?? []), taskId]),
+                  ),
+                }
+              : prev,
+          );
+        }
       } finally {
         setCreatingTask(false);
       }
@@ -368,14 +389,21 @@ export function CaptureFileModal({
     addPendingTask();
   };
 
-  const linkedTasks = linkedTaskIds
-    .map((id) => tasks.find((t) => t.id === id))
+  const effectiveLinkedTaskIds =
+    liveLinkedTaskIds ??
+    (isEdit ? linkedTaskIds : captureNote?.linkedTaskIds ?? linkedTaskIds);
+
+  const tasksForLinks = liveTasks.length > 0 ? liveTasks : tasks;
+  const linkedTasks = effectiveLinkedTaskIds
+    .map((id) => tasksForLinks.find((t) => t.id === id))
     .filter(Boolean) as Task[];
 
   const editNoteForTasks = activeNote
     ? {
         ...activeNote,
-        linkedTaskIds: linkedTaskIds.length ? linkedTaskIds : activeNote.linkedTaskIds ?? [],
+        linkedTaskIds: effectiveLinkedTaskIds.length
+          ? effectiveLinkedTaskIds
+          : activeNote.linkedTaskIds ?? [],
       }
     : null;
 
@@ -541,51 +569,11 @@ export function CaptureFileModal({
             </span>
           </label>
 
-          <div>
-            <div className="text-xs text-text-secondary mb-1.5">Notes & images</div>
-            <div
-              className={cn(
-                "capture-file-editor-shell rounded-xl border border-border-glass bg-bg overflow-x-auto overflow-y-visible",
-                isMobile ? "min-h-[min(28dvh,240px)]" : "min-h-[min(52vh,520px)]",
-              )}
-            >
-              <TipTapEditor
-                key={
-                  isEdit
-                    ? initialNoteId ?? "edit"
-                    : captureNote?.id ?? "create"
-                }
-                noteId={activeNoteId}
-                content={content}
-                onChange={handleContentChange}
-                placeholder="Jot notes, paste images, format text…"
-                minHeight={editorMinHeight}
-                compactToolbar={isMobile}
-                showAttachFilesButton={isLive && isSupabaseConfigured()}
-                onAttachFiles={isLive && isSupabaseConfigured() ? handleAttachFiles : undefined}
-                belowToolbar={
-                  supportsLiveAttachments && activeNote ? (
-                    <NoteAttachmentsPanel
-                      key={`${activeNote.id}-${attachmentRevision}`}
-                      selectedNote={activeNote}
-                      embedded
-                      compact={isMobile}
-                      previewCompact={!isMobile}
-                      showWhenEmpty
-                      countHint={attachmentCountHint}
-                      onCountChange={onAttachmentCountChange}
-                    />
-                  ) : undefined
-                }
-              />
-            </div>
-          </div>
-
           {showEditLinkedTasksPanel && editNoteForTasks ? (
             <div className="capture-file-associated-tasks rounded-xl border border-border-glass bg-bg/60 overflow-hidden">
               <LinkedTasksPanel
                 selectedNote={editNoteForTasks}
-                tasks={tasks}
+                tasks={tasksForLinks}
                 onLinkTaskToNote={onLinkTaskToNote}
                 onUnlinkTaskFromNote={onUnlinkTaskFromNote}
                 onOpenTask={onOpenTask}
@@ -704,6 +692,46 @@ export function CaptureFileModal({
               </div>
             </div>
           )}
+
+          <div>
+            <div className="text-xs text-text-secondary mb-1.5">Notes & images</div>
+            <div
+              className={cn(
+                "capture-file-editor-shell rounded-xl border border-border-glass bg-bg overflow-x-auto overflow-y-visible",
+                isMobile ? "min-h-[min(28dvh,240px)]" : "min-h-[min(52vh,520px)]",
+              )}
+            >
+              <TipTapEditor
+                key={
+                  isEdit
+                    ? initialNoteId ?? "edit"
+                    : `capture-${captureSession}-${captureNote?.id ?? "pending"}`
+                }
+                noteId={activeNoteId}
+                content={content}
+                onChange={handleContentChange}
+                placeholder="Jot notes, paste images, format text…"
+                minHeight={editorMinHeight}
+                compactToolbar={isMobile}
+                showAttachFilesButton={isLive && isSupabaseConfigured()}
+                onAttachFiles={isLive && isSupabaseConfigured() ? handleAttachFiles : undefined}
+                belowToolbar={
+                  supportsLiveAttachments && activeNote ? (
+                    <NoteAttachmentsPanel
+                      key={`${activeNote.id}-${attachmentRevision}`}
+                      selectedNote={activeNote}
+                      embedded
+                      compact={isMobile}
+                      previewCompact={!isMobile}
+                      showWhenEmpty
+                      countHint={attachmentCountHint}
+                      onCountChange={onAttachmentCountChange}
+                    />
+                  ) : undefined
+                }
+              />
+            </div>
+          </div>
 
           {uploadingAttachments && (
             <p className="text-xs text-text-muted flex items-center gap-2">

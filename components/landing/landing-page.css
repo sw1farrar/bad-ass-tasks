@@ -62,15 +62,33 @@
     linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
 }
 
+/* Hero mark */
+.landing-hero-mark {
+  opacity: 0;
+  animation: landing-fade-up 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.landing-hero-logo {
+  border-radius: 1.35rem;
+  box-shadow:
+    0 0 0 1px rgba(167, 139, 250, 0.22),
+    0 12px 40px rgba(124, 58, 237, 0.32);
+}
+
+.landing-brand-name {
+  opacity: 0;
+  animation: landing-fade-up 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.08s forwards;
+}
+
 /* Typography */
 .landing-eyebrow {
   opacity: 0;
-  animation: landing-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.05s forwards;
+  animation: landing-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.14s forwards;
 }
 
 .landing-headline {
   opacity: 0;
-  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s forwards;
+  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.2s forwards;
 }
 
 .landing-headline-accent {
@@ -79,17 +97,17 @@
 
 .landing-subcopy {
   opacity: 0;
-  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.22s forwards;
+  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.28s forwards;
 }
 
 .landing-cta {
   opacity: 0;
-  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.32s forwards;
+  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.36s forwards;
 }
 
 .landing-features {
   opacity: 0;
-  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.42s forwards;
+  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.46s forwards;
 }
 
 .landing-feature {
@@ -120,6 +138,7 @@
   animation: landing-fade-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+.brand-logo,
 .landing-brand-icon {
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28);
 }
@@ -144,7 +163,15 @@
   }
 }
 
+[data-theme="light"] .landing-hero-logo {
+  box-shadow:
+    0 0 0 1px rgba(124, 58, 237, 0.18),
+    0 12px 36px rgba(124, 58, 237, 0.22);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .landing-hero-mark,
+  .landing-brand-name,
   .landing-eyebrow,
   .landing-headline,
   .landing-subcopy,

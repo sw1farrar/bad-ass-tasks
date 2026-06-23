@@ -2,6 +2,7 @@
 // These will map 1:1 to Supabase tables in Phase 2
 
 import type { WorkspaceRole } from "@/lib/roles";
+import type { WorkspaceSettings } from "@/lib/workspace/workspaceSettings";
 
 export type Priority = "P0" | "P1" | "P2" | "P3";
 
@@ -54,6 +55,7 @@ export type FileReviewStatus = "pending_review" | "filed";
 export type FileRecordType = "note" | "email" | "document" | "receipt" | "other";
 
 export type { ReceiptLineItemRecord } from "@/lib/files/receiptLineItems";
+export type { FileAiSuggestion, FileAiSuggestionStatus } from "@/lib/files/fileAiSuggestion";
 
 export interface Note {
   id: string;
@@ -84,6 +86,20 @@ export interface Note {
   bookmarked?: boolean;
   /** False when only list metadata is loaded; true after full body fetch. */
   bodyHydrated?: boolean;
+  /** Precomputed AI filing suggestion while note is in pending_review. */
+  aiSuggestion?: import("@/lib/files/fileAiSuggestion").FileAiSuggestion | null;
+  /** When set, this note belongs to a workspace notebook (not Files). */
+  notebookId?: string | null;
+}
+
+/** Workspace notebook container for rich-text notes (distinct from Files). */
+export interface Notebook {
+  id: string;
+  workspaceId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Google Keep–style checklist list (workspace-scoped). */
@@ -122,6 +138,7 @@ export interface Workspace {
   role: WorkspaceRole;
   owner_id?: string | null; // widened for hybridStore/page access to match schema (no behavior change)
   createdAt?: string; // from workspaces.created_at — used to identify the original workspace
+  settings?: WorkspaceSettings;
 }
 
 export interface WorkspaceTaskStats {

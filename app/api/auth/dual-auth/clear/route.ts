@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clearDualAuthCookie, shouldPreserveDualAuthCookieOnSignOut } from "@/lib/auth/dualAuth";
+import { logDualAuthAbandonedIfNeeded } from "@/lib/auth/logDualAuthEvents";
+import { logAuthLoginEventFromRequest } from "@/lib/auth/loginEvents";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
@@ -14,8 +16,18 @@ export async function POST(request: NextRequest) {
   }
 
   const response = NextResponse.json({ ok: true });
+  const preserveTrustedDevice = shouldPreserveDualAuthCookieOnSignOut(request);
 
-  if (shouldPreserveDualAuthCookieOnSignOut(request)) {
+  await logDualAuthAbandonedIfNeeded(request, user.id, user.email);
+
+  await logAuthLoginEventFromRequest(request, {
+    eventType: "logout",
+    userId: user.id,
+    email: user.email,
+    metadata: { preserveTrustedDevice },
+  });
+
+  if (preserveTrustedDevice) {
     return response;
   }
 

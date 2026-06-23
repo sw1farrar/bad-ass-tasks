@@ -57,6 +57,7 @@ import {
   getDroppedImageFiles,
   getDroppedFiles,
 } from "./lib/clipboard-images";
+import { ListTabKeymap } from "@/lib/editor/listTabKeymap";
 
 /** Default collapsed height before "Read more" (~12–14 lines at 15px/1.65). */
 const NOTE_COLLAPSED_MAX_PX = 320;
@@ -133,7 +134,9 @@ interface TipTapEditorProps {
   stickyPreviewChrome?: boolean;
   /** Hide disabled formatting toolbar in read-only sticky preview (mobile file detail). */
   hideReadonlyPreviewToolbar?: boolean;
-  /** Rendered below editor content inside the files preview scroll region (e.g. linked tasks). */
+  /** Rendered above editor content inside the files preview scroll region (e.g. linked tasks). */
+  aboveScrollContent?: React.ReactNode;
+  /** Rendered below editor content inside the files preview scroll region. */
   belowScrollContent?: React.ReactNode;
   // Future-proof callbacks for advanced slash/linking features (non-breaking; parent wires store actions)
   onCreateTaskFromSlash?: (suggestedTitle?: string) => void;
@@ -198,6 +201,10 @@ interface TipTapEditorProps {
   onAttachFiles?: (files: File[]) => void | Promise<void>;
   /** Show paperclip toolbar control wired to onAttachFiles. */
   showAttachFilesButton?: boolean;
+  /** Notebook mode: simplified editor with list Tab keymap and no file/task embeds. */
+  variant?: "full" | "notebook";
+  /** Keep formatting toolbar visible while scrolling (notebook editor). */
+  stickyToolbar?: boolean;
 }
 
 export function TipTapEditor({
@@ -212,6 +219,7 @@ export function TipTapEditor({
   previewHeader,
   stickyPreviewChrome = false,
   hideReadonlyPreviewToolbar = false,
+  aboveScrollContent,
   belowScrollContent,
   onCreateTaskFromSlash,
   onCreateNoteFromSlash,
@@ -240,7 +248,13 @@ export function TipTapEditor({
   onUpdateNote,
   onAttachFiles,
   showAttachFilesButton = false,
+  variant = "full",
+  stickyToolbar = false,
 }: TipTapEditorProps) {
+  const stickyChromeLayout = stickyPreviewChrome || stickyToolbar;
+  const isNotebookVariant = variant === "notebook";
+  const attachButtonVisible = showAttachFilesButton || isNotebookVariant;
+  const imageButtonVisible = isNotebookVariant || !attachButtonVisible;
   /**
    * Prepare initial content for TipTap:
    * - If content looks like stringified rich TipTap JSON doc → parse & return object (full rich roundtrip: bold, lists, headings etc preserved)
@@ -335,10 +349,8 @@ export function TipTapEditor({
   const liveContentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastLiveSendRef = useRef<number>(0);
 
-  const editor = useEditor({
-    // Client-only editor; avoid Next.js hydration warning and first-paint delay.
-    immediatelyRender: true,
-    extensions: [
+  const editorExtensions = useMemo(() => {
+    const base = [
       StarterKit.configure({
         link: false,
         heading: {
@@ -354,18 +366,12 @@ export function TipTapEditor({
           HTMLAttributes: { class: "notes-list-item" },
         },
       }),
-      // Clean placeholder (replaces previous overlay hack; theme-aware)
       Placeholder.configure({
         placeholder: placeholder || "Start writing...",
         emptyEditorClass: "is-editor-empty",
       }),
-      // Custom mention pills for @ / [[ style linking (visual + future backlink foundation)
       MentionMark,
-
       NoteImage,
-
-      EmailHtmlBlock.configure({ noteId: noteId ?? "" }),
-
       Table.configure({
         resizable: true,
         HTMLAttributes: { class: "notes-editor-table" },
@@ -373,8 +379,6 @@ export function TipTapEditor({
       TableRow,
       TableHeader,
       TableCell,
-
-      // Proper hyperlinks for rich paste (Google Docs, Word, Notion, web, etc.)
       Link.configure({
         openOnClick: true,
         autolink: true,
@@ -385,16 +389,21 @@ export function TipTapEditor({
           target: "_blank",
         },
       }),
+    ];
 
-      // Milestone 2: TaskEmbed nodes (live editable task cards inside notes)
+    if (isNotebookVariant) {
+      return [...base, ListTabKeymap];
+    }
+
+    return [
+      ...base,
+      EmailHtmlBlock.configure({ noteId: noteId ?? "" }),
       TaskEmbed.configure({
         tasks,
         onOpenTask,
         onToggleStatus,
         onUpdateTask,
       }),
-
-      // Milestone 2 (parallel): DatabaseBlock for live queryable views inside notes
       DatabaseBlock.configure({
         tasks,
         notes,
@@ -404,18 +413,30 @@ export function TipTapEditor({
         onUpdateTask,
         onOpenNote,
       }),
-
-      // M2→M3 bridge: SyncedBlock (minimal viable now delivered + bidirectional polish)
-      // Receives the same notes + onOpenNote data bridge as DatabaseBlock.
-      // M3: onUpdateNote now forwarded for optional "Edit in place" title sync (writes via parent update path).
-      // When absent the node-view shows disabled edit toggle + "read-only" footer hint (production safe).
-      // All other behavior 100% backward compatible.
       SyncedBlock.configure({
         notes,
         onOpenNote,
         onUpdateNote,
       }),
-    ],
+    ];
+  }, [
+    isNotebookVariant,
+    placeholder,
+    noteId,
+    tasks,
+    notes,
+    linkedItems,
+    onOpenTask,
+    onToggleStatus,
+    onUpdateTask,
+    onOpenNote,
+    onUpdateNote,
+  ]);
+
+  const editor = useEditor({
+    // Client-only editor; avoid Next.js hydration warning and first-paint delay.
+    immediatelyRender: true,
+    extensions: editorExtensions,
     editable: !readOnly,
     content: prepareInitialContent(content),
     onUpdate: ({ editor }) => {
@@ -526,13 +547,19 @@ export function TipTapEditor({
       },
 
       handlePaste: (_view, event) => {
-        if (onAttachFilesRef.current) {
-          const files = getClipboardFiles(event.clipboardData);
-          if (files.length > 0) {
+        const allFiles = getClipboardFiles(event.clipboardData);
+        if (allFiles.length > 0) {
+          const imageFiles = allFiles.filter((f) => f.type.startsWith("image/"));
+          const otherFiles = allFiles.filter((f) => !f.type.startsWith("image/"));
+          if (imageFiles.length > 0) {
             event.preventDefault();
-            void onAttachFilesRef.current(files);
-            return true;
+            void handleImageFilesRef.current(imageFiles);
           }
+          if (otherFiles.length > 0 && onAttachFilesRef.current) {
+            event.preventDefault();
+            void onAttachFilesRef.current(otherFiles);
+          }
+          if (imageFiles.length > 0 || otherFiles.length > 0) return true;
         }
         const imageFiles = getClipboardImageFiles(event.clipboardData);
         if (imageFiles.length > 0) {
@@ -545,13 +572,19 @@ export function TipTapEditor({
 
       handleDrop: (_view, event, _slice, moved) => {
         if (moved) return false;
-        if (onAttachFilesRef.current) {
-          const files = getDroppedFiles(event.dataTransfer);
-          if (files.length > 0) {
+        const allFiles = getDroppedFiles(event.dataTransfer);
+        if (allFiles.length > 0) {
+          const imageFiles = allFiles.filter((f) => f.type.startsWith("image/"));
+          const otherFiles = allFiles.filter((f) => !f.type.startsWith("image/"));
+          if (imageFiles.length > 0) {
             event.preventDefault();
-            void onAttachFilesRef.current(files);
-            return true;
+            void handleImageFilesRef.current(imageFiles);
           }
+          if (otherFiles.length > 0 && onAttachFilesRef.current) {
+            event.preventDefault();
+            void onAttachFilesRef.current(otherFiles);
+          }
+          if (imageFiles.length > 0 || otherFiles.length > 0) return true;
         }
         const imageFiles = getDroppedImageFiles(event.dataTransfer);
         if (imageFiles.length > 0) {
@@ -1246,11 +1279,33 @@ export function TipTapEditor({
     },
   ];
 
+  const notebookExcludedSlashIds = useMemo(
+    () =>
+      new Set([
+        "task",
+        "note",
+        "note-link",
+        "db-block",
+        "synced-block",
+        "link",
+        "checklist",
+      ]),
+    [],
+  );
+
+  const slashCommandsForVariant = useMemo(
+    () =>
+      isNotebookVariant
+        ? slashCommandsBase.filter((cmd) => !notebookExcludedSlashIds.has(cmd.id))
+        : slashCommandsBase,
+    [isNotebookVariant, notebookExcludedSlashIds],
+  );
+
   const filteredSlashCommands = useMemo(() => {
     const q = slashQuery.toLowerCase().trim();
-    if (!q) return [...slashCommandsBase];
+    if (!q) return [...slashCommandsForVariant];
     // Enhanced scoring for better discoverability + search quality
-    const scored = slashCommandsBase
+    const scored = slashCommandsForVariant
       .map((cmd) => {
         const titleL = cmd.title.toLowerCase();
         const descL = cmd.description.toLowerCase();
@@ -1265,7 +1320,7 @@ export function TipTapEditor({
       .filter((s) => s.score > 0)
       .sort((a, b) => b.score - a.score);
     return scored.map((s) => s.cmd);
-  }, [slashQuery]);
+  }, [slashQuery, slashCommandsForVariant]);
 
   const executeSlashCommand = useCallback((cmd: (typeof slashCommandsBase)[number]) => {
     if (!editor) return;
@@ -1414,6 +1469,18 @@ export function TipTapEditor({
     onAttachFilesRef.current = onAttachFiles;
   }, [onAttachFiles]);
 
+  const applyLink = useCallback(() => {
+    if (!editor) return;
+    const previousUrl = editor.getAttributes("link").href as string | undefined;
+    const url = window.prompt("Link URL", previousUrl || "https://");
+    if (url === null) return;
+    if (url.trim() === "") {
+      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      return;
+    }
+    editor.chain().focus().extendMarkRange("link").setLink({ href: url.trim() }).run();
+  }, [editor]);
+
   // Force-save on blur (when the user finishes typing a paragraph or thought and clicks away).
   // This is a key part of "reliable paragraph persistence" without hammering the DB on every keystroke.
   useEffect(() => {
@@ -1508,7 +1575,7 @@ export function TipTapEditor({
   useEffect(() => {
     const resolvePortalTarget = () => {
       const panel = editorBodyRef.current?.closest(
-        ".notes-files-preview-body, .notes-editor-panel, .notes-drawer-body",
+        ".notes-files-preview-body, .notes-editor-scroll-body, .notes-editor-panel, .notes-drawer-body",
       );
       setCollapsePortalTarget(panel instanceof HTMLElement ? panel : null);
     };
@@ -1520,6 +1587,11 @@ export function TipTapEditor({
     if (!editor) return;
 
     const measureCollapse = () => {
+      if (stickyChromeLayout) {
+        setNeedsCollapse(false);
+        return;
+      }
+
       const prose = editorBodyRef.current?.querySelector(".ProseMirror");
       if (!prose) return;
 
@@ -1565,9 +1637,9 @@ export function TipTapEditor({
       editor.off("focus", handleEditorFocus);
       resizeObserver?.disconnect();
     };
-  }, [editor]);
+  }, [editor, stickyChromeLayout]);
 
-  const isContentCollapsed = needsCollapse && !contentExpanded;
+  const isContentCollapsed = needsCollapse && !contentExpanded && !stickyChromeLayout;
 
   if (!editor) {
     return (
@@ -1630,6 +1702,7 @@ export function TipTapEditor({
       <div
         className={cn(
           "notes-editor-toolbar notes-editor-toolbar--compact border-b border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] flex flex-col gap-0 px-0.5 py-0.5",
+
           toolbarDisabled && "notes-editor-toolbar--readonly pointer-events-none select-none opacity-80",
         )}
         aria-hidden={toolbarDisabled || undefined}
@@ -1710,6 +1783,13 @@ export function TipTapEditor({
             <Code className={toolbarIconClass} />
           </ToolbarButton>
           <ToolbarButton
+            onClick={applyLink}
+            isActive={editor.isActive("link")}
+            title="Insert link"
+          >
+            <Link2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
             onClick={() =>
               editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
             }
@@ -1733,21 +1813,22 @@ export function TipTapEditor({
           >
             <Redo2 className={toolbarIconClass} />
           </ToolbarButton>
-          {showAttachFilesButton ? (
+          {imageButtonVisible && (
+            <ToolbarButton
+              onClick={() => imageUploadInputRef.current?.click()}
+              isActive={false}
+              title="Insert image (paste or drag & drop also work)"
+            >
+              <ImageIcon className={toolbarIconClass} />
+            </ToolbarButton>
+          )}
+          {attachButtonVisible && (
             <ToolbarButton
               onClick={() => attachFilesInputRef.current?.click()}
               isActive={false}
               title="Attach file (drag & drop into the note also works)"
             >
               <Paperclip className={toolbarIconClass} />
-            </ToolbarButton>
-          ) : (
-            <ToolbarButton
-              onClick={() => imageUploadInputRef.current?.click()}
-              isActive={false}
-              title="Upload image (paste or drag & drop also work)"
-            >
-              <ImageIcon className={toolbarIconClass} />
             </ToolbarButton>
           )}
         </div>
@@ -1838,6 +1919,13 @@ export function TipTapEditor({
             <Code className={toolbarIconClass} />
           </ToolbarButton>
           <ToolbarButton
+            onClick={applyLink}
+            isActive={editor.isActive("link")}
+            title="Insert link"
+          >
+            <Link2 className={toolbarIconClass} />
+          </ToolbarButton>
+          <ToolbarButton
             onClick={() =>
               editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
             }
@@ -1846,21 +1934,22 @@ export function TipTapEditor({
           >
             <Table2 className={toolbarIconClass} />
           </ToolbarButton>
-          {showAttachFilesButton ? (
+          {imageButtonVisible && (
+            <ToolbarButton
+              onClick={() => imageUploadInputRef.current?.click()}
+              isActive={false}
+              title="Insert image (paste or drag & drop also work)"
+            >
+              <ImageIcon className={toolbarIconClass} />
+            </ToolbarButton>
+          )}
+          {attachButtonVisible && (
             <ToolbarButton
               onClick={() => attachFilesInputRef.current?.click()}
               isActive={false}
               title="Attach file (drag & drop into the note also works)"
             >
               <Paperclip className={toolbarIconClass} />
-            </ToolbarButton>
-          ) : (
-            <ToolbarButton
-              onClick={() => imageUploadInputRef.current?.click()}
-              isActive={false}
-              title="Upload image (paste or drag & drop also work)"
-            >
-              <ImageIcon className={toolbarIconClass} />
             </ToolbarButton>
           )}
         </div>
@@ -1884,10 +1973,14 @@ export function TipTapEditor({
     )
   ) : null;
 
-  const chromeBlock = stickyPreviewChrome ? (
+  const chromeBlock = stickyChromeLayout ? (
     previewHeader || toolbarMarkup || belowToolbar ? (
-      <div className="notes-files-preview-chrome">
-        {previewHeader}
+      <div
+        className={cn(
+          stickyPreviewChrome ? "notes-files-preview-chrome" : "notes-editor-sticky-chrome",
+        )}
+      >
+        {stickyPreviewChrome ? previewHeader : null}
         {toolbarMarkup}
         {belowToolbar}
       </div>
@@ -1906,7 +1999,12 @@ export function TipTapEditor({
           isCompactToolbar ? "notes-editor-body py-3 px-0" : "p-5",
           needsCollapse && contentExpanded && (isCompactToolbar ? "pb-16" : "pb-20"),
         )}
-        style={{ minHeight: isContentCollapsed ? undefined : minHeight }}
+        style={{
+          minHeight:
+            isContentCollapsed || (stickyChromeLayout && readOnly)
+              ? undefined
+              : minHeight,
+        }}
         onClick={() => {
           if (!readOnly) editor.chain().focus().run();
         }}
@@ -2055,7 +2153,8 @@ export function TipTapEditor({
             className="absolute z-50 w-64 glass rounded-xl border border-border-glass p-3 text-xs text-text-muted"
             style={{ top: `${slashPosition.top}px`, left: `${slashPosition.left}px` }}
           >
-            No commands match “{slashQuery}”. Try /heading, /task, /embed…
+            No commands match “{slashQuery}”. Try{" "}
+            {isNotebookVariant ? "/heading, /image, /table, /quote…" : "/heading, /task, /embed…"}
           </div>
         )}
 
@@ -2205,6 +2304,7 @@ export function TipTapEditor({
       className={cn(
         "notes-rich-editor w-full flex flex-col bg-transparent",
         stickyPreviewChrome && "notes-rich-editor--files-preview flex-1 min-h-0",
+        stickyToolbar && !stickyPreviewChrome && "notes-rich-editor--sticky-chrome flex-1 min-h-0",
         className,
       )}
     >
@@ -2237,8 +2337,14 @@ export function TipTapEditor({
       />
       {chromeBlock}
 
-      {stickyPreviewChrome ? (
-        <div className="notes-files-preview-body flex-1 min-h-0 overflow-auto overscroll-contain">
+      {stickyChromeLayout ? (
+        <div
+          className={cn(
+            "flex-1 min-h-0 overflow-auto overscroll-contain",
+            stickyPreviewChrome ? "notes-files-preview-body" : "notes-editor-scroll-body",
+          )}
+        >
+          {aboveScrollContent}
           {editorBody}
           {belowScrollContent}
         </div>
@@ -2257,6 +2363,7 @@ export function TipTapEditor({
 
       {needsCollapse &&
         contentExpanded &&
+        !stickyChromeLayout &&
         collapsePortalTarget &&
         createPortal(
           <div

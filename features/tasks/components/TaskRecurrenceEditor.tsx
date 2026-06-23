@@ -25,12 +25,14 @@ export interface TaskRecurrenceEditorProps {
   localTask: Task;
   save: (updates: Partial<Task>) => void;
   compact?: boolean;
+  datePickerInlinePlacement?: "popover" | "modal" | "embedded";
 }
 
 export function TaskRecurrenceEditor({
   localTask,
   save,
   compact = false,
+  datePickerInlinePlacement = "modal",
 }: TaskRecurrenceEditorProps) {
   const currentLabel = getRecurringLabel(localTask.recurringRule);
   const currentPattern = parseRecurringRule(localTask.recurringRule);
@@ -343,6 +345,8 @@ export function TaskRecurrenceEditor({
                     applyEndCondition("until", undefined, dateStr || "");
                   }}
                   className="flex-1"
+                  variant={datePickerInlinePlacement === "embedded" ? "inline" : "default"}
+                  inlinePlacement={datePickerInlinePlacement}
                 />
                 <button
                   type="button"
