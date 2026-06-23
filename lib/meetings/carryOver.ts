@@ -23,7 +23,8 @@ export function getCarryOverSourceItems(
 }
 
 export function buildNextMeetingTitle(previous: Meeting): string {
-  const base = previous.title.replace(/\s*—\s*.+$/, "").trim() || previous.title;
+  const base =
+    previous.title.replace(/\s*[-—]\s*[^-—]+,\s*\d{4}.*$/, "").trim() || previous.title;
   const date = new Date().toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -36,10 +37,11 @@ export function cloneCarryOverItems(
   sourceItems: MeetingAgendaItem[],
   newMeetingId: string,
   startSortOrder = 0,
+  idFactory: () => string = generateId,
 ): MeetingAgendaItem[] {
   const now = new Date().toISOString();
   return sourceItems.map((item, index) => ({
-    id: generateId(),
+    id: idFactory(),
     meetingId: newMeetingId,
     title: item.title,
     description: item.description ?? null,

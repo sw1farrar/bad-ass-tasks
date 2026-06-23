@@ -6644,7 +6644,7 @@ function markMeetingTablesAvailable(): void {
 }
 
 export function areMeetingTablesReady(): boolean {
-  return meetingTablesAvailable !== false;
+  return meetingTablesAvailable === true;
 }
 
 export function isMeetingPersistenceEnabled(): boolean {

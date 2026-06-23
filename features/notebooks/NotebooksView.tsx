@@ -65,7 +65,7 @@ export interface NotebooksViewProps {
     title?: string;
     scheduledAt?: string | null;
     templateId?: string;
-  }) => Promise<Meeting>;
+  }) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] }>;
   onUpdateMeeting: (id: string, updates: Partial<Meeting>) => Promise<unknown>;
   onDeleteMeeting: (id: string) => Promise<unknown>;
   onAddAgendaItem: (meetingId: string, title?: string) => Promise<MeetingAgendaItem | undefined>;
@@ -81,7 +81,7 @@ export interface NotebooksViewProps {
   onStartNextMeeting: (
     id: string,
     options: { includeContinued: boolean; includeOpen: boolean },
-  ) => Promise<Meeting | undefined>;
+  ) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onSaveSummaryAsNote?: (meeting: Meeting) => Promise<void>;
 }
 
@@ -307,19 +307,23 @@ export function NotebooksView({
   }) => {
     setIsCreatingMeeting(true);
     try {
-      const meeting = await onAddMeeting({
+      const { meeting, agendaItems: createdItems } = await onAddMeeting({
         title: input.title,
         scheduledAt: input.scheduledAt ?? null,
         templateId: input.templateId,
       });
       onSelectMeeting(meeting.id);
+      const firstItem = [...createdItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+      if (firstItem) onSelectAgendaItem(firstItem.id);
       toast.success("Meeting scheduled");
     } catch {
       toast.error("Could not create meeting");
+      throw new Error("create meeting failed");
     } finally {
       setIsCreatingMeeting(false);
+      setCreateMeetingOpen(false);
     }
-  }, [onAddMeeting, onSelectMeeting]);
+  }, [onAddMeeting, onSelectMeeting, onSelectAgendaItem]);
 
   const meetingList = (
     <MeetingStream
@@ -353,6 +357,7 @@ export function NotebooksView({
       className={cn(
         "notebooks-root files-root flex flex-col md:flex-row h-full min-h-0 overflow-hidden max-w-full min-w-0",
         showMobileNotebookDetail && "files-mobile-detail",
+        showMobileMeetingDetail && "files-mobile-detail",
         showMobileNoteDetail && "notebooks-mobile-note-detail",
       )}
       data-workspace-id={workspaceId}
@@ -361,7 +366,10 @@ export function NotebooksView({
         <MeetingRail
           isDesktop={isDesktop}
           notesPageMode={notesPageMode}
-          onNotesPageModeChange={onNotesPageModeChange}
+          onNotesPageModeChange={(mode) => {
+            setCreateMeetingOpen(false);
+            onNotesPageModeChange(mode);
+          }}
           onNewMeeting={() => setCreateMeetingOpen(true)}
           isCreating={isCreatingMeeting}
           searchQuery={meetingSearchQuery}
@@ -384,7 +392,13 @@ export function NotebooksView({
       {!isDesktop && !showMobileNotebookDetail && !showMobileMeetingDetail && (
         <div className="files-list-column w-full min-w-0 max-w-full flex flex-1 flex-col min-h-0 border-r border-border-glass bg-bg box-border">
           <div className="px-4 pt-3 pb-2 border-b border-border-glass">
-            <NotesMeetingsToggle mode={notesPageMode} onModeChange={onNotesPageModeChange} />
+            <NotesMeetingsToggle
+              mode={notesPageMode}
+              onModeChange={(mode) => {
+                setCreateMeetingOpen(false);
+                onNotesPageModeChange(mode);
+              }}
+            />
           </div>
           <div className="files-list-toolbar files-mobile-toolbar-row border-b border-border-glass min-w-0 max-w-full box-border">
             <div className="files-mobile-toolbar-row__left flex flex-1 min-w-0 items-center gap-2">
@@ -532,9 +546,13 @@ export function NotebooksView({
           onCompleteMeeting={onCompleteMeeting}
           onReopenMeeting={onReopenMeeting}
           onStartNextMeeting={async (id, options) => {
-            const next = await onStartNextMeeting(id, options);
-            if (next) onSelectMeeting(next.id);
-            return next;
+            const result = await onStartNextMeeting(id, options);
+            if (result) {
+              onSelectMeeting(result.meeting.id);
+              const firstItem = [...result.agendaItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+              if (firstItem) onSelectAgendaItem(firstItem.id);
+            }
+            return result;
           }}
           onSaveSummaryAsNote={onSaveSummaryAsNote}
           showSidebar={isDesktop}

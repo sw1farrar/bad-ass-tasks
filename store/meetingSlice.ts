@@ -105,7 +105,7 @@ type MeetingSliceActionsInternal = {
     templateId?: string;
     previousMeetingId?: string | null;
     attendeeIds?: string[];
-  }) => Promise<Meeting>;
+  }) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] }>;
 };
 
 type Get = () => MeetingStoreSlice & MeetingSliceActionsInternal;
@@ -235,16 +235,18 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       }));
 
       if (isLiveMeetingWorkspace(workspaceId)) {
-        const ready = await ensureMeetingPersistenceReady();
-        if (!ready) throw new Error("Meeting storage is not available");
-        const ok = await createMeetingSupabase(meeting);
-        if (!ok) throw new Error("Could not save meeting");
-        for (const item of agendaItems) {
-          await createAgendaItemSupabase(item);
-        }
+        void (async () => {
+          const ready = await ensureMeetingPersistenceReady();
+          if (!ready) return;
+          const ok = await createMeetingSupabase(meeting);
+          if (!ok) return;
+          for (const item of agendaItems) {
+            await createAgendaItemSupabase(item);
+          }
+        })();
       }
 
-      return meeting;
+      return { meeting, agendaItems };
     },
 
     updateMeeting: async (id: string, updates: Partial<Meeting>) => {
@@ -310,7 +312,9 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     updateAgendaItem: async (id: string, updates: Partial<MeetingAgendaItem>) => {
       const now = new Date().toISOString();
-      const workspaceId = wsId();
+      const item = get().meetingAgendaItems.find((i) => i.id === id);
+      const meeting = item ? get().meetings.find((m) => m.id === item.meetingId) : null;
+      const workspaceId = meeting?.workspaceId ?? wsId();
       set((state) => ({
         meetingAgendaItems: state.meetingAgendaItems.map((i) =>
           i.id === id ? { ...i, ...updates, updatedAt: now } : i,
@@ -432,13 +436,14 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       if (!previous) throw new Error("Meeting not found");
       const prevItems = get().meetingAgendaItems.filter((i) => i.meetingId === previousMeetingId);
       const sourceItems = getCarryOverSourceItems(prevItems, options);
-      const meeting = await actions.addMeeting({
+      const { meeting, agendaItems: templateItems } = await actions.addMeeting({
         title: buildNextMeetingTitle(previous),
         scheduledAt: new Date().toISOString(),
         previousMeetingId: previous.id,
         attendeeIds: [...previous.attendeeIds],
       });
-      const carryItems = cloneCarryOverItems(sourceItems, meeting.id);
+      const idFn = isLiveMeetingWorkspace(meeting.workspaceId) ? generateClientId : generateId;
+      const carryItems = cloneCarryOverItems(sourceItems, meeting.id, templateItems.length * 1000, idFn);
       if (carryItems.length) {
         set((state) => ({
           meetingAgendaItems: [...state.meetingAgendaItems, ...carryItems],
@@ -449,7 +454,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
           }
         }
       }
-      return meeting;
+      return { meeting, agendaItems: [...templateItems, ...carryItems] };
     },
   };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import type { CarryOverOptions } from "@/lib/meetings/carryOver";
 
@@ -23,6 +23,13 @@ export function StartNextMeetingModal({
 }: StartNextMeetingModalProps) {
   const [includeContinued, setIncludeContinued] = useState(true);
   const [includeOpen, setIncludeOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setIncludeContinued(true);
+      setIncludeOpen(false);
+    }
+  }, [open]);
 
   return (
     <ConfirmationModal

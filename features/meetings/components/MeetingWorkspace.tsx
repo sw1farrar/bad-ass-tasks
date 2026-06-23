@@ -38,7 +38,10 @@ interface MeetingWorkspaceProps {
   onStartMeeting: (id: string) => void | Promise<unknown>;
   onCompleteMeeting: (id: string) => void | Promise<unknown>;
   onReopenMeeting: (id: string) => void | Promise<unknown>;
-  onStartNextMeeting: (id: string, options: { includeContinued: boolean; includeOpen: boolean }) => void | Promise<Meeting | undefined>;
+  onStartNextMeeting: (
+    id: string,
+    options: { includeContinued: boolean; includeOpen: boolean },
+  ) => void | Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onSaveSummaryAsNote?: (meeting: Meeting) => void | Promise<void>;
   showSidebar?: boolean;
 }
@@ -108,7 +111,10 @@ export function MeetingWorkspace({
   const handlePrint = () => {
     if (isCompleted) setViewMode("summary");
     else setViewMode("agenda");
-    requestAnimationFrame(() => window.print());
+    requestAnimationFrame(() => {
+      window.print();
+      setViewMode("live");
+    });
   };
 
   return (

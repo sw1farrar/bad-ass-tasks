@@ -101,6 +101,7 @@ import {
   areNotebookTablesReady,
   getMeetings,
   areMeetingTablesReady,
+  isMeetingPersistenceEnabled,
   remapLegacyListIdsInState,
   createTask as createTaskSupabase,
   updateTask as updateTaskSupabase,
@@ -652,6 +653,9 @@ function clearedLiveSessionState() {
   return {
     tasks: [],
     notes: [],
+    meetings: [],
+    meetingAgendaItems: [],
+    meetingAgendaEntries: [],
     workspaceLists: [],
     listItems: [],
     recentActivity: [],
@@ -666,6 +670,8 @@ function clearedLiveSessionState() {
     comments: [],
     selectedTaskId: null,
     selectedNoteId: null,
+    selectedMeetingId: null,
+    selectedAgendaItemId: null,
     isInitializing: false,
     pendingSyncCount: 0,
     isSyncing: false,
@@ -1351,7 +1357,19 @@ export const useTaskStore = create<TaskState>()(
           // An empty string (or w1/w2) will cause "invalid input syntax for type uuid" errors.
           // ensureUserHasWorkspace() + fetchUserWorkspaces() are responsible for setting a real ID first.
           if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) {
-            set({ tasks: [], notes: [], workspaceLists: [], listItems: [], recentActivity: [], taskLoadingStates: {} });
+            set({
+              tasks: [],
+              notes: [],
+              meetings: [],
+              meetingAgendaItems: [],
+              meetingAgendaEntries: [],
+              workspaceLists: [],
+              listItems: [],
+              recentActivity: [],
+              taskLoadingStates: {},
+              selectedMeetingId: null,
+              selectedAgendaItemId: null,
+            });
             return;
           }
 
@@ -1488,7 +1506,15 @@ export const useTaskStore = create<TaskState>()(
           let nextMeetings = meetingBundle.meetings;
           let nextAgendaItems = meetingBundle.agendaItems;
           let nextAgendaEntries = meetingBundle.entries;
-          if (!areMeetingTablesReady()) {
+          if (!isMeetingPersistenceEnabled()) {
+            nextMeetings = keptMeetings;
+            nextAgendaItems = get().meetingAgendaItems.filter((i) =>
+              keptMeetings.some((m) => m.id === i.meetingId),
+            );
+            nextAgendaEntries = get().meetingAgendaEntries.filter((e) =>
+              nextAgendaItems.some((i) => i.id === e.agendaItemId),
+            );
+          } else if (nextMeetings.length === 0 && keptMeetings.length > 0) {
             nextMeetings = keptMeetings;
             nextAgendaItems = get().meetingAgendaItems.filter((i) =>
               keptMeetings.some((m) => m.id === i.meetingId),
@@ -1595,12 +1621,17 @@ export const useTaskStore = create<TaskState>()(
             set({
               tasks: [],
               notes: [],
+              meetings: [],
+              meetingAgendaItems: [],
+              meetingAgendaEntries: [],
               workspaceLists: [],
               listItems: [],
               recentActivity: [],
               workspaces: [],
               currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
               taskLoadingStates: {},
+              selectedMeetingId: null,
+              selectedAgendaItemId: null,
             });
           }
 
@@ -1634,10 +1665,15 @@ export const useTaskStore = create<TaskState>()(
               set({
                 tasks: [],
                 notes: [],
+                meetings: [],
+                meetingAgendaItems: [],
+                meetingAgendaEntries: [],
                 recentActivity: [],
                 workspaces: [],
                 currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
                 taskLoadingStates: {},
+                selectedMeetingId: null,
+                selectedAgendaItemId: null,
               });
               get().loadNotificationPrefs?.().catch(() => {});
             }
@@ -5143,6 +5179,9 @@ if (typeof window !== "undefined") {
           tasks: [],
           notes: [],
           notebooks: [],
+          meetings: [],
+          meetingAgendaItems: [],
+          meetingAgendaEntries: [],
           workspaceLists: [],
           listItems: [],
           recentActivity: [],
@@ -5151,6 +5190,8 @@ if (typeof window !== "undefined") {
           taskLoadingStates: {},
           selectedNotebookId: null,
           selectedNotebookNoteId: null,
+          selectedMeetingId: null,
+          selectedAgendaItemId: null,
         });
       }
     }

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Send } from "lucide-react";
+import { toast } from "sonner";
 
 interface MeetingEntryComposerProps {
   disabled?: boolean;
@@ -19,6 +20,8 @@ export function MeetingEntryComposer({ disabled, onSubmit }: MeetingEntryCompose
     try {
       await onSubmit(trimmed);
       setBody("");
+    } catch {
+      toast.error("Could not save note");
     } finally {
       setIsSubmitting(false);
     }

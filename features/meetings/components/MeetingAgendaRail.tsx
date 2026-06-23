@@ -80,6 +80,7 @@ function SortableItem({
           type="button"
           className="p-1 text-text-faint hover:text-text-muted cursor-grab"
           aria-label="Reorder"
+          onClick={(e) => e.stopPropagation()}
           {...attributes}
           {...listeners}
         >
