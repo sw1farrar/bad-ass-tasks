@@ -48,8 +48,9 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
     await expect(page.getByRole('button', { name: 'Home', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('main')).toBeVisible();
     // Demo mode (no auth): home shows workspace tiles, not the signed-in top-bar greeting.
-    await expect(page.getByRole('region', { name: 'Workspaces' })).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('Badazz Ventures').first()).toBeVisible();
+    const workspaces = page.getByRole('region', { name: 'Workspaces' });
+    await expect(workspaces).toBeVisible({ timeout: 8000 });
+    await expect(workspaces.locator('.home-ws-card__name', { hasText: 'Badazz Ventures' })).toBeVisible();
 
     const errors: string[] = [];
     page.on('console', (msg) => {
@@ -64,7 +65,8 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
 
   test('keyboard command palette opens (⌘K or Ctrl+K)', async ({ page }) => {
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
-    await expect(page.getByRole('dialog', { name: 'Command Palette' })).toBeVisible({
+    // cmdk wraps Radix dialog; the outer role=dialog node can be hidden while the panel is open.
+    await expect(page.getByPlaceholder('Search tasks, notes, or commands…')).toBeVisible({
       timeout: 3000,
     });
   });
