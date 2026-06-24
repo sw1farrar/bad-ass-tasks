@@ -63,17 +63,19 @@ export function MeetingAgendaPdfPreview({
   }, []);
 
   useEffect(() => {
+    setPageHeight(0);
+
     const iframe = iframeRef.current;
     if (!iframe) return;
 
-    const handleLoad = () => updatePreviewLayout();
+    const handleLoad = () => {
+      updatePreviewLayout();
+      window.requestAnimationFrame(() => updatePreviewLayout());
+    };
+
     iframe.addEventListener("load", handleLoad);
     return () => iframe.removeEventListener("load", handleLoad);
   }, [previewDocument, updatePreviewLayout]);
-
-  useEffect(() => {
-    setPageHeight(0);
-  }, [previewDocument]);
 
   useEffect(() => {
     const scroll = scrollRef.current;
@@ -131,6 +133,7 @@ export function MeetingAgendaPdfPreview({
               }}
             >
               <iframe
+                key={previewDocument}
                 ref={iframeRef}
                 title={previewTitle}
                 srcDoc={previewDocument}

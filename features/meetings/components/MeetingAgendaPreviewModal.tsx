@@ -101,11 +101,14 @@ export function MeetingAgendaPreviewModal({
       setGenerateError(null);
       setIsGenerating(false);
       setIsCopying(false);
-      setIncludeComments(defaultIncludeComments);
       return;
     }
 
     setIncludeComments(defaultIncludeComments);
+  }, [open, defaultIncludeComments]);
+
+  useEffect(() => {
+    if (!open) return;
 
     let cancelled = false;
 
@@ -129,7 +132,7 @@ export function MeetingAgendaPreviewModal({
     return () => {
       cancelled = true;
     };
-  }, [open, articleHtml, meeting.title, defaultIncludeComments]);
+  }, [open, articleHtml, meeting.title]);
 
   if (!open) return null;
 
