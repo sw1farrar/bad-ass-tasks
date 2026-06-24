@@ -108,67 +108,74 @@ export function NotebookStream({
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
               <div
-                role="option"
-                aria-selected={isSelected}
                 className={cn(
                   "files-list-item w-full max-w-full text-left px-3 md:px-4 py-3 transition relative box-border overflow-hidden group",
                   isSelected && "files-list-item--selected",
-                  !isSelected && "hover:bg-surface-hover",
+                  !isSelected && !isEditing && "hover:bg-surface-hover",
+                  !isEditing && "cursor-pointer",
                 )}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <NotebookIcon className="h-4 w-4 shrink-0 text-neon-purple/80" />
                   {isEditing ? (
-                    <input
-                      ref={editingId === nb.id ? renameInputRef : undefined}
-                      value={editingName}
-                      onChange={(e) => setEditingName(e.target.value)}
-                      onBlur={() => commitRename(nb.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename(nb.id);
-                        if (e.key === "Escape") {
-                          setEditingId(null);
-                          setEditingName("");
-                        }
-                      }}
-                      className="flex-1 min-w-0 bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1 text-sm focus:outline-none"
-                      aria-label="Rename notebook"
-                    />
+                    <>
+                      <NotebookIcon className="h-4 w-4 shrink-0 text-neon-purple/80" />
+                      <input
+                        ref={editingId === nb.id ? renameInputRef : undefined}
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={() => commitRename(nb.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename(nb.id);
+                          if (e.key === "Escape") {
+                            setEditingId(null);
+                            setEditingName("");
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 min-w-0 bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1 text-sm focus:outline-none"
+                        aria-label="Rename notebook"
+                      />
+                    </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => onSelect(nb.id)}
-                      onDoubleClick={() => startRename(nb)}
-                      className="flex-1 min-w-0 text-left font-medium text-sm truncate text-text-primary"
-                    >
-                      {nb.name}
-                    </button>
-                  )}
-                  {!isEditing && (
-                    <div className="flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+                    <>
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startRename(nb);
-                        }}
-                        className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
-                        aria-label={`Rename ${nb.name}`}
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => onSelect(nb.id)}
+                        onDoubleClick={() => startRename(nb)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left -mx-3 md:-mx-4 -my-3 px-3 md:px-4 py-3 cursor-pointer"
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <NotebookIcon className="h-4 w-4 shrink-0 text-neon-purple/80 pointer-events-none" />
+                        <span className="flex-1 min-w-0 font-medium text-sm truncate text-text-primary">
+                          {nb.name}
+                        </span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(nb.id);
-                        }}
-                        className="p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover"
-                        aria-label={`Delete ${nb.name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                      <div className="relative z-10 flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startRename(nb);
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                          aria-label={`Rename ${nb.name}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(nb.id);
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover"
+                          aria-label={`Delete ${nb.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
