@@ -47,10 +47,9 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
 
     await expect(page.getByRole('button', { name: 'Home', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('main')).toBeVisible();
-    // Quick-add lives on Tasks view; home shows the hub greeting / workspaces.
-    await expect(
-      page.getByText(/Good (morning|afternoon|evening)|Workspaces/i).first(),
-    ).toBeVisible({ timeout: 8000 });
+    // Demo mode (no auth): home shows workspace tiles, not the signed-in top-bar greeting.
+    await expect(page.getByRole('region', { name: 'Workspaces' })).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText('Badazz Ventures').first()).toBeVisible();
 
     const errors: string[] = [];
     page.on('console', (msg) => {
@@ -65,7 +64,9 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
 
   test('keyboard command palette opens (⌘K or Ctrl+K)', async ({ page }) => {
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
-    await expect(page.getByLabel('Command Palette')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('dialog', { name: 'Command Palette' })).toBeVisible({
+      timeout: 3000,
+    });
   });
 
   test('critical flow: add task via quick input + mark complete (no crash, UI updates)', async ({
