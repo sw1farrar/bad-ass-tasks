@@ -9,17 +9,20 @@ import type {
   MeetingAgendaItem,
   WorkspaceMember,
 } from "@/types";
+import { sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
 import { MeetingHeader } from "./MeetingHeader";
 import { MeetingAgendaRail } from "./MeetingAgendaRail";
 import { MeetingTopicPanel } from "./MeetingTopicPanel";
-import { MeetingSidebar } from "./MeetingSidebar";
+
 import { MeetingSummaryView } from "./MeetingSummaryView";
-import { MeetingAgendaView } from "./MeetingAgendaView";
+import { MeetingAgendaPreviewModal } from "./MeetingAgendaPreviewModal";
+import { MeetingSummaryPreviewModal } from "./MeetingSummaryPreviewModal";
 import { CompleteMeetingModal } from "./CompleteMeetingModal";
 import { StartNextMeetingModal } from "./StartNextMeetingModal";
 
 interface MeetingWorkspaceProps {
   meeting: Meeting | null;
+  meetings: Meeting[];
   agendaItems: MeetingAgendaItem[];
   agendaEntries: MeetingAgendaEntry[];
   members: WorkspaceMember[];
@@ -35,7 +38,9 @@ interface MeetingWorkspaceProps {
   onCompleteItem: (id: string) => void | Promise<unknown>;
   onContinueItem: (id: string) => void | Promise<unknown>;
   onReopenItem: (id: string) => void | Promise<unknown>;
-  onStartMeeting: (id: string) => void | Promise<unknown>;
+  onRequestDeleteAgendaItem?: (id: string) => void;
+  onUpdateAgendaEntry?: (id: string, body: string) => void | Promise<unknown>;
+  onRequestDeleteAgendaEntry?: (id: string) => void;
   onCompleteMeeting: (id: string) => void | Promise<unknown>;
   onReopenMeeting: (id: string) => void | Promise<unknown>;
   onStartNextMeeting: (
@@ -43,11 +48,11 @@ interface MeetingWorkspaceProps {
     options: { includeContinued: boolean; includeOpen: boolean },
   ) => void | Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onSaveSummaryAsNote?: (meeting: Meeting) => void | Promise<void>;
-  showSidebar?: boolean;
 }
 
 export function MeetingWorkspace({
   meeting,
+  meetings,
   agendaItems,
   agendaEntries,
   members,
@@ -63,18 +68,21 @@ export function MeetingWorkspace({
   onCompleteItem,
   onContinueItem,
   onReopenItem,
-  onStartMeeting,
+  onRequestDeleteAgendaItem,
+  onUpdateAgendaEntry,
+  onRequestDeleteAgendaEntry,
   onCompleteMeeting,
   onReopenMeeting,
   onStartNextMeeting,
   onSaveSummaryAsNote,
-  showSidebar = true,
 }: MeetingWorkspaceProps) {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [nextOpen, setNextOpen] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [isStartingNext, setIsStartingNext] = useState(false);
-  const [viewMode, setViewMode] = useState<"live" | "agenda" | "summary">("live");
+  const [agendaPreviewOpen, setAgendaPreviewOpen] = useState(false);
+  const [summaryPreviewOpen, setSummaryPreviewOpen] = useState(false);
+  const [agendaPreviewIncludeComments, setAgendaPreviewIncludeComments] = useState(false);
 
   const selectedItem = useMemo(
     () => agendaItems.find((i) => i.id === selectedAgendaItemId) ?? null,
@@ -84,7 +92,9 @@ export function MeetingWorkspace({
   const itemEntries = useMemo(
     () =>
       selectedAgendaItemId
-        ? agendaEntries.filter((e) => e.agendaItemId === selectedAgendaItemId)
+        ? sortMeetingEntriesNewestFirst(
+            agendaEntries.filter((e) => e.agendaItemId === selectedAgendaItemId),
+          )
         : [],
     [agendaEntries, selectedAgendaItemId],
   );
@@ -108,29 +118,20 @@ export function MeetingWorkspace({
   const isCompleted = meeting.status === "completed";
   const readOnly = isCompleted;
 
-  const handlePrint = () => {
-    if (isCompleted) setViewMode("summary");
-    else setViewMode("agenda");
-    requestAnimationFrame(() => {
-      window.print();
-      setViewMode("live");
-    });
-  };
-
   return (
     <div className="files-detail-column flex flex-1 flex-col min-w-0 min-h-0 h-full meetings-root">
       <MeetingHeader
         meeting={meeting}
-        members={members}
-        currentUserId={currentUserId}
+        meetings={meetings}
         onUpdateMeeting={(id, updates) => void onUpdateMeeting(id, updates)}
-        onStart={() => void onStartMeeting(meeting.id)}
         onComplete={() => setCompleteOpen(true)}
-        onReopen={() => {
-          void Promise.resolve(onReopenMeeting(meeting.id)).then(() => setViewMode("live"));
-        }}
+        onReopen={() => void onReopenMeeting(meeting.id)}
         onStartNext={() => setNextOpen(true)}
-        onPrint={handlePrint}
+        onOpenAgendaPreview={() => {
+          setAgendaPreviewIncludeComments(false);
+          setAgendaPreviewOpen(true);
+        }}
+        onOpenSummaryPreview={() => setSummaryPreviewOpen(true)}
       />
 
       {isCompleted ? (
@@ -144,24 +145,22 @@ export function MeetingWorkspace({
           onSaveAsNote={
             onSaveSummaryAsNote ? () => void onSaveSummaryAsNote(meeting) : undefined
           }
-        />
-      ) : viewMode === "agenda" ? (
-        <MeetingAgendaView
-          meeting={meeting}
-          items={agendaItems}
-          members={members}
-          workspaceName={workspaceName}
-          currentUserId={currentUserId}
+          onOpenAgendaPreview={() => {
+            setAgendaPreviewIncludeComments(true);
+            setAgendaPreviewOpen(true);
+          }}
         />
       ) : (
         <div className="meetings-workspace flex flex-1 min-h-0">
           <MeetingAgendaRail
             items={agendaItems}
+            members={members}
+            currentUserId={currentUserId}
             selectedId={selectedAgendaItemId}
             readOnly={readOnly}
             onSelect={(id) => onSelectAgendaItem(id)}
-            onAdd={() => {
-              void Promise.resolve(onAddAgendaItem(meeting.id)).then((item) => {
+            onAdd={(title) => {
+              void Promise.resolve(onAddAgendaItem(meeting.id, title)).then((item) => {
                 if (item) onSelectAgendaItem(item.id);
               });
             }}
@@ -178,16 +177,11 @@ export function MeetingWorkspace({
             onCompleteItem={(id) => void onCompleteItem(id)}
             onContinueItem={(id) => void onContinueItem(id)}
             onReopenItem={(id) => void onReopenItem(id)}
+            onRequestDeleteItem={onRequestDeleteAgendaItem}
             onAddEntry={(agendaItemId, body) => void onAddEntry(agendaItemId, body)}
+            onUpdateEntry={onUpdateAgendaEntry}
+            onRequestDeleteEntry={onRequestDeleteAgendaEntry}
           />
-          {showSidebar && (
-            <MeetingSidebar
-              items={agendaItems}
-              entries={agendaEntries}
-              members={members}
-              currentUserId={currentUserId}
-            />
-          )}
         </div>
       )}
 
@@ -201,7 +195,6 @@ export function MeetingWorkspace({
           setIsCompleting(true);
           try {
             await onCompleteMeeting(meeting.id);
-            setViewMode("summary");
             toast.success("Meeting completed");
             setCompleteOpen(false);
           } catch {
@@ -210,6 +203,29 @@ export function MeetingWorkspace({
             setIsCompleting(false);
           }
         }}
+      />
+
+      <MeetingAgendaPreviewModal
+        open={agendaPreviewOpen}
+        onOpenChange={setAgendaPreviewOpen}
+        meeting={meeting}
+        items={agendaItems}
+        entries={agendaEntries}
+        members={members}
+        workspaceName={workspaceName}
+        currentUserId={currentUserId}
+        defaultIncludeComments={agendaPreviewIncludeComments}
+      />
+
+      <MeetingSummaryPreviewModal
+        open={summaryPreviewOpen}
+        onOpenChange={setSummaryPreviewOpen}
+        meeting={meeting}
+        items={agendaItems}
+        entries={agendaEntries}
+        members={members}
+        workspaceName={workspaceName}
+        currentUserId={currentUserId}
       />
 
       <StartNextMeetingModal

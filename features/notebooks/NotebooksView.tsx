@@ -13,10 +13,27 @@ import type {
   MeetingAgendaItem,
   Note,
   Notebook,
+  NotebookCompetitor,
+  NotebookCustomer,
+  NotebookCustomerNote,
+  NotebookInvestment,
+  NotebookInvestmentNote,
+  NotebookTask,
+  NotebookTaskProgress,
   NotesPageMode,
   WorkspaceMember,
 } from "@/types";
-import { filterMeetingsBySearch } from "@/lib/meetings/meetingFilters";
+import {
+  filterMeetingsBySearch,
+  sortAgendaItems,
+  sortMeetings,
+} from "@/lib/meetings/meetingFilters";
+import {
+  buildDestructiveConfirmContent,
+  formatNotebookDeleteDetails,
+  type NotebookDeleteSummary,
+  type PendingDestructiveDelete,
+} from "@/lib/notebooks/destructiveConfirm";
 import {
   CreateMeetingModal,
   MeetingRail,
@@ -46,12 +63,25 @@ export interface NotebooksViewProps {
   notesPageMode: NotesPageMode;
   selectedNotebookId: string | null;
   selectedNoteId: string | null;
+  selectedNotebookTaskId: string | null;
+  selectedNotebookInvestmentId: string | null;
+  selectedNotebookCustomerId: string | null;
+  notebookTasks: NotebookTask[];
+  notebookTaskProgress: NotebookTaskProgress[];
+  notebookInvestments: NotebookInvestment[];
+  notebookInvestmentNotes: NotebookInvestmentNote[];
+  notebookCustomers: NotebookCustomer[];
+  notebookCustomerNotes: NotebookCustomerNote[];
+  notebookCompetitors: NotebookCompetitor[];
   selectedMeetingId: string | null;
   selectedAgendaItemId: string | null;
   isLive: boolean;
   onNotesPageModeChange: (mode: NotesPageMode) => void;
   onSelectNotebook: (id: string | null) => void;
   onSelectNote: (id: string | null) => void;
+  onSelectNotebookTask: (id: string | null) => void;
+  onSelectNotebookInvestment: (id: string | null) => void;
+  onSelectNotebookCustomer: (id: string | null) => void;
   onSelectMeeting: (id: string | null) => void;
   onSelectAgendaItem: (id: string | null) => void;
   onAddNotebook: (name?: string) => Promise<Notebook>;
@@ -64,7 +94,8 @@ export interface NotebooksViewProps {
   onAddMeeting: (input?: {
     title?: string;
     scheduledAt?: string | null;
-    templateId?: string;
+    carryOverFromMeetingId?: string | null;
+    carryOver?: { includeContinued: boolean; includeOpen: boolean };
   }) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] }>;
   onUpdateMeeting: (id: string, updates: Partial<Meeting>) => Promise<unknown>;
   onDeleteMeeting: (id: string) => Promise<unknown>;
@@ -72,10 +103,12 @@ export interface NotebooksViewProps {
   onUpdateAgendaItem: (id: string, updates: Partial<MeetingAgendaItem>) => Promise<unknown>;
   onReorderAgendaItems: (meetingId: string, orderedIds: string[]) => Promise<unknown>;
   onAddAgendaEntry: (agendaItemId: string, body: string) => Promise<unknown>;
+  onUpdateAgendaEntry: (id: string, body: string) => void | Promise<unknown>;
+  onDeleteAgendaEntry: (id: string) => void | Promise<unknown>;
   onCompleteAgendaItem: (id: string) => Promise<unknown>;
   onContinueAgendaItem: (id: string) => Promise<unknown>;
   onReopenAgendaItem: (id: string) => Promise<unknown>;
-  onStartMeeting: (id: string) => Promise<unknown>;
+  onDeleteAgendaItem: (id: string) => Promise<unknown>;
   onCompleteMeeting: (id: string) => Promise<unknown>;
   onReopenMeeting: (id: string) => Promise<unknown>;
   onStartNextMeeting: (
@@ -83,6 +116,34 @@ export interface NotebooksViewProps {
     options: { includeContinued: boolean; includeOpen: boolean },
   ) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onSaveSummaryAsNote?: (meeting: Meeting) => Promise<void>;
+  onAddNotebookTask: (title?: string) => void | Promise<unknown>;
+  onToggleNotebookTask: (id: string) => void | Promise<unknown>;
+  onUpdateNotebookTask: (id: string, title: string) => void | Promise<unknown>;
+  onDeleteNotebookTask: (id: string) => void | Promise<unknown>;
+  onAddNotebookTaskProgress: (taskId: string, body: string) => void | Promise<unknown>;
+  onUpdateNotebookTaskProgress: (id: string, body: string) => void | Promise<unknown>;
+  onDeleteNotebookTaskProgress: (id: string) => void | Promise<unknown>;
+  onAddNotebookInvestment: (title?: string) => void | Promise<unknown>;
+  onUpdateNotebookInvestment: (id: string, title: string) => void | Promise<unknown>;
+  onReorderNotebookInvestments: (orderedIds: string[]) => void | Promise<unknown>;
+  onDeleteNotebookInvestment: (id: string) => void | Promise<unknown>;
+  onAddNotebookInvestmentNote: (investmentId: string, body: string) => void | Promise<unknown>;
+  onUpdateNotebookInvestmentNote: (id: string, body: string) => void | Promise<unknown>;
+  onDeleteNotebookInvestmentNote: (id: string) => void | Promise<unknown>;
+  onAddNotebookCustomer: (accountName: string) => void | Promise<unknown>;
+  onUpdateNotebookCustomer: (id: string, accountName: string) => void | Promise<unknown>;
+  onDeleteNotebookCustomer: (id: string) => void | Promise<unknown>;
+  onAddNotebookCustomerNote: (customerId: string, body: string) => void | Promise<unknown>;
+  onUpdateNotebookCustomerNote: (id: string, body: string) => void | Promise<unknown>;
+  onDeleteNotebookCustomerNote: (id: string) => void | Promise<unknown>;
+  onAddNotebookCompetitor: (name: string, salesPotential: number) => void | Promise<unknown>;
+  onUpdateNotebookCompetitor: (
+    id: string,
+    updates: { name?: string; salesPotential?: number },
+  ) => void | Promise<unknown>;
+  onDeleteNotebookCompetitor: (id: string) => void | Promise<unknown>;
+  onSetNotebookOurSales: (value: number) => void | Promise<unknown>;
+  getNotebookDeleteSummary?: (notebookId: string) => NotebookDeleteSummary;
 }
 
 export function NotebooksView({
@@ -98,12 +159,25 @@ export function NotebooksView({
   notesPageMode,
   selectedNotebookId,
   selectedNoteId,
+  selectedNotebookTaskId,
+  selectedNotebookInvestmentId,
+  selectedNotebookCustomerId,
+  notebookTasks,
+  notebookTaskProgress,
+  notebookInvestments,
+  notebookInvestmentNotes,
+  notebookCustomers,
+  notebookCustomerNotes,
+  notebookCompetitors,
   selectedMeetingId,
   selectedAgendaItemId,
   isLive,
   onNotesPageModeChange,
   onSelectNotebook,
   onSelectNote,
+  onSelectNotebookTask,
+  onSelectNotebookInvestment,
+  onSelectNotebookCustomer,
   onSelectMeeting,
   onSelectAgendaItem,
   onAddNotebook,
@@ -120,14 +194,41 @@ export function NotebooksView({
   onUpdateAgendaItem,
   onReorderAgendaItems,
   onAddAgendaEntry,
+  onUpdateAgendaEntry,
+  onDeleteAgendaEntry,
   onCompleteAgendaItem,
   onContinueAgendaItem,
   onReopenAgendaItem,
-  onStartMeeting,
+  onDeleteAgendaItem,
   onCompleteMeeting,
   onReopenMeeting,
   onStartNextMeeting,
   onSaveSummaryAsNote,
+  onAddNotebookTask,
+  onToggleNotebookTask,
+  onUpdateNotebookTask,
+  onDeleteNotebookTask,
+  onAddNotebookTaskProgress,
+  onUpdateNotebookTaskProgress,
+  onDeleteNotebookTaskProgress,
+  onAddNotebookInvestment,
+  onUpdateNotebookInvestment,
+  onReorderNotebookInvestments,
+  onDeleteNotebookInvestment,
+  onAddNotebookInvestmentNote,
+  onUpdateNotebookInvestmentNote,
+  onDeleteNotebookInvestmentNote,
+  onAddNotebookCustomer,
+  onUpdateNotebookCustomer,
+  onDeleteNotebookCustomer,
+  onAddNotebookCustomerNote,
+  onUpdateNotebookCustomerNote,
+  onDeleteNotebookCustomerNote,
+  onAddNotebookCompetitor,
+  onUpdateNotebookCompetitor,
+  onDeleteNotebookCompetitor,
+  onSetNotebookOurSales,
+  getNotebookDeleteSummary,
 }: NotebooksViewProps) {
   const isMobile = useIsMobileViewport();
   const isDesktop = !isMobile;
@@ -146,6 +247,9 @@ export function NotebooksView({
   const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null);
   const [isDeletingNotebook, setIsDeletingNotebook] = useState(false);
   const [isDeletingNote, setIsDeletingNote] = useState(false);
+  const [pendingDestructiveDelete, setPendingDestructiveDelete] =
+    useState<PendingDestructiveDelete | null>(null);
+  const [isDeletingDestructive, setIsDeletingDestructive] = useState(false);
   const [mobileRenameEditingId, setMobileRenameEditingId] = useState<string | null>(null);
   const [mobileRenameName, setMobileRenameName] = useState("");
   const mobileRenameRef = useRef<HTMLInputElement>(null);
@@ -190,7 +294,7 @@ export function NotebooksView({
   );
 
   const filteredMeetings = useMemo(
-    () => filterMeetingsBySearch(meetings, meetingSearchQuery),
+    () => sortMeetings(filterMeetingsBySearch(meetings, meetingSearchQuery)),
     [meetings, meetingSearchQuery],
   );
 
@@ -199,10 +303,12 @@ export function NotebooksView({
     [meetings, selectedMeetingId],
   );
 
-  const selectedMeetingAgendaItems = useMemo(
-    () => meetingAgendaItems.filter((i) => i.meetingId === selectedMeetingId),
-    [meetingAgendaItems, selectedMeetingId],
-  );
+  const selectedMeetingAgendaItems = useMemo(() => {
+    if (!selectedMeetingId) return [];
+    return sortAgendaItems(
+      meetingAgendaItems.filter((i) => i.meetingId === selectedMeetingId),
+    );
+  }, [meetingAgendaItems, selectedMeetingId]);
 
   const selectedMeetingEntries = useMemo(() => {
     const itemIds = new Set(selectedMeetingAgendaItems.map((i) => i.id));
@@ -213,6 +319,38 @@ export function NotebooksView({
     () => meetings.find((m) => m.id === pendingDeleteMeetingId) ?? null,
     [meetings, pendingDeleteMeetingId],
   );
+
+  const destructiveConfirm = useMemo(
+    () =>
+      buildDestructiveConfirmContent(pendingDestructiveDelete, {
+        tasks: notebookTasks,
+        taskProgress: notebookTaskProgress,
+        investments: notebookInvestments,
+        investmentNotes: notebookInvestmentNotes,
+        customers: notebookCustomers,
+        customerNotes: notebookCustomerNotes,
+        competitors: notebookCompetitors,
+        agendaItems: meetingAgendaItems,
+        agendaEntries: meetingAgendaEntries,
+      }),
+    [
+      pendingDestructiveDelete,
+      notebookTasks,
+      notebookTaskProgress,
+      notebookInvestments,
+      notebookInvestmentNotes,
+      notebookCustomers,
+      notebookCustomerNotes,
+      notebookCompetitors,
+      meetingAgendaItems,
+      meetingAgendaEntries,
+    ],
+  );
+
+  const pendingNotebookDeleteDetails = useMemo(() => {
+    if (!pendingDeleteNotebookId || !getNotebookDeleteSummary) return null;
+    return formatNotebookDeleteDetails(getNotebookDeleteSummary(pendingDeleteNotebookId));
+  }, [pendingDeleteNotebookId, getNotebookDeleteSummary]);
 
   const showMobileNotebookDetail = isMobile && !isMeetingsMode && !!selectedNotebookId;
   const showMobileNoteDetail = isMobile && !isMeetingsMode && !!selectedNoteId;
@@ -277,6 +415,69 @@ export function NotebooksView({
     setMobileRenameEditingId(null);
   }, [mobileRenameName, onUpdateNotebook, selectedNotebookId]);
 
+  const handleConfirmDestructiveDelete = useCallback(async () => {
+    if (!pendingDestructiveDelete) return;
+    setIsDeletingDestructive(true);
+    try {
+      switch (pendingDestructiveDelete.kind) {
+        case "task":
+          await onDeleteNotebookTask(pendingDestructiveDelete.id);
+          toast.success("Task deleted");
+          break;
+        case "taskProgress":
+          await onDeleteNotebookTaskProgress(pendingDestructiveDelete.id);
+          toast.success("Progress note deleted");
+          break;
+        case "investment":
+          await onDeleteNotebookInvestment(pendingDestructiveDelete.id);
+          toast.success("Investment deleted");
+          break;
+        case "investmentNote":
+          await onDeleteNotebookInvestmentNote(pendingDestructiveDelete.id);
+          toast.success("Note deleted");
+          break;
+        case "customer":
+          await onDeleteNotebookCustomer(pendingDestructiveDelete.id);
+          toast.success("Customer deleted");
+          break;
+        case "customerNote":
+          await onDeleteNotebookCustomerNote(pendingDestructiveDelete.id);
+          toast.success("Note deleted");
+          break;
+        case "competitor":
+          await onDeleteNotebookCompetitor(pendingDestructiveDelete.id);
+          toast.success("Competitor deleted");
+          break;
+        case "agendaItem":
+          await onDeleteAgendaItem(pendingDestructiveDelete.id);
+          toast.success("Topic deleted");
+          break;
+        case "agendaEntry":
+          await onDeleteAgendaEntry(pendingDestructiveDelete.id);
+          toast.success("Note deleted");
+          break;
+        default:
+          break;
+      }
+    } catch {
+      toast.error("Could not complete delete");
+    } finally {
+      setIsDeletingDestructive(false);
+      setPendingDestructiveDelete(null);
+    }
+  }, [
+    pendingDestructiveDelete,
+    onDeleteNotebookTask,
+    onDeleteNotebookTaskProgress,
+    onDeleteNotebookInvestment,
+    onDeleteNotebookInvestmentNote,
+    onDeleteNotebookCustomer,
+    onDeleteNotebookCustomerNote,
+    onDeleteNotebookCompetitor,
+    onDeleteAgendaItem,
+    onDeleteAgendaEntry,
+  ]);
+
   const handleDeleteNotebook = useCallback(async () => {
     if (!pendingDeleteNotebookId) return;
     setIsDeletingNotebook(true);
@@ -303,14 +504,16 @@ export function NotebooksView({
   const handleAddMeeting = useCallback(async (input: {
     title: string;
     scheduledAt?: string;
-    templateId?: string;
+    carryOverFromMeetingId?: string;
+    carryOver?: { includeContinued: boolean; includeOpen: boolean };
   }) => {
     setIsCreatingMeeting(true);
     try {
       const { meeting, agendaItems: createdItems } = await onAddMeeting({
         title: input.title,
         scheduledAt: input.scheduledAt ?? null,
-        templateId: input.templateId,
+        carryOverFromMeetingId: input.carryOverFromMeetingId ?? null,
+        carryOver: input.carryOver,
       });
       onSelectMeeting(meeting.id);
       const firstItem = [...createdItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
@@ -441,30 +644,42 @@ export function NotebooksView({
       )}
 
       {showMobileMeetingDetail && (
-        <div className="files-mobile-back-bar">
-          <button
-            type="button"
-            onClick={() => onSelectMeeting(null)}
-            className="flex items-center rounded-xl px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[44px]"
-            aria-label="Back to meetings"
-          >
-            Back
-          </button>
-          <div className="min-w-0 flex-1 text-sm font-semibold truncate text-text-primary px-1">
-            {selectedMeeting?.title || "Meeting"}
+        <>
+          <div className="files-mobile-back-bar">
+            <button
+              type="button"
+              onClick={() => onSelectMeeting(null)}
+              className="flex items-center rounded-xl px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[44px]"
+              aria-label="Back to meetings"
+            >
+              Back
+            </button>
+            <div className="min-w-0 flex-1 text-sm font-semibold truncate text-text-primary px-1">
+              {selectedMeeting?.title || "Meeting"}
+            </div>
+            <button
+              type="button"
+              onClick={() => selectedMeetingId && setPendingDeleteMeetingId(selectedMeetingId)}
+              className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover shrink-0"
+              aria-label={`Delete ${selectedMeeting?.title || "meeting"}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => selectedMeetingId && setPendingDeleteMeetingId(selectedMeetingId)}
-            className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover shrink-0"
-            aria-label={`Delete ${selectedMeeting?.title || "meeting"}`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
+          <div className="px-4 py-2 border-b border-border-glass shrink-0">
+            <NotesMeetingsToggle
+              mode={notesPageMode}
+              onModeChange={(mode) => {
+                setCreateMeetingOpen(false);
+                onNotesPageModeChange(mode);
+              }}
+            />
+          </div>
+        </>
       )}
 
       {showMobileNotebookDetail && !showMobileNoteDetail && (
+        <>
         <div className="files-mobile-back-bar">
           <button
             type="button"
@@ -482,7 +697,10 @@ export function NotebooksView({
               onBlur={() => commitMobileRename()}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commitMobileRename();
-                if (e.key === "Escape") setMobileRenameName(selectedNotebook?.name || "");
+                if (e.key === "Escape") {
+                  setMobileRenameName(selectedNotebook?.name || "");
+                  setMobileRenameEditingId(null);
+                }
               }}
               className="min-w-0 flex-1 bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none"
               aria-label="Rename notebook"
@@ -506,6 +724,13 @@ export function NotebooksView({
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
+        <div className="px-4 py-2 border-b border-border-glass shrink-0">
+          <NotesMeetingsToggle
+            mode={notesPageMode}
+            onModeChange={onNotesPageModeChange}
+          />
+        </div>
+        </>
       )}
 
       {showMobileNoteDetail && (
@@ -527,6 +752,7 @@ export function NotebooksView({
       {isMeetingsMode && (!isMobile || showMobileMeetingDetail) && (
         <MeetingWorkspace
           meeting={selectedMeeting}
+          meetings={meetings}
           agendaItems={selectedMeetingAgendaItems}
           agendaEntries={selectedMeetingEntries}
           members={members}
@@ -542,7 +768,13 @@ export function NotebooksView({
           onCompleteItem={onCompleteAgendaItem}
           onContinueItem={onContinueAgendaItem}
           onReopenItem={onReopenAgendaItem}
-          onStartMeeting={onStartMeeting}
+          onRequestDeleteAgendaItem={(id) =>
+            setPendingDestructiveDelete({ kind: "agendaItem", id })
+          }
+          onUpdateAgendaEntry={onUpdateAgendaEntry}
+          onRequestDeleteAgendaEntry={(id) =>
+            setPendingDestructiveDelete({ kind: "agendaEntry", id })
+          }
           onCompleteMeeting={onCompleteMeeting}
           onReopenMeeting={onReopenMeeting}
           onStartNextMeeting={async (id, options) => {
@@ -555,7 +787,7 @@ export function NotebooksView({
             return result;
           }}
           onSaveSummaryAsNote={onSaveSummaryAsNote}
-          showSidebar={isDesktop}
+
         />
       )}
 
@@ -565,13 +797,28 @@ export function NotebooksView({
           showNotebookHeader={!isMobile}
           showSectionMenu={!showMobileNoteDetail}
           notes={notebookNotes}
+          tasks={notebookTasks}
+          taskProgress={notebookTaskProgress}
+          investments={notebookInvestments}
+          investmentNotes={notebookInvestmentNotes}
+          customers={notebookCustomers}
+          customerNotes={notebookCustomerNotes}
+          competitors={notebookCompetitors}
+          members={members}
+          currentUserId={currentUserId}
           selectedNoteId={selectedNoteId}
           selectedNote={selectedNote}
+          selectedTaskId={selectedNotebookTaskId}
+          selectedInvestmentId={selectedNotebookInvestmentId}
+          selectedCustomerId={selectedNotebookCustomerId}
           isLive={isLive}
           isCreatingNote={isCreatingNote}
           onSelectNote={(id) => {
             onSelectNote(id);
           }}
+          onSelectTask={onSelectNotebookTask}
+          onSelectInvestment={onSelectNotebookInvestment}
+          onSelectCustomer={onSelectNotebookCustomer}
           onCreateNote={() => void handleCreateNote()}
           onUpdateNote={onUpdateNote}
           onUpdateNotebook={(id, updates) => void onUpdateNotebook(id, updates)}
@@ -581,12 +828,72 @@ export function NotebooksView({
           onRequestDeleteNote={(id) => setPendingDeleteNoteId(id)}
           onDeleteNote={onDeleteNote}
           onHydrateNote={onHydrateNote}
+          onAddNotebookTask={(title) =>
+            selectedNotebookId ? onAddNotebookTask(title) : undefined
+          }
+          onToggleNotebookTask={onToggleNotebookTask}
+          onUpdateNotebookTask={onUpdateNotebookTask}
+          onRequestDeleteNotebookTask={(id) =>
+            setPendingDestructiveDelete({ kind: "task", id })
+          }
+          onAddNotebookTaskProgress={onAddNotebookTaskProgress}
+          onUpdateNotebookTaskProgress={onUpdateNotebookTaskProgress}
+          onRequestDeleteNotebookTaskProgress={(id) =>
+            setPendingDestructiveDelete({ kind: "taskProgress", id })
+          }
+          onAddNotebookInvestment={(title) =>
+            selectedNotebookId ? onAddNotebookInvestment(title) : undefined
+          }
+          onUpdateNotebookInvestment={onUpdateNotebookInvestment}
+          onReorderNotebookInvestments={onReorderNotebookInvestments}
+          onRequestDeleteNotebookInvestment={(id) =>
+            setPendingDestructiveDelete({ kind: "investment", id })
+          }
+          onAddNotebookInvestmentNote={onAddNotebookInvestmentNote}
+          onUpdateNotebookInvestmentNote={onUpdateNotebookInvestmentNote}
+          onRequestDeleteNotebookInvestmentNote={(id) =>
+            setPendingDestructiveDelete({ kind: "investmentNote", id })
+          }
+          onAddNotebookCustomer={onAddNotebookCustomer}
+          onUpdateNotebookCustomer={onUpdateNotebookCustomer}
+          onRequestDeleteNotebookCustomer={(id) =>
+            setPendingDestructiveDelete({ kind: "customer", id })
+          }
+          onAddNotebookCustomerNote={onAddNotebookCustomerNote}
+          onUpdateNotebookCustomerNote={onUpdateNotebookCustomerNote}
+          onRequestDeleteNotebookCustomerNote={(id) =>
+            setPendingDestructiveDelete({ kind: "customerNote", id })
+          }
+          onAddNotebookCompetitor={(name, sales) =>
+            selectedNotebookId ? onAddNotebookCompetitor(name, sales) : undefined
+          }
+          onUpdateNotebookCompetitor={onUpdateNotebookCompetitor}
+          onRequestDeleteNotebookCompetitor={(id) =>
+            setPendingDestructiveDelete({ kind: "competitor", id })
+          }
+          onSetNotebookOurSales={(value) =>
+            selectedNotebookId ? onSetNotebookOurSales(value) : undefined
+          }
           focusTitleNoteId={focusTitleNoteId}
           onTitleFocusConsumed={() => setFocusTitleNoteId(null)}
           focusRenameNotebook={!isMobile && focusRenameNotebookId === selectedNotebookId}
           onNotebookRenameFocusConsumed={() => setFocusRenameNotebookId(null)}
         />
       )}
+
+      <ConfirmationModal
+        open={!!pendingDestructiveDelete && !!destructiveConfirm}
+        onOpenChange={(open) =>
+          !open && !isDeletingDestructive && setPendingDestructiveDelete(null)
+        }
+        title={destructiveConfirm?.title ?? "Delete?"}
+        highlight={destructiveConfirm?.highlight}
+        description={destructiveConfirm?.description}
+        confirmText={destructiveConfirm?.confirmText ?? "Delete"}
+        variant="destructive"
+        isLoading={isDeletingDestructive}
+        onConfirm={() => void handleConfirmDestructiveDelete()}
+      />
 
       <ConfirmationModal
         open={!!pendingDeleteNoteId}
@@ -618,6 +925,8 @@ export function NotebooksView({
       <CreateMeetingModal
         open={createMeetingOpen}
         onOpenChange={setCreateMeetingOpen}
+        meetings={meetings}
+        agendaItems={meetingAgendaItems}
         onCreate={handleAddMeeting}
       />
 
@@ -651,14 +960,18 @@ export function NotebooksView({
         onOpenChange={(open) => !open && !isDeletingNotebook && setPendingDeleteNotebookId(null)}
         title="Delete notebook?"
         highlight={pendingDeleteNotebook?.name?.trim() || "Untitled notebook"}
-        description="This notebook and all of its notes will be permanently deleted. This action cannot be undone."
+        description="This notebook and all of its notes, tasks, customers, investments, and competitors will be permanently deleted."
         details={
-          pendingDeleteNotebookNoteCount > 0 ? (
+          pendingNotebookDeleteDetails ? (
+            <p className="text-sm text-text-muted">{pendingNotebookDeleteDetails}</p>
+          ) : pendingDeleteNotebookNoteCount > 0 ? (
             <p className="text-sm text-text-muted">
-              {pendingDeleteNotebookNoteCount} note
-              {pendingDeleteNotebookNoteCount === 1 ? "" : "s"} will also be deleted.
+              Includes {pendingDeleteNotebookNoteCount} note
+              {pendingDeleteNotebookNoteCount === 1 ? "" : "s"} plus all section data.
             </p>
-          ) : undefined
+          ) : (
+            <p className="text-sm text-text-muted">All section data will also be deleted.</p>
+          )
         }
         confirmText="Delete notebook"
         variant="destructive"

@@ -1,39 +1,102 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
-import { MEETING_TEMPLATES } from "@/lib/meetings/agendaTemplates";
-import { cn } from "@/lib/utils";
+import {
+  getCarryOverCandidateMeetings,
+  getCarryOverSourceItems,
+  type CarryOverOptions,
+} from "@/lib/meetings/carryOver";
+import { countContinuedItems, countOpenAgendaItems } from "@/lib/meetings/meetingFilters";
+import type { Meeting, MeetingAgendaItem } from "@/types";
+
+export interface CreateMeetingInput {
+  title: string;
+  scheduledAt?: string;
+  carryOverFromMeetingId?: string;
+  carryOver?: CarryOverOptions;
+}
 
 interface CreateMeetingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: { title: string; scheduledAt?: string; templateId?: string }) => void | Promise<void>;
+  meetings: Meeting[];
+  agendaItems: MeetingAgendaItem[];
+  onCreate: (input: CreateMeetingInput) => void | Promise<void>;
 }
 
-function parseScheduledAt(value: string): string | undefined {
+function defaultDateLocal(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function parseScheduledDate(value: string): string | undefined {
   if (!value.trim()) return undefined;
-  const parsed = new Date(value);
+  const parsed = new Date(`${value}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) return undefined;
   return parsed.toISOString();
 }
 
-export function CreateMeetingModal({ open, onOpenChange, onCreate }: CreateMeetingModalProps) {
+export function CreateMeetingModal({
+  open,
+  onOpenChange,
+  meetings,
+  agendaItems,
+  onCreate,
+}: CreateMeetingModalProps) {
   const [title, setTitle] = useState("");
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [templateId, setTemplateId] = useState<string | undefined>();
+  const [scheduledAt, setScheduledAt] = useState(defaultDateLocal);
+  const [carryOverMeetingId, setCarryOverMeetingId] = useState<string>("");
+  const [includeContinued, setIncludeContinued] = useState(true);
+  const [includeOpen, setIncludeOpen] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
+
+  const carryOverCandidates = useMemo(
+    () =>
+      getCarryOverCandidateMeetings(meetings, agendaItems).sort((a, b) => {
+        const aTime = a.scheduledAt ?? a.updatedAt;
+        const bTime = b.scheduledAt ?? b.updatedAt;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
+      }),
+    [meetings, agendaItems],
+  );
+
+  const selectedCarryMeeting = carryOverMeetingId
+    ? meetings.find((m) => m.id === carryOverMeetingId) ?? null
+    : null;
+
+  const carrySourceItems = useMemo(() => {
+    if (!carryOverMeetingId) return [];
+    const items = agendaItems.filter((i) => i.meetingId === carryOverMeetingId);
+    return getCarryOverSourceItems(items, { includeContinued, includeOpen });
+  }, [agendaItems, carryOverMeetingId, includeContinued, includeOpen]);
+
+  const continuedCount = carryOverMeetingId
+    ? countContinuedItems(carryOverMeetingId, agendaItems)
+    : 0;
+  const openCount = carryOverMeetingId
+    ? countOpenAgendaItems(carryOverMeetingId, agendaItems)
+    : 0;
 
   useEffect(() => {
     if (!open) {
       setTitle("");
-      setScheduledAt("");
-      setTemplateId(undefined);
+      setScheduledAt(defaultDateLocal());
+      setCarryOverMeetingId("");
+      setIncludeContinued(true);
+      setIncludeOpen(true);
       setDateError(null);
       setIsSubmitting(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!carryOverMeetingId) return;
+    if (!carryOverCandidates.some((meeting) => meeting.id === carryOverMeetingId)) {
+      setCarryOverMeetingId("");
+    }
+  }, [carryOverMeetingId, carryOverCandidates]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,22 +110,30 @@ export function CreateMeetingModal({ open, onOpenChange, onCreate }: CreateMeeti
   if (!open) return null;
 
   const handleCreate = async () => {
-    const iso = scheduledAt ? parseScheduledAt(scheduledAt) : undefined;
-    if (scheduledAt && !iso) {
-      setDateError("Enter a valid date and time.");
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setDateError("Enter a meeting title.");
+      return;
+    }
+    const iso = scheduledAt ? parseScheduledDate(scheduledAt) : undefined;
+    if (!scheduledAt || !iso) {
+      setDateError("Enter a valid date.");
       return;
     }
     setDateError(null);
     setIsSubmitting(true);
     try {
       await onCreate({
-        title: title.trim() || "Untitled meeting",
+        title: trimmedTitle,
         scheduledAt: iso,
-        templateId,
+        carryOverFromMeetingId: carryOverMeetingId || undefined,
+        carryOver: carryOverMeetingId
+          ? { includeContinued, includeOpen }
+          : undefined,
       });
+      onOpenChange(false);
     } finally {
       setIsSubmitting(false);
-      onOpenChange(false);
     }
   };
 
@@ -75,31 +146,39 @@ export function CreateMeetingModal({ open, onOpenChange, onCreate }: CreateMeeti
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-meeting-title"
-        className="w-full max-w-md rounded-2xl border border-border-glass bg-bg p-5 shadow-xl space-y-4"
+        className="w-full max-w-lg rounded-2xl border border-border-glass bg-bg p-5 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="create-meeting-title" className="text-lg font-semibold text-text-primary">
-          Schedule meeting
-        </h2>
+        <div>
+          <h2 id="create-meeting-title" className="text-lg font-semibold text-text-primary">
+            New meeting
+          </h2>
+          <p className="text-sm text-text-muted mt-1">
+            Name your meeting, set the date, and optionally pull in open topics from a previous one.
+          </p>
+        </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium text-text-muted">Title</label>
+          <label className="text-xs font-medium text-text-muted">Meeting title</label>
           <input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (dateError === "Enter a meeting title.") setDateError(null);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") void handleCreate();
             }}
-            placeholder="Weekly sync"
+            placeholder="Weekly team sync"
             autoFocus
             className="w-full bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium text-text-muted">Date & time (optional)</label>
+          <label className="text-xs font-medium text-text-muted">Date</label>
           <input
-            type="datetime-local"
+            type="date"
             value={scheduledAt}
             onChange={(e) => {
               setScheduledAt(e.target.value);
@@ -107,30 +186,62 @@ export function CreateMeetingModal({ open, onOpenChange, onCreate }: CreateMeeti
             }}
             className="w-full bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
           />
-          {dateError && <p className="text-xs text-red-400">{dateError}</p>}
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium text-text-muted">Template (optional)</label>
-          <div className="grid grid-cols-2 gap-2">
-            {MEETING_TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTemplateId(templateId === t.id ? undefined : t.id)}
-                className={cn(
-                  "text-left p-3 rounded-xl border text-sm transition",
-                  templateId === t.id
-                    ? "border-neon-purple/40 bg-neon-purple/10 text-neon-purple-tint"
-                    : "border-border-glass hover:bg-surface-hover text-text-secondary",
-                )}
-              >
-                <div className="font-semibold">{t.label}</div>
-                <div className="text-xs text-text-muted mt-0.5">{t.description}</div>
-              </button>
+          <label className="text-xs font-medium text-text-muted">
+            Bring in topics from a previous meeting (optional)
+          </label>
+          <select
+            value={carryOverMeetingId}
+            onChange={(e) => setCarryOverMeetingId(e.target.value)}
+            className="w-full bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
+          >
+            <option value="">Start with a fresh agenda</option>
+            {carryOverCandidates.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title}
+                {m.scheduledAt
+                  ? ` (${format(parseISO(m.scheduledAt), "MMM d, yyyy")})`
+                  : ""}
+              </option>
             ))}
-          </div>
+          </select>
+          {selectedCarryMeeting && (continuedCount > 0 || openCount > 0) && (
+            <div className="rounded-xl border border-border-glass bg-bg-secondary/60 p-3 space-y-2 text-sm text-text-muted">
+              {continuedCount > 0 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeContinued}
+                    onChange={(e) => setIncludeContinued(e.target.checked)}
+                    className="rounded border-border-glass"
+                  />
+                  Include {continuedCount} deferred topic{continuedCount === 1 ? "" : "s"}
+                </label>
+              )}
+              {openCount > 0 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeOpen}
+                    onChange={(e) => setIncludeOpen(e.target.checked)}
+                    className="rounded border-border-glass"
+                  />
+                  Include {openCount} unresolved topic{openCount === 1 ? "" : "s"}
+                </label>
+              )}
+              {carrySourceItems.length > 0 && (
+                <p className="text-xs text-text-faint pt-1">
+                  {carrySourceItems.length} topic{carrySourceItems.length === 1 ? "" : "s"} will be
+                  added to this agenda.
+                </p>
+              )}
+            </div>
+          )}
         </div>
+
+        {dateError && <p className="text-xs text-red-400">{dateError}</p>}
 
         <div className="flex justify-end gap-2 pt-2">
           <button
@@ -153,7 +264,7 @@ export function CreateMeetingModal({ open, onOpenChange, onCreate }: CreateMeeti
                 Creating…
               </>
             ) : (
-              "Create"
+              "Create meeting"
             )}
           </button>
         </div>

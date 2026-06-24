@@ -98,6 +98,74 @@ export interface Notebook {
   workspaceId: string;
   name: string;
   sortOrder: number;
+  /** Our sales for market-share comparison in the Competitors section. */
+  ourSales?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotebookTask {
+  id: string;
+  notebookId: string;
+  workspaceId: string;
+  title: string;
+  completed: boolean;
+  sortOrder: number;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotebookTaskProgress {
+  id: string;
+  taskId: string;
+  body: string;
+  authorId?: string | null;
+  createdAt: string;
+}
+
+export interface NotebookInvestment {
+  id: string;
+  notebookId: string;
+  workspaceId: string;
+  title: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotebookInvestmentNote {
+  id: string;
+  investmentId: string;
+  body: string;
+  authorId?: string | null;
+  createdAt: string;
+}
+
+export interface NotebookCustomer {
+  id: string;
+  notebookId: string;
+  workspaceId: string;
+  accountName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotebookCustomerNote {
+  id: string;
+  customerId: string;
+  body: string;
+  authorId?: string | null;
+  createdAt: string;
+}
+
+export interface NotebookCompetitor {
+  id: string;
+  notebookId: string;
+  workspaceId: string;
+  name: string;
+  salesPotential: number;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -130,6 +198,8 @@ export interface MeetingAgendaItem {
   description?: string | null;
   sortOrder: number;
   ownerId?: string | null;
+  /** Free-text responsible when not a workspace member. */
+  ownerName?: string | null;
   status: AgendaItemStatus;
   continuedFromItemId?: string | null;
   linkedTaskIds: string[];

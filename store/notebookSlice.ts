@@ -125,7 +125,10 @@ export function createNotebookSliceActions(get: Get, set: Set) {
       return notebook;
     },
 
-    updateNotebook: async (id: string, updates: Partial<Pick<Notebook, "name" | "sortOrder">>) => {
+    updateNotebook: async (
+      id: string,
+      updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales">>,
+    ) => {
       const now = new Date().toISOString();
       const workspaceId = get().notebooks.find((nb) => nb.id === id)?.workspaceId ?? wsId();
       set((state) => ({
@@ -141,16 +144,67 @@ export function createNotebookSliceActions(get: Get, set: Set) {
 
     deleteNotebook: async (id: string) => {
       const workspaceId = get().notebooks.find((nb) => nb.id === id)?.workspaceId ?? wsId();
-      set((state) => ({
-        notebooks: state.notebooks.filter((nb) => nb.id !== id),
-        notes: state.notes.filter((n) => n.notebookId !== id),
-        selectedNotebookId:
-          state.selectedNotebookId === id ? null : state.selectedNotebookId,
+      const state = get() as ReturnType<Get> & {
+        notebookTasks?: Array<{ notebookId: string; id: string }>;
+        notebookTaskProgress?: Array<{ taskId: string }>;
+        notebookInvestments?: Array<{ notebookId: string; id: string }>;
+        notebookInvestmentNotes?: Array<{ investmentId: string }>;
+        notebookCustomers?: Array<{ notebookId: string; id: string }>;
+        notebookCustomerNotes?: Array<{ customerId: string }>;
+        notebookCompetitors?: Array<{ notebookId: string }>;
+        selectedNotebookTaskId?: string | null;
+        selectedNotebookInvestmentId?: string | null;
+        selectedNotebookCustomerId?: string | null;
+      };
+      const removedTaskIds = new Set(
+        (state.notebookTasks ?? []).filter((t) => t.notebookId === id).map((t) => t.id),
+      );
+      const removedInvestmentIds = new Set(
+        (state.notebookInvestments ?? []).filter((i) => i.notebookId === id).map((i) => i.id),
+      );
+      const removedCustomerIds = new Set(
+        (state.notebookCustomers ?? []).filter((c) => c.notebookId === id).map((c) => c.id),
+      );
+      set((s) => ({
+        notebooks: s.notebooks.filter((nb) => nb.id !== id),
+        notes: s.notes.filter((n) => n.notebookId !== id),
+        notebookTasks: (s as typeof state).notebookTasks?.filter((t) => t.notebookId !== id) ?? [],
+        notebookTaskProgress:
+          (s as typeof state).notebookTaskProgress?.filter((p) => !removedTaskIds.has(p.taskId)) ??
+          [],
+        notebookInvestments:
+          (s as typeof state).notebookInvestments?.filter((i) => i.notebookId !== id) ?? [],
+        notebookInvestmentNotes:
+          (s as typeof state).notebookInvestmentNotes?.filter(
+            (n) => !removedInvestmentIds.has(n.investmentId),
+          ) ?? [],
+        notebookCustomers:
+          (s as typeof state).notebookCustomers?.filter((c) => c.notebookId !== id) ?? [],
+        notebookCustomerNotes:
+          (s as typeof state).notebookCustomerNotes?.filter(
+            (n) => !removedCustomerIds.has(n.customerId),
+          ) ?? [],
+        notebookCompetitors:
+          (s as typeof state).notebookCompetitors?.filter((c) => c.notebookId !== id) ?? [],
+        selectedNotebookId: s.selectedNotebookId === id ? null : s.selectedNotebookId,
         selectedNotebookNoteId:
-          state.selectedNotebookNoteId &&
-          state.notes.find((n) => n.id === state.selectedNotebookNoteId)?.notebookId === id
+          s.selectedNotebookNoteId &&
+          s.notes.find((n) => n.id === s.selectedNotebookNoteId)?.notebookId === id
             ? null
-            : state.selectedNotebookNoteId,
+            : s.selectedNotebookNoteId,
+        selectedNotebookTaskId: removedTaskIds.has((s as typeof state).selectedNotebookTaskId ?? "")
+          ? null
+          : (s as typeof state).selectedNotebookTaskId ?? null,
+        selectedNotebookInvestmentId: removedInvestmentIds.has(
+          (s as typeof state).selectedNotebookInvestmentId ?? "",
+        )
+          ? null
+          : (s as typeof state).selectedNotebookInvestmentId ?? null,
+        selectedNotebookCustomerId: removedCustomerIds.has(
+          (s as typeof state).selectedNotebookCustomerId ?? "",
+        )
+          ? null
+          : (s as typeof state).selectedNotebookCustomerId ?? null,
       }));
       if (workspaceId && shouldPersistNotebooks(workspaceId)) {
         void deleteNotebookSupabase(id, workspaceId);

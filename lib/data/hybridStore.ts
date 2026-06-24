@@ -6412,6 +6412,7 @@ export function mapNotebookRow(row: NotebookRow): Notebook {
     workspaceId: row.workspace_id,
     name: row.name,
     sortOrder: row.sort_order,
+    ourSales: Number((row as { our_sales?: number }).our_sales) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -6492,14 +6493,15 @@ export async function createNotebook(input: {
 export async function updateNotebook(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<Notebook, "name" | "sortOrder">>,
+  updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isNotebookPersistenceEnabled()) return true;
 
-  const payload: Partial<NotebookRow> = {};
+  const payload: Partial<NotebookRow> & { our_sales?: number } = {};
   if (updates.name !== undefined) payload.name = updates.name;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (updates.ourSales !== undefined) payload.our_sales = updates.ourSales;
   if (Object.keys(payload).length === 0) return true;
   payload.updated_at = new Date().toISOString();
 
@@ -6615,6 +6617,7 @@ type MeetingAgendaItemRow = {
   description: string | null;
   sort_order: number;
   owner_id: string | null;
+  owner_name: string | null;
   status: string;
   continued_from_item_id: string | null;
   linked_task_ids: string[] | null;
@@ -6705,6 +6708,7 @@ function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
     description: row.description,
     sortOrder: row.sort_order,
     ownerId: row.owner_id,
+    ownerName: row.owner_name,
     status: row.status as MeetingAgendaItem["status"],
     continuedFromItemId: row.continued_from_item_id,
     linkedTaskIds: row.linked_task_ids ?? [],
@@ -6904,6 +6908,7 @@ export async function createMeetingAgendaItem(item: MeetingAgendaItem): Promise<
     description: item.description ?? null,
     sort_order: item.sortOrder,
     owner_id: item.ownerId ?? null,
+    owner_name: item.ownerName ?? null,
     status: item.status,
     continued_from_item_id: item.continuedFromItemId ?? null,
     linked_task_ids: item.linkedTaskIds ?? [],
@@ -6936,6 +6941,7 @@ export async function updateMeetingAgendaItem(
   if (updates.description !== undefined) payload.description = updates.description;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
   if (updates.ownerId !== undefined) payload.owner_id = updates.ownerId;
+  if (updates.ownerName !== undefined) payload.owner_name = updates.ownerName;
   if (updates.status !== undefined) payload.status = updates.status;
   if (updates.continuedFromItemId !== undefined) payload.continued_from_item_id = updates.continuedFromItemId;
   if (updates.linkedTaskIds !== undefined) payload.linked_task_ids = updates.linkedTaskIds;
@@ -6989,6 +6995,46 @@ export async function createMeetingAgendaEntry(entry: MeetingAgendaEntry): Promi
     return !error;
   } catch (err) {
     logHybridError("createMeetingAgendaEntry", err);
+    return false;
+  }
+}
+
+export async function updateMeetingAgendaEntry(
+  id: string,
+  updates: Partial<Pick<MeetingAgendaEntry, "body" | "isDecision">>,
+): Promise<boolean> {
+  if (!isCurrentlyOnline()) return true;
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  const payload: Record<string, unknown> = {};
+  if (updates.body !== undefined) payload.body = updates.body;
+  if (updates.isDecision !== undefined) payload.is_decision = updates.isDecision;
+  if (Object.keys(payload).length === 0) return true;
+
+  try {
+    const { error } = await (supabase.from("meeting_agenda_entries") as any)
+      .update(payload)
+      .eq("id", id);
+    if (error) logHybridError("updateMeetingAgendaEntry", error);
+    return !error;
+  } catch (err) {
+    logHybridError("updateMeetingAgendaEntry", err);
+    return false;
+  }
+}
+
+export async function deleteMeetingAgendaEntry(id: string): Promise<boolean> {
+  if (!isCurrentlyOnline()) return true;
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await (supabase.from("meeting_agenda_entries") as any).delete().eq("id", id);
+    if (error) logHybridError("deleteMeetingAgendaEntry", error);
+    return !error;
+  } catch (err) {
+    logHybridError("deleteMeetingAgendaEntry", err);
     return false;
   }
 }

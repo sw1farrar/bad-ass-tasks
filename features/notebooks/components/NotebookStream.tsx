@@ -36,12 +36,12 @@ export function NotebookStream({
   const [editingName, setEditingName] = useState("");
 
   useEffect(() => {
-    if (!focusRenameId) return;
+    if (!focusRenameId || editingId != null) return;
     const nb = notebooks.find((n) => n.id === focusRenameId);
     if (!nb) return;
     setEditingId(nb.id);
     setEditingName(nb.name);
-  }, [focusRenameId, notebooks]);
+  }, [focusRenameId, notebooks, editingId]);
 
   useEffect(() => {
     if (!focusRenameId || editingId !== focusRenameId) return;
@@ -53,7 +53,7 @@ export function NotebookStream({
       onFocusRenameConsumed?.();
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusRenameId, editingId, editingName, onFocusRenameConsumed]);
+  }, [focusRenameId, editingId, onFocusRenameConsumed]);
 
   const rowVirtualizer = useVirtualizer({
     count: notebooks.length,

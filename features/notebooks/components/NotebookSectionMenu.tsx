@@ -17,7 +17,7 @@ interface NotebookSectionMenuProps {
 export function NotebookSectionMenu({ activeTab, onTabChange }: NotebookSectionMenuProps) {
   return (
     <nav
-      className="notebooks-section-menu flex items-center gap-1 px-4 py-2 border-b border-border-glass bg-bg shrink-0"
+      className="notebooks-section-menu flex w-full items-stretch gap-1.5 px-3 py-2 border-b border-border-glass bg-bg shrink-0"
       aria-label="Notebook sections"
     >
       {NOTEBOOK_SECTION_TABS.map((tab) => (
@@ -26,7 +26,7 @@ export function NotebookSectionMenu({ activeTab, onTabChange }: NotebookSectionM
           type="button"
           onClick={() => onTabChange(tab.id)}
           className={cn(
-            "notebooks-section-menu__btn px-4 py-2 rounded-lg text-sm font-semibold transition",
+            "notebooks-section-menu__btn flex flex-1 items-center justify-center min-w-0 min-h-[44px] px-1.5 py-2 rounded-lg text-xs sm:text-sm font-semibold leading-tight text-center sm:whitespace-nowrap transition",
             activeTab === tab.id
               ? "bg-neon-purple/12 text-neon-purple-tint border border-neon-purple/25"
               : "text-text-secondary hover:text-text-primary hover:bg-surface-hover border border-transparent",

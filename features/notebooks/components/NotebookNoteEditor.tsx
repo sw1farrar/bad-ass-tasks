@@ -46,6 +46,7 @@ export function NotebookNoteEditor({
   const pendingTitleRef = useRef<{ noteId: string; value: string } | null>(null);
   const pendingContentRef = useRef<{ noteId: string; value: string } | null>(null);
   const previousNoteIdRef = useRef<string | null>(null);
+  const isTitleDirtyRef = useRef(false);
 
   const saveTitle = useCallback(
     (noteId: string, value: string) => {
@@ -62,12 +63,17 @@ export function NotebookNoteEditor({
   );
 
   useEffect(() => {
-    if (!note) return;
+    if (!note) {
+      setTitle("");
+      isTitleDirtyRef.current = false;
+      return;
+    }
+    isTitleDirtyRef.current = false;
     setTitle(note.title || "");
     if (!isNoteBodyHydrated(note)) {
       void onHydrateNote(note.id);
     }
-  }, [note?.id, note?.title, note, onHydrateNote]);
+  }, [note?.id, onHydrateNote]);
 
   useEffect(() => {
     const prevId = previousNoteIdRef.current;
@@ -96,7 +102,7 @@ export function NotebookNoteEditor({
       onTitleFocusConsumed?.();
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusTitle, note?.id, note?.title, onTitleFocusConsumed]);
+  }, [focusTitle, note?.id, onTitleFocusConsumed]);
 
   const scheduleTitleSave = useCallback(
     (nextTitle: string) => {
@@ -172,12 +178,15 @@ export function NotebookNoteEditor({
           ref={titleInputRef}
           value={title}
           onChange={(e) => {
+            isTitleDirtyRef.current = true;
             setTitle(e.target.value);
             scheduleTitleSave(e.target.value);
           }}
           onBlur={() => {
+            if (!isTitleDirtyRef.current) return;
             flushPendingNoteFieldSave(titleSaveTimer, pendingTitleRef, saveTitle);
             void onUpdateNote(note.id, { title: title.trim() || "Untitled note" });
+            isTitleDirtyRef.current = false;
           }}
           placeholder="Note title"
           className="flex-1 min-w-0 bg-transparent text-lg font-semibold text-text-primary focus:outline-none placeholder:text-text-faint"

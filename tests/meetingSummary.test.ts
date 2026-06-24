@@ -44,14 +44,19 @@ describe("summaryBuilder", () => {
       items,
       entries,
       members: [],
-      workspaceName: "Acme",
     });
     expect(html).toContain("Sprint Review");
+    expect(html).toContain("Meeting summary");
     expect(html).toContain("Decisions");
     expect(html).toContain("Ship v2 Friday");
+    expect(html).not.toContain("Acme");
+    expect(html).toContain("meeting-summary-doc__topic");
+    expect(html).toContain("meeting-summary-doc__note-body");
+    expect(html).toContain("meeting-summary-doc__note-meta");
+    expect(html.indexOf("Ship v2 Friday")).toBeLessThan(html.indexOf("meeting-summary-doc__note-meta"));
   });
 
-  it("renders agenda html with topics", () => {
+  it("renders agenda html with topic cards", () => {
     const html = buildMeetingAgendaHtml({
       meeting,
       items,
@@ -59,5 +64,67 @@ describe("summaryBuilder", () => {
     });
     expect(html).toContain("Demos");
     expect(html).toContain("meeting-agenda-doc");
+    expect(html).toContain("meeting-agenda-doc__list");
+    expect(html).toContain("meeting-agenda-doc__item");
+    expect(html).not.toContain("assigned");
+    expect(html).not.toContain("Unassigned");
+    expect(html).not.toContain("meeting-agenda-doc__comments");
+  });
+
+  it("includes comment timeline below agenda items when requested", () => {
+    const html = buildMeetingAgendaHtml({
+      meeting,
+      items,
+      entries,
+      members: [],
+      includeComments: true,
+    });
+    expect(html).toContain("meeting-agenda-doc__comments");
+    expect(html).toContain("Ship v2 Friday");
+    expect(html).toContain("meeting-agenda-doc__comment-meta");
+  });
+
+  it("includes full notes for carryover topics", () => {
+    const continuedItem: MeetingAgendaItem = {
+      id: "a2",
+      meetingId: "m1",
+      title: "Roadmap",
+      description: "Q4 planning",
+      sortOrder: 1,
+      status: "continued",
+      linkedTaskIds: [],
+      createdAt: "2026-06-23T12:00:00Z",
+      updatedAt: "2026-06-23T14:30:00Z",
+    };
+    const continuedEntry: MeetingAgendaEntry = {
+      id: "e2",
+      agendaItemId: "a2",
+      body: "Need more stakeholder input",
+      createdAt: "2026-06-23T14:20:00Z",
+    };
+    const html = buildMeetingSummaryHtml({
+      meeting,
+      items: [...items, continuedItem],
+      entries: [...entries, continuedEntry],
+      members: [],
+    });
+    expect(html).toContain("Follow-ups for next time");
+    expect(html).toContain("Roadmap");
+    expect(html).toContain("Q4 planning");
+    expect(html).toContain("Need more stakeholder input");
+    expect(html).toContain("meeting-summary-doc__note-body");
+    expect(html).toContain('data-outcome="deferred"');
+  });
+
+  it("omits owner from summary when topic has no assignee", () => {
+    const html = buildMeetingSummaryHtml({
+      meeting,
+      items,
+      entries: [],
+      members: [],
+    });
+    expect(html).not.toContain("meeting-summary-doc__owner");
+    expect(html).not.toContain("assigned");
+    expect(html).not.toContain("Unassigned");
   });
 });

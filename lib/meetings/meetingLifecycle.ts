@@ -1,15 +1,18 @@
+import { hasMeetingBeenCarriedForward } from "@/lib/meetings/carryOver";
 import type { Meeting, MeetingAgendaItem, MeetingStatus } from "@/types";
 
-export function canStartMeeting(meeting: Meeting): boolean {
-  return meeting.status === "draft" || meeting.status === "scheduled";
-}
-
 export function canCompleteMeeting(meeting: Meeting): boolean {
-  return meeting.status === "in_progress";
+  return meeting.status !== "completed";
 }
 
 export function canReopenMeeting(meeting: Meeting): boolean {
   return meeting.status === "completed";
+}
+
+export function canStartNextMeeting(meeting: Meeting, meetings: Meeting[]): boolean {
+  return (
+    canReopenMeeting(meeting) && !hasMeetingBeenCarriedForward(meeting.id, meetings)
+  );
 }
 
 export function meetingStatusLabel(status: MeetingStatus): string {

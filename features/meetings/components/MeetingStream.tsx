@@ -2,7 +2,8 @@
 
 import React from "react";
 import { format, parseISO } from "date-fns";
-import { Calendar, Circle, Trash2 } from "lucide-react";
+import { Calendar, Trash2 } from "lucide-react";
+import { hasMeetingBeenCarriedForward } from "@/lib/meetings/carryOver";
 import { cn } from "@/lib/utils";
 import type { Meeting, MeetingAgendaItem } from "@/types";
 import {
@@ -46,16 +47,15 @@ export function MeetingStream({
     >
       {groups.map((group) => (
         <div key={group.label} className="mb-2">
-          <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-text-faint flex items-center gap-2">
-            {group.status === "live" && (
-              <Circle className="h-2 w-2 fill-emerald-400 text-emerald-400 animate-pulse" />
-            )}
+          <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-text-faint">
             {group.label}
           </div>
           {group.meetings.map((meeting) => {
             const isSelected = meeting.id === selectedId;
             const openCount = countOpenAgendaItems(meeting.id, agendaItems);
-            const carryCount = countContinuedItems(meeting.id, agendaItems);
+            const carryCount = hasMeetingBeenCarriedForward(meeting.id, meetings)
+              ? 0
+              : countContinuedItems(meeting.id, agendaItems);
             const dateLabel = meeting.scheduledAt
               ? format(parseISO(meeting.scheduledAt), "MMM d, yyyy")
               : format(parseISO(meeting.createdAt), "MMM d, yyyy");

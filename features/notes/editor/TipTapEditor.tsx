@@ -439,6 +439,9 @@ export function TipTapEditor({
     extensions: editorExtensions,
     editable: !readOnly,
     content: prepareInitialContent(content),
+    onCreate: ({ editor: createdEditor }) => {
+      lastEmittedContentRef.current = JSON.stringify(createdEditor.getJSON());
+    },
     onUpdate: ({ editor }) => {
       if (readOnly) return;
       // Emit clean stringified TipTap JSON for rich JSONB persistence.
@@ -447,7 +450,9 @@ export function TipTapEditor({
       const richJson = editor.getJSON();
       const contentString = JSON.stringify(richJson);
 
-      // Always record what we emit so the external-content effect can avoid echo
+      if (contentString === lastEmittedContentRef.current) return;
+
+      // Record what we emit so the external-content effect can avoid echo
       lastEmittedContentRef.current = contentString;
       if (onChange) {
         queueMicrotask(() => onChange(contentString));

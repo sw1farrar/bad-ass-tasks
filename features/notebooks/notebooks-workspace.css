@@ -8,6 +8,19 @@
   overflow: hidden;
 }
 
+.notebooks-section-menu {
+  width: 100%;
+}
+
+.notebooks-section-menu__btn {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.notebooks-section-panel {
+  min-height: 0;
+}
+
 .notebooks-notes-panel {
   min-height: 0;
 }

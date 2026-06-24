@@ -241,21 +241,55 @@ export default function BadAssTasks() {
     setFilesCaptureOpen,
     getNotebooks,
     getNotebookNotes,
+    getNotebookTasks,
+    getNotebookInvestments,
+    getNotebookCustomers,
+    getNotebookCompetitors,
     getMeetings,
     getMeetingAgendaItems,
     selectedNotebookId,
     selectedNotebookNoteId,
+    selectedNotebookTaskId,
+    selectedNotebookInvestmentId,
+    selectedNotebookCustomerId,
     selectedMeetingId,
     selectedAgendaItemId,
     notesPageMode,
     setSelectedNotebookId,
     setSelectedNotebookNoteId,
+    setSelectedNotebookTaskId,
+    setSelectedNotebookInvestmentId,
+    setSelectedNotebookCustomerId,
     setNotesPageMode,
     setSelectedMeetingId,
     setSelectedAgendaItemId,
     addNotebook,
     updateNotebook,
     deleteNotebook,
+    addNotebookTask,
+    toggleNotebookTask,
+    updateNotebookTask,
+    deleteNotebookTask,
+    addNotebookTaskProgress,
+    updateNotebookTaskProgress,
+    deleteNotebookTaskProgress,
+    addNotebookInvestment,
+    updateNotebookInvestment,
+    reorderNotebookInvestments,
+    deleteNotebookInvestment,
+    addNotebookInvestmentNote,
+    updateNotebookInvestmentNote,
+    deleteNotebookInvestmentNote,
+    addNotebookCustomer,
+    updateNotebookCustomer,
+    deleteNotebookCustomer,
+    addNotebookCustomerNote,
+    updateNotebookCustomerNote,
+    deleteNotebookCustomerNote,
+    addNotebookCompetitor,
+    updateNotebookCompetitor,
+    deleteNotebookCompetitor,
+    setNotebookOurSales,
     hydrateNoteDetail,
     addMeeting,
     updateMeeting,
@@ -264,15 +298,20 @@ export default function BadAssTasks() {
     updateAgendaItem,
     reorderAgendaItems,
     addAgendaEntry,
+    updateAgendaEntry,
+    deleteAgendaEntry,
     completeAgendaItem,
     continueAgendaItem,
     reopenAgendaItem,
-    startMeeting,
+    deleteAgendaItem,
     completeMeeting,
     reopenMeeting,
     startNextMeeting,
     meetingAgendaItems,
     meetingAgendaEntries,
+    notebookTaskProgress,
+    notebookInvestmentNotes,
+    notebookCustomerNotes,
   } = useTaskStore();
 
   const bottomNavViews = useMemo(
@@ -2839,6 +2878,19 @@ export default function BadAssTasks() {
             workspaceName={currentWorkspace.name}
             notebooks={getNotebooks()}
             notes={getNotebookNotes(selectedNotebookId)}
+            notebookTasks={getNotebookTasks(selectedNotebookId)}
+            notebookTaskProgress={notebookTaskProgress.filter((p) =>
+              getNotebookTasks(selectedNotebookId).some((t) => t.id === p.taskId),
+            )}
+            notebookInvestments={getNotebookInvestments(selectedNotebookId)}
+            notebookInvestmentNotes={notebookInvestmentNotes.filter((n) =>
+              getNotebookInvestments(selectedNotebookId).some((i) => i.id === n.investmentId),
+            )}
+            notebookCustomers={getNotebookCustomers(selectedNotebookId)}
+            notebookCustomerNotes={notebookCustomerNotes.filter((n) =>
+              getNotebookCustomers(selectedNotebookId).some((c) => c.id === n.customerId),
+            )}
+            notebookCompetitors={getNotebookCompetitors(selectedNotebookId)}
             meetings={getMeetings()}
             meetingAgendaItems={meetingAgendaItems}
             meetingAgendaEntries={meetingAgendaEntries}
@@ -2847,12 +2899,23 @@ export default function BadAssTasks() {
             notesPageMode={notesPageMode}
             selectedNotebookId={selectedNotebookId}
             selectedNoteId={selectedNotebookNoteId}
+            selectedNotebookTaskId={selectedNotebookTaskId}
+            selectedNotebookInvestmentId={selectedNotebookInvestmentId}
+            selectedNotebookCustomerId={selectedNotebookCustomerId}
             selectedMeetingId={selectedMeetingId}
             selectedAgendaItemId={selectedAgendaItemId}
             isLive={isSupabaseConfigured()}
             onNotesPageModeChange={setNotesPageMode}
-            onSelectNotebook={setSelectedNotebookId}
+            onSelectNotebook={(id) => {
+              setSelectedNotebookId(id);
+              setSelectedNotebookTaskId(null);
+              setSelectedNotebookInvestmentId(null);
+              setSelectedNotebookCustomerId(null);
+            }}
             onSelectNote={setSelectedNotebookNoteId}
+            onSelectNotebookTask={setSelectedNotebookTaskId}
+            onSelectNotebookInvestment={setSelectedNotebookInvestmentId}
+            onSelectNotebookCustomer={setSelectedNotebookCustomerId}
             onSelectMeeting={setSelectedMeetingId}
             onSelectAgendaItem={setSelectedAgendaItemId}
             onAddNotebook={addNotebook}
@@ -2869,13 +2932,81 @@ export default function BadAssTasks() {
             onUpdateAgendaItem={updateAgendaItem}
             onReorderAgendaItems={reorderAgendaItems}
             onAddAgendaEntry={addAgendaEntry}
+            onUpdateAgendaEntry={updateAgendaEntry}
+            onDeleteAgendaEntry={deleteAgendaEntry}
             onCompleteAgendaItem={completeAgendaItem}
             onContinueAgendaItem={continueAgendaItem}
             onReopenAgendaItem={reopenAgendaItem}
-            onStartMeeting={startMeeting}
+            onDeleteAgendaItem={deleteAgendaItem}
             onCompleteMeeting={completeMeeting}
             onReopenMeeting={reopenMeeting}
             onStartNextMeeting={startNextMeeting}
+            onAddNotebookTask={(title) =>
+              selectedNotebookId ? addNotebookTask(selectedNotebookId, title) : undefined
+            }
+            onToggleNotebookTask={toggleNotebookTask}
+            onUpdateNotebookTask={(id, title) => updateNotebookTask(id, { title })}
+            onDeleteNotebookTask={deleteNotebookTask}
+            onAddNotebookTaskProgress={addNotebookTaskProgress}
+            onUpdateNotebookTaskProgress={updateNotebookTaskProgress}
+            onDeleteNotebookTaskProgress={deleteNotebookTaskProgress}
+            onAddNotebookInvestment={(title) =>
+              selectedNotebookId ? addNotebookInvestment(selectedNotebookId, title) : undefined
+            }
+            onUpdateNotebookInvestment={(id, title) => updateNotebookInvestment(id, { title })}
+            onReorderNotebookInvestments={(orderedIds) =>
+              selectedNotebookId
+                ? reorderNotebookInvestments(selectedNotebookId, orderedIds)
+                : undefined
+            }
+            onDeleteNotebookInvestment={deleteNotebookInvestment}
+            onAddNotebookInvestmentNote={addNotebookInvestmentNote}
+            onUpdateNotebookInvestmentNote={updateNotebookInvestmentNote}
+            onDeleteNotebookInvestmentNote={deleteNotebookInvestmentNote}
+            onAddNotebookCustomer={(accountName) =>
+              selectedNotebookId
+                ? addNotebookCustomer(selectedNotebookId, accountName)
+                : undefined
+            }
+            onUpdateNotebookCustomer={(id, accountName) =>
+              updateNotebookCustomer(id, { accountName })
+            }
+            onDeleteNotebookCustomer={deleteNotebookCustomer}
+            onAddNotebookCustomerNote={addNotebookCustomerNote}
+            onUpdateNotebookCustomerNote={updateNotebookCustomerNote}
+            onDeleteNotebookCustomerNote={deleteNotebookCustomerNote}
+            onAddNotebookCompetitor={(name, salesPotential) =>
+              selectedNotebookId
+                ? addNotebookCompetitor(selectedNotebookId, name, salesPotential)
+                : undefined
+            }
+            onUpdateNotebookCompetitor={updateNotebookCompetitor}
+            onDeleteNotebookCompetitor={deleteNotebookCompetitor}
+            onSetNotebookOurSales={(value) =>
+              selectedNotebookId ? setNotebookOurSales(selectedNotebookId, value) : undefined
+            }
+            getNotebookDeleteSummary={(notebookId) => {
+              const tasks = getNotebookTasks(notebookId);
+              const taskIds = new Set(tasks.map((t) => t.id));
+              const investments = getNotebookInvestments(notebookId);
+              const investmentIds = new Set(investments.map((i) => i.id));
+              const customers = getNotebookCustomers(notebookId);
+              const customerIds = new Set(customers.map((c) => c.id));
+              return {
+                noteCount: getNotebookNotes(notebookId).length,
+                taskCount: tasks.length,
+                taskProgressCount: notebookTaskProgress.filter((p) => taskIds.has(p.taskId)).length,
+                investmentCount: investments.length,
+                investmentNoteCount: notebookInvestmentNotes.filter((n) =>
+                  investmentIds.has(n.investmentId),
+                ).length,
+                customerCount: customers.length,
+                customerNoteCount: notebookCustomerNotes.filter((n) =>
+                  customerIds.has(n.customerId),
+                ).length,
+                competitorCount: getNotebookCompetitors(notebookId).length,
+              };
+            }}
             onSaveSummaryAsNote={async (meeting) => {
               const items = getMeetingAgendaItems(meeting.id);
               const itemIds = new Set(items.map((i) => i.id));
@@ -2892,13 +3023,22 @@ export default function BadAssTasks() {
                 type: "doc",
                 content: [{ type: "paragraph", content: [{ type: "text", text: md }] }],
               });
+              const targetNotebookId =
+                meeting.notebookId ?? selectedNotebookId ?? getNotebooks()[0]?.id;
+              if (!targetNotebookId) {
+                toast.error("Create a notebook first to save the summary");
+                return;
+              }
               const created = await addNote(`${meeting.title} — Summary`, content, {
-                notebookId: meeting.notebookId ?? getNotebooks()[0]?.id,
+                notebookId: targetNotebookId,
               });
               if (created) {
                 setNotesPageMode("notes");
                 if (created.notebookId) setSelectedNotebookId(created.notebookId);
                 setSelectedNotebookNoteId(created.id);
+                toast.success("Summary saved to notebook");
+              } else {
+                toast.error("Could not save summary as note");
               }
             }}
           />

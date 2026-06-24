@@ -41,12 +41,12 @@ export function NotebookNoteStream({
   const [editingTitle, setEditingTitle] = useState("");
 
   useEffect(() => {
-    if (!focusRenameId) return;
+    if (!focusRenameId || editingId != null) return;
     const note = notes.find((n) => n.id === focusRenameId);
     if (!note) return;
     setEditingId(note.id);
     setEditingTitle(note.title || "Untitled note");
-  }, [focusRenameId, notes]);
+  }, [focusRenameId, notes, editingId]);
 
   useEffect(() => {
     if (!focusRenameId || editingId !== focusRenameId) return;
@@ -58,7 +58,7 @@ export function NotebookNoteStream({
       onFocusRenameConsumed?.();
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusRenameId, editingId, editingTitle, onFocusRenameConsumed]);
+  }, [focusRenameId, editingId, onFocusRenameConsumed]);
 
   const rowVirtualizer = useVirtualizer({
     count: notes.length,
@@ -150,13 +150,14 @@ export function NotebookNoteStream({
                     className={cn(
                       "files-list-item w-full text-left px-3 py-3 transition relative group",
                       isSelected && "files-list-item--selected",
-                      !isSelected && "hover:bg-surface-hover",
+                      !isSelected && !isEditing && "hover:bg-surface-hover",
+                      !isEditing && "cursor-pointer",
                     )}
                   >
                     <div className="flex items-start gap-2 min-w-0">
-                      <FileText className="h-4 w-4 shrink-0 text-neon-purple/70 mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        {isEditing ? (
+                      {isEditing ? (
+                        <>
+                          <FileText className="h-4 w-4 shrink-0 text-neon-purple/70 mt-0.5" />
                           <input
                             ref={editingId === note.id ? renameInputRef : undefined}
                             value={editingTitle}
@@ -170,37 +171,44 @@ export function NotebookNoteStream({
                               }
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-full bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1 text-sm font-medium focus:outline-none"
+                            className="min-w-0 flex-1 bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1 text-sm font-medium focus:outline-none"
                             aria-label="Rename note"
                           />
-                        ) : (
+                        </>
+                      ) : (
+                        <>
                           <button
                             type="button"
                             role="option"
                             aria-selected={isSelected}
                             onClick={() => onSelect(note.id)}
                             onDoubleClick={() => startRename(note)}
-                            className="w-full text-left font-medium text-sm truncate text-text-primary"
+                            className="flex min-w-0 flex-1 items-start gap-2 text-left -mx-3 -my-3 px-3 py-3 cursor-pointer"
                           >
-                            {note.title || "Untitled note"}
+                            <FileText className="h-4 w-4 shrink-0 text-neon-purple/70 mt-0.5 pointer-events-none" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-medium text-sm truncate text-text-primary">
+                                {note.title || "Untitled note"}
+                              </span>
+                              {dateLabel && (
+                                <span className="block text-[11px] text-text-muted mt-0.5">
+                                  {dateLabel}
+                                </span>
+                              )}
+                            </span>
                           </button>
-                        )}
-                        {dateLabel && !isEditing && (
-                          <div className="text-[11px] text-text-muted mt-0.5">{dateLabel}</div>
-                        )}
-                      </div>
-                      {!isEditing && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRename(note);
-                          }}
-                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                          aria-label={`Rename ${note.title || "Untitled note"}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startRename(note);
+                            }}
+                            className="relative z-10 p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                            aria-label={`Rename ${note.title || "Untitled note"}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

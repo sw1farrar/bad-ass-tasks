@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
 import { parseWorkspaceSettings, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
@@ -44,6 +44,10 @@ import {
   type NotebookSliceActions,
 } from "@/store/notebookSlice";
 import {
+  createNotebookSectionSliceActions,
+  type NotebookSectionSliceActions,
+} from "@/store/notebookSectionSlice";
+import {
   createMeetingSliceActions,
   getInitialNotesPageMode,
   SAMPLE_MEETINGS,
@@ -62,6 +66,7 @@ import {
 import { deliverNotification, recipientAllowsNotificationChannel } from "@/lib/notifications/deliverNotification";
 import { mapRealtimeNoteRow, mergeRealtimeNoteUpdate } from "@/lib/notes/mapRealtimeNoteRow";
 import { isNoteBodyHydrated, mergeHydratedNote } from "@/lib/files/noteListProjection";
+import { noteUpdatesAreNoOp } from "@/lib/notes/noteUpdates";
 import { generateId, parseNaturalLanguage, getNextRecurringDue, toDueDateStorage, applyTaskUpdateSideEffects } from "@/lib/utils";
 import { defaultTaskDueDate, startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, parseLocalDate, toLocalDateString } from "@/lib/datetime";
 import {
@@ -174,6 +179,11 @@ import {
   mapWorkspaceListRow,
   mapListItemRow,
 } from "@/lib/data/hybridStore";
+import {
+  areNotebookSectionTablesReady,
+  ensureNotebookSectionPersistenceReady,
+  getNotebookSectionBundle,
+} from "@/lib/data/notebookSectionsStore";
 import { hasUnreadChatActivity } from "@/lib/chatReadState";
 import {
   markBroadcastChannelReady,
@@ -388,7 +398,7 @@ type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "teams" | "s
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksFolderFilterMode = "all" | "none" | string;
 
-interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, MeetingSliceActions {
+interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions {
   // Data
   tasks: Task[];
   notes: Note[];
@@ -396,6 +406,16 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   listItems: ListItem[];
   taskFolders: TaskFolder[];
   notebooks: Notebook[];
+  notebookTasks: NotebookTask[];
+  notebookTaskProgress: NotebookTaskProgress[];
+  notebookInvestments: NotebookInvestment[];
+  notebookInvestmentNotes: NotebookInvestmentNote[];
+  notebookCustomers: NotebookCustomer[];
+  notebookCustomerNotes: NotebookCustomerNote[];
+  notebookCompetitors: NotebookCompetitor[];
+  selectedNotebookTaskId: string | null;
+  selectedNotebookInvestmentId: string | null;
+  selectedNotebookCustomerId: string | null;
   meetings: Meeting[];
   meetingAgendaItems: MeetingAgendaItem[];
   meetingAgendaEntries: MeetingAgendaEntry[];
@@ -945,6 +965,16 @@ export const useTaskStore = create<TaskState>()(
       listItems: SAMPLE_LIST_ITEMS,
       taskFolders: SAMPLE_TASK_FOLDERS,
       notebooks: SAMPLE_NOTEBOOKS,
+      notebookTasks: [],
+      notebookTaskProgress: [],
+      notebookInvestments: [],
+      notebookInvestmentNotes: [],
+      notebookCustomers: [],
+      notebookCustomerNotes: [],
+      notebookCompetitors: [],
+      selectedNotebookTaskId: null,
+      selectedNotebookInvestmentId: null,
+      selectedNotebookCustomerId: null,
       meetings: SAMPLE_MEETINGS,
       meetingAgendaItems: SAMPLE_AGENDA_ITEMS,
       meetingAgendaEntries: SAMPLE_AGENDA_ENTRIES,
@@ -1397,14 +1427,37 @@ export const useTaskStore = create<TaskState>()(
           await ensureWorkspaceListPersistenceReady();
           await ensureTaskFolderPersistenceReady();
           await ensureNotebookPersistenceReady();
+          await ensureNotebookSectionPersistenceReady();
 
           const keptTaskFolders = get().taskFolders.filter((f) => f.workspaceId === workspaceId);
           const keptNotebooks = get().notebooks.filter((nb) => nb.workspaceId === workspaceId);
           const keptMeetings = get().meetings.filter((m) => m.workspaceId === workspaceId);
+          const keptNotebookTasks = get().notebookTasks.filter((t) => t.workspaceId === workspaceId);
+          const keptNotebookTaskProgress = get().notebookTaskProgress;
+          const keptNotebookInvestments = get().notebookInvestments.filter(
+            (i) => i.workspaceId === workspaceId,
+          );
+          const keptNotebookInvestmentNotes = get().notebookInvestmentNotes;
+          const keptNotebookCustomers = get().notebookCustomers.filter(
+            (c) => c.workspaceId === workspaceId,
+          );
+          const keptNotebookCustomerNotes = get().notebookCustomerNotes;
+          const keptNotebookCompetitors = get().notebookCompetitors.filter(
+            (c) => c.workspaceId === workspaceId,
+          );
 
           // Load in parallel for speed (include activity logs for Phase 1 basic logging UI)
-          const [realTasks, realNotes, realActivity, realLists, realListItems, realTaskFolders, realNotebooks, meetingBundle] =
-            await Promise.all([
+          const [
+            realTasks,
+            realNotes,
+            realActivity,
+            realLists,
+            realListItems,
+            realTaskFolders,
+            realNotebooks,
+            meetingBundle,
+            notebookSectionBundle,
+          ] = await Promise.all([
             getTasks(workspaceId),
             getNotes(workspaceId),
             getRecentActivity(workspaceId),
@@ -1413,6 +1466,7 @@ export const useTaskStore = create<TaskState>()(
             getTaskFolders(workspaceId),
             getNotebooks(workspaceId),
             getMeetings(workspaceId),
+            getNotebookSectionBundle(workspaceId),
           ]);
 
           let nextLists = realLists;
@@ -1491,6 +1545,44 @@ export const useTaskStore = create<TaskState>()(
 
           const otherWsTaskFolders = get().taskFolders.filter((f) => f.workspaceId !== workspaceId);
           const otherWsNotebooks = get().notebooks.filter((nb) => nb.workspaceId !== workspaceId);
+          let nextNotebookTasks = notebookSectionBundle.tasks;
+          let nextNotebookTaskProgress = notebookSectionBundle.taskProgress;
+          let nextNotebookInvestments = notebookSectionBundle.investments;
+          let nextNotebookInvestmentNotes = notebookSectionBundle.investmentNotes;
+          let nextNotebookCustomers = notebookSectionBundle.customers;
+          let nextNotebookCustomerNotes = notebookSectionBundle.customerNotes;
+          let nextNotebookCompetitors = notebookSectionBundle.competitors;
+          if (!areNotebookSectionTablesReady()) {
+            nextNotebookTasks = keptNotebookTasks;
+            nextNotebookTaskProgress = keptNotebookTaskProgress;
+            nextNotebookInvestments = keptNotebookInvestments;
+            nextNotebookInvestmentNotes = keptNotebookInvestmentNotes;
+            nextNotebookCustomers = keptNotebookCustomers;
+            nextNotebookCustomerNotes = keptNotebookCustomerNotes;
+            nextNotebookCompetitors = keptNotebookCompetitors;
+          }
+          const otherWsNotebookTasks = get().notebookTasks.filter((t) => t.workspaceId !== workspaceId);
+          const otherWsNotebookTaskProgress = get().notebookTaskProgress.filter((p) => {
+            const task = get().notebookTasks.find((t) => t.id === p.taskId);
+            return task && task.workspaceId !== workspaceId;
+          });
+          const otherWsNotebookInvestments = get().notebookInvestments.filter(
+            (i) => i.workspaceId !== workspaceId,
+          );
+          const otherWsNotebookInvestmentNotes = get().notebookInvestmentNotes.filter((n) => {
+            const investment = get().notebookInvestments.find((i) => i.id === n.investmentId);
+            return investment && investment.workspaceId !== workspaceId;
+          });
+          const otherWsNotebookCustomers = get().notebookCustomers.filter(
+            (c) => c.workspaceId !== workspaceId,
+          );
+          const otherWsNotebookCustomerNotes = get().notebookCustomerNotes.filter((n) => {
+            const customer = get().notebookCustomers.find((c) => c.id === n.customerId);
+            return customer && customer.workspaceId !== workspaceId;
+          });
+          const otherWsNotebookCompetitors = get().notebookCompetitors.filter(
+            (c) => c.workspaceId !== workspaceId,
+          );
           const otherWsMeetings = get().meetings.filter((m) => m.workspaceId !== workspaceId);
           const otherWsAgendaItems = get().meetingAgendaItems.filter((i) => {
             const meeting = get().meetings.find((m) => m.id === i.meetingId);
@@ -1531,6 +1623,16 @@ export const useTaskStore = create<TaskState>()(
             listItems: nextItems,
             taskFolders: [...otherWsTaskFolders, ...nextTaskFolders],
             notebooks: [...otherWsNotebooks, ...nextNotebooks],
+            notebookTasks: [...otherWsNotebookTasks, ...nextNotebookTasks],
+            notebookTaskProgress: [...otherWsNotebookTaskProgress, ...nextNotebookTaskProgress],
+            notebookInvestments: [...otherWsNotebookInvestments, ...nextNotebookInvestments],
+            notebookInvestmentNotes: [
+              ...otherWsNotebookInvestmentNotes,
+              ...nextNotebookInvestmentNotes,
+            ],
+            notebookCustomers: [...otherWsNotebookCustomers, ...nextNotebookCustomers],
+            notebookCustomerNotes: [...otherWsNotebookCustomerNotes, ...nextNotebookCustomerNotes],
+            notebookCompetitors: [...otherWsNotebookCompetitors, ...nextNotebookCompetitors],
             meetings: [...otherWsMeetings, ...nextMeetings],
             meetingAgendaItems: [...otherWsAgendaItems, ...nextAgendaItems],
             meetingAgendaEntries: [...otherWsAgendaEntries, ...nextAgendaEntries],
@@ -2979,6 +3081,10 @@ export const useTaskStore = create<TaskState>()(
         const existing = get().notes.find((n) => n.id === id);
         const workspaceId = updates.workspaceId ?? existing?.workspaceId ?? get().currentWorkspace.id;
 
+        if (!(updates as { isArchived?: boolean }).isArchived && noteUpdatesAreNoOp(existing, updates)) {
+          return true;
+        }
+
         set((state) => {
           if ((updates as { isArchived?: boolean }).isArchived) {
             const notes = state.notes.filter((n) => n.id !== id);
@@ -3068,6 +3174,8 @@ export const useTaskStore = create<TaskState>()(
       ...createTaskFolderSliceActions(get, set),
 
       ...createNotebookSliceActions(get, set),
+
+      ...createNotebookSectionSliceActions(get, set),
 
       ...createMeetingSliceActions(
         get as Parameters<typeof createMeetingSliceActions>[0],
@@ -5079,6 +5187,13 @@ export const useTaskStore = create<TaskState>()(
             listItems: state.listItems,
             taskFolders: state.taskFolders,
             notebooks: state.notebooks,
+            notebookTasks: state.notebookTasks,
+            notebookTaskProgress: state.notebookTaskProgress,
+            notebookInvestments: state.notebookInvestments,
+            notebookInvestmentNotes: state.notebookInvestmentNotes,
+            notebookCustomers: state.notebookCustomers,
+            notebookCustomerNotes: state.notebookCustomerNotes,
+            notebookCompetitors: state.notebookCompetitors,
             meetings: state.meetings,
             meetingAgendaItems: state.meetingAgendaItems,
             meetingAgendaEntries: state.meetingAgendaEntries,
@@ -5087,6 +5202,9 @@ export const useTaskStore = create<TaskState>()(
             currentView: state.currentView,
             selectedNotebookId: state.selectedNotebookId,
             selectedNotebookNoteId: state.selectedNotebookNoteId,
+            selectedNotebookTaskId: state.selectedNotebookTaskId,
+            selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
+            selectedNotebookCustomerId: state.selectedNotebookCustomerId,
             selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
             theme: state.theme,
@@ -5101,6 +5219,13 @@ export const useTaskStore = create<TaskState>()(
           listItems: state.listItems,
           taskFolders: state.taskFolders,
           notebooks: state.notebooks,
+          notebookTasks: state.notebookTasks,
+          notebookTaskProgress: state.notebookTaskProgress,
+          notebookInvestments: state.notebookInvestments,
+          notebookInvestmentNotes: state.notebookInvestmentNotes,
+          notebookCustomers: state.notebookCustomers,
+          notebookCustomerNotes: state.notebookCustomerNotes,
+          notebookCompetitors: state.notebookCompetitors,
           meetings: state.meetings,
           meetingAgendaItems: state.meetingAgendaItems,
           meetingAgendaEntries: state.meetingAgendaEntries,
@@ -5108,6 +5233,9 @@ export const useTaskStore = create<TaskState>()(
           workspaces: state.workspaces,
           selectedNotebookId: state.selectedNotebookId,
           selectedNotebookNoteId: state.selectedNotebookNoteId,
+          selectedNotebookTaskId: state.selectedNotebookTaskId,
+          selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
+          selectedNotebookCustomerId: state.selectedNotebookCustomerId,
           selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
           myProfile: state.myProfile,
