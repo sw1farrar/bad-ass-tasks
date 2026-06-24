@@ -44,5 +44,11 @@ jobs:
       - name: Test (Vitest)
         run: npm run test
 
+      - name: Build (demo mode, for E2E)
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ''
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ''
+
       - name: E2E (Playwright - demo mode only)
         run: npm run test:e2e

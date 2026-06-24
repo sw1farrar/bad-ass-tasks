@@ -41,13 +41,18 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Isolated port + cleared Supabase env → pure demo mode (no auth landing gate)
-    command: 'npm run dev -- -p 3001',
+    // Isolated port + cleared Supabase env → pure demo mode (no auth landing gate).
+    // CI: use pre-built app (ci.yml build step) — prod server is ready in seconds.
+    // Local: dev-start.mjs ignores `-p`; PORT env is how Next binds to 3001.
+    command: process.env.CI
+      ? 'npx next start -p 3001'
+      : 'node scripts/dev-start.mjs',
     url: 'http://localhost:3001',
-    reuseExistingServer: false,
-    timeout: 120 * 1000,
+    reuseExistingServer: !process.env.CI,
+    timeout: process.env.CI ? 60_000 : 180_000,
     env: {
       ...process.env,
+      PORT: '3001',
       NEXT_PUBLIC_SUPABASE_URL: '',
       NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
     },
