@@ -23,6 +23,7 @@ import {
   sortMeetingEntriesNewestFirst,
   sortMeetings,
 } from "@/lib/meetings/meetingFilters";
+import { shouldAutoDeferAgendaItem } from "@/lib/meetings/meetingLifecycle";
 import { buildMeetingSummaryHtml } from "@/lib/meetings/summaryBuilder";
 import {
   createMeeting as createMeetingSupabase,
@@ -463,6 +464,11 @@ export function createMeetingSliceActions(get: Get, set: Set) {
     completeMeeting: async (meetingId: string) => {
       const meeting = get().meetings.find((m) => m.id === meetingId);
       if (!meeting) return false;
+      const meetingItems = get().meetingAgendaItems.filter((i) => i.meetingId === meetingId);
+      const toDefer = meetingItems.filter(shouldAutoDeferAgendaItem);
+      for (const item of toDefer) {
+        await actions.updateAgendaItem(item.id, { status: "continued", completedAt: null });
+      }
       const items = get().meetingAgendaItems.filter((i) => i.meetingId === meetingId);
       const itemIds = new Set(items.map((i) => i.id));
       const entries = get().meetingAgendaEntries.filter((e) => itemIds.has(e.agendaItemId));

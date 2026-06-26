@@ -37,10 +37,25 @@ export function getMeetingDurationMinutes(meeting: Meeting): number | null {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
 }
 
+export function shouldAutoDeferAgendaItem(item: Pick<MeetingAgendaItem, "status">): boolean {
+  return item.status === "open" || item.status === "in_progress";
+}
+
+/** Unfinished topics become deferred when a meeting is completed. */
+export function resolveAgendaItemsForMeetingCompletion(
+  items: MeetingAgendaItem[],
+): MeetingAgendaItem[] {
+  return items.map((item) =>
+    shouldAutoDeferAgendaItem(item)
+      ? { ...item, status: "continued", completedAt: null }
+      : item,
+  );
+}
+
 export interface CompleteMeetingStats {
   completedTopics: number;
   continuedTopics: number;
-  openTopics: number;
+  autoDeferredTopics: number;
   decisionCount: number;
 }
 
@@ -48,10 +63,12 @@ export function computeCompleteMeetingStats(
   items: MeetingAgendaItem[],
   decisionCount: number,
 ): CompleteMeetingStats {
+  const autoDeferredTopics = items.filter((i) => shouldAutoDeferAgendaItem(i)).length;
   return {
     completedTopics: items.filter((i) => i.status === "completed").length,
-    continuedTopics: items.filter((i) => i.status === "continued").length,
-    openTopics: items.filter((i) => i.status === "open" || i.status === "in_progress").length,
+    continuedTopics:
+      items.filter((i) => i.status === "continued").length + autoDeferredTopics,
+    autoDeferredTopics,
     decisionCount,
   };
 }

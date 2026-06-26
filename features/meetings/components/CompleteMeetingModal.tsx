@@ -30,12 +30,16 @@ export function CompleteMeetingModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Complete meeting?"
-      description="A summary will be generated from your agenda topics and timestamped notes."
+      description="A summary will be generated from your agenda topics and timestamped notes. Unfinished topics are deferred automatically."
       details={
         <ul className="text-sm text-text-muted space-y-1 list-disc pl-4">
           <li>{stats.completedTopics} topic{stats.completedTopics === 1 ? "" : "s"} completed</li>
           <li>{stats.continuedTopics} to carry to next meeting</li>
-          {stats.openTopics > 0 && <li>{stats.openTopics} still open</li>}
+          {stats.autoDeferredTopics > 0 && (
+            <li>
+              {stats.autoDeferredTopics} unfinished topic{stats.autoDeferredTopics === 1 ? "" : "s"} will be deferred
+            </li>
+          )}
           {stats.decisionCount > 0 && <li>{stats.decisionCount} decision{stats.decisionCount === 1 ? "" : "s"} logged</li>}
         </ul>
       }
