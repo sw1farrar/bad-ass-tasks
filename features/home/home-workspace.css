@@ -31,15 +31,27 @@
 
 .home-workspaces-grid {
   width: 100%;
-  align-items: stretch;
+  align-items: start;
   align-content: start;
   justify-content: start;
 }
 
 .home-workspaces-grid > .home-ws-card {
-  min-height: var(--home-ws-tile-height, auto);
-  height: var(--home-ws-tile-height, auto);
-  align-self: stretch;
+  height: auto;
+  min-height: 0;
+  align-self: start;
+}
+
+@media (min-width: 768px) {
+  .home-workspaces-grid {
+    align-items: stretch;
+  }
+
+  .home-workspaces-grid > .home-ws-card {
+    min-height: var(--home-ws-tile-height, auto);
+    height: var(--home-ws-tile-height, auto);
+    align-self: stretch;
+  }
 }
 
 .home-ws-card--notif-open {
@@ -337,10 +349,10 @@
   }
 
   .home-workspaces-grid > .home-ws-card {
-    min-height: var(--home-ws-tile-height, auto);
-    height: var(--home-ws-tile-height, auto);
-    align-self: stretch;
-    overflow: hidden;
+    height: auto;
+    min-height: 0;
+    align-self: start;
+    overflow: visible;
   }
 
   .home-ws-card__head {
@@ -383,7 +395,7 @@
   }
 
   .home-ws-card__tasks-zone {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
     margin-top: 0.25rem;
     padding-top: 0.25rem;

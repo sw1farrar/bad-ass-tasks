@@ -1,6 +1,19 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { isMobileViewportWidth } from "@/lib/constants/viewport";
+
+function shouldEqualizeTileHeights(): boolean {
+  return typeof window !== "undefined" && !isMobileViewportWidth(window.innerWidth);
+}
+
+function clearUnifiedTileHeights(grid: HTMLDivElement): void {
+  grid.style.removeProperty("--home-ws-tile-height");
+  grid.querySelectorAll<HTMLElement>(".home-ws-card").forEach((card) => {
+    card.style.minHeight = "";
+    card.style.height = "";
+  });
+}
 
 function measureTallestTile(grid: HTMLDivElement): number {
   const cards = Array.from(grid.querySelectorAll<HTMLElement>(".home-ws-card"));
@@ -15,7 +28,7 @@ function measureTallestTile(grid: HTMLDivElement): number {
   return Math.max(...cards.map((card) => card.getBoundingClientRect().height), 0);
 }
 
-/** Measure natural tile heights, then unify all cards to the tallest. */
+/** Desktop only: measure natural tile heights, then unify all cards to the tallest. */
 export function useEqualHomeTileHeights(deps: React.DependencyList) {
   const gridRef = useRef<HTMLDivElement>(null);
   const [tileHeight, setTileHeight] = useState<number | undefined>();
@@ -27,6 +40,12 @@ export function useEqualHomeTileHeights(deps: React.DependencyList) {
     let frame = 0;
 
     const sync = () => {
+      if (!shouldEqualizeTileHeights()) {
+        clearUnifiedTileHeights(grid);
+        setTileHeight(undefined);
+        return;
+      }
+
       const max = measureTallestTile(grid);
       if (max <= 0) return;
 
@@ -41,11 +60,13 @@ export function useEqualHomeTileHeights(deps: React.DependencyList) {
     const observer = new ResizeObserver(() => sync());
     observer.observe(grid);
     grid.querySelectorAll(".home-ws-card").forEach((card) => observer.observe(card));
+    window.addEventListener("resize", sync);
 
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      grid.style.removeProperty("--home-ws-tile-height");
+      window.removeEventListener("resize", sync);
+      clearUnifiedTileHeights(grid);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

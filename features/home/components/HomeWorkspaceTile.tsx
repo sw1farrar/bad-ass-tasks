@@ -94,7 +94,7 @@ export function HomeWorkspaceTile({
     <div
       className={cn(
         "home-ws-card glass rounded-2xl px-2.5 py-2 md:p-5 border border-border-glass transition relative text-left cursor-pointer",
-        "flex flex-col items-stretch h-full",
+        "flex flex-col items-stretch h-auto md:h-full",
         "focus-within:outline-none focus-within:ring-2 focus-within:ring-neon-purple/40",
         isCurrent && "home-ws-card--current",
         notificationPanelOpen && "home-ws-card--notif-open",
@@ -167,7 +167,7 @@ export function HomeWorkspaceTile({
         onReviewClick={onNavigateReview ? () => onNavigateReview(workspace.id) : undefined}
       />
 
-      <div className="home-ws-card__tasks-zone flex-1 flex flex-col min-h-0">
+      <div className="home-ws-card__tasks-zone flex flex-col min-h-0 md:flex-1">
         <HomeWorkspaceTaskPanel
           groups={taskGroups}
           taskLoadingStates={taskLoadingStates}
