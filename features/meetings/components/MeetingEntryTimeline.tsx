@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Check, Pencil, Trash2, X } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { formatAgendaEntryTimestamp } from "@/lib/meetings/agendaEntryLabels";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { MeetingAgendaEntry, WorkspaceMember } from "@/types";
@@ -66,7 +66,7 @@ export function MeetingEntryTimeline({
     return (
       <p className="text-sm text-text-muted px-4 py-6 text-center">
         {canCompose
-          ? "No notes yet. Add a note below — each entry is timestamped automatically."
+          ? "No notes yet. Add a note below — each entry is dated automatically."
           : "No notes for this topic."}
       </p>
     );
@@ -92,7 +92,7 @@ export function MeetingEntryTimeline({
           <div key={entry.id} className="meeting-entry-timeline__item group relative">
             <div className="flex items-start justify-between gap-2 mb-0.5">
               <div className="text-xs text-text-faint min-w-0">
-                {format(parseISO(entry.createdAt), "MMM d, h:mm a")}
+                {formatAgendaEntryTimestamp(entry.createdAt)}
                 <span className="mx-1.5">·</span>
                 <span className="text-text-muted">{author}</span>
                 {entry.isDecision && (

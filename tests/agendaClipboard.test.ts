@@ -84,5 +84,7 @@ describe("agendaClipboard", () => {
     expect(plain).toContain("Need updated forecast");
     expect(html.indexOf("Latest blocker")).toBeLessThan(html.indexOf("Need updated forecast"));
     expect(plain.indexOf("Latest blocker")).toBeLessThan(plain.indexOf("Need updated forecast"));
+    expect(html).toMatch(/Need updated forecast<\/span><br \/>/);
+    expect(plain).toMatch(/Need updated forecast\n {3}Jun 23, 2026/);
   });
 });

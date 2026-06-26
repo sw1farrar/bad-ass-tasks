@@ -1,6 +1,9 @@
 import { format } from "date-fns";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
-import { formatAgendaEntryTimestamp } from "@/lib/meetings/agendaEntryLabels";
+import {
+  appendAgendaEntryClipboardPlainText,
+  buildAgendaEntryClipboardHtml,
+} from "@/lib/meetings/agendaEntryLabels";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
 import { getMeetingDurationMinutes } from "@/lib/meetings/meetingLifecycle";
 import { sortAgendaItems, sortMeetingEntriesChronological } from "@/lib/meetings/meetingFilters";
@@ -59,10 +62,7 @@ function appendSummaryTopicClipboardHtml(
     html.push(`<ul style="margin: 6px 0 0 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid #cccccc;">`);
     for (const entry of itemEntries) {
       html.push(`<li style="margin: 0 0 6px 10px; padding: 0;">`);
-      html.push(`<span style="display: block; font-size: 10pt; color: #000000; white-space: pre-wrap; margin: 0 0 2px;">${escapeHtml(entry.body)}</span>`);
-      html.push(`<span style="display: block; font-size: 9pt; color: #000000;">${escapeHtml(
-        formatAgendaEntryTimestamp(entry.createdAt),
-      )}</span>`);
+      html.push(buildAgendaEntryClipboardHtml(entry.body, entry.createdAt, escapeHtml));
       html.push(`</li>`);
     }
     html.push(`</ul>`);
@@ -87,8 +87,7 @@ function appendSummaryTopicPlainText(
     entries.filter((e) => e.agendaItemId === item.id),
   );
   for (const entry of itemEntries) {
-    lines.push(`  ${entry.body}`);
-    lines.push(`  ${formatAgendaEntryTimestamp(entry.createdAt)}`);
+    appendAgendaEntryClipboardPlainText(lines, entry.body, entry.createdAt, "  ");
   }
   if (itemEntries.length === 0) lines.push("  No notes recorded.");
   lines.push("");

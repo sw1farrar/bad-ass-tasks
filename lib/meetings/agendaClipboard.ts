@@ -1,6 +1,9 @@
 import { format } from "date-fns";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
-import { formatAgendaEntryTimestamp } from "@/lib/meetings/agendaEntryLabels";
+import {
+  appendAgendaEntryClipboardPlainText,
+  buildAgendaEntryClipboardHtml,
+} from "@/lib/meetings/agendaEntryLabels";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
 import { sortAgendaItems, sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
 
@@ -66,10 +69,7 @@ export function buildMeetingAgendaClipboardHtml(input: MeetingAgendaDocumentInpu
         html += `<ul style="margin: 6px 0 0 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid #cccccc;">`;
         for (const entry of itemEntries) {
           html += `<li style="margin: 0 0 6px 10px; padding: 0;">`;
-          html += `<span style="display: block; font-size: 10pt; color: #000000; white-space: pre-wrap; margin: 0 0 2px;">${escapeHtml(entry.body)}</span>`;
-          html += `<span style="display: block; font-size: 9pt; color: #000000;">${escapeHtml(
-            formatAgendaEntryTimestamp(entry.createdAt),
-          )}</span>`;
+          html += buildAgendaEntryClipboardHtml(entry.body, entry.createdAt, escapeHtml);
           html += `</li>`;
         }
         html += `</ul>`;
@@ -107,8 +107,7 @@ export function buildMeetingAgendaPlainText(input: MeetingAgendaDocumentInput): 
       lines.push(`${index + 1}. ${item.title}${suffix}`);
       if (item.description?.trim()) lines.push(`   ${item.description.trim()}`);
       for (const entry of itemEntries) {
-        lines.push(`   ${entry.body}`);
-        lines.push(`   ${formatAgendaEntryTimestamp(entry.createdAt)}`);
+        appendAgendaEntryClipboardPlainText(lines, entry.body, entry.createdAt);
       }
     });
   }

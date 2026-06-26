@@ -80,6 +80,7 @@ function renderSummaryTopicArticle(
     for (const entry of itemEntries) {
       html += `<li class="meeting-summary-doc__note">`;
       html += `<p class="meeting-summary-doc__note-body">${escapeHtml(entry.body)}</p>`;
+      html += `<br />`;
       html += `<span class="meeting-summary-doc__note-meta">${escapeHtml(
         formatAgendaEntryTimestamp(entry.createdAt),
       )}</span>`;
@@ -298,6 +299,7 @@ export function buildMeetingAgendaHtml(input: {
         for (const entry of itemEntries) {
           html += `<li class="meeting-agenda-doc__comment">`;
           html += `<p class="meeting-agenda-doc__comment-body">${escapeHtml(entry.body)}</p>`;
+          html += `<br />`;
           html += `<span class="meeting-agenda-doc__comment-meta">${escapeHtml(
             formatAgendaEntryTimestamp(entry.createdAt),
           )}</span>`;
