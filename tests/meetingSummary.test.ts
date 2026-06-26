@@ -46,20 +46,56 @@ const entries: MeetingAgendaEntry[] = [
 describe("summaryBuilder", () => {
   it("renders summary html with decisions section", () => {
     const html = buildMeetingSummaryHtml({
-      meeting,
+      meeting: {
+        ...meeting,
+        startedAt: "2026-06-23T14:00:00Z",
+        completedAt: "2026-06-23T15:00:00Z",
+      },
       items,
       entries,
       members: [],
     });
     expect(html).toContain("Sprint Review");
     expect(html).toContain("Meeting summary");
+    expect(html).not.toContain("Duration");
+    expect(html).not.toContain(" min");
     expect(html).toContain("Decisions");
     expect(html).toContain("Ship v2 Friday");
     expect(html).not.toContain("Acme");
     expect(html).toContain("meeting-summary-doc__topic");
     expect(html).toContain("meeting-summary-doc__note-body");
-    expect(html).toContain("meeting-summary-doc__note-meta");
-    expect(html.indexOf("Ship v2 Friday")).toBeLessThan(html.indexOf("meeting-summary-doc__note-meta"));
+    expect(html).toContain("meeting-summary-doc__note-date-heading");
+    expect(html).toContain("June 23, 2026");
+    expect(html).not.toContain("meeting-summary-doc__note-meta");
+    const topicStart = html.indexOf('class="meeting-summary-doc__topic"');
+    expect(html.indexOf("Follow up with design", topicStart)).toBeLessThan(
+      html.indexOf("Ship v2 Friday", topicStart),
+    );
+  });
+
+  it("sections summary notes by date with newest notes first", () => {
+    const html = buildMeetingSummaryHtml({
+      meeting,
+      items,
+      entries: [
+        ...entries,
+        {
+          id: "e3",
+          agendaItemId: "a1",
+          body: "July follow-up",
+          createdAt: "2026-07-01T12:00:00Z",
+        },
+      ],
+      members: [],
+    });
+    const topicStart = html.indexOf('class="meeting-summary-doc__topic"');
+    const julyIndex = html.indexOf("July 1, 2026", topicStart);
+    const juneIndex = html.indexOf("June 23, 2026", julyIndex);
+    expect(julyIndex).toBeGreaterThan(topicStart);
+    expect(juneIndex).toBeGreaterThan(julyIndex);
+    expect(html.indexOf("July follow-up", topicStart)).toBeLessThan(
+      html.indexOf("Follow up with design", topicStart),
+    );
   });
 
   it("renders agenda html with topic cards", () => {
@@ -86,8 +122,9 @@ describe("summaryBuilder", () => {
       includeComments: true,
     });
     expect(html).toContain("meeting-agenda-doc__comments");
+    expect(html).toContain("meeting-agenda-doc__comment-date-heading");
     expect(html).toContain("Ship v2 Friday");
-    expect(html).toContain("meeting-agenda-doc__comment-meta");
+    expect(html).not.toContain("meeting-agenda-doc__comment-meta");
     expect(html.indexOf("Follow up with design")).toBeLessThan(html.indexOf("Ship v2 Friday"));
   });
 

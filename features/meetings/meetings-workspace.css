@@ -249,27 +249,43 @@
 
 .meeting-summary-doc__notes {
   margin: 0.5rem 0 0;
-  padding: 0;
-  list-style: none;
+  padding: 0.65rem 0 0 0.875rem;
   border-top: 1px solid var(--border-glass, #f4f4f5);
-  padding-top: 0.65rem;
+  border-left: 2px solid rgba(139, 92, 246, 0.2);
 }
 
-.meeting-summary-doc__note {
-  margin-bottom: 0.65rem;
+.meeting-summary-doc__note-date-section {
+  margin: 0 0 0.75rem 0.5rem;
 }
 
-.meeting-summary-doc__note:last-child {
+.meeting-summary-doc__note-date-section:last-child {
   margin-bottom: 0;
 }
 
-.meeting-summary-doc__note-meta {
-  display: block;
+.meeting-summary-doc__note-date-heading {
+  margin: 0 0 0.35rem;
   font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-faint, #a1a1aa);
-  margin-bottom: 0.2rem;
+}
+
+.meeting-summary-doc__note-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meeting-summary-doc__note {
+  margin: 0;
+  padding: 0 0 0.5rem;
+  border-bottom: 1px solid var(--border-glass, #f4f4f5);
+}
+
+.meeting-summary-doc__note:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .meeting-summary-doc__note-body {
@@ -389,6 +405,53 @@
   margin: 1px 0 0;
   font-size: 9pt;
   color: #000000;
+}
+
+.meeting-agenda-doc__comments {
+  margin: 8px 0 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid #cccccc;
+}
+
+.meeting-agenda-doc__comment-date-section {
+  margin: 0 0 10px 10px;
+}
+
+.meeting-agenda-doc__comment-date-section:last-child {
+  margin-bottom: 0;
+}
+
+.meeting-agenda-doc__comment-date-heading {
+  margin: 0 0 4px;
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #000000;
+}
+
+.meeting-agenda-doc__comment-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meeting-agenda-doc__comment {
+  margin: 0;
+  padding: 0 0 6px;
+  border-bottom: 1px solid #eeeeee;
+}
+
+.meeting-agenda-doc__comment:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.meeting-agenda-doc__comment-body {
+  margin: 0;
+  font-size: 9pt;
+  color: #000000;
+  white-space: pre-wrap;
 }
 
 .meeting-agenda-rich-preview__page {

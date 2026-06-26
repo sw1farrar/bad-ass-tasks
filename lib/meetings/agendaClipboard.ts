@@ -1,11 +1,15 @@
 import { format } from "date-fns";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
 import {
-  appendAgendaEntryClipboardPlainText,
-  buildAgendaEntryClipboardHtml,
+  appendAgendaEntryGroupsPlainText,
+  buildAgendaEntryGroupsClipboardHtml,
+} from "@/lib/meetings/agendaEntryGroups";
+import {
+  appendIndentedPlainTextBlock,
+  formatClipboardHtmlText,
 } from "@/lib/meetings/agendaEntryLabels";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
-import { sortAgendaItems, sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
+import { sortAgendaItems } from "@/lib/meetings/meetingFilters";
 
 function escapeHtml(text: string): string {
   return text
@@ -54,7 +58,7 @@ export function buildMeetingAgendaClipboardHtml(input: MeetingAgendaDocumentInpu
     for (const item of sorted) {
       const meta = topicMetaParts(item, members, currentUserId);
       const itemEntries = includeComments
-        ? sortMeetingEntriesNewestFirst(entries.filter((e) => e.agendaItemId === item.id))
+        ? entries.filter((e) => e.agendaItemId === item.id)
         : [];
 
       html += `<li style="margin: 0 0 6px; padding: 0;">`;
@@ -63,16 +67,10 @@ export function buildMeetingAgendaClipboardHtml(input: MeetingAgendaDocumentInpu
         html += `<span style="color: #000000;"> — ${escapeHtml(meta.join(" · "))}</span>`;
       }
       if (item.description?.trim()) {
-        html += `<br><span style="font-size: 10pt; color: #000000;">${escapeHtml(item.description.trim())}</span>`;
+        html += `<br><span style="display: block; margin-top: 2px; font-size: 10pt; color: #000000;">${formatClipboardHtmlText(item.description.trim(), escapeHtml)}</span>`;
       }
       if (itemEntries.length > 0) {
-        html += `<ul style="margin: 6px 0 0 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid #cccccc;">`;
-        for (const entry of itemEntries) {
-          html += `<li style="margin: 0 0 6px 10px; padding: 0;">`;
-          html += buildAgendaEntryClipboardHtml(entry.body, entry.createdAt, escapeHtml);
-          html += `</li>`;
-        }
-        html += `</ul>`;
+        html += buildAgendaEntryGroupsClipboardHtml(itemEntries, escapeHtml);
       }
       html += `</li>`;
     }
@@ -101,13 +99,15 @@ export function buildMeetingAgendaPlainText(input: MeetingAgendaDocumentInput): 
       const meta = topicMetaParts(item, members, currentUserId);
       const suffix = meta.length ? ` — ${meta.join(" · ")}` : "";
       const itemEntries = includeComments
-        ? sortMeetingEntriesNewestFirst(entries.filter((e) => e.agendaItemId === item.id))
+        ? entries.filter((e) => e.agendaItemId === item.id)
         : [];
 
       lines.push(`${index + 1}. ${item.title}${suffix}`);
-      if (item.description?.trim()) lines.push(`   ${item.description.trim()}`);
-      for (const entry of itemEntries) {
-        appendAgendaEntryClipboardPlainText(lines, entry.body, entry.createdAt);
+      if (item.description?.trim()) {
+        appendIndentedPlainTextBlock(lines, item.description.trim(), "   ");
+      }
+      if (itemEntries.length > 0) {
+        appendAgendaEntryGroupsPlainText(lines, itemEntries);
       }
     });
   }

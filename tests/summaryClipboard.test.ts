@@ -78,6 +78,8 @@ describe("summaryClipboard", () => {
     expect(html).toContain("Follow-ups for next time");
     expect(html).toContain("Roadmap");
     expect(html).toContain("Need more stakeholder input");
+    expect(html).toContain("June 23, 2026");
+    expect(html.indexOf("Demo went well")).toBeLessThan(html.indexOf("Need more stakeholder input"));
     expect(html).toContain('style="');
   });
 
@@ -95,5 +97,6 @@ describe("summaryClipboard", () => {
     expect(plain).toContain("FOLLOW-UPS FOR NEXT TIME");
     expect(plain).toContain("Roadmap");
     expect(plain).toContain("Need more stakeholder input");
+    expect(plain).toContain("June 23, 2026");
   });
 });

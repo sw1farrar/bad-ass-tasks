@@ -21,7 +21,7 @@ const entries: MeetingAgendaEntry[] = [
   {
     id: "e1",
     agendaItemId: "a1",
-    body: "Need updated forecast",
+    body: "Need updated forecast\n\nWaiting on finance",
     createdAt: "2026-06-23T13:00:00Z",
   },
   {
@@ -30,6 +30,12 @@ const entries: MeetingAgendaEntry[] = [
     body: "Latest blocker",
     createdAt: "2026-06-23T14:00:00Z",
   },
+  {
+    id: "e3",
+    agendaItemId: "a1",
+    body: "Carry to next week",
+    createdAt: "2026-06-26T12:00:00Z",
+  },
 ];
 
 const items: MeetingAgendaItem[] = [
@@ -37,7 +43,7 @@ const items: MeetingAgendaItem[] = [
     id: "a1",
     meetingId: "m1",
     title: "Budget",
-    description: "Review Q3 numbers",
+    description: "Review Q3 numbers\n\nFocus on hiring plan",
     sortOrder: 0,
     status: "open",
     linkedTaskIds: [],
@@ -82,9 +88,26 @@ describe("agendaClipboard", () => {
     });
     expect(html).toContain("Need updated forecast");
     expect(plain).toContain("Need updated forecast");
-    expect(html.indexOf("Latest blocker")).toBeLessThan(html.indexOf("Need updated forecast"));
-    expect(plain.indexOf("Latest blocker")).toBeLessThan(plain.indexOf("Need updated forecast"));
-    expect(html).toMatch(/Need updated forecast<\/span><br \/>/);
-    expect(plain).toMatch(/Need updated forecast\n {3}Jun 23, 2026/);
+    expect(html).toContain("June 26, 2026");
+    expect(html).toContain("June 23, 2026");
+    const htmlAgendaStart = html.indexOf(">Agenda</p>");
+    const htmlJune26 = html.indexOf("June 26, 2026", htmlAgendaStart);
+    const htmlJune23 = html.indexOf("June 23, 2026", htmlJune26);
+    expect(htmlJune26).toBeGreaterThan(htmlAgendaStart);
+    expect(htmlJune23).toBeGreaterThan(htmlJune26);
+    expect(html.indexOf("Carry to next week")).toBeLessThan(html.indexOf("Latest blocker"));
+    expect(plain).toContain("June 26, 2026");
+    expect(plain).toContain("June 23, 2026");
+    const plainAgendaStart = plain.indexOf("AGENDA");
+    const plainJune26 = plain.indexOf("June 26, 2026", plainAgendaStart);
+    const plainJune23 = plain.indexOf("June 23, 2026", plainJune26);
+    expect(plainJune26).toBeGreaterThan(plainAgendaStart);
+    expect(plainJune23).toBeGreaterThan(plainJune26);
+    expect(plain.indexOf("Carry to next week")).toBeLessThan(plain.indexOf("Latest blocker"));
+    expect(html).toContain("Need updated forecast<br /><br />Waiting on finance");
+    expect(html).toContain("Review Q3 numbers<br /><br />Focus on hiring plan");
+    expect(plain).toContain("   Need updated forecast");
+    expect(plain).toContain("   Waiting on finance");
+    expect(plain).toContain("   Focus on hiring plan");
   });
 });

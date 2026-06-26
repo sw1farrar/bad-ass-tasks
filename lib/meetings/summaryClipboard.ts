@@ -1,12 +1,11 @@
 import { format } from "date-fns";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
 import {
-  appendAgendaEntryClipboardPlainText,
-  buildAgendaEntryClipboardHtml,
-} from "@/lib/meetings/agendaEntryLabels";
+  appendAgendaEntryGroupsPlainText,
+  buildAgendaEntryGroupsClipboardHtml,
+} from "@/lib/meetings/agendaEntryGroups";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
-import { getMeetingDurationMinutes } from "@/lib/meetings/meetingLifecycle";
-import { sortAgendaItems, sortMeetingEntriesChronological } from "@/lib/meetings/meetingFilters";
+import { sortAgendaItems } from "@/lib/meetings/meetingFilters";
 
 function escapeHtml(text: string): string {
   return text
@@ -44,9 +43,7 @@ function appendSummaryTopicClipboardHtml(
   members: WorkspaceMember[],
   currentUserId?: string,
 ): void {
-  const itemEntries = sortMeetingEntriesChronological(
-    entries.filter((e) => e.agendaItemId === item.id),
-  );
+  const itemEntries = entries.filter((e) => e.agendaItemId === item.id);
   const owner = getAgendaItemOwnerLabel(item, members, currentUserId);
   const meta = [topicOutcomeLabel(item.status), owner].filter(Boolean).join(" · ");
 
@@ -59,13 +56,7 @@ function appendSummaryTopicClipboardHtml(
     html.push(`<p style="margin: 0 0 4px; font-size: 10pt; color: #000000;">${escapeHtml(item.description.trim())}</p>`);
   }
   if (itemEntries.length) {
-    html.push(`<ul style="margin: 6px 0 0 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid #cccccc;">`);
-    for (const entry of itemEntries) {
-      html.push(`<li style="margin: 0 0 6px 10px; padding: 0;">`);
-      html.push(buildAgendaEntryClipboardHtml(entry.body, entry.createdAt, escapeHtml));
-      html.push(`</li>`);
-    }
-    html.push(`</ul>`);
+    html.push(buildAgendaEntryGroupsClipboardHtml(itemEntries, escapeHtml));
   } else {
     html.push(`<p style="margin: 4px 0 0; font-size: 9pt; font-style: italic; color: #000000;">No notes recorded.</p>`);
   }
@@ -83,13 +74,12 @@ function appendSummaryTopicPlainText(
   const suffix = owner ? ` · ${owner}` : "";
   lines.push(`${item.title} (${topicOutcomeLabel(item.status)}${suffix})`);
   if (item.description?.trim()) lines.push(item.description.trim());
-  const itemEntries = sortMeetingEntriesChronological(
-    entries.filter((e) => e.agendaItemId === item.id),
-  );
-  for (const entry of itemEntries) {
-    appendAgendaEntryClipboardPlainText(lines, entry.body, entry.createdAt, "  ");
+  const itemEntries = entries.filter((e) => e.agendaItemId === item.id);
+  if (itemEntries.length > 0) {
+    appendAgendaEntryGroupsPlainText(lines, itemEntries, "  ");
+  } else {
+    lines.push("  No notes recorded.");
   }
-  if (itemEntries.length === 0) lines.push("  No notes recorded.");
   lines.push("");
 }
 
@@ -97,7 +87,6 @@ function appendSummaryTopicPlainText(
 export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentInput): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const duration = getMeetingDurationMinutes(meeting);
   const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
@@ -111,9 +100,6 @@ export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentIn
     facts.push(
       `<span><strong>When:</strong> ${escapeHtml(format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy"))}</span>`,
     );
-  }
-  if (duration != null) {
-    facts.push(`<span><strong>Duration:</strong> ${duration} min</span>`);
   }
   if (discussionItems.length > 0 || followUps.length > 0) {
     facts.push(`<span><strong>Topics:</strong> ${discussionItems.length + followUps.length}</span>`);
@@ -160,7 +146,6 @@ export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentIn
 export function buildMeetingSummaryPlainText(input: MeetingSummaryDocumentInput): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const duration = getMeetingDurationMinutes(meeting);
   const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
@@ -170,7 +155,6 @@ export function buildMeetingSummaryPlainText(input: MeetingSummaryDocumentInput)
   if (meeting.scheduledAt) {
     lines.push(`When: ${format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy")}`);
   }
-  if (duration != null) lines.push(`Duration: ${duration} min`);
   lines.push("");
 
   if (decisions.length) {

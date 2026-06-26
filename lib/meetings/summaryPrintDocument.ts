@@ -138,28 +138,48 @@ export const MEETING_SUMMARY_PRINT_CSS = `
     color: #000000;
   }
   .meeting-summary-doc__notes {
-    margin: 6px 0 0;
-    padding: 6px 0 0 14px;
-    list-style: none;
+    margin: 8px 0 0;
+    padding: 0 0 0 14px;
     border-left: 2px solid #cccccc;
   }
-  .meeting-summary-doc__note {
-    margin: 0 0 6px 10px;
+  .meeting-summary-doc__note-date-section {
+    margin: 0 0 10px 10px;
     padding: 0;
     page-break-inside: avoid;
     break-inside: avoid;
   }
+  .meeting-summary-doc__note-date-section:last-child {
+    margin-bottom: 0;
+  }
+  .meeting-summary-doc__note-date-heading {
+    margin: 0 0 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #000000;
+  }
+  .meeting-summary-doc__note-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .meeting-summary-doc__note {
+    margin: 0;
+    padding: 0 0 6px;
+    border-bottom: 1px solid #eeeeee;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .meeting-summary-doc__note:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
   .meeting-summary-doc__note-body {
-    margin: 0 0 2px;
+    margin: 0;
     font-size: 9pt;
     color: #000000;
     white-space: pre-wrap;
-  }
-  .meeting-summary-doc__note-meta {
-    display: block;
-    margin: 0;
-    font-size: 8pt;
-    color: #000000;
   }
   .meeting-summary-doc__topic-empty {
     margin: 4px 0 0;

@@ -7,13 +7,13 @@ import type {
   WorkspaceMember,
 } from "@/types";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
-import { getMeetingDurationMinutes } from "@/lib/meetings/meetingLifecycle";
-import { formatAgendaEntryTimestamp } from "@/lib/meetings/agendaEntryLabels";
+
 import {
-  sortAgendaItems,
-  sortMeetingEntriesChronological,
-  sortMeetingEntriesNewestFirst,
-} from "@/lib/meetings/meetingFilters";
+  appendAgendaEntryGroupsPlainText,
+  buildAgendaEntryGroupsDocumentHtml,
+  buildAgendaEntryGroupsSummaryHtml,
+} from "@/lib/meetings/agendaEntryGroups";
+import { sortAgendaItems } from "@/lib/meetings/meetingFilters";
 
 function escapeHtml(text: string): string {
   return text
@@ -55,9 +55,7 @@ function renderSummaryTopicArticle(
   members: WorkspaceMember[],
   currentUserId?: string,
 ): string {
-  const itemEntries = sortMeetingEntriesChronological(
-    entries.filter((e) => e.agendaItemId === item.id),
-  );
+  const itemEntries = entries.filter((e) => e.agendaItemId === item.id);
   const owner = getAgendaItemOwnerLabel(item, members, currentUserId);
   const modifier = topicOutcomeModifier(item.status);
 
@@ -76,17 +74,7 @@ function renderSummaryTopicArticle(
   }
 
   if (itemEntries.length) {
-    html += `<ul class="meeting-summary-doc__notes">`;
-    for (const entry of itemEntries) {
-      html += `<li class="meeting-summary-doc__note">`;
-      html += `<p class="meeting-summary-doc__note-body">${escapeHtml(entry.body)}</p>`;
-      html += `<br />`;
-      html += `<span class="meeting-summary-doc__note-meta">${escapeHtml(
-        formatAgendaEntryTimestamp(entry.createdAt),
-      )}</span>`;
-      html += `</li>`;
-    }
-    html += `</ul>`;
+    html += buildAgendaEntryGroupsSummaryHtml(itemEntries, escapeHtml);
   } else {
     html += `<p class="meeting-summary-doc__topic-empty">No notes recorded.</p>`;
   }
@@ -107,14 +95,12 @@ function appendSummaryTopicMarkdown(
   if (item.description?.trim()) {
     lines.push(item.description.trim(), "");
   }
-  const itemEntries = sortMeetingEntriesChronological(
-    entries.filter((e) => e.agendaItemId === item.id),
-  );
-  for (const entry of itemEntries) {
-    lines.push(entry.body);
-    lines.push(formatAgendaEntryTimestamp(entry.createdAt));
+  const itemEntries = entries.filter((e) => e.agendaItemId === item.id);
+  if (itemEntries.length > 0) {
+    appendAgendaEntryGroupsPlainText(lines, itemEntries, "");
+  } else {
+    lines.push("_No notes recorded._");
   }
-  if (itemEntries.length === 0) lines.push("_No notes recorded._");
   lines.push("");
 }
 
@@ -128,7 +114,6 @@ export function buildMeetingSummaryHtml(input: {
 }): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const duration = getMeetingDurationMinutes(meeting);
   const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
@@ -143,12 +128,6 @@ export function buildMeetingSummaryHtml(input: {
     html += `<div class="meeting-summary-doc__fact">`;
     html += `<dt>When</dt>`;
     html += `<dd>${escapeHtml(format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy"))}</dd>`;
-    html += `</div>`;
-  }
-  if (duration != null) {
-    html += `<div class="meeting-summary-doc__fact">`;
-    html += `<dt>Duration</dt>`;
-    html += `<dd>${duration} min</dd>`;
     html += `</div>`;
   }
   if (discussionItems.length > 0 || followUps.length > 0) {
@@ -208,7 +187,6 @@ export function buildMeetingSummaryMarkdown(input: {
 }): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const duration = getMeetingDurationMinutes(meeting);
   const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
@@ -218,7 +196,6 @@ export function buildMeetingSummaryMarkdown(input: {
   if (meeting.scheduledAt) {
     lines.push(`**When:** ${format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy")}`);
   }
-  if (duration != null) lines.push(`**Duration:** ${duration} min`);
   lines.push("");
 
   if (decisions.length) {
@@ -283,7 +260,7 @@ export function buildMeetingAgendaHtml(input: {
     for (const item of sorted) {
       const meta = agendaTopicMetaParts(item, members, currentUserId);
       const itemEntries = includeComments
-        ? sortMeetingEntriesNewestFirst(entries.filter((e) => e.agendaItemId === item.id))
+        ? entries.filter((e) => e.agendaItemId === item.id)
         : [];
 
       html += `<li class="meeting-agenda-doc__item">`;
@@ -295,17 +272,7 @@ export function buildMeetingAgendaHtml(input: {
         html += `<p class="meeting-agenda-doc__item-desc">${escapeHtml(item.description.trim())}</p>`;
       }
       if (itemEntries.length > 0) {
-        html += `<ul class="meeting-agenda-doc__comments">`;
-        for (const entry of itemEntries) {
-          html += `<li class="meeting-agenda-doc__comment">`;
-          html += `<p class="meeting-agenda-doc__comment-body">${escapeHtml(entry.body)}</p>`;
-          html += `<br />`;
-          html += `<span class="meeting-agenda-doc__comment-meta">${escapeHtml(
-            formatAgendaEntryTimestamp(entry.createdAt),
-          )}</span>`;
-          html += `</li>`;
-        }
-        html += `</ul>`;
+        html += buildAgendaEntryGroupsDocumentHtml(itemEntries, escapeHtml);
       }
       html += `</li>`;
     }

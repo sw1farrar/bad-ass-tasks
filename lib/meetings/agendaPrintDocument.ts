@@ -67,28 +67,48 @@ export const MEETING_AGENDA_PRINT_CSS = `
     color: #000000;
   }
   .meeting-agenda-doc__comments {
-    margin: 6px 0 0;
+    margin: 8px 0 0;
     padding: 0 0 0 14px;
-    list-style: none;
     border-left: 2px solid #cccccc;
   }
-  .meeting-agenda-doc__comment {
-    margin: 0 0 6px 10px;
+  .meeting-agenda-doc__comment-date-section {
+    margin: 0 0 10px 10px;
     padding: 0;
     page-break-inside: avoid;
     break-inside: avoid;
   }
+  .meeting-agenda-doc__comment-date-section:last-child {
+    margin-bottom: 0;
+  }
+  .meeting-agenda-doc__comment-date-heading {
+    margin: 0 0 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #000000;
+  }
+  .meeting-agenda-doc__comment-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .meeting-agenda-doc__comment {
+    margin: 0;
+    padding: 0 0 6px;
+    border-bottom: 1px solid #eeeeee;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .meeting-agenda-doc__comment:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
   .meeting-agenda-doc__comment-body {
-    margin: 0 0 2px;
+    margin: 0;
     font-size: 9pt;
     color: #000000;
     white-space: pre-wrap;
-  }
-  .meeting-agenda-doc__comment-meta {
-    display: block;
-    margin: 0;
-    font-size: 8pt;
-    color: #000000;
   }
 `;
 
