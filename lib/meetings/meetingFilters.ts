@@ -100,7 +100,7 @@ export function sortMeetingEntriesNewestFirst(entries: MeetingAgendaEntry[]): Me
   );
 }
 
-/** Exported agendas: oldest first so comments read as a timeline. */
+/** Meeting summaries and carry-over: oldest first so notes read as a timeline. */
 export function sortMeetingEntriesChronological(entries: MeetingAgendaEntry[]): MeetingAgendaEntry[] {
   return [...entries].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),

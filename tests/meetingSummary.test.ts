@@ -35,6 +35,12 @@ const entries: MeetingAgendaEntry[] = [
     isDecision: true,
     createdAt: "2026-06-23T14:15:00Z",
   },
+  {
+    id: "e2",
+    agendaItemId: "a1",
+    body: "Follow up with design",
+    createdAt: "2026-06-23T14:30:00Z",
+  },
 ];
 
 describe("summaryBuilder", () => {
@@ -82,6 +88,7 @@ describe("summaryBuilder", () => {
     expect(html).toContain("meeting-agenda-doc__comments");
     expect(html).toContain("Ship v2 Friday");
     expect(html).toContain("meeting-agenda-doc__comment-meta");
+    expect(html.indexOf("Follow up with design")).toBeLessThan(html.indexOf("Ship v2 Friday"));
   });
 
   it("includes full notes for carryover topics", () => {

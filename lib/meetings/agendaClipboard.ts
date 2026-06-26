@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
 import { formatAgendaEntryTimestamp } from "@/lib/meetings/agendaEntryLabels";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
-import { sortAgendaItems, sortMeetingEntriesChronological } from "@/lib/meetings/meetingFilters";
+import { sortAgendaItems, sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
 
 function escapeHtml(text: string): string {
   return text
@@ -51,7 +51,7 @@ export function buildMeetingAgendaClipboardHtml(input: MeetingAgendaDocumentInpu
     for (const item of sorted) {
       const meta = topicMetaParts(item, members, currentUserId);
       const itemEntries = includeComments
-        ? sortMeetingEntriesChronological(entries.filter((e) => e.agendaItemId === item.id))
+        ? sortMeetingEntriesNewestFirst(entries.filter((e) => e.agendaItemId === item.id))
         : [];
 
       html += `<li style="margin: 0 0 6px; padding: 0;">`;
@@ -101,7 +101,7 @@ export function buildMeetingAgendaPlainText(input: MeetingAgendaDocumentInput): 
       const meta = topicMetaParts(item, members, currentUserId);
       const suffix = meta.length ? ` — ${meta.join(" · ")}` : "";
       const itemEntries = includeComments
-        ? sortMeetingEntriesChronological(entries.filter((e) => e.agendaItemId === item.id))
+        ? sortMeetingEntriesNewestFirst(entries.filter((e) => e.agendaItemId === item.id))
         : [];
 
       lines.push(`${index + 1}. ${item.title}${suffix}`);

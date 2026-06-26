@@ -9,7 +9,11 @@ import type {
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
 import { getMeetingDurationMinutes } from "@/lib/meetings/meetingLifecycle";
 import { formatAgendaEntryTimestamp } from "@/lib/meetings/agendaEntryLabels";
-import { sortAgendaItems, sortMeetingEntriesChronological } from "@/lib/meetings/meetingFilters";
+import {
+  sortAgendaItems,
+  sortMeetingEntriesChronological,
+  sortMeetingEntriesNewestFirst,
+} from "@/lib/meetings/meetingFilters";
 
 function escapeHtml(text: string): string {
   return text
@@ -278,7 +282,7 @@ export function buildMeetingAgendaHtml(input: {
     for (const item of sorted) {
       const meta = agendaTopicMetaParts(item, members, currentUserId);
       const itemEntries = includeComments
-        ? sortMeetingEntriesChronological(entries.filter((e) => e.agendaItemId === item.id))
+        ? sortMeetingEntriesNewestFirst(entries.filter((e) => e.agendaItemId === item.id))
         : [];
 
       html += `<li class="meeting-agenda-doc__item">`;

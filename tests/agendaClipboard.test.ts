@@ -24,6 +24,12 @@ const entries: MeetingAgendaEntry[] = [
     body: "Need updated forecast",
     createdAt: "2026-06-23T13:00:00Z",
   },
+  {
+    id: "e2",
+    agendaItemId: "a1",
+    body: "Latest blocker",
+    createdAt: "2026-06-23T14:00:00Z",
+  },
 ];
 
 const items: MeetingAgendaItem[] = [
@@ -76,5 +82,7 @@ describe("agendaClipboard", () => {
     });
     expect(html).toContain("Need updated forecast");
     expect(plain).toContain("Need updated forecast");
+    expect(html.indexOf("Latest blocker")).toBeLessThan(html.indexOf("Need updated forecast"));
+    expect(plain.indexOf("Latest blocker")).toBeLessThan(plain.indexOf("Need updated forecast"));
   });
 });
