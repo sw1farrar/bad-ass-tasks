@@ -162,9 +162,12 @@ export function createListSliceActions(get: Get, set: Set) {
     },
 
     getListItemsForList: (listId: string): ListItem[] => {
-      const items = get().listItems.filter(
-        (i) => i.listId === listId && i.workspaceId === wsId(),
-      );
+      const list = get().workspaceLists.find((l) => l.id === listId);
+      const items = get().listItems.filter((i) => {
+        if (i.listId !== listId) return false;
+        if (list?.isShared) return true;
+        return i.workspaceId === wsId();
+      });
       return flattenListItems(items);
     },
 

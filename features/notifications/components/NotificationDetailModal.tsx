@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Check, Clock, Mail, Star, Users, Zap } from "lucide-react";
+import { Check, Clock, ListChecks, Mail, Star, Users, Zap } from "lucide-react";
 import { BottomSheet } from "@/components/BottomSheet";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
@@ -15,6 +15,8 @@ export interface NotificationDetailModalProps {
   onDismiss?: (id: string) => void;
   onViewChange?: (view: AppView) => void;
   onOpenNote?: (noteId: string) => void;
+  onAcceptListShare?: (shareId: string) => void | Promise<void>;
+  onDeclineListShare?: (shareId: string) => void | Promise<void>;
 }
 
 type InviteMetadata = {
@@ -22,6 +24,10 @@ type InviteMetadata = {
   invited_by_name?: string;
   role?: string;
   note_id?: string;
+  list_share_id?: string;
+  list_title?: string;
+  source_workspace_name?: string;
+  shared_by_name?: string;
 };
 
 function NotificationTypeIcon({ type }: { type: Notification["type"] }) {
@@ -41,6 +47,8 @@ function NotificationTypeIcon({ type }: { type: Notification["type"] }) {
       return <Zap className={className} />;
     case "inbound_file":
       return <Mail className={className} />;
+    case "list_share":
+      return <ListChecks className={className} />;
     default:
       return null;
   }
@@ -53,6 +61,8 @@ export function NotificationDetailModal({
   onDismiss,
   onViewChange,
   onOpenNote,
+  onAcceptListShare,
+  onDeclineListShare,
 }: NotificationDetailModalProps) {
   if (!notification) return null;
 
@@ -93,6 +103,10 @@ export function NotificationDetailModal({
   };
 
   const handleDismiss = () => {
+    if (notification.type === "invite" || notification.type === "list_share") {
+      onClose();
+      return;
+    }
     if (onDismiss) {
       onDismiss(notification.id);
     } else if (!notification.readAt) {
@@ -100,6 +114,9 @@ export function NotificationDetailModal({
     }
     onClose();
   };
+
+  const shareId = metadata?.list_share_id;
+  const isPendingListShare = notification.type === "list_share" && !notification.readAt && !!shareId;
 
   return (
     <BottomSheet
@@ -141,6 +158,22 @@ export function NotificationDetailModal({
                 Role: <span className="text-text-primary">{formatRoleLabel(String(metadata.role))}</span>
               </div>
             )}
+            {metadata.list_title && (
+              <div>
+                List: <span className="text-text-primary">{metadata.list_title}</span>
+              </div>
+            )}
+            {metadata.source_workspace_name && (
+              <div>
+                From workspace:{" "}
+                <span className="text-text-primary">{metadata.source_workspace_name}</span>
+              </div>
+            )}
+            {metadata.shared_by_name && (
+              <div>
+                Shared by: <span className="text-text-primary">{metadata.shared_by_name}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -149,21 +182,50 @@ export function NotificationDetailModal({
         </div>
 
         <div className="flex flex-col-reverse sm:flex-row gap-2.5">
-          <button
-            type="button"
-            onClick={handleDismiss}
-            className="flex-1 min-h-[44px] rounded-xl border border-border-glass text-sm font-medium hover:bg-surface-hover transition"
-          >
-            Dismiss
-          </button>
-          {notification.link && (
-            <button
-              type="button"
-              onClick={handleLinkAction}
-              className="btn btn-primary text-sm flex-1 min-h-[44px]"
-            >
-              {notification.type === "invite" ? "View invites" : "Go to link"}
-            </button>
+          {isPendingListShare ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (shareId) onDeclineListShare?.(shareId);
+                  onClose();
+                }}
+                className="flex-1 min-h-[44px] rounded-xl border border-border-glass text-sm font-medium hover:bg-surface-hover transition"
+              >
+                Decline
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (shareId) onAcceptListShare?.(shareId);
+                  onClose();
+                }}
+                className="btn btn-primary text-sm flex-1 min-h-[44px]"
+              >
+                Review share
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleDismiss}
+                className="flex-1 min-h-[44px] rounded-xl border border-border-glass text-sm font-medium hover:bg-surface-hover transition"
+              >
+                {notification.type === "invite" || notification.type === "list_share"
+                  ? "Close"
+                  : "Dismiss"}
+              </button>
+              {notification.link && (
+                <button
+                  type="button"
+                  onClick={handleLinkAction}
+                  className="btn btn-primary text-sm flex-1 min-h-[44px]"
+                >
+                  {notification.type === "invite" ? "View invites" : "Go to link"}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -14,6 +14,10 @@ export function idempotencyMetadataMatch(
     return { invite_id: metadata.invite_id };
   }
 
+  if (type === "list_share" && metadata.list_share_id) {
+    return { list_share_id: metadata.list_share_id };
+  }
+
   if (type === "deadline" && metadata.reminder_key) {
     return { reminder_key: metadata.reminder_key };
   }

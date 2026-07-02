@@ -19,6 +19,7 @@ export type ListDetailOpenOptions = {
   discardIfEmpty?: boolean;
 };
 import { ListCard } from "./components/ListCard";
+import { ListShareModal } from "./components/ListShareModal";
 import "./lists-workspace.css";
 
 type ListsLibraryView = "active" | "archived";
@@ -48,6 +49,7 @@ interface ListsViewProps {
   onUnarchiveList: (id: string) => void;
   highlightListId?: string | null;
   onOpenDetail: (listId: string, options?: ListDetailOpenOptions) => void;
+  canShareList?: boolean;
 }
 
 export function ListsView({
@@ -75,8 +77,10 @@ export function ListsView({
   onUnarchiveList,
   highlightListId = null,
   onOpenDetail,
+  canShareList = false,
 }: ListsViewProps) {
   const [libraryView, setLibraryView] = useState<ListsLibraryView>("active");
+  const [shareTargetList, setShareTargetList] = useState<WorkspaceList | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [newListTitle, setNewListTitle] = useState("");
   const [listsDbReady, setListsDbReady] = useState<boolean | null>(null);
@@ -419,11 +423,19 @@ export function ListsView({
               canNudgeListDown={index < visibleLists.length - 1}
               onOpenDetail={() => onOpenDetail(list.id)}
               isHighlighted={list.id === highlightListId}
+              canShareList={canShareList}
+              onShareList={() => setShareTargetList(list)}
             />
           ))}
         </div>
       )}
 
+      <ListShareModal
+        open={!!shareTargetList}
+        onOpenChange={(open) => !open && setShareTargetList(null)}
+        list={shareTargetList}
+        workspaceName={workspaceName}
+      />
     </div>
   );
 }

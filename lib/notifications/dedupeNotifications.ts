@@ -9,6 +9,11 @@ export function notificationDedupeKey(notification: Notification): string {
     if (inviteId) return `invite:${inviteId}`;
   }
 
+  if (notification.type === "list_share") {
+    const shareId = meta.list_share_id as string | undefined;
+    if (shareId) return `list_share:${shareId}`;
+  }
+
   if (notification.type === "deadline") {
     const reminderKey = meta.reminder_key as string | undefined;
     if (reminderKey) return `deadline:${reminderKey}`;

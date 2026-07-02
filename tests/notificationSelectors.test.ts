@@ -6,6 +6,7 @@ import {
   countWorkspaceBadgeUnread,
   getBellPanelNotifications,
   getPendingInviteNotifications,
+  getPendingListShareNotifications,
   getWorkspacePanelNotifications,
   isBellUnread,
   reconcileBellInbox,
@@ -131,7 +132,34 @@ describe("notificationSelectors", () => {
     expect(syncUnreadCountFromList(inbox.notifications)).toBe(50);
   });
 
-  it("excludes invites from the bell badge count", () => {
+  it("dedupes pending list shares by list_share_id", () => {
+    const shares = getPendingListShareNotifications([
+      {
+        id: "n1",
+        workspaceId: "ws1",
+        userId: "u1",
+        type: "list_share",
+        title: "Shared list",
+        message: "Join",
+        createdAt: "2026-06-10T08:00:00.000Z",
+        metadata: { list_share_id: "share-1" },
+      } as Notification,
+      {
+        id: "n2",
+        workspaceId: "ws1",
+        userId: "u1",
+        type: "list_share",
+        title: "Shared list",
+        message: "Join",
+        createdAt: "2026-06-10T09:00:00.000Z",
+        metadata: { list_share_id: "share-1" },
+      } as Notification,
+    ]);
+
+    expect(shares).toHaveLength(1);
+  });
+
+  it("excludes invites and list shares from the bell badge count", () => {
     expect(
       countBellBadgeUnread([
         {
@@ -143,6 +171,21 @@ describe("notificationSelectors", () => {
           message: "Join",
           createdAt: "2026-06-10T08:00:00.000Z",
           metadata: { invite_id: "inv-1" },
+        } as Notification,
+      ]),
+    ).toBe(0);
+
+    expect(
+      countBellBadgeUnread([
+        {
+          id: "share",
+          workspaceId: "ws1",
+          userId: "u1",
+          type: "list_share",
+          title: "Shared list",
+          message: "Review",
+          createdAt: "2026-06-10T08:00:00.000Z",
+          metadata: { list_share_id: "share-1" },
         } as Notification,
       ]),
     ).toBe(0);

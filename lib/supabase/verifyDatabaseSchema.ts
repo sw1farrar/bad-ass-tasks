@@ -32,6 +32,8 @@ const REQUIRED_TABLES = [
   "auth_login_events",
   "workspace_lists",
   "list_items",
+  "list_share_invites",
+  "workspace_list_shares",
   "notebooks",
   "workspace_receipt_items",
 ] as const;
@@ -66,6 +68,18 @@ const REQUIRED_FUNCTIONS = {
   search_users_for_invite: {
     search_term: "probe",
     exclude_workspace_id: null,
+  },
+  create_list_share_invite: {
+    p_list_id: "00000000-0000-0000-0000-000000000000",
+    p_invited_user_id: "00000000-0000-0000-0000-000000000000",
+    p_recipient_email: null,
+  },
+  accept_list_share_invite: {
+    p_invite_id: "00000000-0000-0000-0000-000000000000",
+    p_target_workspace_id: "00000000-0000-0000-0000-000000000000",
+  },
+  get_shared_lists_for_workspace: {
+    p_target_workspace_id: "00000000-0000-0000-0000-000000000000",
   },
   delete_workspace_for_owner: {
     p_workspace_id: "00000000-0000-0000-0000-000000000000",

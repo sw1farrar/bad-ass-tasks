@@ -42,5 +42,7 @@ export function getBrevoConfig() {
     senderName: process.env.BREVO_SENDER_NAME?.trim() || "Badazz Tasks",
     appBaseUrl: resolveAppBaseUrl(),
     inviteTemplateId: process.env.BREVO_INVITE_TEMPLATE_ID?.trim(),
+    listShareTemplateId: process.env.BREVO_LIST_SHARE_TEMPLATE_ID?.trim(),
+    listShareAcceptedTemplateId: process.env.BREVO_LIST_SHARE_ACCEPTED_TEMPLATE_ID?.trim(),
   };
 }

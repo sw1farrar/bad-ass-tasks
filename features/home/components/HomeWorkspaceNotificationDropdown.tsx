@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Check, Clock, Star, Users, X, Zap } from "lucide-react";
+import { Bell, Check, Clock, ListChecks, Star, Users, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import {
   getWorkspacePanelNotifications,
@@ -33,6 +33,8 @@ function NotificationTypeIcon({ type }: { type: Notification["type"] }) {
       return <Star className={className} aria-hidden />;
     case "invite":
       return <Users className={className} aria-hidden />;
+    case "list_share":
+      return <ListChecks className={className} aria-hidden />;
     case "task_assigned":
       return <Check className={className} aria-hidden />;
     case "deadline":
@@ -124,6 +126,10 @@ export function HomeWorkspaceNotificationDropdown({
       toast.info("Use Accept or Decline on the invitation banner to respond.");
       return;
     }
+    if (notif?.type === "list_share") {
+      toast.info("Use Accept or Decline on the shared list banner to respond.");
+      return;
+    }
     await deleteNotification?.(id);
   };
 
@@ -213,17 +219,19 @@ export function HomeWorkspaceNotificationDropdown({
                     aria-hidden
                   />
                 ) : null}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDismiss(notification.id);
-                  }}
-                  className="shrink-0 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover self-start"
-                  aria-label="Remove notification"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                {notification.type !== "invite" && notification.type !== "list_share" ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDismiss(notification.id);
+                    }}
+                    className="shrink-0 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover self-start"
+                    aria-label="Remove notification"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                ) : null}
               </div>
             ))
           )}

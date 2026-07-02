@@ -25,6 +25,7 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   mention: "Mentions",
   comment: "Comments",
   invite: "Workspace invites",
+  list_share: "Shared lists",
   task_assigned: "Task assignments",
   deadline: "Due date reminders",
   activity: "Workspace activity",

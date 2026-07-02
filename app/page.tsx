@@ -88,6 +88,7 @@ import {
   countWorkspaceBadgeUnread,
   getBellPanelNotifications,
   getPendingInviteNotifications,
+  getPendingListShareNotifications,
   isBellUnread,
 } from "@/lib/notifications/notificationSelectors";
 import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
@@ -217,6 +218,7 @@ export default function BadAssTasks() {
     revokeInvite,
     resendInvite,
     declineReceivedInvite,
+    declineReceivedListShare,
     updateMyProfile, // self name + location profile editing
     searchPotentialTeammates, // new backend search for name/username/city in empty owner invite state
     myProfile,
@@ -326,6 +328,11 @@ export default function BadAssTasks() {
   // (once the notifications INSERT RLS policy allows pre-membership targets).
   const pendingReceivedInvites = useMemo(
     () => getPendingInviteNotifications(notifications || []),
+    [notifications],
+  );
+
+  const pendingReceivedListShares = useMemo(
+    () => getPendingListShareNotifications(notifications || []),
     [notifications],
   );
 
@@ -447,6 +454,10 @@ export default function BadAssTasks() {
     const notif = notifications.find((n) => n.id === id);
     if (notif?.type === "invite") {
       toast.info("Use Accept or Decline on the invitation banner to respond.");
+      return;
+    }
+    if (notif?.type === "list_share") {
+      toast.info("Use Accept or Decline on the shared list banner to respond.");
       return;
     }
     await deleteNotification?.(id);
@@ -1430,9 +1441,25 @@ export default function BadAssTasks() {
     fetchGlobalHomeAggregates();
   };
 
+  const handleHomeAcceptListShare = (shareId: string) => {
+    setShowNotifications(false);
+    setSelectedNotification(null);
+    router.push(`/list-share/${shareId}`);
+  };
+
+  const handleHomeDeclineListShare = async (shareId: string) => {
+    await declineReceivedListShare(shareId);
+    await fetchNotifications?.().catch(() => {});
+    fetchGlobalHomeAggregates();
+  };
+
   const handleHomeOpenNotification = (notification: Notification) => {
     setSelectedNotification(notification);
-    if (!notification.readAt && notification.type !== "invite") {
+    if (
+      !notification.readAt &&
+      notification.type !== "invite" &&
+      notification.type !== "list_share"
+    ) {
       markNotifRead?.(notification.id);
     }
   };
@@ -2136,6 +2163,7 @@ export default function BadAssTasks() {
         onOpenDetail={(listId, options) =>
           openListDetail(listId, currentWorkspace.id, options)
         }
+        canShareList={canManage && isTrulyLive && !["w1", "w2"].includes(currentWorkspace.id)}
       />
       </div>
     );
@@ -3389,6 +3417,7 @@ export default function BadAssTasks() {
                             {n.type === 'mention' && <Zap className="h-3.5 w-3.5" />}
                             {n.type === 'comment' && <Star className="h-3.5 w-3.5" />}
                             {n.type === 'invite' && <Users className="h-3.5 w-3.5" />}
+                            {n.type === 'list_share' && <ListChecks className="h-3.5 w-3.5" />}
                             {n.type === 'task_assigned' && <Check className="h-3.5 w-3.5" />}
                             {n.type === 'deadline' && <Clock className="h-3.5 w-3.5" />}
                             {n.type === 'activity' && <Zap className="h-3.5 w-3.5" />}
@@ -3396,12 +3425,38 @@ export default function BadAssTasks() {
                           <div className="min-w-0 flex-1">
                             <div className="font-medium text-xs truncate">{n.title}</div>
                             <div className="text-[11px] text-text-secondary line-clamp-2">{n.message}</div>
+                            {n.type === "list_share" && !n.readAt && (
+                              <div className="flex gap-1.5 mt-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const shareId = n.metadata?.list_share_id as string | undefined;
+                                    if (shareId) handleHomeAcceptListShare(shareId);
+                                  }}
+                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-neon-purple/20 text-neon-purple hover:bg-neon-purple/30"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const shareId = n.metadata?.list_share_id as string | undefined;
+                                    if (shareId) void handleHomeDeclineListShare(shareId);
+                                  }}
+                                  className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-border-glass text-text-secondary hover:bg-surface-hover"
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                            )}
                             <div className="text-[9px] text-text-muted mt-0.5">{new Date(n.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                           </div>
                           {isBellUnread(n) && (
                             <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />
                           )}
-                          {n.type !== "invite" && (
+                          {n.type !== "invite" && n.type !== "list_share" && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -3649,6 +3704,61 @@ export default function BadAssTasks() {
              - Has direct Accept / Decline actions.
              - Stays visible across pages until action is taken.
           */}
+          {user && pendingReceivedListShares.length > 0 && (
+            <div className="home-global-list-share-banner mb-6 border border-neon-purple/50 bg-neon-purple/10 rounded-2xl p-5 flex flex-col gap-4">
+              <div className="text-sm font-medium text-neon-purple">
+                You have pending shared list{pendingReceivedListShares.length > 1 ? "s" : ""}.
+              </div>
+
+              <div className="space-y-3">
+                {pendingReceivedListShares.slice(0, 2).map((n: Notification) => {
+                  const meta = (n.metadata || {}) as Record<string, string | undefined>;
+                  const sharerName = meta.shared_by_name || "Someone";
+                  const listTitle = meta.list_title || "a list";
+                  const wsName = meta.source_workspace_name || "a workspace";
+                  return (
+                    <div key={n.id} className="text-sm text-text-soft">
+                      <span className="font-medium">{sharerName}</span> shared{" "}
+                      <span className="font-semibold">&quot;{listTitle}&quot;</span> from{" "}
+                      <span className="font-semibold">&quot;{wsName}&quot;</span>.
+                    </div>
+                  );
+                })}
+                {pendingReceivedListShares.length > 2 && (
+                  <div className="text-xs text-text-secondary">
+                    +{pendingReceivedListShares.length - 2} more
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => {
+                    const first = pendingReceivedListShares[0];
+                    const shareId = first?.metadata?.list_share_id as string | undefined;
+                    if (shareId) handleHomeAcceptListShare(shareId);
+                  }}
+                  className="btn btn-primary text-sm px-5 py-2"
+                >
+                  Accept
+                </button>
+
+                <button
+                  onClick={async () => {
+                    const first = pendingReceivedListShares[0];
+                    const shareId = first?.metadata?.list_share_id as string | undefined;
+                    if (shareId) {
+                      await handleHomeDeclineListShare(shareId);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm rounded-xl border border-border-glass hover:bg-surface-hover text-text-secondary"
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          )}
+
           {user && pendingReceivedInvites.length > 0 && (
             <div className="home-global-invite-banner mb-6 border border-neon-purple/50 bg-neon-purple/10 rounded-2xl p-5 flex flex-col gap-4">
               <div className="text-sm font-medium text-neon-purple">
@@ -4030,6 +4140,8 @@ export default function BadAssTasks() {
         onDismiss={handleDismissNotification}
         onViewChange={setView}
         onOpenNote={setSelectedNoteId}
+        onAcceptListShare={handleHomeAcceptListShare}
+        onDeclineListShare={handleHomeDeclineListShare}
       />
 
       <ConfirmationModal

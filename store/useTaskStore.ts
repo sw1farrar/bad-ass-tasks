@@ -91,7 +91,12 @@ import { fromDbRole, formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
 import {
   getTasks,
   getWorkspaceLists,
+  getWorkspaceListsBundle,
   getListItems,
+  createListShareInvite,
+  revokeListShareInvite,
+  declineListShareInvite,
+  sendListShareEmail,
   ensureWorkspaceListPersistenceReady,
   areWorkspaceListTablesReady,
   backfillWorkspaceListsIfNeeded,
@@ -613,6 +618,12 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   updateMyProfile: (updates: { fullName?: string; username?: string; location?: string }) => Promise<boolean>;
   // Teammate search for invite (name/username/location/city/email) - empty owner state only, RPC-backed
   searchPotentialTeammates: (query: string, currentWorkspaceId?: string) => Promise<Array<{ id: string; fullName?: string; username?: string; location?: string; email?: string; avatarUrl?: string }>>;
+  shareList: (
+    listId: string,
+    recipient: { userId: string; email?: string; fullName?: string; username?: string },
+  ) => Promise<string | null>;
+  revokeListShare: (shareId: string) => Promise<boolean>;
+  declineReceivedListShare: (shareId: string) => Promise<boolean>;
   revokeInvite: (inviteId: string) => Promise<boolean>; // new for invite flow
   resendInvite: (inviteId: string) => Promise<boolean>; // resend UX: create fresh invite (same email/role, new expiry) then revoke old. Small increment.
   declineReceivedInvite: (inviteId: string) => Promise<boolean>; // recipient declines → fully removes the invite for everyone
@@ -1446,6 +1457,11 @@ export const useTaskStore = create<TaskState>()(
             (c) => c.workspaceId === workspaceId,
           );
 
+          const listsBundlePromise = getWorkspaceListsBundle(workspaceId).catch(() => ({
+            lists: [] as WorkspaceList[],
+            items: [] as ListItem[],
+          }));
+
           // Load in parallel for speed (include activity logs for Phase 1 basic logging UI)
           const [
             realTasks,
@@ -1461,8 +1477,8 @@ export const useTaskStore = create<TaskState>()(
             getTasks(workspaceId),
             getNotes(workspaceId),
             getRecentActivity(workspaceId),
-            getWorkspaceLists(workspaceId),
-            getListItems(workspaceId),
+            listsBundlePromise.then((b) => b.lists),
+            listsBundlePromise.then((b) => b.items),
             getTaskFolders(workspaceId),
             getNotebooks(workspaceId),
             getMeetings(workspaceId),
@@ -2417,10 +2433,12 @@ export const useTaskStore = create<TaskState>()(
         if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return;
 
         try {
-          const [lists, items] = await Promise.all([
-            getWorkspaceLists(workspaceId).catch(() => [] as WorkspaceList[]),
-            getListItems(workspaceId).catch(() => [] as ListItem[]),
-          ]);
+          const bundle = await getWorkspaceListsBundle(workspaceId).catch(() => ({
+            lists: [] as WorkspaceList[],
+            items: [] as ListItem[],
+          }));
+          const lists = bundle.lists;
+          const items = bundle.items;
           set((state) => ({
             workspaceLists: mergeWorkspaceLists(state.workspaceLists, lists),
             listItems: mergeListItems(state.listItems, items),
@@ -3445,6 +3463,130 @@ export const useTaskStore = create<TaskState>()(
           toast.error("Failed to create invite");
         }
         return inviteId;
+      },
+
+      shareList: async (listId, recipient) => {
+        const wsId = get().currentWorkspace.id;
+        const currentRole = get().currentWorkspace.role;
+        const currentUserId = get().user?.id;
+        const supabaseClient = getSupabaseClient();
+
+        if (!isSupabaseLive() || !wsId || ["w1", "w2"].includes(wsId) || !supabaseClient) {
+          toast.info("List sharing is a live Supabase feature (demo is single-user)");
+          return null;
+        }
+        if (!["owner", "admin"].includes(currentRole)) {
+          toast.error("Only owners and admins can share lists");
+          return null;
+        }
+
+        const list = get().workspaceLists.find((l) => l.id === listId && l.workspaceId === wsId);
+        if (!list || list.isShared) {
+          toast.error("This list cannot be shared");
+          return null;
+        }
+
+        const shareId = await createListShareInvite(listId, recipient.userId, recipient.email ?? null);
+        if (!shareId) {
+          toast.error("Failed to share list");
+          return null;
+        }
+
+        let sharerDisplayName = get().user?.email || "Someone";
+        if (currentUserId) {
+          try {
+            const { data: prof } = await supabaseClient
+              .from("profiles")
+              .select("username, full_name")
+              .eq("id", currentUserId)
+              .single();
+            if (prof) {
+              const username = (prof as { username?: string }).username || "";
+              const fullName = (prof as { full_name?: string }).full_name || "";
+              if (username) sharerDisplayName = `@${username}`;
+              else if (fullName) sharerDisplayName = fullName;
+            }
+          } catch {
+            // fall back
+          }
+        }
+
+        const wsName = get().currentWorkspace.name;
+        const listTitle = list.title.trim() || "Untitled list";
+
+        deliverNotification({
+          supabase: supabaseClient,
+          workspaceId: wsId,
+          recipientUserId: recipient.userId,
+          type: "list_share",
+          title: "Shared list",
+          message: `${sharerDisplayName} shared "${listTitle}" from "${wsName}"`,
+          link: `/list-share/${shareId}`,
+          workspaceName: wsName,
+          actorUserId: currentUserId,
+          deliverEmail: false,
+          metadata: {
+            list_share_id: shareId,
+            list_id: listId,
+            list_title: listTitle,
+            shared_by: currentUserId,
+            shared_by_name: sharerDisplayName,
+            source_workspace_id: wsId,
+            source_workspace_name: wsName,
+          },
+        })
+          .then(() => get().fetchNotifications?.().catch(() => {}))
+          .catch(() => {});
+
+        if (recipient.email) {
+          const shouldSend = await recipientAllowsNotificationChannel({
+            supabase: supabaseClient,
+            recipientUserId: recipient.userId,
+            workspaceId: wsId,
+            type: "list_share",
+            channel: "email",
+          });
+
+          if (shouldSend) {
+            sendListShareEmail(wsId, shareId, recipient.email, listTitle, wsName, {
+              sharerName: sharerDisplayName,
+            }).then((sent) => {
+              if (sent) {
+                toast.success("Share email sent");
+              } else {
+                toast.message("Share created", {
+                  description: "Email could not be sent — share the link manually.",
+                });
+              }
+            });
+          } else {
+            toast.success("List shared", { description: "In-app notification sent." });
+          }
+        } else {
+          toast.success("List shared", { description: "Share the link with your teammate." });
+        }
+
+        return shareId;
+      },
+
+      revokeListShare: async (shareId) => {
+        if (!isSupabaseLive()) return false;
+        const ok = await revokeListShareInvite(shareId);
+        if (ok) toast.success("Share revoked");
+        else toast.error("Could not revoke share");
+        return ok;
+      },
+
+      declineReceivedListShare: async (shareId) => {
+        if (!isSupabaseLive()) return false;
+        const ok = await declineListShareInvite(shareId);
+        if (ok) {
+          toast.success("Share declined");
+          await get().fetchNotifications?.().catch(() => {});
+        } else {
+          toast.error("Could not decline share");
+        }
+        return ok;
       },
 
       acceptInviteLink: async (inviteId) => {

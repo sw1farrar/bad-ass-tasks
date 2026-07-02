@@ -227,6 +227,13 @@ export interface WorkspaceList {
   sortOrder: number;
   pinned?: boolean;
   archived?: boolean;
+  /** Live-linked list shared from another workspace into the current one. */
+  isShared?: boolean;
+  sourceWorkspaceId?: string;
+  sourceWorkspaceName?: string;
+  sharedByName?: string;
+  shareId?: string;
+  sharePermission?: "view" | "edit" | "manage";
   createdAt: string;
   updatedAt: string;
 }
@@ -426,10 +433,23 @@ export type PendingOperationPayload = Record<string, unknown>;
 // Agent 31: Notification System Types
 // ------------------------------------------------------------------
 
+export interface ListShareInvite {
+  id: string;
+  listId: string;
+  sourceWorkspaceId: string;
+  invitedUserId: string;
+  recipientEmail?: string;
+  invitedFullName?: string;
+  invitedUsername?: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
 export type NotificationType =
   | 'mention'
   | 'comment'
   | 'invite'
+  | 'list_share'
   | 'task_assigned'
   | 'deadline'
   | 'activity'

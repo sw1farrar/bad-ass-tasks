@@ -25,6 +25,7 @@ import {
 import type { ListColorId } from "@/store/listSlice";
 import { useTaskStore } from "@/store/useTaskStore";
 import { ListCardBody } from "./ListCard";
+import { SharedListBadge } from "./SharedListBadge";
 
 interface ListDetailModalProps {
   list: WorkspaceList | null;
@@ -361,9 +362,16 @@ export function ListDetailModal({
                 )}
 
                 <div className="min-w-0 flex-1 flex flex-col items-start">
-                  {list.pinned && (
+                  {list.isShared ? (
+                    <SharedListBadge
+                      sourceWorkspaceName={list.sourceWorkspaceName}
+                      sharedByName={list.sharedByName}
+                      className="mb-1"
+                    />
+                  ) : null}
+                  {list.pinned && !list.isShared ? (
                     <div className="list-header-badge list-card-pinned-badge mb-1">Pinned</div>
-                  )}
+                  ) : null}
                   <div className="list-card-title-row list-detail-title-row inline-flex max-w-full items-baseline gap-2">
                     {titleEditMode ? (
                       <div className="list-header-title-field list-detail-title-field min-w-0 max-w-full w-fit">

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronUp,
   MoreHorizontal,
+  Share2,
   PenLine,
   Pin,
   PinOff,
@@ -49,6 +50,7 @@ import type { ListItemMoveTarget } from "./ListItemMoveMenu";
 import { ListItemRow } from "./ListItemRow";
 import { ListShowCompletedToggle } from "./ListShowCompletedToggle";
 import { ListShowPendingToggle } from "./ListShowPendingToggle";
+import { SharedListBadge } from "./SharedListBadge";
 
 type ListCardVariant = "preview" | "detail";
 
@@ -90,6 +92,8 @@ interface ListCardBodyProps {
   sheetListDragHandlers?: {
     onPointerDown: (e: React.PointerEvent) => void;
   };
+  canShareList?: boolean;
+  onShareList?: () => void;
 }
 
 export function ListCardBody({
@@ -123,6 +127,8 @@ export function ListCardBody({
   focusAddItemOnOpen = false,
   listScrollRef,
   sheetListDragHandlers,
+  canShareList = false,
+  onShareList,
 }: ListCardBodyProps) {
   const theme = useTaskStore((s) => s.theme);
   const listColors = getListColorsForTheme(theme);
@@ -781,9 +787,15 @@ export function ListCardBody({
 
   const titlePanel = (
     <>
-      {list.pinned && (
+      {list.isShared ? (
+        <SharedListBadge
+          sourceWorkspaceName={list.sourceWorkspaceName}
+          sharedByName={list.sharedByName}
+        />
+      ) : null}
+      {list.pinned && !list.isShared ? (
         <div className="list-header-badge list-card-pinned-badge mb-1">Pinned</div>
-      )}
+      ) : null}
       <span className="list-card-title-row flex min-w-0 w-full items-start gap-2">
         {titleEditMode ? (
           <span
@@ -912,6 +924,7 @@ export function ListCardBody({
                     </div>
                   ) : null}
                   <div className="list-item-actions-menu-section">
+                    {!list.isShared ? (
                     <button
                       type="button"
                       role="menuitem"
@@ -926,7 +939,24 @@ export function ListCardBody({
                         <span>Edit name</span>
                       </span>
                     </button>
-                    {!list.archived ? (
+                    ) : null}
+                    {canShareList && onShareList && !list.isShared && !list.archived ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="list-item-actions-menu-row"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onShareList();
+                        }}
+                      >
+                        <span className="list-item-actions-menu-row-leading">
+                          <Share2 className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                          <span>Share list</span>
+                        </span>
+                      </button>
+                    ) : null}
+                    {!list.archived && !list.isShared ? (
                       <button
                         type="button"
                         role="menuitem"
@@ -1024,6 +1054,7 @@ export function ListCardBody({
                       </button>
                     </div>
                   ) : null}
+                  {!list.isShared ? (
                   <div className="list-item-actions-menu-section list-item-actions-menu-section--footer">
                     <button
                       type="button"
@@ -1040,6 +1071,7 @@ export function ListCardBody({
                       </span>
                     </button>
                   </div>
+                  ) : null}
                 </div>,
                 document.body,
               )}
@@ -1116,6 +1148,8 @@ interface ListCardProps {
   canNudgeListUp?: boolean;
   canNudgeListDown?: boolean;
   isHighlighted?: boolean;
+  canShareList?: boolean;
+  onShareList?: () => void;
 }
 
 export function ListCard({
@@ -1145,6 +1179,8 @@ export function ListCard({
   canNudgeListUp = false,
   canNudgeListDown = false,
   isHighlighted = false,
+  canShareList = false,
+  onShareList,
 }: ListCardProps) {
   const theme = useTaskStore((s) => s.theme);
   const presentation = getListColorPresentation(list.color, theme, { opaque: true });
@@ -1187,6 +1223,8 @@ export function ListCard({
         canNudgeListUp={canNudgeListUp}
         canNudgeListDown={canNudgeListDown}
         onOpenDetail={onOpenDetail}
+        canShareList={canShareList}
+        onShareList={onShareList}
       />
     </article>
   );

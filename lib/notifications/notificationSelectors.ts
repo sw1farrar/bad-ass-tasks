@@ -4,6 +4,13 @@ import {
 } from "@/lib/notifications/dedupeNotifications";
 import type { Notification } from "@/types";
 
+/** Action-required types use the persistent banner, not the bell badge. */
+const BELL_BADGE_EXCLUDED_TYPES = new Set<Notification["type"]>(["invite", "list_share"]);
+
+function countsForBellBadge(notification: Notification): boolean {
+  return !notification.readAt && !BELL_BADGE_EXCLUDED_TYPES.has(notification.type);
+}
+
 export function getDedupedNotifications(notifications: Notification[]): Notification[] {
   return dedupeNotifications(notifications);
 }
@@ -12,11 +19,9 @@ export function countUnreadDeduped(notifications: Notification[]): number {
   return getDedupedNotifications(notifications).filter((n) => !n.readAt).length;
 }
 
-/** Bell badge: unread excluding invites (invites use the persistent banner). */
+/** Bell badge: unread excluding invites and list shares (those use persistent banners). */
 export function countBellBadgeUnread(notifications: Notification[]): number {
-  return getDedupedNotifications(notifications).filter(
-    (n) => !n.readAt && n.type !== "invite",
-  ).length;
+  return getDedupedNotifications(notifications).filter(countsForBellBadge).length;
 }
 
 /** Workspace tile badge: unread in one workspace, excluding invites. */
@@ -25,7 +30,7 @@ export function countWorkspaceBadgeUnread(
   workspaceId: string,
 ): number {
   return getDedupedNotifications(notifications).filter(
-    (n) => n.workspaceId === workspaceId && !n.readAt && n.type !== "invite",
+    (n) => n.workspaceId === workspaceId && countsForBellBadge(n),
   ).length;
 }
 
@@ -36,7 +41,7 @@ export function getWorkspacePanelNotifications(
   maxVisible = 20,
 ): Notification[] {
   const deduped = getDedupedNotifications(notifications).filter(
-    (n) => n.workspaceId === workspaceId && n.type !== "invite",
+    (n) => n.workspaceId === workspaceId && !BELL_BADGE_EXCLUDED_TYPES.has(n.type),
   );
   const unread = deduped.filter((n) => !n.readAt);
   const read = deduped.filter((n) => !!n.readAt);
@@ -98,8 +103,7 @@ export function reconcileBellInbox(
     const presentKeys = new Set(notifications.map(notificationDedupeKey));
     const missingUnread = dedupedUnread.filter(
       (n) =>
-        !n.readAt &&
-        n.type !== "invite" &&
+        countsForBellBadge(n) &&
         !presentKeys.has(notificationDedupeKey(n)),
     );
     if (missingUnread.length > 0) {
@@ -126,24 +130,29 @@ export function syncInboxFromFetches(
   return reconcileBellInbox(recentRows, unreadRows, maxItems);
 }
 
-/** Panel list: badge-eligible unread first, then invites + read, capped for display. */
+/** Panel list: badge-eligible unread first, then banner types + read, capped for display. */
 export function getBellPanelNotifications(
   notifications: Notification[],
   maxVisible = 20,
 ): Notification[] {
   const deduped = getDedupedNotifications(notifications);
-  const unreadNonInvite = deduped.filter((n) => !n.readAt && n.type !== "invite");
-  const rest = deduped.filter((n) => n.readAt || n.type === "invite");
+  const unreadBadgeEligible = deduped.filter(countsForBellBadge);
+  const rest = deduped.filter(
+    (n) => n.readAt || BELL_BADGE_EXCLUDED_TYPES.has(n.type),
+  );
 
-  if (unreadNonInvite.length >= maxVisible) {
-    return unreadNonInvite.slice(0, maxVisible);
+  if (unreadBadgeEligible.length >= maxVisible) {
+    return unreadBadgeEligible.slice(0, maxVisible);
   }
 
-  return [...unreadNonInvite, ...rest.slice(0, maxVisible - unreadNonInvite.length)];
+  return [
+    ...unreadBadgeEligible,
+    ...rest.slice(0, maxVisible - unreadBadgeEligible.length),
+  ];
 }
 
 export function isBellUnread(notification: Notification): boolean {
-  return !notification.readAt && notification.type !== "invite";
+  return countsForBellBadge(notification);
 }
 
 export function computeBellUnreadOverflow(
@@ -156,6 +165,12 @@ export function computeBellUnreadOverflow(
 export function getPendingInviteNotifications(notifications: Notification[]): Notification[] {
   return getDedupedNotifications(notifications).filter(
     (n) => n.type === "invite" && !n.readAt,
+  );
+}
+
+export function getPendingListShareNotifications(notifications: Notification[]): Notification[] {
+  return getDedupedNotifications(notifications).filter(
+    (n) => n.type === "list_share" && !n.readAt,
   );
 }
 
@@ -180,7 +195,7 @@ export function adjustBellBadgeCount(current: number, delta: number): number {
 }
 
 function badgeDeltaOnMarkRead(notification: Notification): number {
-  if (notification.readAt || notification.type === "invite") return 0;
+  if (notification.readAt || BELL_BADGE_EXCLUDED_TYPES.has(notification.type)) return 0;
   return -1;
 }
 
@@ -192,7 +207,7 @@ export function computeInsertBadgeDelta(
   current: Notification[],
   inserted: Notification,
 ): number {
-  if (inserted.readAt || inserted.type === "invite") return 0;
+  if (inserted.readAt || BELL_BADGE_EXCLUDED_TYPES.has(inserted.type)) return 0;
   if (current.some((n) => n.id === inserted.id)) return 0;
   const key = notificationDedupeKey(inserted);
   const existing = dedupeNotifications(current).find((n) => notificationDedupeKey(n) === key);
@@ -206,22 +221,22 @@ export function computeUpdateBadgeDelta(
   after: Notification,
 ): number {
   if (!before) return 0;
-  const wasCounted = !before.readAt && before.type !== "invite";
-  const isCounted = !after.readAt && after.type !== "invite";
+  const wasCounted = countsForBellBadge(before);
+  const isCounted = countsForBellBadge(after);
   if (wasCounted && !isCounted) return -1;
   if (!wasCounted && isCounted) return 1;
   return 0;
 }
 
 export function computeDeleteBadgeDelta(deleted: Notification | undefined): number {
-  if (!deleted || deleted.readAt || deleted.type === "invite") return 0;
+  if (!deleted || deleted.readAt || BELL_BADGE_EXCLUDED_TYPES.has(deleted.type)) return 0;
   return -1;
 }
 
 /** All non-invite unread ids for mark-all-read (includes rows beyond inbox cap). */
 export function getMarkAllReadIds(unreadRows: Notification[]): string[] {
   return dedupeNotifications(unreadRows)
-    .filter((n) => !n.readAt && n.type !== "invite")
+    .filter(countsForBellBadge)
     .map((n) => n.id);
 }
 

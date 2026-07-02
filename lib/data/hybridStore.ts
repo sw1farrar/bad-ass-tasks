@@ -4412,6 +4412,244 @@ export async function sendInviteEmail(
   }
 }
 
+/** Create list share invite via secure RPC. Returns share invite id. */
+export async function createListShareInvite(
+  listId: string,
+  invitedUserId: string,
+  recipientEmail?: string | null,
+): Promise<string | null> {
+  if (!isSupabaseLive()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("create_list_share_invite", {
+      p_list_id: listId,
+      p_invited_user_id: invitedUserId,
+      p_recipient_email: recipientEmail ?? null,
+    });
+
+    if (error) {
+      logHybridError("createListShareInvite", error);
+      return null;
+    }
+    return data as string;
+  } catch (err) {
+    logHybridError("createListShareInvite", err);
+    return null;
+  }
+}
+
+export async function revokeListShareInvite(shareId: string): Promise<boolean> {
+  if (!isSupabaseLive()) return false;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("revoke_list_share_invite", {
+      p_invite_id: shareId,
+    });
+    if (error) {
+      logHybridError("revokeListShareInvite", error);
+      return false;
+    }
+    return !!data;
+  } catch (err) {
+    logHybridError("revokeListShareInvite", err);
+    return false;
+  }
+}
+
+export async function declineListShareInvite(shareId: string): Promise<boolean> {
+  if (!isSupabaseLive()) return false;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("decline_list_share_invite", {
+      p_invite_id: shareId,
+    });
+    if (error) {
+      logHybridError("declineListShareInvite", error);
+      return false;
+    }
+    return !!data;
+  } catch (err) {
+    logHybridError("declineListShareInvite", err);
+    return false;
+  }
+}
+
+export async function getListShareInvitesForList(
+  listId: string,
+): Promise<import("@/types").ListShareInvite[]> {
+  if (!isSupabaseLive()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("list_share_invites")
+      .select("*")
+      .eq("list_id", listId)
+      .is("revoked_at", null)
+      .is("declined_at", null)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      logHybridError("getListShareInvitesForList", error);
+      return [];
+    }
+
+    const invites = data ?? [];
+    const userIds = [...new Set(invites.map((r: any) => r.invited_user_id).filter(Boolean))] as string[];
+
+    const profileMap: Record<string, { full_name?: string; username?: string }> = {};
+    if (userIds.length > 0) {
+      const { data: profs } = await supabase
+        .from("profiles")
+        .select("id, full_name, username")
+        .in("id", userIds);
+      (profs ?? []).forEach((p: any) => {
+        profileMap[p.id] = p;
+      });
+    }
+
+    return invites.map((row: any) => {
+      const prof = profileMap[row.invited_user_id];
+      return {
+        id: row.id,
+        listId: row.list_id,
+        sourceWorkspaceId: row.source_workspace_id,
+        invitedUserId: row.invited_user_id,
+        recipientEmail: row.recipient_email ?? undefined,
+        invitedFullName: prof?.full_name ?? undefined,
+        invitedUsername: prof?.username ?? undefined,
+        expiresAt: row.expires_at ?? undefined,
+        createdAt: row.created_at,
+      };
+    });
+  } catch (err) {
+    logHybridError("getListShareInvitesForList", err);
+    return [];
+  }
+}
+
+export async function getSharedListsForWorkspace(
+  targetWorkspaceId: string,
+): Promise<WorkspaceList[]> {
+  if (!isLiveDataWorkspace(targetWorkspaceId) || !isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("get_shared_lists_for_workspace", {
+      p_target_workspace_id: targetWorkspaceId,
+    });
+
+    if (error) {
+      if (isSchemaTableMissing(error)) return [];
+      logHybridError("getSharedListsForWorkspace", error);
+      return [];
+    }
+
+    return (data ?? []).map((row: any) => ({
+      id: row.list_id,
+      workspaceId: targetWorkspaceId,
+      title: row.title,
+      color: row.color,
+      sortOrder: row.sort_order ?? 0,
+      pinned: row.pinned ?? false,
+      archived: row.archived ?? false,
+      isShared: true,
+      sourceWorkspaceId: row.source_workspace_id,
+      sourceWorkspaceName: row.source_workspace_name,
+      sharedByName: row.sharer_name,
+      shareId: row.share_id,
+      sharePermission: row.permission,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (err) {
+    logHybridError("getSharedListsForWorkspace", err);
+    return [];
+  }
+}
+
+export async function getListItemsForSharedLists(
+  targetWorkspaceId: string,
+  sharedListIds: string[],
+): Promise<ListItem[]> {
+  if (!isLiveDataWorkspace(targetWorkspaceId) || !isCurrentlyOnline() || sharedListIds.length === 0) {
+    return [];
+  }
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("list_items")
+      .select("*")
+      .in("list_id", sharedListIds)
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      logHybridError("getListItemsForSharedLists", error);
+      return [];
+    }
+
+    return (data ?? []).map(mapListItemRow);
+  } catch (err) {
+    logHybridError("getListItemsForSharedLists", err);
+    return [];
+  }
+}
+
+export async function sendListShareEmail(
+  sourceWorkspaceId: string,
+  shareId: string,
+  email: string,
+  listTitle: string,
+  sourceWorkspaceName: string,
+  options?: { sharerName?: string },
+): Promise<boolean> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(sourceWorkspaceId)) return false;
+  if (!email?.trim() || typeof window === "undefined") return false;
+
+  try {
+    const response = await apiFetch("/api/communications/list-share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        sourceWorkspaceId,
+        shareId,
+        email: email.trim(),
+        listTitle,
+        sourceWorkspaceName,
+        sharerName: options?.sharerName,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      console.warn("[sendListShareEmail] API route failed", response.status, detail);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn("[sendListShareEmail] request failed", err);
+    return false;
+  }
+}
+
 /** Update workspace name and/or slug (owner only — enforced server-side via API). */
 export async function updateWorkspace(
   workspaceId: string,
@@ -5538,6 +5776,35 @@ export function mapListItemRow(row: ListItemRow): ListItem {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+export async function getWorkspaceListsBundle(
+  workspaceId: string,
+): Promise<{ lists: WorkspaceList[]; items: ListItem[] }> {
+  const [ownedLists, ownedItems] = await Promise.all([
+    getWorkspaceLists(workspaceId),
+    getListItems(workspaceId),
+  ]);
+
+  const sharedLists = await getSharedListsForWorkspace(workspaceId);
+  const sharedItems = await getListItemsForSharedLists(
+    workspaceId,
+    sharedLists.map((l) => l.id),
+  );
+
+  const ownedIds = new Set(ownedLists.map((l) => l.id));
+  const mergedLists = [
+    ...ownedLists,
+    ...sharedLists.filter((s) => !ownedIds.has(s.id)),
+  ];
+
+  const existingItemIds = new Set(ownedItems.map((i) => i.id));
+  const mergedItems = [
+    ...ownedItems,
+    ...sharedItems.filter((i) => !existingItemIds.has(i.id)),
+  ];
+
+  return { lists: mergedLists, items: mergedItems };
 }
 
 export async function getWorkspaceLists(workspaceId: string): Promise<WorkspaceList[]> {

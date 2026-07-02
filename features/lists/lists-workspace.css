@@ -1651,6 +1651,18 @@
   transform: scale(1.15);
 }
 
+.list-card-shared-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--neon-purple, #a78bfa);
+  opacity: 0.95;
+}
+
 .list-card-menu-anchor {
   position: relative;
 }

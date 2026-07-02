@@ -49,12 +49,14 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup") ||
     pathname.startsWith("/auth") ||
-    pathname.startsWith("/invite");
+    pathname.startsWith("/invite") ||
+    pathname.startsWith("/list-share");
 
   const isPublicApi =
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/invite/") ||
+    pathname.startsWith("/api/list-share/") ||
     pathname === "/api/profile/check-username";
 
   /** PWA + static assets must stay reachable before sign-in (manifest, SW, icons). */
@@ -72,7 +74,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/auth/reset-password") ||
     pathname.startsWith("/api/auth/change-password") ||
     pathname.startsWith("/api/webhooks/brevo-inbound") ||
-    pathname.startsWith("/api/invite/");
+    pathname.startsWith("/api/invite/") ||
+    pathname.startsWith("/api/list-share/");
 
   // Block paused users (platform admin can pause accounts)
   if (user && !isAuthPage) {
