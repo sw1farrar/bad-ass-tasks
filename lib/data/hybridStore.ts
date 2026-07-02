@@ -4462,6 +4462,91 @@ export async function revokeListShareInvite(shareId: string): Promise<boolean> {
   }
 }
 
+/** Link a list directly into another workspace the caller belongs to. Returns share grant id. */
+export async function shareListToWorkspace(
+  listId: string,
+  targetWorkspaceId: string,
+): Promise<string | null> {
+  if (!isSupabaseLive()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("share_list_to_workspace", {
+      p_list_id: listId,
+      p_target_workspace_id: targetWorkspaceId,
+    });
+
+    if (error) {
+      logHybridError("shareListToWorkspace", error);
+      return null;
+    }
+    return data as string;
+  } catch (err) {
+    logHybridError("shareListToWorkspace", err);
+    return null;
+  }
+}
+
+/** Revoke an active list share grant into a target workspace. */
+export async function revokeListShareGrant(
+  listId: string,
+  targetWorkspaceId: string,
+): Promise<boolean> {
+  if (!isSupabaseLive()) return false;
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("revoke_list_share", {
+      p_list_id: listId,
+      p_target_workspace_id: targetWorkspaceId,
+    });
+    if (error) {
+      logHybridError("revokeListShareGrant", error);
+      return false;
+    }
+    return !!data;
+  } catch (err) {
+    logHybridError("revokeListShareGrant", err);
+    return false;
+  }
+}
+
+export async function getListShareTargets(
+  listId: string,
+): Promise<import("@/types").ListShareTarget[]> {
+  if (!isSupabaseLive()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.rpc as any)("get_list_share_targets", {
+      p_list_id: listId,
+    });
+
+    if (error) {
+      if (isSchemaTableMissing(error)) return [];
+      logHybridError("getListShareTargets", error);
+      return [];
+    }
+
+    return (data ?? []).map((row: any) => ({
+      shareId: row.share_id,
+      targetWorkspaceId: row.target_workspace_id,
+      targetWorkspaceName: row.target_workspace_name,
+      permission: row.permission,
+      createdAt: row.created_at,
+    }));
+  } catch (err) {
+    logHybridError("getListShareTargets", err);
+    return [];
+  }
+}
+
 export async function declineListShareInvite(shareId: string): Promise<boolean> {
   if (!isSupabaseLive()) return false;
 
@@ -4756,6 +4841,8 @@ let activeProfileChannel: any = null;
 let activeCommentChannel: any = null;
 let activeListChannel: any = null;
 let activeListItemChannel: any = null;
+let activeSharedListChannel: any = null;
+let activeListShareChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
 
 // Track the workspace we are currently actively subscribed for (prevents double-subscribe on rapid switchWorkspace + initializeFromSupabase)
@@ -4773,7 +4860,12 @@ export function subscribeToWorkspaceRealtime(
     onCommentChange?: (payload: any) => void;
     onListChange?: (payload: any) => void;
     onListItemChange?: (payload: any) => void;
-  }
+    onListShareChange?: (payload: any) => void;
+  },
+  options?: {
+    /** Live-linked list ids visible in this workspace (from other workspaces). */
+    sharedListIds?: string[];
+  },
 ): () => void {
   // === ENTRY COERCION + PURGE (String() + bad-UUID discipline for realtime workspace path) ===
   // All downstream uses (channel names, filters, guard compares, logs) use the sanitized wsId.
@@ -4797,7 +4889,7 @@ export function subscribeToWorkspaceRealtime(
   //  - Comparison + channel presence check after String coercion
   if (currentRealtimeWorkspaceId === wsId &&
       (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-        activeCommentChannel || activeListChannel || activeListItemChannel)) {
+        activeCommentChannel || activeListChannel || activeListItemChannel || activeSharedListChannel || activeListShareChannel)) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
       `(currentRealtimeWorkspaceId=${currentRealtimeWorkspaceId}). Skipping to avoid postgres_changes-after-subscribe crash on rapid switch.`
@@ -4809,7 +4901,7 @@ export function subscribeToWorkspaceRealtime(
   // Defensive: clear any stale channels from previous workspace BEFORE setting new guard value.
   // We clear currentRealtimeWorkspaceId here so that a subsequent subscribe for a *different* ws always proceeds.
   if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel) {
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeSharedListChannel || activeListShareChannel) {
     if (activeTaskChannel) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
       activeTaskChannel = null;
@@ -4842,6 +4934,14 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeListItemChannel).catch(() => {});
       activeListItemChannel = null;
     }
+    if (activeSharedListChannel) {
+      supabase.removeChannel(activeSharedListChannel).catch(() => {});
+      activeSharedListChannel = null;
+    }
+    if (activeListShareChannel) {
+      supabase.removeChannel(activeListShareChannel).catch(() => {});
+      activeListShareChannel = null;
+    }
     currentRealtimeWorkspaceId = null; // explicit clear in teardown path
   }
 
@@ -4858,7 +4958,12 @@ export function subscribeToWorkspaceRealtime(
     onCommentChange,
     onListChange,
     onListItemChange,
+    onListShareChange,
   } = handlers;
+
+  const sharedListIds = (options?.sharedListIds ?? [])
+    .map((id) => sanitizeId(id, "list"))
+    .filter((id): id is string => !!id);
 
   if (onTaskChange) {
     activeTaskChannel = supabase
@@ -5036,6 +5141,70 @@ export function subscribeToWorkspaceRealtime(
       });
   }
 
+  // Live-linked lists: items/metadata live under the source workspace_id, so subscribe by list_id.
+  if (sharedListIds.length > 0 && (onListChange || onListItemChange)) {
+    let sharedChannel = supabase.channel(`ws-shared-lists-${wsId}`);
+    for (const listId of sharedListIds) {
+      if (onListChange) {
+        sharedChannel = sharedChannel.on(
+          "postgres_changes" as any,
+          {
+            event: "*",
+            schema: "public",
+            table: "workspace_lists",
+            filter: `id=eq.${listId}`,
+          },
+          (payload: any) => {
+            onListChange({ ...payload, _sharedList: true });
+          },
+        );
+      }
+      if (onListItemChange) {
+        sharedChannel = sharedChannel.on(
+          "postgres_changes" as any,
+          {
+            event: "*",
+            schema: "public",
+            table: "list_items",
+            filter: `list_id=eq.${listId}`,
+          },
+          (payload: any) => {
+            onListItemChange(payload);
+          },
+        );
+      }
+    }
+    activeSharedListChannel = sharedChannel.subscribe((status: string) => {
+      if (status === "SUBSCRIBED") {
+        console.log(
+          `[realtime] shared lists subscribed for workspace ${wsId} (${sharedListIds.length} list(s))`,
+        );
+      }
+    });
+  }
+
+  if (onListShareChange) {
+    activeListShareChannel = supabase
+      .channel(`ws-list-shares-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "workspace_list_shares",
+          filter: `target_workspace_id=eq.${wsId}`,
+        },
+        (payload: any) => {
+          onListShareChange(payload);
+        },
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[realtime] workspace_list_shares subscribed for workspace ${wsId}`);
+        }
+      });
+  }
+
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
   activeRealtimeCleanup = () => {
     if (activeTaskChannel && supabase) {
@@ -5069,6 +5238,14 @@ export function subscribeToWorkspaceRealtime(
     if (activeListItemChannel && supabase) {
       supabase.removeChannel(activeListItemChannel).catch(() => {});
       activeListItemChannel = null;
+    }
+    if (activeSharedListChannel && supabase) {
+      supabase.removeChannel(activeSharedListChannel).catch(() => {});
+      activeSharedListChannel = null;
+    }
+    if (activeListShareChannel && supabase) {
+      supabase.removeChannel(activeListShareChannel).catch(() => {});
+      activeListShareChannel = null;
     }
     currentRealtimeWorkspaceId = null;
     activeRealtimeCleanup = null;

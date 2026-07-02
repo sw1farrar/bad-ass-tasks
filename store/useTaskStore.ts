@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
 import { parseWorkspaceSettings, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
@@ -96,6 +96,9 @@ import {
   createListShareInvite,
   revokeListShareInvite,
   declineListShareInvite,
+  shareListToWorkspace as shareListToWorkspaceRpc,
+  revokeListShareGrant as revokeListShareGrantRpc,
+  getListShareTargets as getListShareTargetsRpc,
   sendListShareEmail,
   ensureWorkspaceListPersistenceReady,
   areWorkspaceListTablesReady,
@@ -623,6 +626,9 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
     recipient: { userId: string; email?: string; fullName?: string; username?: string },
   ) => Promise<string | null>;
   revokeListShare: (shareId: string) => Promise<boolean>;
+  shareListToWorkspace: (listId: string, targetWorkspaceId: string) => Promise<string | null>;
+  revokeListShareGrant: (listId: string, targetWorkspaceId: string) => Promise<boolean>;
+  getListShareTargets: (listId: string) => Promise<ListShareTarget[]>;
   declineReceivedListShare: (shareId: string) => Promise<boolean>;
   revokeInvite: (inviteId: string) => Promise<boolean>; // new for invite flow
   resendInvite: (inviteId: string) => Promise<boolean>; // resend UX: create fresh invite (same email/role, new expiry) then revoke old. Small increment.
@@ -3577,6 +3583,77 @@ export const useTaskStore = create<TaskState>()(
         return ok;
       },
 
+      shareListToWorkspace: async (listId, targetWorkspaceId) => {
+        const wsId = get().currentWorkspace.id;
+        const currentRole = get().currentWorkspace.role;
+
+        if (!isSupabaseLive() || !wsId || ["w1", "w2"].includes(wsId)) {
+          toast.info("List sharing is a live Supabase feature (demo is single-user)");
+          return null;
+        }
+        if (!["owner", "admin"].includes(currentRole)) {
+          toast.error("Only owners and admins can share lists");
+          return null;
+        }
+
+        const list = get().workspaceLists.find((l) => l.id === listId && l.workspaceId === wsId);
+        if (!list || list.isShared) {
+          toast.error("This list cannot be shared");
+          return null;
+        }
+
+        const target = get().workspaces.find((w) => w.id === targetWorkspaceId);
+        if (!target) {
+          toast.error("Workspace not found");
+          return null;
+        }
+        if (targetWorkspaceId === wsId) {
+          toast.error("Pick a different workspace");
+          return null;
+        }
+
+        const shareId = await shareListToWorkspaceRpc(listId, targetWorkspaceId);
+        if (!shareId) {
+          toast.error("Could not link list to workspace");
+          return null;
+        }
+
+        toast.success(`Linked to ${target.name}`, {
+          description: "The list stays live-synced in both workspaces.",
+        });
+
+        if (get().currentWorkspace.id === targetWorkspaceId) {
+          await get().hydrateWorkspaceListData(targetWorkspaceId);
+          get().setupWorkspaceRealtime();
+        }
+
+        return shareId;
+      },
+
+      revokeListShareGrant: async (listId, targetWorkspaceId) => {
+        if (!isSupabaseLive()) return false;
+        const ok = await revokeListShareGrantRpc(listId, targetWorkspaceId);
+        if (ok) {
+          const lists = get().workspaceLists || [];
+          const isViewingTarget = get().currentWorkspace.id === targetWorkspaceId;
+          if (isViewingTarget) {
+            set({
+              workspaceLists: lists.filter((l) => !(l.isShared && l.id === listId)),
+              listItems: (get().listItems || []).filter((i) => i.listId !== listId),
+            });
+          }
+          toast.success("Workspace link removed");
+        } else {
+          toast.error("Could not remove workspace link");
+        }
+        return ok;
+      },
+
+      getListShareTargets: async (listId) => {
+        if (!isSupabaseLive()) return [];
+        return getListShareTargetsRpc(listId);
+      },
+
       declineReceivedListShare: async (shareId) => {
         if (!isSupabaseLive()) return false;
         const ok = await declineListShareInvite(shareId);
@@ -4575,6 +4652,10 @@ export const useTaskStore = create<TaskState>()(
         // Teardown old first
         get().teardownWorkspaceRealtime();
 
+        const sharedListIds = (get().workspaceLists || [])
+          .filter((l) => l.isShared && l.workspaceId === wsId)
+          .map((l) => l.id);
+
         const cleanup = subscribeToWorkspaceRealtime(wsId, {
           onTaskChange: (payload) => {
             // Smart update of local tasks list without full refetch (optimistic + live)
@@ -4918,21 +4999,58 @@ export const useTaskStore = create<TaskState>()(
             }
           },
           onListChange: (payload) => {
-            const { eventType, new: newRow, old: oldRow } = payload;
+            const { eventType, new: newRow, old: oldRow, _sharedList } = payload;
             const lists = get().workspaceLists || [];
-            if (eventType === "INSERT" && newRow) {
+            if (eventType === "INSERT" && newRow && !_sharedList) {
               const mapped = mapWorkspaceListRow(newRow);
               if (lists.some((l) => l.id === mapped.id)) return;
               set({ workspaceLists: [...lists, mapped] });
             } else if (eventType === "UPDATE" && newRow) {
               const mapped = mapWorkspaceListRow(newRow);
               set({
-                workspaceLists: lists.map((l) => (l.id === mapped.id ? { ...l, ...mapped } : l)),
+                workspaceLists: lists.map((l) => {
+                  if (l.id !== mapped.id) return l;
+                  if (l.isShared || _sharedList) {
+                    return {
+                      ...l,
+                      title: mapped.title,
+                      color: mapped.color,
+                      archived: mapped.archived,
+                      updatedAt: mapped.updatedAt,
+                    };
+                  }
+                  return { ...l, ...mapped };
+                }),
               });
             } else if (eventType === "DELETE" && oldRow) {
               set({
                 workspaceLists: lists.filter((l) => l.id !== oldRow.id),
                 listItems: (get().listItems || []).filter((item) => item.listId !== oldRow.id),
+              });
+            }
+          },
+          onListShareChange: (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const row = newRow ?? oldRow;
+            const revoked =
+              eventType === "DELETE" ||
+              (newRow?.revoked_at != null && newRow.revoked_at !== oldRow?.revoked_at);
+
+            if (revoked && row?.list_id) {
+              const listId = row.list_id as string;
+              set({
+                workspaceLists: (get().workspaceLists || []).filter(
+                  (l) => !(l.isShared && l.id === listId),
+                ),
+                listItems: (get().listItems || []).filter((i) => i.listId !== listId),
+              });
+              get().setupWorkspaceRealtime();
+              return;
+            }
+
+            if (eventType === "INSERT" && newRow && !newRow.revoked_at) {
+              void get().hydrateWorkspaceListData(wsId).then(() => {
+                get().setupWorkspaceRealtime();
               });
             }
           },
@@ -4954,7 +5072,7 @@ export const useTaskStore = create<TaskState>()(
               set({ listItems: items.filter((i) => i.id !== oldRow.id) });
             }
           },
-        });
+        }, { sharedListIds });
 
         // Store cleanup for later teardown (simple closure capture via state flag)
         (get() as any)._realtimeCleanup = cleanup;

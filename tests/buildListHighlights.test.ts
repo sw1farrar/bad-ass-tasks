@@ -56,6 +56,41 @@ describe("buildListHighlightsForWorkspace", () => {
     expect(groceries?.preview).toEqual(["Milk"]);
     expect(groceries?.workspaceName).toBe("Acme");
   });
+
+  it("counts items for live-linked shared lists using source workspace item rows", () => {
+    const sharedList: WorkspaceList = {
+      id: "l-shared",
+      workspaceId: "ws2",
+      title: "Shared groceries",
+      color: "green",
+      sortOrder: 0,
+      isShared: true,
+      sourceWorkspaceId: "ws1",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const sharedItems: ListItem[] = [
+      {
+        id: "si1",
+        listId: "l-shared",
+        workspaceId: "ws1",
+        text: "Eggs",
+        completed: false,
+        sortOrder: 0,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    const highlights = buildListHighlightsForWorkspace(
+      [sharedList],
+      sharedItems,
+      "ws2",
+      "Personal",
+    );
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].openCount).toBe(1);
+    expect(highlights[0].preview).toEqual(["Eggs"]);
+  });
 });
 
 describe("computeWorkspaceListStats", () => {

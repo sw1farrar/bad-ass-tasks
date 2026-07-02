@@ -219,6 +219,15 @@ export interface MeetingAgendaEntry {
 }
 
 /** Google Keep–style checklist list (workspace-scoped). */
+/** Active cross-workspace link for a list (source workspace perspective). */
+export interface ListShareTarget {
+  shareId: string;
+  targetWorkspaceId: string;
+  targetWorkspaceName: string;
+  permission: "view" | "edit" | "manage";
+  createdAt: string;
+}
+
 export interface WorkspaceList {
   id: string;
   workspaceId: string;

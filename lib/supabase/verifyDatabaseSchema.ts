@@ -81,6 +81,13 @@ const REQUIRED_FUNCTIONS = {
   get_shared_lists_for_workspace: {
     p_target_workspace_id: "00000000-0000-0000-0000-000000000000",
   },
+  share_list_to_workspace: {
+    p_list_id: "00000000-0000-0000-0000-000000000000",
+    p_target_workspace_id: "00000000-0000-0000-0000-000000000000",
+  },
+  get_list_share_targets: {
+    p_list_id: "00000000-0000-0000-0000-000000000000",
+  },
   delete_workspace_for_owner: {
     p_workspace_id: "00000000-0000-0000-0000-000000000000",
   },

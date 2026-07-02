@@ -12,7 +12,11 @@ export function buildListHighlightsForWorkspace(
     .filter((l) => l.workspaceId === workspaceId)
     .map((list) => {
       const listItems = flattenListItems(
-        items.filter((i) => i.listId === list.id && i.workspaceId === workspaceId),
+        items.filter((i) => {
+          if (i.listId !== list.id) return false;
+          if (list.isShared) return true;
+          return i.workspaceId === workspaceId;
+        }),
       );
       const open = listItems.filter((i) => !i.completed && !i.pending);
       return {

@@ -77,6 +77,9 @@ vi.mock('@/lib/data/hybridStore', () => {
     updateWorkspace: vi.fn().mockResolvedValue(false),
     deleteWorkspace: vi.fn().mockResolvedValue(false),
     subscribeToWorkspaceRealtime: vi.fn(() => () => {}), // returns unsubscribe fn
+    shareListToWorkspace: vi.fn().mockResolvedValue(null),
+    revokeListShareGrant: vi.fn().mockResolvedValue(false),
+    getListShareTargets: vi.fn().mockResolvedValue([]),
     getWorkspacePresenceChannel: vi.fn(() => ({ subscribe: vi.fn(), presence: {} })),
     getComments: vi.fn().mockResolvedValue([]),
     createComment: vi.fn().mockResolvedValue(false),

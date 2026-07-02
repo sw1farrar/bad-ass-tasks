@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Search, Share2, X } from "lucide-react";
+import { Building2, Link2, Loader2, Search, Share2, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 import { BottomSheet } from "@/components/BottomSheet";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
@@ -11,7 +11,7 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 
 import { useTaskStore } from "@/store/useTaskStore";
-import type { WorkspaceList } from "@/types";
+import type { ListShareTarget, WorkspaceList } from "@/types";
 
 type SearchResult = {
   id: string;
@@ -38,17 +38,42 @@ export function ListShareModal({
   const isMobile = useIsMobileViewport();
   const searchPotentialTeammates = useTaskStore((s) => s.searchPotentialTeammates);
   const shareList = useTaskStore((s) => s.shareList);
+  const shareListToWorkspace = useTaskStore((s) => s.shareListToWorkspace);
   const revokeListShare = useTaskStore((s) => s.revokeListShare);
+  const revokeListShareGrant = useTaskStore((s) => s.revokeListShareGrant);
+  const getListShareTargets = useTaskStore((s) => s.getListShareTargets);
   const currentWorkspaceId = useTaskStore((s) => s.currentWorkspace.id);
+  const workspaces = useTaskStore((s) => s.workspaces);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [sharingUserId, setSharingUserId] = useState<string | null>(null);
+  const [linkingWorkspaceId, setLinkingWorkspaceId] = useState<string | null>(null);
+  const [unlinkingWorkspaceId, setUnlinkingWorkspaceId] = useState<string | null>(null);
+  const [linkedTargets, setLinkedTargets] = useState<ListShareTarget[]>([]);
+  const [loadingTargets, setLoadingTargets] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState<{ shareId: string; label: string } | null>(null);
+  const [pendingUnlink, setPendingUnlink] = useState<{
+    targetWorkspaceId: string;
+    label: string;
+  } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useScrollLock(open && !isMobile);
+
+  const loadLinkedTargets = useCallback(async () => {
+    if (!list?.id) return;
+    setLoadingTargets(true);
+    try {
+      const targets = await getListShareTargets(list.id);
+      setLinkedTargets(targets);
+    } catch {
+      setLinkedTargets([]);
+    } finally {
+      setLoadingTargets(false);
+    }
+  }, [getListShareTargets, list?.id]);
 
   useEffect(() => {
     if (!open) {
@@ -56,8 +81,13 @@ export function ListShareModal({
       setResults([]);
       setIsSearching(false);
       setSharingUserId(null);
+      setLinkingWorkspaceId(null);
+      setUnlinkingWorkspaceId(null);
+      setLinkedTargets([]);
+    } else if (list?.id) {
+      void loadLinkedTargets();
     }
-  }, [open]);
+  }, [open, list?.id, loadLinkedTargets]);
 
   const runSearch = useCallback(
     (q: string) => {
@@ -90,7 +120,7 @@ export function ListShareModal({
     }
     setSharingUserId(result.id);
     try {
-      const shareId = await shareList(list.id, {
+      const shareId = await shareList(result.id, {
         userId: result.id,
         email: result.email,
         fullName: result.fullName,
@@ -105,14 +135,148 @@ export function ListShareModal({
     }
   };
 
-  const listTitle = list?.title?.trim() || "Untitled list";
+  const handleLinkWorkspace = async (targetWorkspaceId: string) => {
+    if (!list || linkingWorkspaceId) return;
+    setLinkingWorkspaceId(targetWorkspaceId);
+    try {
+      const shareId = await shareListToWorkspace(list.id, targetWorkspaceId);
+      if (shareId) {
+        await loadLinkedTargets();
+      }
+    } finally {
+      setLinkingWorkspaceId(null);
+    }
+  };
 
-  const body = (
-    <div className="text-sm space-y-4">
-      <p className="text-text-secondary text-center text-sm">
-        From <span className="text-text-primary font-medium">{workspaceName}</span>
-        {" · "}
-        People can add this live-linked list to any workspace they belong to.
+  const handleUnlinkWorkspace = async (targetWorkspaceId: string) => {
+    if (!list || unlinkingWorkspaceId) return;
+    setUnlinkingWorkspaceId(targetWorkspaceId);
+    try {
+      const ok = await revokeListShareGrant(list.id, targetWorkspaceId);
+      if (ok) {
+        setLinkedTargets((prev) =>
+          prev.filter((t) => t.targetWorkspaceId !== targetWorkspaceId),
+        );
+      }
+    } finally {
+      setUnlinkingWorkspaceId(null);
+      setPendingUnlink(null);
+    }
+  };
+
+  const listTitle = list?.title?.trim() || "Untitled list";
+  const linkedWorkspaceIds = new Set(linkedTargets.map((t) => t.targetWorkspaceId));
+  const otherWorkspaces = (workspaces || []).filter(
+    (w) => w.id !== currentWorkspaceId && !linkedWorkspaceIds.has(w.id),
+  );
+
+  const workspaceSection = (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-text-primary font-medium">
+        <Building2 className="h-4 w-4 text-neon-purple shrink-0" />
+        <span>Your workspaces</span>
+      </div>
+      <p className="text-xs text-text-muted -mt-1">
+        Link this list into another workspace you belong to. Changes stay synced live in both places.
+      </p>
+
+      {loadingTargets ? (
+        <div className="flex items-center gap-2 text-sm text-text-secondary px-1">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading linked workspaces…
+        </div>
+      ) : null}
+
+      {linkedTargets.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Linked</p>
+          {linkedTargets.map((target) => {
+            const isUnlinking = unlinkingWorkspaceId === target.targetWorkspaceId;
+            return (
+              <div
+                key={target.shareId}
+                className="flex items-center justify-between p-3 rounded-xl bg-surface-hover border border-border-glass"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-neon-purple/15 flex items-center justify-center shrink-0">
+                    <Link2 className="h-4 w-4 text-neon-purple" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{target.targetWorkspaceName}</div>
+                    <div className="text-xs text-text-muted">Live-synced</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isUnlinking}
+                  onClick={() =>
+                    setPendingUnlink({
+                      targetWorkspaceId: target.targetWorkspaceId,
+                      label: target.targetWorkspaceName,
+                    })
+                  }
+                  className="btn px-3 py-2 text-sm shrink-0 border border-border-glass hover:bg-surface-hover disabled:opacity-60"
+                >
+                  {isUnlinking ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Unlink className="h-3.5 w-3.5 inline mr-1.5" />
+                      Unlink
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {otherWorkspaces.length > 0 ? (
+        <div className="space-y-2">
+          {linkedTargets.length > 0 ? (
+            <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Add to</p>
+          ) : null}
+          {otherWorkspaces.map((ws) => {
+            const isLinking = linkingWorkspaceId === ws.id;
+            return (
+              <div
+                key={ws.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-surface-hover border border-border-glass"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-surface-active flex items-center justify-center shrink-0 text-sm font-semibold text-text-secondary">
+                    {ws.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="font-medium truncate">{ws.name}</div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isLinking}
+                  onClick={() => void handleLinkWorkspace(ws.id)}
+                  className="btn btn-primary px-4 py-2 text-sm shrink-0 disabled:opacity-60"
+                >
+                  {isLinking ? <Loader2 className="h-4 w-4 animate-spin" /> : "Link"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : !loadingTargets && linkedTargets.length === 0 ? (
+        <p className="text-sm text-text-muted text-center py-2">
+          You only belong to this workspace. Create or join another workspace to link lists across them.
+        </p>
+      ) : null}
+    </div>
+  );
+
+  const peopleSection = (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-text-primary font-medium">
+        <Share2 className="h-4 w-4 text-neon-purple shrink-0" />
+        <span>Share with people</span>
+      </div>
+      <p className="text-xs text-text-muted -mt-1">
+        Teammates can add this live-linked list to any workspace they belong to.
       </p>
 
       <div className="relative">
@@ -153,7 +317,7 @@ export function ListShareModal({
       ) : null}
 
       {!isSearching && results.length > 0 ? (
-        <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+        <div className="space-y-2 max-h-[32vh] overflow-y-auto">
           {results.map((result) => {
             const initial = (result.fullName || result.username || result.email || "?")
               .toString()[0]
@@ -207,23 +371,54 @@ export function ListShareModal({
     </div>
   );
 
+  const body = (
+    <div className="text-sm space-y-6">
+      <p className="text-text-secondary text-center text-sm">
+        From <span className="text-text-primary font-medium">{workspaceName}</span>
+      </p>
+
+      {workspaceSection}
+
+      <div className="border-t border-border-subtle" />
+
+      {peopleSection}
+    </div>
+  );
+
   const confirmation = (
-    <ConfirmationModal
-      open={!!pendingRevoke}
-      onOpenChange={(o) => !o && setPendingRevoke(null)}
-      title="Revoke list share?"
-      description="The recipient will no longer be able to accept this share link."
-      highlight={pendingRevoke?.label}
-      confirmText="Revoke"
-      cancelText="Cancel"
-      variant="destructive"
-      onConfirm={async () => {
-        if (pendingRevoke) {
-          await revokeListShare(pendingRevoke.shareId);
-          setPendingRevoke(null);
-        }
-      }}
-    />
+    <>
+      <ConfirmationModal
+        open={!!pendingRevoke}
+        onOpenChange={(o) => !o && setPendingRevoke(null)}
+        title="Revoke list share?"
+        description="The recipient will no longer be able to accept this share link."
+        highlight={pendingRevoke?.label}
+        confirmText="Revoke"
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={async () => {
+          if (pendingRevoke) {
+            await revokeListShare(pendingRevoke.shareId);
+            setPendingRevoke(null);
+          }
+        }}
+      />
+      <ConfirmationModal
+        open={!!pendingUnlink}
+        onOpenChange={(o) => !o && setPendingUnlink(null)}
+        title="Unlink from workspace?"
+        description="The list will be removed from that workspace. The original list is unchanged."
+        highlight={pendingUnlink?.label}
+        confirmText="Unlink"
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={async () => {
+          if (pendingUnlink) {
+            await handleUnlinkWorkspace(pendingUnlink.targetWorkspaceId);
+          }
+        }}
+      />
+    </>
   );
 
   if (isMobile) {
@@ -259,8 +454,8 @@ export function ListShareModal({
             aria-label="Close"
             onClick={() => onOpenChange(false)}
           />
-          <div className="modal-panel relative w-full max-w-lg rounded-2xl border border-border-glass bg-bg-secondary shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
+          <div className="modal-panel relative w-full max-w-lg rounded-2xl border border-border-glass bg-bg-secondary shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <Share2 className="h-5 w-5 text-neon-purple shrink-0" />
                 <h2 id="list-share-modal-title" className="font-semibold truncate">
@@ -276,7 +471,7 @@ export function ListShareModal({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="p-5">{body}</div>
+            <div className="p-5 overflow-y-auto">{body}</div>
           </div>
         </div>,
         document.body,
