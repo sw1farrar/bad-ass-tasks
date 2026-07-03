@@ -61,14 +61,24 @@ export function useMobileSheetDrag(options: {
 
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isDismissing, setIsDismissing] = useState(false);
+  const [dismissVelocity, setDismissVelocity] = useState(0);
   const dragControls = useDragControls();
   const pointerRef = useRef<PointerDragState | null>(null);
 
   const resetDrag = useCallback(() => {
     setDragY(0);
     setIsDragging(false);
+    setIsDismissing(false);
+    setDismissVelocity(0);
     pointerRef.current = null;
   }, []);
+
+  const completeDismiss = useCallback(() => {
+    setIsDismissing(false);
+    setDismissVelocity(0);
+    onDismiss();
+  }, [onDismiss]);
 
   const releaseCapture = useCallback((state: PointerDragState, pointerId: number) => {
     if (state.captureEl?.hasPointerCapture?.(pointerId)) {
@@ -78,14 +88,15 @@ export function useMobileSheetDrag(options: {
 
   const finishDrag = useCallback(
     (dy: number, velocityY: number) => {
-      if (dy > offsetThreshold || velocityY > velocityThreshold) {
-        onDismiss();
-      } else {
-        setDragY(0);
-      }
       setIsDragging(false);
+      if (dy > offsetThreshold || velocityY > velocityThreshold) {
+        setDismissVelocity(Math.max(0, velocityY));
+        setIsDismissing(true);
+        return;
+      }
+      setDragY(0);
     },
-    [onDismiss, offsetThreshold, velocityThreshold],
+    [offsetThreshold, velocityThreshold],
   );
 
   const handleDragEnd = useCallback(
@@ -427,6 +438,9 @@ export function useMobileSheetDrag(options: {
   return {
     dragY,
     isDragging,
+    isDismissing,
+    dismissVelocity,
+    completeDismiss,
     backdropOpacity,
     dragControls,
     resetDrag,

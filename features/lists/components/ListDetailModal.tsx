@@ -8,7 +8,11 @@ import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
-import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import {
+  MOBILE_SHEET_HEIGHT_CLASS,
+  SHEET_DISMISS_EXIT_SPRING,
+  SHEET_SPRING,
+} from "@/lib/motion/sheet";
 import {
   isListDetailSheetDragTarget,
   isListDetailTitleLabelTarget,
@@ -90,6 +94,7 @@ export function ListDetailModal({
   const panelRef = useRef<HTMLElement>(null);
   const sheetSurfaceRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
+  const dismissAnimationDoneRef = useRef(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobileViewport();
   const theme = useTaskStore((s) => s.theme);
@@ -195,6 +200,9 @@ export function ListDetailModal({
   const {
     dragY,
     isDragging,
+    isDismissing,
+    dismissVelocity,
+    completeDismiss,
     backdropOpacity,
     resetDrag,
     startDrag,
@@ -261,6 +269,10 @@ export function ListDetailModal({
     if (isDragging) blurSheetInputs();
   }, [isDragging, blurSheetInputs]);
 
+  useEffect(() => {
+    if (isDismissing) dismissAnimationDoneRef.current = false;
+  }, [isDismissing]);
+
   useScrollLock(isOpen);
 
   useEffect(() => {
@@ -308,9 +320,15 @@ export function ListDetailModal({
               isMobile ? "sheet-backdrop" : "overlay-scrim backdrop-blur-sm",
             )}
             initial={{ opacity: 0 }}
-            animate={{ opacity: isMobile ? backdropOpacity : 1 }}
+            animate={{
+              opacity: isMobile ? (isDismissing ? 0 : backdropOpacity) : 1,
+            }}
             exit={{ opacity: 0 }}
-            transition={isMobile && dragY > 0 ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
+            transition={
+              isMobile && (isDragging || (dragY > 0 && !isDismissing))
+                ? { duration: 0 }
+                : { duration: 0.22, ease: "easeOut" }
+            }
             onClick={handleClose}
             aria-hidden="true"
           />
@@ -343,9 +361,27 @@ export function ListDetailModal({
             onDrag={isMobile ? handleDrag : undefined}
             onDragEnd={isMobile ? handleDragEnd : undefined}
             initial={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
-            animate={isMobile ? { y: dragY, opacity: 1 } : { scale: 1, opacity: 1 }}
-            exit={isMobile ? { y: "100%", opacity: 0.92 } : { scale: 0.96, opacity: 0 }}
-            transition={isMobile && isDragging ? { duration: 0 } : SHEET_SPRING}
+            animate={
+              isMobile
+                ? { y: isDismissing ? "100%" : dragY, opacity: isDismissing ? 0.96 : 1 }
+                : { scale: 1, opacity: 1 }
+            }
+            exit={isMobile ? { y: "100%", opacity: 0 } : { scale: 0.96, opacity: 0 }}
+            transition={
+              isMobile && isDragging
+                ? { duration: 0 }
+                : isMobile && isDismissing
+                  ? {
+                      y: { ...SHEET_DISMISS_EXIT_SPRING, velocity: dismissVelocity },
+                      opacity: { duration: 0.2, ease: "easeOut" },
+                    }
+                  : SHEET_SPRING
+            }
+            onAnimationComplete={() => {
+              if (!isMobile || !isDismissing || dismissAnimationDoneRef.current) return;
+              dismissAnimationDoneRef.current = true;
+              completeDismiss();
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
