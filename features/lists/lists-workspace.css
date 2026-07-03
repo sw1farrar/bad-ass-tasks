@@ -2618,6 +2618,8 @@
   max-width: 100%;
   margin-left: auto;
   margin-right: auto;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 @media (max-width: 767px) {

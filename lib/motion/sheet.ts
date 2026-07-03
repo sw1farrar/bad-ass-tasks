@@ -13,6 +13,28 @@ export const SHEET_DISMISS_EXIT_SPRING = {
   mass: 0.92,
 };
 
+/** Smooth open — ease-out tween avoids spring bounce at full height. */
+export const SHEET_ENTER_TRANSITION = {
+  y: {
+    type: "tween" as const,
+    duration: 0.4,
+    ease: [0.22, 1, 0.36, 1] as const,
+  },
+  opacity: {
+    type: "tween" as const,
+    duration: 0.28,
+    ease: "easeOut" as const,
+  },
+};
+
+/** Snap-back after a cancelled drag. */
+export const SHEET_SNAP_BACK_SPRING = {
+  type: "spring" as const,
+  damping: 34,
+  stiffness: 380,
+  mass: 0.82,
+};
+
 export const SHEET_DISMISS_OFFSET = 120;
 export const SHEET_DISMISS_VELOCITY = 520;
 

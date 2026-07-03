@@ -11,6 +11,8 @@ import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import {
   MOBILE_SHEET_HEIGHT_CLASS,
   SHEET_DISMISS_EXIT_SPRING,
+  SHEET_ENTER_TRANSITION,
+  SHEET_SNAP_BACK_SPRING,
   SHEET_SPRING,
 } from "@/lib/motion/sheet";
 import {
@@ -95,6 +97,7 @@ export function ListDetailModal({
   const sheetSurfaceRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const dismissAnimationDoneRef = useRef(false);
+  const openedListIdRef = useRef<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobileViewport();
   const theme = useTaskStore((s) => s.theme);
@@ -264,10 +267,15 @@ export function ListDetailModal({
   ]);
 
   useLayoutEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !list) {
+      openedListIdRef.current = null;
+      return;
+    }
+    if (openedListIdRef.current === list.id) return;
+    openedListIdRef.current = list.id;
     dismissAnimationDoneRef.current = false;
     resetDrag();
-  }, [list?.id, isOpen, resetDrag]);
+  }, [list?.id, isOpen, list, resetDrag]);
 
   const blurSheetInputs = useCallback(() => {
     const active = document.activeElement;
@@ -345,7 +353,9 @@ export function ListDetailModal({
                 ? { duration: 0 }
                 : isMobile && isDismissing
                   ? { duration: 0.2, ease: "easeOut" }
-                  : { duration: 0.22, ease: "easeOut" }
+                  : isMobile
+                    ? SHEET_ENTER_TRANSITION.opacity
+                    : { duration: 0.22, ease: "easeOut" }
             }
             onClick={handleClose}
             aria-hidden="true"
@@ -378,10 +388,13 @@ export function ListDetailModal({
             dragElastic={isMobile ? dragElastic : undefined}
             onDrag={isMobile ? handleDrag : undefined}
             onDragEnd={isMobile ? handleDragEnd : undefined}
-            initial={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
+            initial={isMobile ? { y: "100%", opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
             animate={
               isMobile
-                ? { y: isDismissing ? "100%" : dragY, opacity: isDismissing ? 0.96 : 1 }
+                ? {
+                    y: isDismissing ? "100%" : dragY > 0 ? dragY : "0%",
+                    opacity: isDismissing ? 0.96 : 1,
+                  }
                 : { scale: 1, opacity: 1 }
             }
             exit={isMobile ? { y: "100%", opacity: 0 } : { scale: 0.96, opacity: 0 }}
@@ -393,7 +406,11 @@ export function ListDetailModal({
                       y: { ...SHEET_DISMISS_EXIT_SPRING, velocity: dismissVelocity },
                       opacity: { duration: 0.2, ease: "easeOut" },
                     }
-                  : SHEET_SPRING
+                  : isMobile && dragY > 0
+                    ? { y: SHEET_SNAP_BACK_SPRING, opacity: { duration: 0.12 } }
+                    : isMobile
+                      ? SHEET_ENTER_TRANSITION
+                      : SHEET_SPRING
             }
             onAnimationComplete={() => {
               if (!isMobile || !isDismissing || dismissAnimationDoneRef.current) return;
