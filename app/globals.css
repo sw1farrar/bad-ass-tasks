@@ -1715,13 +1715,35 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
     left: 0 !important;
     right: 0 !important;
     top: auto !important;
-    height: 100dvh;
-    max-height: 100dvh;
+    height: var(--vvh, 100dvh);
+    max-height: var(--vvh, 100dvh);
     border-radius: 20px 20px 0 0 !important;
     box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
     overflow: hidden;
     will-change: transform;
     touch-action: pan-y;
+  }
+
+  .mobile-bottom-sheet--90 {
+    height: min(90dvh, var(--vvh, 90dvh)) !important;
+    max-height: min(90dvh, var(--vvh, 90dvh)) !important;
+  }
+
+  .keyboard-stable-sheet {
+    top: var(--vv-offset-top, 0px) !important;
+  }
+
+  .bottom-sheet-scroll-body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .keyboard-stable-sheet__footer {
+    padding-bottom: max(
+      1rem,
+      env(safe-area-inset-bottom, 12px),
+      var(--keyboard-inset, 0px)
+    );
   }
 
   .sheet-backdrop {
@@ -1758,11 +1780,20 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 
   /* Ensure TaskModal content fills sheet nicely on mobile */
-  .mobile-bottom-sheet .glass {
+  .mobile-bottom-sheet:not(.mobile-bottom-sheet--90) .glass {
     border-radius: 20px 20px 0 0;
     border: none;
-    height: 100dvh;
-    max-height: 100dvh;
+    height: var(--vvh, 100dvh);
+    max-height: var(--vvh, 100dvh);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mobile-bottom-sheet--90 .glass {
+    border-radius: 20px 20px 0 0;
+    border: none;
+    height: 100%;
+    max-height: 100%;
     display: flex;
     flex-direction: column;
   }

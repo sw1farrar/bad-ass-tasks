@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
+import { BottomSheet } from "@/components/BottomSheet";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import {
   getCarryOverCandidateMeetings,
   getCarryOverSourceItems,
@@ -44,6 +46,7 @@ export function CreateMeetingModal({
   agendaItems,
   onCreate,
 }: CreateMeetingModalProps) {
+  const isMobile = useIsMobileViewport();
   const [title, setTitle] = useState("");
   const [scheduledAt, setScheduledAt] = useState(defaultDateLocal);
   const [carryOverMeetingId, setCarryOverMeetingId] = useState<string>("");
@@ -98,17 +101,6 @@ export function CreateMeetingModal({
     }
   }, [carryOverMeetingId, carryOverCandidates]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onOpenChange]);
-
-  if (!open) return null;
-
   const handleCreate = async () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
@@ -138,26 +130,22 @@ export function CreateMeetingModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50"
-      onClick={() => onOpenChange(false)}
+    <BottomSheet
+      open={open}
+      onClose={() => !isSubmitting && onOpenChange(false)}
+      title="New meeting"
+      mobileHeight="90"
+      enableDragDismiss={!isSubmitting}
+      zIndex={1000}
+      desktopMaxWidth="max-w-lg"
+      panelClassName="create-meeting-modal"
+      ariaLabel="Create meeting"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="create-meeting-title"
-        className="w-full max-w-lg rounded-2xl border border-border-glass bg-bg p-5 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div>
-          <h2 id="create-meeting-title" className="text-lg font-semibold text-text-primary">
-            New meeting
-          </h2>
-          <p className="text-sm text-text-muted mt-1">
-            Name your meeting, set the date, and optionally pull in open topics from a previous one.
-          </p>
-        </div>
+      <p className="px-5 text-sm text-text-muted -mt-1 mb-4">
+        Name your meeting, set the date, and optionally pull in open topics from a previous one.
+      </p>
 
+      <div className="px-5 space-y-4">
         <div className="space-y-2">
           <label className="text-xs font-medium text-text-muted">Meeting title</label>
           <input
@@ -170,8 +158,9 @@ export function CreateMeetingModal({
               if (e.key === "Enter") void handleCreate();
             }}
             placeholder="Weekly team sync"
-            autoFocus
-            className="w-full bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
+            autoFocus={!isMobile}
+            enterKeyHint="next"
+            className="w-full min-h-[44px] bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
           />
         </div>
 
@@ -184,7 +173,7 @@ export function CreateMeetingModal({
               setScheduledAt(e.target.value);
               setDateError(null);
             }}
-            className="w-full bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
+            className="w-full min-h-[44px] bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
           />
         </div>
 
@@ -195,7 +184,7 @@ export function CreateMeetingModal({
           <select
             value={carryOverMeetingId}
             onChange={(e) => setCarryOverMeetingId(e.target.value)}
-            className="w-full bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
+            className="w-full min-h-[44px] bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
           >
             <option value="">Start with a fresh agenda</option>
             {carryOverCandidates.map((m) => (
@@ -210,7 +199,7 @@ export function CreateMeetingModal({
           {selectedCarryMeeting && (continuedCount > 0 || openCount > 0) && (
             <div className="rounded-xl border border-border-glass bg-bg-secondary/60 p-3 space-y-2 text-sm text-text-muted">
               {continuedCount > 0 && (
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={includeContinued}
@@ -221,7 +210,7 @@ export function CreateMeetingModal({
                 </label>
               )}
               {openCount > 0 && (
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={includeOpen}
@@ -242,33 +231,33 @@ export function CreateMeetingModal({
         </div>
 
         {dateError && <p className="text-xs text-red-400">{dateError}</p>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-            className="px-4 py-2 rounded-xl text-sm text-text-secondary hover:bg-surface-hover disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={isSubmitting}
-            className="btn btn-primary px-4 py-2 text-sm inline-flex items-center gap-2"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Creating…
-              </>
-            ) : (
-              "Create meeting"
-            )}
-          </button>
-        </div>
       </div>
-    </div>
+
+      <div className="keyboard-stable-sheet__footer flex justify-end gap-2 px-5 pt-4 mt-4 border-t border-border-glass">
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          disabled={isSubmitting}
+          className="min-h-[44px] px-4 py-2 rounded-xl text-sm text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleCreate()}
+          disabled={isSubmitting}
+          className="min-h-[44px] btn btn-primary px-4 py-2 text-sm inline-flex items-center gap-2"
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Creating…
+            </>
+          ) : (
+            "Create meeting"
+          )}
+        </button>
+      </div>
+    </BottomSheet>
   );
 }

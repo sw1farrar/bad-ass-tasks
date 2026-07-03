@@ -1,14 +1,23 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
-import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
+import { useFocusWithinScroll } from "@/lib/hooks/useFocusWithinScroll";
+import {
+  MOBILE_SHEET_HEIGHT_90_CLASS,
+  MOBILE_SHEET_HEIGHT_CLASS,
+  SHEET_SPRING,
+} from "@/lib/motion/sheet";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
+
+export type MobileSheetHeight = "full" | "90";
 
 export interface BottomSheetProps {
   open: boolean;
@@ -25,29 +34,15 @@ export interface BottomSheetProps {
   desktopMaxWidth?: string;
   /** Mobile presentation: bottom sheet (default) or centered dialog */
   mobileLayout?: "sheet" | "centered";
+  /** Mobile sheet height: 90dvh (default) or full viewport */
+  mobileHeight?: MobileSheetHeight;
   showClose?: boolean;
   showDragHandle?: boolean;
   enableDragDismiss?: boolean;
   /** handle: drag only from handle (scroll-safe). panel: whole sheet draggable */
   dragMode?: "handle" | "panel";
-}
-
-function useIsMobileSheet(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia(`(max-width: ${breakpoint - 1}px)`).matches,
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, [breakpoint]);
-
-  return isMobile;
+  /** When false, children render directly (for custom flex layouts inside sheet) */
+  wrapChildrenInScroll?: boolean;
 }
 
 export function BottomSheet({
@@ -62,13 +57,16 @@ export function BottomSheet({
   zIndex = 260,
   desktopMaxWidth = "max-w-md",
   mobileLayout = "sheet",
+  mobileHeight = "90",
   showClose = true,
   showDragHandle = true,
   enableDragDismiss = true,
   dragMode = "handle",
+  wrapChildrenInScroll = true,
 }: BottomSheetProps) {
   const [mounted] = useState(() => typeof window !== "undefined");
-  const isMobile = useIsMobileSheet();
+  const isMobile = useIsMobileViewport();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => {
     triggerHaptic("light");
@@ -97,6 +95,8 @@ export function BottomSheet({
   });
 
   useScrollLock(open);
+  useVisualViewportInsets(open && useMobileSheet);
+  useFocusWithinScroll(scrollRef, open && useMobileSheet && wrapChildrenInScroll);
 
   useEffect(() => {
     if (!open) return;
@@ -111,6 +111,9 @@ export function BottomSheet({
 
   if (!mounted) return null;
 
+  const mobileHeightClass =
+    mobileHeight === "full" ? MOBILE_SHEET_HEIGHT_CLASS : MOBILE_SHEET_HEIGHT_90_CLASS;
+
   const backdropClasses = cn(
     "absolute inset-0",
     backdropClassName ??
@@ -119,6 +122,22 @@ export function BottomSheet({
         : useMobileCentered
           ? "overlay-scrim backdrop-blur-md"
           : "overlay-scrim"),
+  );
+
+  const scrollBody = wrapChildrenInScroll ? (
+    <div
+      ref={scrollRef}
+      className="bottom-sheet-scroll-body flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      style={{
+        paddingBottom: useMobileSheet
+          ? "max(1rem, env(safe-area-inset-bottom, 12px), var(--keyboard-inset, 0px))"
+          : undefined,
+      }}
+    >
+      {children}
+    </div>
+  ) : (
+    children
   );
 
   return createPortal(
@@ -152,7 +171,11 @@ export function BottomSheet({
               aria-label={ariaLabel || title}
               className={cn(
                 "bottom-sheet-panel pointer-events-auto w-full bg-bg-panel border border-border-glass modal-panel shadow-2xl flex flex-col overflow-hidden",
-                useMobileSheet && cn("mobile-bottom-sheet rounded-t-3xl", MOBILE_SHEET_HEIGHT_CLASS),
+                useMobileSheet &&
+                  cn(
+                    "mobile-bottom-sheet keyboard-stable-sheet rounded-t-3xl",
+                    mobileHeightClass,
+                  ),
                 useMobileCentered &&
                   "max-w-[min(20rem,calc(100vw-2rem))] mx-auto rounded-2xl max-h-[min(85dvh,640px)]",
                 !isMobile && cn("rounded-3xl max-h-[min(90vh,880px)]", desktopMaxWidth),
@@ -219,16 +242,7 @@ export function BottomSheet({
                 </div>
               )}
 
-              <div
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-                style={{
-                  paddingBottom: useMobileSheet
-                    ? "max(1rem, env(safe-area-inset-bottom, 12px))"
-                    : undefined,
-                }}
-              >
-                {children}
-              </div>
+              {scrollBody}
             </motion.div>
           </div>
         </div>

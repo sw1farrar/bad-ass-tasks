@@ -50,6 +50,7 @@ import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { LoginActivityModal } from "@/components/LoginActivityModal";
 import { FilesView } from "@/features/files";
 import { NotebooksView } from "@/features/notebooks";
+import { HealthView } from "@/features/health";
 import { getBottomNavViews } from "@/lib/nav/workspaceViews";
 import {
   CaptureFileModal,
@@ -254,6 +255,7 @@ export default function BadAssTasks() {
     selectedNotebookTaskId,
     selectedNotebookInvestmentId,
     selectedNotebookCustomerId,
+    selectedNotebookCompetitorId,
     selectedMeetingId,
     selectedAgendaItemId,
     notesPageMode,
@@ -262,6 +264,7 @@ export default function BadAssTasks() {
     setSelectedNotebookTaskId,
     setSelectedNotebookInvestmentId,
     setSelectedNotebookCustomerId,
+    setSelectedNotebookCompetitorId,
     setNotesPageMode,
     setSelectedMeetingId,
     setSelectedAgendaItemId,
@@ -291,6 +294,9 @@ export default function BadAssTasks() {
     addNotebookCompetitor,
     updateNotebookCompetitor,
     deleteNotebookCompetitor,
+    addNotebookCompetitorNote,
+    updateNotebookCompetitorNote,
+    deleteNotebookCompetitorNote,
     setNotebookOurSales,
     hydrateNoteDetail,
     addMeeting,
@@ -314,6 +320,17 @@ export default function BadAssTasks() {
     notebookTaskProgress,
     notebookInvestmentNotes,
     notebookCustomerNotes,
+    notebookCompetitors,
+    notebookCompetitorNotes,
+    healthProfiles,
+    selectedHealthMemberId,
+    healthSectionTab,
+    getHealthReadings,
+    setSelectedHealthMemberId,
+    setHealthSectionTab,
+    addHealthReading,
+    deleteHealthReading,
+    upsertHealthProfile,
   } = useTaskStore();
 
   const bottomNavViews = useMemo(
@@ -2919,6 +2936,11 @@ export default function BadAssTasks() {
               getNotebookCustomers(selectedNotebookId).some((c) => c.id === n.customerId),
             )}
             notebookCompetitors={getNotebookCompetitors(selectedNotebookId)}
+            workspaceCompetitors={notebookCompetitors}
+            notebookCompetitorNotes={notebookCompetitorNotes.filter((n) =>
+              getNotebookCompetitors(selectedNotebookId).some((c) => c.id === n.competitorId),
+            )}
+            workspaceCompetitorNotes={notebookCompetitorNotes}
             meetings={getMeetings()}
             meetingAgendaItems={meetingAgendaItems}
             meetingAgendaEntries={meetingAgendaEntries}
@@ -2930,6 +2952,7 @@ export default function BadAssTasks() {
             selectedNotebookTaskId={selectedNotebookTaskId}
             selectedNotebookInvestmentId={selectedNotebookInvestmentId}
             selectedNotebookCustomerId={selectedNotebookCustomerId}
+            selectedNotebookCompetitorId={selectedNotebookCompetitorId}
             selectedMeetingId={selectedMeetingId}
             selectedAgendaItemId={selectedAgendaItemId}
             isLive={isSupabaseConfigured()}
@@ -2944,6 +2967,7 @@ export default function BadAssTasks() {
             onSelectNotebookTask={setSelectedNotebookTaskId}
             onSelectNotebookInvestment={setSelectedNotebookInvestmentId}
             onSelectNotebookCustomer={setSelectedNotebookCustomerId}
+            onSelectNotebookCompetitor={setSelectedNotebookCompetitorId}
             onSelectMeeting={setSelectedMeetingId}
             onSelectAgendaItem={setSelectedAgendaItemId}
             onAddNotebook={addNotebook}
@@ -3010,6 +3034,9 @@ export default function BadAssTasks() {
             }
             onUpdateNotebookCompetitor={updateNotebookCompetitor}
             onDeleteNotebookCompetitor={deleteNotebookCompetitor}
+            onAddNotebookCompetitorNote={addNotebookCompetitorNote}
+            onUpdateNotebookCompetitorNote={updateNotebookCompetitorNote}
+            onDeleteNotebookCompetitorNote={deleteNotebookCompetitorNote}
             onSetNotebookOurSales={(value) =>
               selectedNotebookId ? setNotebookOurSales(selectedNotebookId, value) : undefined
             }
@@ -3020,6 +3047,8 @@ export default function BadAssTasks() {
               const investmentIds = new Set(investments.map((i) => i.id));
               const customers = getNotebookCustomers(notebookId);
               const customerIds = new Set(customers.map((c) => c.id));
+              const competitors = getNotebookCompetitors(notebookId);
+              const competitorIds = new Set(competitors.map((c) => c.id));
               return {
                 noteCount: getNotebookNotes(notebookId).length,
                 taskCount: tasks.length,
@@ -3032,7 +3061,10 @@ export default function BadAssTasks() {
                 customerNoteCount: notebookCustomerNotes.filter((n) =>
                   customerIds.has(n.customerId),
                 ).length,
-                competitorCount: getNotebookCompetitors(notebookId).length,
+                competitorCount: competitors.length,
+                competitorNoteCount: notebookCompetitorNotes.filter((n) =>
+                  competitorIds.has(n.competitorId),
+                ).length,
               };
             }}
             onSaveSummaryAsNote={async (meeting) => {
@@ -3072,6 +3104,24 @@ export default function BadAssTasks() {
           />
         );
       case "lists": return renderListsView();
+      case "health":
+        return (
+          <HealthView
+            workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
+            readings={getHealthReadings()}
+            profiles={healthProfiles.filter((p) => p.workspaceId === currentWorkspace.id)}
+            members={members}
+            currentUserId={user?.id}
+            activeTab={healthSectionTab}
+            selectedMemberId={selectedHealthMemberId}
+            onTabChange={setHealthSectionTab}
+            onMemberChange={setSelectedHealthMemberId}
+            onAddReading={addHealthReading}
+            onDeleteReading={deleteHealthReading}
+            onUpdateProfile={upsertHealthProfile}
+          />
+        );
       case "teams": return renderTeamsView();
       case "settings": return <WorkspaceSettingsView />;
       case "admin": return isSiteAdmin ? <SiteAdminView /> : renderHomeView();
@@ -3660,7 +3710,7 @@ export default function BadAssTasks() {
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <CollapsibleSidebar
-          currentView={currentView as "home" | "tasks" | "notes" | "notebooks" | "lists" | "teams" | "settings" | "admin"}
+          currentView={currentView as "home" | "tasks" | "notes" | "notebooks" | "lists" | "health" | "teams" | "settings" | "admin"}
           onNavigate={(view) => setView(view as typeof currentView)}
           workspace={currentWorkspace}
           openTaskCount={currentWorkspaceTaskCounts.openCount}

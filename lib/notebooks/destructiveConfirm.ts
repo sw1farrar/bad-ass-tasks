@@ -3,6 +3,7 @@ import type {
   MeetingAgendaEntry,
   MeetingAgendaItem,
   NotebookCompetitor,
+  NotebookCompetitorNote,
   NotebookCustomer,
   NotebookCustomerNote,
   NotebookInvestment,
@@ -19,6 +20,7 @@ export type PendingDestructiveDelete =
   | { kind: "customer"; id: string }
   | { kind: "customerNote"; id: string }
   | { kind: "competitor"; id: string }
+  | { kind: "competitorNote"; id: string }
   | { kind: "agendaItem"; id: string }
   | { kind: "agendaEntry"; id: string };
 
@@ -37,6 +39,7 @@ export interface DestructiveConfirmContext {
   customers: NotebookCustomer[];
   customerNotes: NotebookCustomerNote[];
   competitors: NotebookCompetitor[];
+  competitorNotes: NotebookCompetitorNote[];
   agendaItems: MeetingAgendaItem[];
   agendaEntries: MeetingAgendaEntry[];
 }
@@ -120,11 +123,24 @@ export function buildDestructiveConfirmContent(
     }
     case "competitor": {
       const competitor = ctx.competitors.find((c) => c.id === pending.id);
+      const noteCount = ctx.competitorNotes.filter((n) => n.competitorId === pending.id).length;
       return {
         title: "Delete competitor?",
         highlight: competitor?.name?.trim() || "Competitor",
-        description: "This competitor will be removed from the analysis. This cannot be undone.",
+        description:
+          noteCount > 0
+            ? `This competitor and ${plural(noteCount, "note")} about them will be permanently deleted. This cannot be undone.`
+            : "This competitor will be removed from the analysis. This cannot be undone.",
         confirmText: "Delete competitor",
+      };
+    }
+    case "competitorNote": {
+      const entry = ctx.competitorNotes.find((n) => n.id === pending.id);
+      return {
+        title: "Delete competitor note?",
+        highlight: entry ? previewEntryBody(entry.body) : "Competitor note",
+        description: "This note will be permanently removed. This cannot be undone.",
+        confirmText: "Delete note",
       };
     }
     case "agendaItem": {
@@ -163,6 +179,7 @@ export interface NotebookDeleteSummary {
   customerCount: number;
   customerNoteCount: number;
   competitorCount: number;
+  competitorNoteCount: number;
 }
 
 export function formatNotebookDeleteDetails(summary: NotebookDeleteSummary): string | null {
@@ -175,6 +192,9 @@ export function formatNotebookDeleteDetails(summary: NotebookDeleteSummary): str
   if (summary.customerCount > 0) parts.push(plural(summary.customerCount, "customer"));
   if (summary.customerNoteCount > 0) parts.push(plural(summary.customerNoteCount, "customer note", "customer notes"));
   if (summary.competitorCount > 0) parts.push(plural(summary.competitorCount, "competitor"));
+  if (summary.competitorNoteCount > 0) {
+    parts.push(plural(summary.competitorNoteCount, "competitor note", "competitor notes"));
+  }
 
   if (parts.length === 0) return null;
   return `Includes ${parts.join(", ")}.`;

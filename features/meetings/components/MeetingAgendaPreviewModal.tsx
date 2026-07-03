@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Copy, Download, FileText, Loader2, Printer, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { BottomSheet } from "@/components/BottomSheet";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
 import { buildMeetingAgendaHtml } from "@/lib/meetings/summaryBuilder";
 import {
@@ -86,15 +87,6 @@ export function MeetingAgendaPreviewModal({
   );
 
   useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onOpenChange]);
-
-  useEffect(() => {
     if (!open) {
       setFormat("pdf");
       setPdfBlob(null);
@@ -134,8 +126,6 @@ export function MeetingAgendaPreviewModal({
     };
   }, [open, articleHtml, meeting.title]);
 
-  if (!open) return null;
-
   const handlePrint = () => {
     if (!pdfBlob) return;
     printMeetingAgendaPdf(pdfBlob);
@@ -166,17 +156,18 @@ export function MeetingAgendaPreviewModal({
   const pdfReady = !!pdfBlob && !isGenerating;
 
   return (
-    <div
-      className="meeting-agenda-preview-modal fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/55"
-      onClick={() => onOpenChange(false)}
+    <BottomSheet
+      open={open}
+      onClose={() => onOpenChange(false)}
+      showClose={false}
+      wrapChildrenInScroll={false}
+      mobileHeight="90"
+      desktopMaxWidth="max-w-[46.8rem]"
+      zIndex={1000}
+      panelClassName="meeting-agenda-preview-modal flex flex-col"
+      ariaLabel="Agenda preview"
     >
-      <div
-        className="flex min-h-0 min-w-0 max-h-[min(90vh,820px)] w-full max-w-[46.8rem] flex-col rounded-2xl border border-border-glass bg-bg shadow-2xl overflow-hidden"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="agenda-preview-title"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="meeting-agenda-preview-modal__toolbar shrink-0 border-b border-border-glass bg-bg px-4 py-3 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -188,7 +179,7 @@ export function MeetingAgendaPreviewModal({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="p-2 rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-primary shrink-0"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-primary shrink-0"
             aria-label="Close agenda preview"
           >
             <X className="h-5 w-5" />
@@ -303,6 +294,6 @@ export function MeetingAgendaPreviewModal({
         )}
       </div>
       </div>
-    </div>
+    </BottomSheet>
   );
 }

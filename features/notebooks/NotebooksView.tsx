@@ -14,6 +14,7 @@ import type {
   Note,
   Notebook,
   NotebookCompetitor,
+  NotebookCompetitorNote,
   NotebookCustomer,
   NotebookCustomerNote,
   NotebookInvestment,
@@ -66,6 +67,7 @@ export interface NotebooksViewProps {
   selectedNotebookTaskId: string | null;
   selectedNotebookInvestmentId: string | null;
   selectedNotebookCustomerId: string | null;
+  selectedNotebookCompetitorId: string | null;
   notebookTasks: NotebookTask[];
   notebookTaskProgress: NotebookTaskProgress[];
   notebookInvestments: NotebookInvestment[];
@@ -73,6 +75,9 @@ export interface NotebooksViewProps {
   notebookCustomers: NotebookCustomer[];
   notebookCustomerNotes: NotebookCustomerNote[];
   notebookCompetitors: NotebookCompetitor[];
+  workspaceCompetitors: NotebookCompetitor[];
+  notebookCompetitorNotes: NotebookCompetitorNote[];
+  workspaceCompetitorNotes: NotebookCompetitorNote[];
   selectedMeetingId: string | null;
   selectedAgendaItemId: string | null;
   isLive: boolean;
@@ -82,6 +87,7 @@ export interface NotebooksViewProps {
   onSelectNotebookTask: (id: string | null) => void;
   onSelectNotebookInvestment: (id: string | null) => void;
   onSelectNotebookCustomer: (id: string | null) => void;
+  onSelectNotebookCompetitor: (id: string | null) => void;
   onSelectMeeting: (id: string | null) => void;
   onSelectAgendaItem: (id: string | null) => void;
   onAddNotebook: (name?: string) => Promise<Notebook>;
@@ -142,6 +148,9 @@ export interface NotebooksViewProps {
     updates: { name?: string; salesPotential?: number },
   ) => void | Promise<unknown>;
   onDeleteNotebookCompetitor: (id: string) => void | Promise<unknown>;
+  onAddNotebookCompetitorNote: (competitorId: string, body: string) => void | Promise<unknown>;
+  onUpdateNotebookCompetitorNote: (id: string, body: string) => void | Promise<unknown>;
+  onDeleteNotebookCompetitorNote: (id: string) => void | Promise<unknown>;
   onSetNotebookOurSales: (value: number) => void | Promise<unknown>;
   getNotebookDeleteSummary?: (notebookId: string) => NotebookDeleteSummary;
 }
@@ -162,6 +171,7 @@ export function NotebooksView({
   selectedNotebookTaskId,
   selectedNotebookInvestmentId,
   selectedNotebookCustomerId,
+  selectedNotebookCompetitorId,
   notebookTasks,
   notebookTaskProgress,
   notebookInvestments,
@@ -169,6 +179,9 @@ export function NotebooksView({
   notebookCustomers,
   notebookCustomerNotes,
   notebookCompetitors,
+  workspaceCompetitors,
+  notebookCompetitorNotes,
+  workspaceCompetitorNotes,
   selectedMeetingId,
   selectedAgendaItemId,
   isLive,
@@ -178,6 +191,7 @@ export function NotebooksView({
   onSelectNotebookTask,
   onSelectNotebookInvestment,
   onSelectNotebookCustomer,
+  onSelectNotebookCompetitor,
   onSelectMeeting,
   onSelectAgendaItem,
   onAddNotebook,
@@ -227,6 +241,9 @@ export function NotebooksView({
   onAddNotebookCompetitor,
   onUpdateNotebookCompetitor,
   onDeleteNotebookCompetitor,
+  onAddNotebookCompetitorNote,
+  onUpdateNotebookCompetitorNote,
+  onDeleteNotebookCompetitorNote,
   onSetNotebookOurSales,
   getNotebookDeleteSummary,
 }: NotebooksViewProps) {
@@ -330,6 +347,7 @@ export function NotebooksView({
         customers: notebookCustomers,
         customerNotes: notebookCustomerNotes,
         competitors: notebookCompetitors,
+        competitorNotes: notebookCompetitorNotes,
         agendaItems: meetingAgendaItems,
         agendaEntries: meetingAgendaEntries,
       }),
@@ -342,6 +360,7 @@ export function NotebooksView({
       notebookCustomers,
       notebookCustomerNotes,
       notebookCompetitors,
+      notebookCompetitorNotes,
       meetingAgendaItems,
       meetingAgendaEntries,
     ],
@@ -448,6 +467,10 @@ export function NotebooksView({
           await onDeleteNotebookCompetitor(pendingDestructiveDelete.id);
           toast.success("Competitor deleted");
           break;
+        case "competitorNote":
+          await onDeleteNotebookCompetitorNote(pendingDestructiveDelete.id);
+          toast.success("Note deleted");
+          break;
         case "agendaItem":
           await onDeleteAgendaItem(pendingDestructiveDelete.id);
           toast.success("Topic deleted");
@@ -474,6 +497,7 @@ export function NotebooksView({
     onDeleteNotebookCustomer,
     onDeleteNotebookCustomerNote,
     onDeleteNotebookCompetitor,
+    onDeleteNotebookCompetitorNote,
     onDeleteAgendaItem,
     onDeleteAgendaEntry,
   ]);
@@ -804,6 +828,11 @@ export function NotebooksView({
           customers={notebookCustomers}
           customerNotes={notebookCustomerNotes}
           competitors={notebookCompetitors}
+          workspaceCompetitors={workspaceCompetitors}
+          competitorNotes={notebookCompetitorNotes}
+          workspaceCompetitorNotes={workspaceCompetitorNotes}
+          allNotebooks={notebooks}
+          workspaceName={workspaceName}
           members={members}
           currentUserId={currentUserId}
           selectedNoteId={selectedNoteId}
@@ -811,6 +840,7 @@ export function NotebooksView({
           selectedTaskId={selectedNotebookTaskId}
           selectedInvestmentId={selectedNotebookInvestmentId}
           selectedCustomerId={selectedNotebookCustomerId}
+          selectedCompetitorId={selectedNotebookCompetitorId}
           isLive={isLive}
           isCreatingNote={isCreatingNote}
           onSelectNote={(id) => {
@@ -819,6 +849,7 @@ export function NotebooksView({
           onSelectTask={onSelectNotebookTask}
           onSelectInvestment={onSelectNotebookInvestment}
           onSelectCustomer={onSelectNotebookCustomer}
+          onSelectCompetitor={onSelectNotebookCompetitor}
           onCreateNote={() => void handleCreateNote()}
           onUpdateNote={onUpdateNote}
           onUpdateNotebook={(id, updates) => void onUpdateNotebook(id, updates)}
@@ -870,6 +901,11 @@ export function NotebooksView({
           onUpdateNotebookCompetitor={onUpdateNotebookCompetitor}
           onRequestDeleteNotebookCompetitor={(id) =>
             setPendingDestructiveDelete({ kind: "competitor", id })
+          }
+          onAddNotebookCompetitorNote={onAddNotebookCompetitorNote}
+          onUpdateNotebookCompetitorNote={onUpdateNotebookCompetitorNote}
+          onRequestDeleteNotebookCompetitorNote={(id) =>
+            setPendingDestructiveDelete({ kind: "competitorNote", id })
           }
           onSetNotebookOurSales={(value) =>
             selectedNotebookId ? onSetNotebookOurSales(value) : undefined

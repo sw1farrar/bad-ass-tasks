@@ -151,10 +151,12 @@ export function createNotebookSliceActions(get: Get, set: Set) {
         notebookInvestmentNotes?: Array<{ investmentId: string }>;
         notebookCustomers?: Array<{ notebookId: string; id: string }>;
         notebookCustomerNotes?: Array<{ customerId: string }>;
-        notebookCompetitors?: Array<{ notebookId: string }>;
+        notebookCompetitors?: Array<{ notebookId: string; id: string }>;
+        notebookCompetitorNotes?: Array<{ competitorId: string }>;
         selectedNotebookTaskId?: string | null;
         selectedNotebookInvestmentId?: string | null;
         selectedNotebookCustomerId?: string | null;
+        selectedNotebookCompetitorId?: string | null;
       };
       const removedTaskIds = new Set(
         (state.notebookTasks ?? []).filter((t) => t.notebookId === id).map((t) => t.id),
@@ -164,6 +166,9 @@ export function createNotebookSliceActions(get: Get, set: Set) {
       );
       const removedCustomerIds = new Set(
         (state.notebookCustomers ?? []).filter((c) => c.notebookId === id).map((c) => c.id),
+      );
+      const removedCompetitorIds = new Set(
+        (state.notebookCompetitors ?? []).filter((c) => c.notebookId === id).map((c) => c.id),
       );
       set((s) => ({
         notebooks: s.notebooks.filter((nb) => nb.id !== id),
@@ -186,6 +191,10 @@ export function createNotebookSliceActions(get: Get, set: Set) {
           ) ?? [],
         notebookCompetitors:
           (s as typeof state).notebookCompetitors?.filter((c) => c.notebookId !== id) ?? [],
+        notebookCompetitorNotes:
+          (s as typeof state).notebookCompetitorNotes?.filter(
+            (n) => !removedCompetitorIds.has(n.competitorId),
+          ) ?? [],
         selectedNotebookId: s.selectedNotebookId === id ? null : s.selectedNotebookId,
         selectedNotebookNoteId:
           s.selectedNotebookNoteId &&
@@ -205,6 +214,11 @@ export function createNotebookSliceActions(get: Get, set: Set) {
         )
           ? null
           : (s as typeof state).selectedNotebookCustomerId ?? null,
+        selectedNotebookCompetitorId: removedCompetitorIds.has(
+          (s as typeof state).selectedNotebookCompetitorId ?? "",
+        )
+          ? null
+          : (s as typeof state).selectedNotebookCompetitorId ?? null,
       }));
       if (workspaceId && shouldPersistNotebooks(workspaceId)) {
         void deleteNotebookSupabase(id, workspaceId);

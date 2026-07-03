@@ -25,6 +25,33 @@
   background: var(--bg);
 }
 
+@media (max-width: 767px) {
+  .meetings-workspace {
+    flex-direction: column;
+  }
+
+  .meetings-agenda-rail {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+  }
+
+  .meetings-mobile-topic-detail .meetings-agenda-rail {
+    display: none;
+  }
+
+  .meetings-workspace:not(.meetings-mobile-topic-detail) .meetings-topic-panel {
+    display: none;
+  }
+
+  .meetings-mobile-topic-detail .meetings-topic-panel {
+    flex: 1;
+    width: 100%;
+  }
+}
+
 .meeting-summary-view__canvas {
   flex: 1;
   overflow-y: auto;

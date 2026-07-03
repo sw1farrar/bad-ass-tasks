@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { ArrowRightCircle, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowRightCircle, CheckCircle2, ChevronLeft, RotateCcw, Trash2 } from "lucide-react";
 import { MeetingResponsiblePicker } from "@/components/MeetingResponsiblePicker";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
 import { MeetingEntryTimeline } from "./MeetingEntryTimeline";
@@ -22,6 +22,7 @@ interface MeetingTopicPanelProps {
   onAddEntry: (agendaItemId: string, body: string) => void | Promise<void>;
   onUpdateEntry?: (id: string, body: string) => void | Promise<unknown>;
   onRequestDeleteEntry?: (id: string) => void;
+  onBackToAgenda?: () => void;
 }
 
 export function MeetingTopicPanel({
@@ -39,6 +40,7 @@ export function MeetingTopicPanel({
   onAddEntry,
   onUpdateEntry,
   onRequestDeleteEntry,
+  onBackToAgenda,
 }: MeetingTopicPanelProps) {
   const [title, setTitle] = useState(item?.title ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
@@ -65,6 +67,16 @@ export function MeetingTopicPanel({
   return (
     <div className="meetings-topic-panel flex flex-col min-h-0">
       <div className="shrink-0 px-4 py-3 border-b border-border-glass space-y-3">
+        {onBackToAgenda ? (
+          <button
+            type="button"
+            onClick={onBackToAgenda}
+            className="flex items-center gap-1 min-h-[44px] text-sm font-medium text-neon-purple-tint -ml-1"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Agenda
+          </button>
+        ) : null}
         <div className="flex items-start gap-2">
           <input
             value={title}

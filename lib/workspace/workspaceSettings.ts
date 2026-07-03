@@ -2,11 +2,13 @@ export type WorkspaceSettings = {
   features?: {
     /** When true, shows the Notes nav item and notebooks workspace. */
     notesEnabled?: boolean;
+    /** When true, shows the Health nav item and health tracking workspace. */
+    healthEnabled?: boolean;
   };
 };
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
-  features: { notesEnabled: false },
+  features: { notesEnabled: false, healthEnabled: false },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -24,6 +26,10 @@ export function parseWorkspaceSettings(raw: unknown): WorkspaceSettings {
           typeof featuresRaw.notesEnabled === "boolean"
             ? featuresRaw.notesEnabled
             : DEFAULT_WORKSPACE_SETTINGS.features?.notesEnabled,
+        healthEnabled:
+          typeof featuresRaw.healthEnabled === "boolean"
+            ? featuresRaw.healthEnabled
+            : DEFAULT_WORKSPACE_SETTINGS.features?.healthEnabled,
       }
     : { ...DEFAULT_WORKSPACE_SETTINGS.features };
 
@@ -32,6 +38,10 @@ export function parseWorkspaceSettings(raw: unknown): WorkspaceSettings {
 
 export function isNotesFeatureEnabled(settings?: WorkspaceSettings | null): boolean {
   return settings?.features?.notesEnabled === true;
+}
+
+export function isHealthFeatureEnabled(settings?: WorkspaceSettings | null): boolean {
+  return settings?.features?.healthEnabled === true;
 }
 
 /** Deep-merge a partial settings patch onto existing settings. */

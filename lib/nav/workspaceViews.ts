@@ -1,6 +1,7 @@
 import {
   Check,
   FolderOpen,
+  HeartPulse,
   Home,
   ListChecks,
   Notebook,
@@ -9,7 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Workspace } from "@/types";
-import { isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
+import { isHealthFeatureEnabled, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 
 export type WorkspaceNavViewId =
   | "home"
@@ -17,6 +18,7 @@ export type WorkspaceNavViewId =
   | "notes"
   | "notebooks"
   | "lists"
+  | "health"
   | "teams"
   | "settings"
   | "admin";
@@ -35,6 +37,7 @@ const ALL_VIEWS: WorkspaceNavView[] = [
   { id: "notes", label: "Files", icon: FolderOpen },
   { id: "notebooks", label: "Notes", icon: Notebook },
   { id: "lists", label: "Lists", icon: ListChecks },
+  { id: "health", label: "Health", icon: HeartPulse },
   { id: "teams", label: "Team", icon: Users },
   {
     id: "settings",
@@ -46,6 +49,7 @@ const ALL_VIEWS: WorkspaceNavView[] = [
 
 function isViewVisible(id: WorkspaceNavViewId, workspace: Workspace): boolean {
   if (id === "notebooks") return isNotesFeatureEnabled(workspace.settings);
+  if (id === "health") return isHealthFeatureEnabled(workspace.settings);
   return true;
 }
 

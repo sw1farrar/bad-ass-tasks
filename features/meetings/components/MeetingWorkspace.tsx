@@ -2,6 +2,8 @@
 
 import React, { useMemo, useState } from "react";
 import { Calendar } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { toast } from "sonner";
 import type {
   Meeting,
@@ -99,6 +101,9 @@ export function MeetingWorkspace({
     [agendaEntries, selectedAgendaItemId],
   );
 
+  const isMobile = useIsMobileViewport();
+  const showMobileTopicDetail = isMobile && !!selectedAgendaItemId;
+
   const continuedCount = agendaItems.filter((i) => i.status === "continued").length;
   const openCount = agendaItems.filter(
     (i) => i.status === "open" || i.status === "in_progress",
@@ -151,7 +156,12 @@ export function MeetingWorkspace({
           }}
         />
       ) : (
-        <div className="meetings-workspace flex flex-1 min-h-0">
+        <div
+          className={cn(
+            "meetings-workspace flex flex-1 min-h-0",
+            showMobileTopicDetail && "meetings-mobile-topic-detail",
+          )}
+        >
           <MeetingAgendaRail
             items={agendaItems}
             members={members}
@@ -169,6 +179,7 @@ export function MeetingWorkspace({
           <MeetingTopicPanel
             meeting={meeting}
             item={selectedItem}
+            onBackToAgenda={showMobileTopicDetail ? () => onSelectAgendaItem(null) : undefined}
             entries={itemEntries}
             members={members}
             currentUserId={currentUserId}

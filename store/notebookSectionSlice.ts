@@ -1,6 +1,7 @@
 import type {
   Notebook,
   NotebookCompetitor,
+  NotebookCompetitorNote,
   NotebookCustomer,
   NotebookCustomerNote,
   NotebookInvestment,
@@ -13,12 +14,14 @@ import { generateClientId, isSupabaseLive, updateNotebook } from "@/lib/data/hyb
 import { sortProgressEntriesNewestFirst } from "@/lib/notebooks/progressEntries";
 import {
   createNotebookCompetitor as createCompetitorDb,
+  createNotebookCompetitorNote as createCompetitorNoteDb,
   createNotebookCustomer as createCustomerDb,
   createNotebookCustomerNote as createCustomerNoteDb,
   createNotebookInvestmentNote as createInvestmentNoteDb,
   createNotebookInvestment as createInvestmentDb,
   createNotebookTask as createTaskDb,
   createNotebookTaskProgress as createTaskProgressDb,
+  deleteNotebookCompetitorNote as deleteCompetitorNoteDb,
   deleteNotebookCustomerNote as deleteCustomerNoteDb,
   deleteNotebookInvestmentNote as deleteInvestmentNoteDb,
   deleteNotebookTaskProgress as deleteTaskProgressDb,
@@ -31,6 +34,7 @@ import {
   updateNotebookCompetitor as updateCompetitorDb,
   updateNotebookCustomer as updateCustomerDb,
   updateNotebookInvestment as updateInvestmentDb,
+  updateNotebookCompetitorNote as updateCompetitorNoteDb,
   updateNotebookCustomerNote as updateCustomerNoteDb,
   updateNotebookInvestmentNote as updateInvestmentNoteDb,
   updateNotebookTaskProgress as updateTaskProgressDb,
@@ -63,10 +67,12 @@ type SectionStoreSlice = {
   notebookCustomers: NotebookCustomer[];
   notebookCustomerNotes: NotebookCustomerNote[];
   notebookCompetitors: NotebookCompetitor[];
+  notebookCompetitorNotes: NotebookCompetitorNote[];
   notebooks: Notebook[];
   selectedNotebookTaskId: string | null;
   selectedNotebookInvestmentId: string | null;
   selectedNotebookCustomerId: string | null;
+  selectedNotebookCompetitorId: string | null;
 };
 
 type Get = () => SectionStoreSlice & {
@@ -124,10 +130,19 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       return sortByOrder(get().notebookCompetitors.filter((c) => c.notebookId === notebookId));
     },
 
+    getNotebookCompetitorNotes: (competitorId: string | null): NotebookCompetitorNote[] => {
+      if (!competitorId) return [];
+      return sortProgressEntriesNewestFirst(
+        get().notebookCompetitorNotes.filter((n) => n.competitorId === competitorId),
+      );
+    },
+
     setSelectedNotebookTaskId: (id: string | null) => set({ selectedNotebookTaskId: id }),
     setSelectedNotebookInvestmentId: (id: string | null) =>
       set({ selectedNotebookInvestmentId: id }),
     setSelectedNotebookCustomerId: (id: string | null) => set({ selectedNotebookCustomerId: id }),
+    setSelectedNotebookCompetitorId: (id: string | null) =>
+      set({ selectedNotebookCompetitorId: id }),
 
     addNotebookTask: async (notebookId: string, title = "New task") => {
       const workspaceId = wsId();
@@ -584,9 +599,64 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       const item = get().notebookCompetitors.find((c) => c.id === id);
       set((state) => ({
         notebookCompetitors: state.notebookCompetitors.filter((c) => c.id !== id),
+        notebookCompetitorNotes: state.notebookCompetitorNotes.filter((n) => n.competitorId !== id),
+        selectedNotebookCompetitorId:
+          state.selectedNotebookCompetitorId === id ? null : state.selectedNotebookCompetitorId,
       }));
       if (item && shouldPersist(item.workspaceId)) {
         void deleteCompetitorDb(id, item.workspaceId);
+      }
+    },
+
+    addNotebookCompetitorNote: async (competitorId: string, body: string) => {
+      const trimmed = body.trim();
+      if (!trimmed) return;
+      const competitor = get().notebookCompetitors.find((c) => c.id === competitorId);
+      if (!competitor) return;
+      const entry: NotebookCompetitorNote = {
+        id: newId(competitor.workspaceId),
+        competitorId,
+        body: trimmed,
+        authorId: get().user?.id ?? null,
+        createdAt: new Date().toISOString(),
+      };
+      set((state) => ({
+        notebookCompetitorNotes: [...state.notebookCompetitorNotes, entry],
+      }));
+      if (isLiveWorkspace(competitor.workspaceId)) {
+        await ensureNotebookSectionPersistenceReady();
+        void createCompetitorNoteDb({
+          id: entry.id,
+          competitorId,
+          body: trimmed,
+          authorId: entry.authorId,
+        });
+      }
+    },
+
+    updateNotebookCompetitorNote: async (id: string, body: string) => {
+      const trimmed = body.trim();
+      if (!trimmed) return;
+      const entry = get().notebookCompetitorNotes.find((n) => n.id === id);
+      if (!entry || entry.body === trimmed) return;
+      set((state) => ({
+        notebookCompetitorNotes: state.notebookCompetitorNotes.map((n) =>
+          n.id === id ? { ...n, body: trimmed } : n,
+        ),
+      }));
+      if (isLiveWorkspace(get().currentWorkspace.id)) {
+        void updateCompetitorNoteDb(id, trimmed);
+      }
+    },
+
+    deleteNotebookCompetitorNote: async (id: string) => {
+      const entry = get().notebookCompetitorNotes.find((n) => n.id === id);
+      if (!entry) return;
+      set((state) => ({
+        notebookCompetitorNotes: state.notebookCompetitorNotes.filter((n) => n.id !== id),
+      }));
+      if (isLiveWorkspace(get().currentWorkspace.id)) {
+        void deleteCompetitorNoteDb(id);
       }
     },
 

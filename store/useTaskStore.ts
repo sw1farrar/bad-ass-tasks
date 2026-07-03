@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
-import { parseWorkspaceSettings, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, NotebookCompetitorNote, HealthReading, HealthProfile, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
+import { parseWorkspaceSettings, isHealthFeatureEnabled, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -55,6 +55,11 @@ import {
   SAMPLE_AGENDA_ENTRIES,
   type MeetingSliceActions,
 } from "@/store/meetingSlice";
+import {
+  createHealthSliceActions,
+  type HealthSliceActions,
+} from "@/store/healthSlice";
+import { DEFAULT_HEALTH_SECTION_TAB, type HealthSectionTab } from "@/lib/health/healthSections";
 import {
   TASK_ASSIGNEE_ALL_LABEL,
   buildAssigneeBreakdown,
@@ -192,6 +197,11 @@ import {
   ensureNotebookSectionPersistenceReady,
   getNotebookSectionBundle,
 } from "@/lib/data/notebookSectionsStore";
+import {
+  areHealthTablesReady,
+  ensureHealthPersistenceReady,
+  getHealthBundle,
+} from "@/lib/data/healthStore";
 import { hasUnreadChatActivity } from "@/lib/chatReadState";
 import {
   markBroadcastChannelReady,
@@ -401,12 +411,12 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "health" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksFolderFilterMode = "all" | "none" | string;
 
-interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions {
+interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions, HealthSliceActions {
   // Data
   tasks: Task[];
   notes: Note[];
@@ -421,15 +431,21 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   notebookCustomers: NotebookCustomer[];
   notebookCustomerNotes: NotebookCustomerNote[];
   notebookCompetitors: NotebookCompetitor[];
+  notebookCompetitorNotes: NotebookCompetitorNote[];
   selectedNotebookTaskId: string | null;
   selectedNotebookInvestmentId: string | null;
   selectedNotebookCustomerId: string | null;
+  selectedNotebookCompetitorId: string | null;
   meetings: Meeting[];
   meetingAgendaItems: MeetingAgendaItem[];
   meetingAgendaEntries: MeetingAgendaEntry[];
   notesPageMode: NotesPageMode;
   selectedMeetingId: string | null;
   selectedAgendaItemId: string | null;
+  healthReadings: HealthReading[];
+  healthProfiles: HealthProfile[];
+  selectedHealthMemberId: string | "all";
+  healthSectionTab: HealthSectionTab;
   currentWorkspace: Workspace;
   workspaces: Workspace[];
   recentActivity: ActivityLog[];
@@ -989,15 +1005,21 @@ export const useTaskStore = create<TaskState>()(
       notebookCustomers: [],
       notebookCustomerNotes: [],
       notebookCompetitors: [],
+      notebookCompetitorNotes: [],
       selectedNotebookTaskId: null,
       selectedNotebookInvestmentId: null,
       selectedNotebookCustomerId: null,
+      selectedNotebookCompetitorId: null,
       meetings: SAMPLE_MEETINGS,
       meetingAgendaItems: SAMPLE_AGENDA_ITEMS,
       meetingAgendaEntries: SAMPLE_AGENDA_ENTRIES,
       notesPageMode: getInitialNotesPageMode(),
       selectedMeetingId: null,
       selectedAgendaItemId: null,
+      healthReadings: [],
+      healthProfiles: [],
+      selectedHealthMemberId: "all",
+      healthSectionTab: DEFAULT_HEALTH_SECTION_TAB,
       currentWorkspace: DEFAULT_WORKSPACE,
       workspaces: [
         DEFAULT_WORKSPACE,
@@ -1220,7 +1242,17 @@ export const useTaskStore = create<TaskState>()(
           get().updatePresenceMeta({ view: "home" });
           return;
         }
-        set({ currentView: resolved });
+        if (resolved === "health" && !isHealthFeatureEnabled(get().currentWorkspace.settings)) {
+          set({ currentView: "home" });
+          get().updatePresenceMeta({ view: "home" });
+          return;
+        }
+        set({
+          currentView: resolved,
+          ...(resolved === "tasks"
+            ? { taskFilter: { ...get().taskFilter, recurring: "incomplete" } }
+            : {}),
+        });
         // Realtime presence: update meta so collaborators see where you are (across views)
         get().updatePresenceMeta({ view: resolved });
       },
@@ -1269,6 +1301,7 @@ export const useTaskStore = create<TaskState>()(
           // Teardown prior realtime before switching context
           get().teardownWorkspaceRealtime();
 
+          const onTasksView = get().currentView === "tasks";
           set({
             currentWorkspace: ws,
             members: [],
@@ -1284,6 +1317,9 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookId: null,
             selectedNotebookNoteId: null,
             isInitializing: true,
+            ...(onTasksView
+              ? { taskFilter: { ...get().taskFilter, recurring: "incomplete" } }
+              : {}),
           });
           saveLastWorkspaceId(get().user?.id, id);
           // Re-initialize data when switching workspaces (important when using Supabase)
@@ -1445,6 +1481,7 @@ export const useTaskStore = create<TaskState>()(
           await ensureTaskFolderPersistenceReady();
           await ensureNotebookPersistenceReady();
           await ensureNotebookSectionPersistenceReady();
+          await ensureHealthPersistenceReady();
 
           const keptTaskFolders = get().taskFolders.filter((f) => f.workspaceId === workspaceId);
           const keptNotebooks = get().notebooks.filter((nb) => nb.workspaceId === workspaceId);
@@ -1462,6 +1499,9 @@ export const useTaskStore = create<TaskState>()(
           const keptNotebookCompetitors = get().notebookCompetitors.filter(
             (c) => c.workspaceId === workspaceId,
           );
+          const keptNotebookCompetitorNotes = get().notebookCompetitorNotes;
+          const keptHealthReadings = get().healthReadings.filter((r) => r.workspaceId === workspaceId);
+          const keptHealthProfiles = get().healthProfiles.filter((p) => p.workspaceId === workspaceId);
 
           const listsBundlePromise = getWorkspaceListsBundle(workspaceId).catch(() => ({
             lists: [] as WorkspaceList[],
@@ -1479,6 +1519,7 @@ export const useTaskStore = create<TaskState>()(
             realNotebooks,
             meetingBundle,
             notebookSectionBundle,
+            healthBundle,
           ] = await Promise.all([
             getTasks(workspaceId),
             getNotes(workspaceId),
@@ -1489,6 +1530,7 @@ export const useTaskStore = create<TaskState>()(
             getNotebooks(workspaceId),
             getMeetings(workspaceId),
             getNotebookSectionBundle(workspaceId),
+            getHealthBundle(workspaceId),
           ]);
 
           let nextLists = realLists;
@@ -1574,6 +1616,7 @@ export const useTaskStore = create<TaskState>()(
           let nextNotebookCustomers = notebookSectionBundle.customers;
           let nextNotebookCustomerNotes = notebookSectionBundle.customerNotes;
           let nextNotebookCompetitors = notebookSectionBundle.competitors;
+          let nextNotebookCompetitorNotes = notebookSectionBundle.competitorNotes;
           if (!areNotebookSectionTablesReady()) {
             nextNotebookTasks = keptNotebookTasks;
             nextNotebookTaskProgress = keptNotebookTaskProgress;
@@ -1582,6 +1625,7 @@ export const useTaskStore = create<TaskState>()(
             nextNotebookCustomers = keptNotebookCustomers;
             nextNotebookCustomerNotes = keptNotebookCustomerNotes;
             nextNotebookCompetitors = keptNotebookCompetitors;
+            nextNotebookCompetitorNotes = keptNotebookCompetitorNotes;
           }
           const otherWsNotebookTasks = get().notebookTasks.filter((t) => t.workspaceId !== workspaceId);
           const otherWsNotebookTaskProgress = get().notebookTaskProgress.filter((p) => {
@@ -1605,6 +1649,19 @@ export const useTaskStore = create<TaskState>()(
           const otherWsNotebookCompetitors = get().notebookCompetitors.filter(
             (c) => c.workspaceId !== workspaceId,
           );
+          const otherWsNotebookCompetitorNotes = get().notebookCompetitorNotes.filter((n) => {
+            const competitor = get().notebookCompetitors.find((c) => c.id === n.competitorId);
+            return competitor && competitor.workspaceId !== workspaceId;
+          });
+          let nextHealthReadings = healthBundle.readings;
+          let nextHealthProfiles = healthBundle.profiles;
+          if (!areHealthTablesReady()) {
+            nextHealthReadings = keptHealthReadings;
+            nextHealthProfiles = keptHealthProfiles;
+          }
+          const otherWsHealthReadings = get().healthReadings.filter((r) => r.workspaceId !== workspaceId);
+          const otherWsHealthProfiles = get().healthProfiles.filter((p) => p.workspaceId !== workspaceId);
+
           const otherWsMeetings = get().meetings.filter((m) => m.workspaceId !== workspaceId);
           const otherWsAgendaItems = get().meetingAgendaItems.filter((i) => {
             const meeting = get().meetings.find((m) => m.id === i.meetingId);
@@ -1655,9 +1712,15 @@ export const useTaskStore = create<TaskState>()(
             notebookCustomers: [...otherWsNotebookCustomers, ...nextNotebookCustomers],
             notebookCustomerNotes: [...otherWsNotebookCustomerNotes, ...nextNotebookCustomerNotes],
             notebookCompetitors: [...otherWsNotebookCompetitors, ...nextNotebookCompetitors],
+            notebookCompetitorNotes: [
+              ...otherWsNotebookCompetitorNotes,
+              ...nextNotebookCompetitorNotes,
+            ],
             meetings: [...otherWsMeetings, ...nextMeetings],
             meetingAgendaItems: [...otherWsAgendaItems, ...nextAgendaItems],
             meetingAgendaEntries: [...otherWsAgendaEntries, ...nextAgendaEntries],
+            healthReadings: [...otherWsHealthReadings, ...nextHealthReadings],
+            healthProfiles: [...otherWsHealthProfiles, ...nextHealthProfiles],
             recentActivity: realActivity,
             taskLoadingStates: {},
             pendingSyncCount: getPendingCount(),
@@ -3200,6 +3263,7 @@ export const useTaskStore = create<TaskState>()(
       ...createNotebookSliceActions(get, set),
 
       ...createNotebookSectionSliceActions(get, set),
+      ...createHealthSliceActions(get, set),
 
       ...createMeetingSliceActions(
         get as Parameters<typeof createMeetingSliceActions>[0],
@@ -4577,6 +4641,12 @@ export const useTaskStore = create<TaskState>()(
             ) {
               get().setView("home");
             }
+            if (
+              get().currentView === "health" &&
+              !isHealthFeatureEnabled(updated.settings)
+            ) {
+              get().setView("home");
+            }
           }
 
           toast.success("Workspace updated");
@@ -5454,6 +5524,7 @@ export const useTaskStore = create<TaskState>()(
             notebookCustomers: state.notebookCustomers,
             notebookCustomerNotes: state.notebookCustomerNotes,
             notebookCompetitors: state.notebookCompetitors,
+            notebookCompetitorNotes: state.notebookCompetitorNotes,
             meetings: state.meetings,
             meetingAgendaItems: state.meetingAgendaItems,
             meetingAgendaEntries: state.meetingAgendaEntries,
@@ -5465,6 +5536,7 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookTaskId: state.selectedNotebookTaskId,
             selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
             selectedNotebookCustomerId: state.selectedNotebookCustomerId,
+            selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
             selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
             theme: state.theme,
@@ -5486,6 +5558,7 @@ export const useTaskStore = create<TaskState>()(
           notebookCustomers: state.notebookCustomers,
           notebookCustomerNotes: state.notebookCustomerNotes,
           notebookCompetitors: state.notebookCompetitors,
+          notebookCompetitorNotes: state.notebookCompetitorNotes,
           meetings: state.meetings,
           meetingAgendaItems: state.meetingAgendaItems,
           meetingAgendaEntries: state.meetingAgendaEntries,
@@ -5496,6 +5569,7 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookTaskId: state.selectedNotebookTaskId,
           selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
           selectedNotebookCustomerId: state.selectedNotebookCustomerId,
+          selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
           selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
           myProfile: state.myProfile,
@@ -5528,6 +5602,12 @@ if (typeof window !== "undefined") {
     if (
       persistedView === "notebooks" &&
       !isNotesFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
+    ) {
+      useTaskStore.setState({ currentView: "home" });
+    }
+    if (
+      persistedView === "health" &&
+      !isHealthFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
     ) {
       useTaskStore.setState({ currentView: "home" });
     }

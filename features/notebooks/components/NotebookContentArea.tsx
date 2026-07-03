@@ -6,6 +6,7 @@ import type {
   Note,
   Notebook,
   NotebookCompetitor,
+  NotebookCompetitorNote,
   NotebookCustomer,
   NotebookCustomerNote,
   NotebookInvestment,
@@ -36,6 +37,11 @@ interface NotebookContentAreaProps {
   customers: NotebookCustomer[];
   customerNotes: NotebookCustomerNote[];
   competitors: NotebookCompetitor[];
+  workspaceCompetitors: NotebookCompetitor[];
+  competitorNotes: NotebookCompetitorNote[];
+  workspaceCompetitorNotes: NotebookCompetitorNote[];
+  allNotebooks: Notebook[];
+  workspaceName?: string;
   members: WorkspaceMember[];
   currentUserId?: string;
   selectedNoteId: string | null;
@@ -43,12 +49,14 @@ interface NotebookContentAreaProps {
   selectedTaskId: string | null;
   selectedInvestmentId: string | null;
   selectedCustomerId: string | null;
+  selectedCompetitorId: string | null;
   isLive: boolean;
   isCreatingNote?: boolean;
   onSelectNote: (id: string) => void;
   onSelectTask: (id: string | null) => void;
   onSelectInvestment: (id: string | null) => void;
   onSelectCustomer: (id: string | null) => void;
+  onSelectCompetitor: (id: string | null) => void;
   onCreateNote: () => void;
   onUpdateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   onDeleteNote: (id: string) => Promise<boolean | null>;
@@ -82,6 +90,9 @@ interface NotebookContentAreaProps {
     updates: { name?: string; salesPotential?: number },
   ) => void | Promise<unknown>;
   onRequestDeleteNotebookCompetitor: (id: string) => void;
+  onAddNotebookCompetitorNote: (competitorId: string, body: string) => void | Promise<unknown>;
+  onUpdateNotebookCompetitorNote: (id: string, body: string) => void | Promise<unknown>;
+  onRequestDeleteNotebookCompetitorNote: (id: string) => void;
   onSetNotebookOurSales: (value: number) => void | Promise<unknown>;
   focusTitleNoteId?: string | null;
   onTitleFocusConsumed?: () => void;
@@ -101,6 +112,11 @@ export function NotebookContentArea({
   customers,
   customerNotes,
   competitors,
+  workspaceCompetitors,
+  competitorNotes,
+  workspaceCompetitorNotes,
+  allNotebooks,
+  workspaceName,
   members,
   currentUserId,
   selectedNoteId,
@@ -108,12 +124,14 @@ export function NotebookContentArea({
   selectedTaskId,
   selectedInvestmentId,
   selectedCustomerId,
+  selectedCompetitorId,
   isLive,
   isCreatingNote,
   onSelectNote,
   onSelectTask,
   onSelectInvestment,
   onSelectCustomer,
+  onSelectCompetitor,
   onCreateNote,
   onUpdateNote,
   onDeleteNote,
@@ -144,6 +162,9 @@ export function NotebookContentArea({
   onAddNotebookCompetitor,
   onUpdateNotebookCompetitor,
   onRequestDeleteNotebookCompetitor,
+  onAddNotebookCompetitorNote,
+  onUpdateNotebookCompetitorNote,
+  onRequestDeleteNotebookCompetitorNote,
   onSetNotebookOurSales,
   focusTitleNoteId,
   onTitleFocusConsumed,
@@ -154,7 +175,6 @@ export function NotebookContentArea({
   const [noteSearchQuery, setNoteSearchQuery] = useState("");
 
   useEffect(() => {
-    setActiveTab(DEFAULT_NOTEBOOK_SECTION_TAB);
     setNoteSearchQuery("");
   }, [notebook?.id]);
 
@@ -268,12 +288,25 @@ export function NotebookContentArea({
 
       {activeTab === "competitors" && (
         <NotebookCompetitorsPanel
+          notebookId={notebook.id}
           competitors={competitors}
+          workspaceCompetitors={workspaceCompetitors}
+          workspaceCompetitorNotes={workspaceCompetitorNotes}
+          notebooks={allNotebooks}
+          workspaceName={workspaceName}
+          notes={competitorNotes}
+          members={members}
+          currentUserId={currentUserId}
           ourSales={notebook.ourSales ?? 0}
+          selectedCompetitorId={selectedCompetitorId}
+          onSelectCompetitor={onSelectCompetitor}
           onOurSalesChange={onSetNotebookOurSales}
           onAdd={onAddNotebookCompetitor}
           onUpdate={onUpdateNotebookCompetitor}
           onRequestDelete={onRequestDeleteNotebookCompetitor}
+          onAddNote={onAddNotebookCompetitorNote}
+          onUpdateNote={onUpdateNotebookCompetitorNote}
+          onRequestDeleteNote={onRequestDeleteNotebookCompetitorNote}
         />
       )}
     </div>

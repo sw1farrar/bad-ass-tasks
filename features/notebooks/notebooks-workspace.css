@@ -5,7 +5,12 @@
 
 .main-content:has(.notebooks-root) {
   padding: 0;
-  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .main-content:has(.notebooks-root) {
+    overflow: hidden;
+  }
 }
 
 .notebooks-section-menu {
@@ -102,6 +107,32 @@
 }
 
 @media (max-width: 767px) {
+  .main-content:has(.notebooks-root.files-mobile-detail) {
+    overflow: hidden;
+  }
+
+  .notebooks-section-panel .overflow-y-auto {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
+  }
+
+  .notebooks-root.notebooks-mobile-note-detail .notes-editor-scroll-body {
+    padding-left: max(0.75rem, env(safe-area-inset-left, 12px));
+    padding-right: max(0.75rem, env(safe-area-inset-right, 12px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 10px));
+  }
+
+  .notebooks-root.notebooks-mobile-note-detail .notes-editor-scroll-body .ProseMirror > table {
+    display: block;
+    width: max-content;
+    max-width: none;
+    overflow-x: auto;
+  }
+
+  .notebooks-root.notebooks-mobile-note-detail .notes-editor-scroll-body pre {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
   /* Notebook selected, no note: full-width note list only. */
   .notebooks-root.files-mobile-detail:not(.notebooks-mobile-note-detail) .notebooks-notes-panel {
     flex-direction: column;

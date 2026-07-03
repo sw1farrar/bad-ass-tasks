@@ -2,6 +2,7 @@ import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { logError, logger } from "@/lib/logger";
 import type {
   NotebookCompetitor,
+  NotebookCompetitorNote,
   NotebookCustomer,
   NotebookCustomerNote,
   NotebookInvestment,
@@ -82,6 +83,7 @@ export interface NotebookSectionBundle {
   customers: NotebookCustomer[];
   customerNotes: NotebookCustomerNote[];
   competitors: NotebookCompetitor[];
+  competitorNotes: NotebookCompetitorNote[];
 }
 
 type TaskRow = {
@@ -148,6 +150,14 @@ type CompetitorRow = {
   sort_order: number;
   created_at: string;
   updated_at: string;
+};
+
+type CompetitorNoteRow = {
+  id: string;
+  competitor_id: string;
+  body: string;
+  author_id: string | null;
+  created_at: string;
 };
 
 function mapTask(row: TaskRow): NotebookTask {
@@ -230,6 +240,16 @@ function mapCompetitor(row: CompetitorRow): NotebookCompetitor {
   };
 }
 
+function mapCompetitorNote(row: CompetitorNoteRow): NotebookCompetitorNote {
+  return {
+    id: row.id,
+    competitorId: row.competitor_id,
+    body: row.body,
+    authorId: row.author_id,
+    createdAt: row.created_at,
+  };
+}
+
 export async function getNotebookSectionBundle(workspaceId: string): Promise<NotebookSectionBundle> {
   const empty: NotebookSectionBundle = {
     tasks: [],
@@ -239,43 +259,56 @@ export async function getNotebookSectionBundle(workspaceId: string): Promise<Not
     customers: [],
     customerNotes: [],
     competitors: [],
+    competitorNotes: [],
   };
   if (!isLiveWorkspace(workspaceId) || !isOnline()) return empty;
   const supabase = getClient();
   if (!supabase) return empty;
 
   try {
-    const [tasksRes, progressRes, investmentsRes, investmentNotesRes, customersRes, notesRes, competitorsRes] =
-      await Promise.all([
-        (supabase.from("notebook_tasks") as any)
-          .select("*")
-          .eq("workspace_id", workspaceId)
-          .order("sort_order", { ascending: true }),
-        (supabase.from("notebook_task_progress") as any)
-          .select("*, notebook_tasks!inner(workspace_id)")
-          .eq("notebook_tasks.workspace_id", workspaceId)
-          .order("created_at", { ascending: true }),
-        (supabase.from("notebook_investments") as any)
-          .select("*")
-          .eq("workspace_id", workspaceId)
-          .order("sort_order", { ascending: true }),
-        (supabase.from("notebook_investment_notes") as any)
-          .select("*, notebook_investments!inner(workspace_id)")
-          .eq("notebook_investments.workspace_id", workspaceId)
-          .order("created_at", { ascending: true }),
-        (supabase.from("notebook_customers") as any)
-          .select("*")
-          .eq("workspace_id", workspaceId)
-          .order("account_name", { ascending: true }),
-        (supabase.from("notebook_customer_notes") as any)
-          .select("*, notebook_customers!inner(workspace_id)")
-          .eq("notebook_customers.workspace_id", workspaceId)
-          .order("created_at", { ascending: true }),
-        (supabase.from("notebook_competitors") as any)
-          .select("*")
-          .eq("workspace_id", workspaceId)
-          .order("sort_order", { ascending: true }),
-      ]);
+    const [
+      tasksRes,
+      progressRes,
+      investmentsRes,
+      investmentNotesRes,
+      customersRes,
+      notesRes,
+      competitorsRes,
+      competitorNotesRes,
+    ] = await Promise.all([
+      (supabase.from("notebook_tasks") as any)
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("sort_order", { ascending: true }),
+      (supabase.from("notebook_task_progress") as any)
+        .select("*, notebook_tasks!inner(workspace_id)")
+        .eq("notebook_tasks.workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
+      (supabase.from("notebook_investments") as any)
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("sort_order", { ascending: true }),
+      (supabase.from("notebook_investment_notes") as any)
+        .select("*, notebook_investments!inner(workspace_id)")
+        .eq("notebook_investments.workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
+      (supabase.from("notebook_customers") as any)
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("account_name", { ascending: true }),
+      (supabase.from("notebook_customer_notes") as any)
+        .select("*, notebook_customers!inner(workspace_id)")
+        .eq("notebook_customers.workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
+      (supabase.from("notebook_competitors") as any)
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("sort_order", { ascending: true }),
+      (supabase.from("notebook_competitor_notes") as any)
+        .select("*, notebook_competitors!inner(workspace_id)")
+        .eq("notebook_competitors.workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
+    ]);
 
     const firstError =
       tasksRes.error ||
@@ -305,6 +338,10 @@ export async function getNotebookSectionBundle(workspaceId: string): Promise<Not
       ? []
       : (notesRes.data ?? []).map((row: CustomerNoteRow) => mapCustomerNote(row));
 
+    const competitorNotes = competitorNotesRes.error
+      ? []
+      : (competitorNotesRes.data ?? []).map((row: CompetitorNoteRow) => mapCompetitorNote(row));
+
     return {
       tasks: (tasksRes.data ?? []).map((row: TaskRow) => mapTask(row)),
       taskProgress,
@@ -313,6 +350,7 @@ export async function getNotebookSectionBundle(workspaceId: string): Promise<Not
       customers: (customersRes.data ?? []).map((row: CustomerRow) => mapCustomer(row)),
       customerNotes,
       competitors: (competitorsRes.data ?? []).map((row: CompetitorRow) => mapCompetitor(row)),
+      competitorNotes,
     };
   } catch (err) {
     logStoreError("getNotebookSectionBundle", err);
@@ -740,6 +778,66 @@ export async function deleteNotebookCustomerNote(id: string): Promise<boolean> {
     return !error;
   } catch (err) {
     logStoreError("deleteNotebookCustomerNote", err);
+    return false;
+  }
+}
+
+export async function createNotebookCompetitorNote(input: {
+  id?: string;
+  competitorId: string;
+  body: string;
+  authorId?: string | null;
+}): Promise<boolean> {
+  if (!isOnline()) return true;
+  const supabase = getClient();
+  if (!supabase) return false;
+  const payload = {
+    id: input.id || generateClientId(),
+    competitor_id: input.competitorId,
+    body: input.body,
+    author_id: input.authorId ?? null,
+    created_at: new Date().toISOString(),
+  };
+  try {
+    const { error } = await (supabase.from("notebook_competitor_notes") as any).insert(payload);
+    if (error) {
+      if (isSchemaTableMissing(error)) markMissing();
+      else logStoreError("createNotebookCompetitorNote", error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logStoreError("createNotebookCompetitorNote", err);
+    return false;
+  }
+}
+
+export async function updateNotebookCompetitorNote(id: string, body: string): Promise<boolean> {
+  if (!isOnline()) return true;
+  const supabase = getClient();
+  if (!supabase) return false;
+  try {
+    const { error } = await (supabase.from("notebook_competitor_notes") as any)
+      .update({ body })
+      .eq("id", id);
+    if (error) logStoreError("updateNotebookCompetitorNote", error);
+    return !error;
+  } catch (err) {
+    logStoreError("updateNotebookCompetitorNote", err);
+    return false;
+  }
+}
+
+export async function deleteNotebookCompetitorNote(id: string): Promise<boolean> {
+  if (!isOnline()) return true;
+  const supabase = getClient();
+  if (!supabase) return false;
+  try {
+    const { error } = await (supabase.from("notebook_competitor_notes") as any).delete().eq("id", id);
+    if (error) logStoreError("deleteNotebookCompetitorNote", error);
+    return !error;
+  } catch (err) {
+    logStoreError("deleteNotebookCompetitorNote", err);
     return false;
   }
 }

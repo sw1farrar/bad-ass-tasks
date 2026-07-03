@@ -170,6 +170,48 @@ export interface NotebookCompetitor {
   updatedAt: string;
 }
 
+export interface NotebookCompetitorNote {
+  id: string;
+  competitorId: string;
+  body: string;
+  authorId?: string | null;
+  createdAt: string;
+}
+
+export type HealthMetricType =
+  | "weight"
+  | "body_fat"
+  | "muscle_mass"
+  | "waist"
+  | "blood_pressure_systolic"
+  | "resting_hr"
+  | "sleep_hours"
+  | "steps"
+  | "active_minutes"
+  | "calories_burned";
+
+export interface HealthReading {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  metricType: HealthMetricType;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  note?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface HealthProfile {
+  workspaceId: string;
+  userId: string;
+  heightCm?: number | null;
+  weightGoal?: number | null;
+  weightUnit: string;
+  updatedAt: string;
+}
+
 export type MeetingStatus = "draft" | "scheduled" | "in_progress" | "completed";
 export type AgendaItemStatus = "open" | "in_progress" | "completed" | "continued";
 export type NotesPageMode = "notes" | "meetings";
