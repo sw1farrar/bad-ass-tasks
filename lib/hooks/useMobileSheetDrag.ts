@@ -80,6 +80,13 @@ export function useMobileSheetDrag(options: {
     onDismiss();
   }, [onDismiss]);
 
+  const requestDismiss = useCallback((velocityY = 0) => {
+    setIsDragging(false);
+    pointerRef.current = null;
+    setDismissVelocity(Math.max(0, velocityY));
+    setIsDismissing(true);
+  }, []);
+
   const releaseCapture = useCallback((state: PointerDragState, pointerId: number) => {
     if (state.captureEl?.hasPointerCapture?.(pointerId)) {
       state.captureEl.releasePointerCapture(pointerId);
@@ -440,6 +447,7 @@ export function useMobileSheetDrag(options: {
     isDragging,
     isDismissing,
     dismissVelocity,
+    requestDismiss,
     completeDismiss,
     backdropOpacity,
     dragControls,

@@ -192,16 +192,16 @@ export function ListDetailModal({
     applyListColorToPanel(panelRef.current);
   }, [isOpen, applyListColorToPanel, list?.color, list?.id, theme]);
 
-  const handleClose = useCallback(() => {
-    if (isMobile) triggerHaptic("light");
+  const finalizeClose = useCallback(() => {
     onClose();
-  }, [isMobile, onClose]);
+  }, [onClose]);
 
   const {
     dragY,
     isDragging,
     isDismissing,
     dismissVelocity,
+    requestDismiss,
     completeDismiss,
     backdropOpacity,
     resetDrag,
@@ -217,10 +217,19 @@ export function ListDetailModal({
     dragElastic,
   } = useMobileSheetDrag({
     enabled: isMobile && isOpen,
-    onDismiss: handleClose,
+    onDismiss: finalizeClose,
     dragMode: "handle",
     dragEngine: "manual",
   });
+
+  const handleClose = useCallback(() => {
+    if (isMobile) {
+      triggerHaptic("light");
+      requestDismiss();
+      return;
+    }
+    onClose();
+  }, [isMobile, onClose, requestDismiss]);
 
   const sheetDragConfig = useMemo(
     () => ({
@@ -234,7 +243,7 @@ export function ListDetailModal({
   );
 
   useLayoutEffect(() => {
-    if (!isMobile || !isOpen) return;
+    if (!isMobile || !isOpen || isDismissing) return;
     const cleanupSurface = attachCaptureDragSurface(sheetSurfaceRef.current, {
       ...sheetDragConfig,
       scrollDismissSelector: ".list-detail-scroll",
@@ -250,8 +259,15 @@ export function ListDetailModal({
     sheetDragConfig,
     isMobile,
     isOpen,
+    isDismissing,
     list?.id,
   ]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    dismissAnimationDoneRef.current = false;
+    resetDrag();
+  }, [list?.id, isOpen, resetDrag]);
 
   const blurSheetInputs = useCallback(() => {
     const active = document.activeElement;
@@ -272,7 +288,7 @@ export function ListDetailModal({
     if (isDismissing) dismissAnimationDoneRef.current = false;
   }, [isDismissing]);
 
-  useScrollLock(isOpen);
+  useScrollLock(isMobile ? isOpen && !isDismissing : isOpen);
 
   useEffect(() => {
     if (!isOpen) {
@@ -310,6 +326,7 @@ export function ListDetailModal({
           className={cn(
             "list-detail-modal-root fixed inset-0 z-[200] flex p-0",
             isMobile ? "flex-col justify-end" : "items-center justify-center p-4 sm:p-6",
+            isMobile && isDismissing && "pointer-events-none",
           )}
         >
           <motion.div
@@ -326,7 +343,9 @@ export function ListDetailModal({
             transition={
               isMobile && (isDragging || (dragY > 0 && !isDismissing))
                 ? { duration: 0 }
-                : { duration: 0.22, ease: "easeOut" }
+                : isMobile && isDismissing
+                  ? { duration: 0.2, ease: "easeOut" }
+                  : { duration: 0.22, ease: "easeOut" }
             }
             onClick={handleClose}
             aria-hidden="true"
