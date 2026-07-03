@@ -17,7 +17,7 @@ import {
   isListDetailSheetDragTarget,
   isListDetailTitleLabelTarget,
 } from "@/lib/motion/sheetDragTarget";
-import { SheetDragHandle } from "@/components/SheetDragHandle";
+
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import type { ListItem, WorkspaceList } from "@/types";
 import {
@@ -205,7 +205,6 @@ export function ListDetailModal({
     completeDismiss,
     backdropOpacity,
     resetDrag,
-    startDrag,
     attachCaptureDragSurface,
     attachScrollDismiss,
     handleDragEnd,
@@ -402,19 +401,13 @@ export function ListDetailModal({
               }}
             >
             <div className="list-header-band shrink-0">
-              {isMobile && (
-                <SheetDragHandle
-                  onPointerDown={startDrag}
-                  showChevron
-                  className="list-detail-sheet-handle"
-                />
-              )}
-
               <header
                 className={cn(
-                  "list-detail-header flex items-start gap-2 py-3",
+                  "list-detail-header flex items-start gap-2",
                   safeX,
-                  isMobile ? "px-3 pt-[max(0.5rem,env(safe-area-inset-top))]" : "px-4 py-3.5",
+                  isMobile
+                    ? "list-detail-header--mobile px-3 pb-2"
+                    : "px-4 py-3.5",
                 )}
               >
                 {isMobile && (
@@ -428,18 +421,39 @@ export function ListDetailModal({
                   </button>
                 )}
 
-                <div className="min-w-0 flex-1 flex flex-col items-start">
+                <div
+                  className={cn(
+                    "min-w-0 flex-1",
+                    isMobile
+                      ? "list-detail-title-stack flex flex-wrap items-center gap-x-2 gap-y-0.5"
+                      : "flex flex-col items-start",
+                  )}
+                >
                   {list.isShared ? (
                     <SharedListBadge
                       sourceWorkspaceName={list.sourceWorkspaceName}
                       sharedByName={list.sharedByName}
-                      className="mb-1"
+                      className={isMobile ? "mb-0" : "mb-1"}
                     />
                   ) : null}
                   {list.pinned && !list.isShared ? (
-                    <div className="list-header-badge list-card-pinned-badge mb-1">Pinned</div>
+                    <div
+                      className={cn(
+                        "list-header-badge list-card-pinned-badge shrink-0",
+                        !isMobile && "mb-1",
+                      )}
+                    >
+                      Pinned
+                    </div>
                   ) : null}
-                  <div className="list-card-title-row list-detail-title-row inline-flex max-w-full items-baseline gap-2">
+                  <div
+                    className={cn(
+                      "list-card-title-row list-detail-title-row min-w-0",
+                      isMobile
+                        ? "inline-flex max-w-full items-center"
+                        : "inline-flex max-w-full items-baseline gap-2",
+                    )}
+                  >
                     {titleEditMode ? (
                       <div className="list-header-title-field list-detail-title-field min-w-0 max-w-full w-fit">
                         <input

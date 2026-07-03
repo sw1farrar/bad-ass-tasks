@@ -3109,6 +3109,14 @@
       0 -2px 0 color-mix(in srgb, var(--list-border, #ffffff) 24%, transparent 76%) inset !important;
   }
 
+  .list-detail-modal.list-detail-sheet--mobile .list-detail-header--mobile {
+    padding-top: max(0.375rem, env(safe-area-inset-top, 0px));
+  }
+
+  .list-detail-modal.list-detail-sheet--mobile .list-detail-title-stack .list-header-badge {
+    margin-bottom: 0;
+  }
+
   .list-detail-modal .list-item-text,
   .lists-root .list-item-text--editable,
   .lists-root textarea.list-item-text {
