@@ -714,7 +714,10 @@ export function ListCardBody({
           {addItemRow}
           <div
             ref={listScrollRef}
-            className="list-detail-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            className={cn(
+              "list-detail-scroll min-h-0 flex-1 overflow-y-auto",
+              mobileDetail ? "list-detail-scroll--mobile-sheet" : "overscroll-contain",
+            )}
           >
             {editableItemsList}
           </div>

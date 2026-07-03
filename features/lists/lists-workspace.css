@@ -2061,6 +2061,16 @@
   user-select: none;
 }
 
+.list-detail-scroll--mobile-sheet {
+  touch-action: pan-y;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.list-detail-scroll--mobile-sheet[data-sheet-dismiss-ready="true"] {
+  touch-action: none;
+}
+
 .list-detail-sheet-dragging,
 .list-detail-sheet-dragging .list-detail-scroll {
   touch-action: none;
@@ -2068,6 +2078,13 @@
 
 .list-detail-sheet-dragging .list-detail-scroll {
   overflow: hidden;
+}
+
+.list-detail-modal .list-item-text-field--display {
+  flex: 1 1 0%;
+  min-width: 0;
+  width: auto;
+  align-self: stretch;
 }
 
 .list-detail-sheet-drag-zone .list-item-text--display-clickable,

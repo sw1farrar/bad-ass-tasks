@@ -199,6 +199,7 @@ export function ListDetailModal({
     resetDrag,
     startDrag,
     attachCaptureDragSurface,
+    attachScrollDismiss,
     handleDragEnd,
     handleDrag,
     drag,
@@ -227,8 +228,23 @@ export function ListDetailModal({
 
   useLayoutEffect(() => {
     if (!isMobile || !isOpen) return;
-    return attachCaptureDragSurface(sheetSurfaceRef.current, sheetDragConfig);
-  }, [attachCaptureDragSurface, sheetDragConfig, isMobile, isOpen, list?.id]);
+    const cleanupSurface = attachCaptureDragSurface(sheetSurfaceRef.current, {
+      ...sheetDragConfig,
+      scrollDismissSelector: ".list-detail-scroll",
+    });
+    const cleanupScroll = attachScrollDismiss(listScrollRef.current, sheetDragConfig);
+    return () => {
+      cleanupSurface?.();
+      cleanupScroll?.();
+    };
+  }, [
+    attachCaptureDragSurface,
+    attachScrollDismiss,
+    sheetDragConfig,
+    isMobile,
+    isOpen,
+    list?.id,
+  ]);
 
   const blurSheetInputs = useCallback(() => {
     const active = document.activeElement;

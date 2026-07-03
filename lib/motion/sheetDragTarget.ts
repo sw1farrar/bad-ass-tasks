@@ -14,6 +14,7 @@ export const SHEET_DRAG_BLOCKER_SELECTOR = [
 
 export function isSheetDragBlockedTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return true;
+  if (target.closest('textarea[readonly].list-item-text--editable')) return false;
   return Boolean(target.closest(SHEET_DRAG_BLOCKER_SELECTOR));
 }
 

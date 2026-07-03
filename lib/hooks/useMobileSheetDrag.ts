@@ -10,13 +10,14 @@ import { isSheetDragBlockedTarget } from "@/lib/motion/sheetDragTarget";
 
 const TAP_SLOP_PX = 10;
 const DRAG_SLOP_PX = 8;
+const SCROLL_TOP_EPSILON = 1;
 
 type DeferredDragConfig = {
   getScrollEl?: () => HTMLElement | null;
   canStart?: (target: EventTarget) => boolean;
   onTap?: () => void;
   onTapFromTarget?: (target: EventTarget) => (() => void) | undefined;
-  /** When true, only touches inside this selector require scrollTop === 0. */
+  /** When set, only touches inside this selector require scrollTop === 0. */
   scrollGateSelector?: string;
 };
 
@@ -28,11 +29,17 @@ type PointerDragState = {
   requireScrollTop: boolean;
   onTap?: () => void;
   dragging: boolean;
+  armed: boolean;
   lastY: number;
   lastT: number;
   velocityY: number;
   captureEl: HTMLElement | null;
+  getScrollEl?: () => HTMLElement | null;
 };
+
+function readScrollTop(getScrollEl?: () => HTMLElement | null, fallback = 0): number {
+  return getScrollEl?.()?.scrollTop ?? fallback;
+}
 
 export function useMobileSheetDrag(options: {
   enabled: boolean;
@@ -61,6 +68,12 @@ export function useMobileSheetDrag(options: {
     setDragY(0);
     setIsDragging(false);
     pointerRef.current = null;
+  }, []);
+
+  const releaseCapture = useCallback((state: PointerDragState, pointerId: number) => {
+    if (state.captureEl?.hasPointerCapture?.(pointerId)) {
+      state.captureEl.releasePointerCapture(pointerId);
+    }
   }, []);
 
   const finishDrag = useCallback(
@@ -94,6 +107,7 @@ export function useMobileSheetDrag(options: {
       e: PointerEvent | ReactPointerEvent,
       config: {
         immediate?: boolean;
+        armAtScrollTop?: boolean;
         getScrollEl?: () => HTMLElement | null;
         scrollGateSelector?: string;
         onTap?: () => void;
@@ -102,7 +116,10 @@ export function useMobileSheetDrag(options: {
       },
     ) => {
       if (!enabled || e.button !== 0) return;
-      if (!config.immediate) {
+      if (!config.immediate && !config.armAtScrollTop) {
+        if (isSheetDragBlockedTarget(e.target)) return;
+        if (config.canStart && (!e.target || !config.canStart(e.target))) return;
+      } else if (!config.immediate) {
         if (isSheetDragBlockedTarget(e.target)) return;
         if (config.canStart && (!e.target || !config.canStart(e.target))) return;
       }
@@ -112,7 +129,9 @@ export function useMobileSheetDrag(options: {
         config.scrollGateSelector &&
         target instanceof Element &&
         Boolean(target.closest(config.scrollGateSelector));
-      const scrollTop = inScrollGate ? (config.getScrollEl?.()?.scrollTop ?? 0) : 0;
+      const scrollTop = inScrollGate ? readScrollTop(config.getScrollEl) : 0;
+
+      const captureEl = config.captureEl ?? null;
 
       pointerRef.current = {
         pointerId: e.pointerId,
@@ -122,15 +141,23 @@ export function useMobileSheetDrag(options: {
         requireScrollTop: Boolean(inScrollGate),
         onTap: config.onTap,
         dragging: Boolean(config.immediate),
+        armed: Boolean(config.armAtScrollTop),
         lastY: e.clientY,
         lastT: performance.now(),
         velocityY: 0,
-        captureEl: config.captureEl ?? null,
+        captureEl,
+        getScrollEl: config.getScrollEl,
       };
 
       if (config.immediate) {
         setIsDragging(true);
-        config.captureEl?.setPointerCapture?.(e.pointerId);
+        captureEl?.setPointerCapture?.(e.pointerId);
+        return;
+      }
+
+      if (config.armAtScrollTop && captureEl) {
+        captureEl.setPointerCapture?.(e.pointerId);
+        if (e.cancelable) e.preventDefault();
       }
     },
     [enabled],
@@ -145,26 +172,40 @@ export function useMobileSheetDrag(options: {
       const dx = e.clientX - state.startX;
 
       if (!state.dragging) {
-        if (Math.abs(dy) <= DRAG_SLOP_PX && Math.abs(dx) <= DRAG_SLOP_PX) return;
-        if (Math.abs(dy) < Math.abs(dx)) {
-          pointerRef.current = null;
-          return;
-        }
-        if (dy < 0) {
-          pointerRef.current = null;
-          return;
-        }
-        if (state.requireScrollTop && state.scrollTop > 1) {
-          pointerRef.current = null;
-          return;
-        }
+        if (state.armed) {
+          if (dy <= 0) return;
+          const liveScrollTop = readScrollTop(state.getScrollEl, state.scrollTop);
+          if (liveScrollTop > SCROLL_TOP_EPSILON) {
+            releaseCapture(state, e.pointerId);
+            pointerRef.current = null;
+            return;
+          }
+          state.armed = false;
+          state.dragging = true;
+          setIsDragging(true);
+        } else {
+          if (Math.abs(dy) <= DRAG_SLOP_PX && Math.abs(dx) <= DRAG_SLOP_PX) return;
+          if (Math.abs(dy) < Math.abs(dx)) {
+            pointerRef.current = null;
+            return;
+          }
+          if (dy < 0) {
+            pointerRef.current = null;
+            return;
+          }
+          const liveScrollTop = readScrollTop(state.getScrollEl, state.scrollTop);
+          if (state.requireScrollTop && liveScrollTop > SCROLL_TOP_EPSILON) {
+            pointerRef.current = null;
+            return;
+          }
 
-        state.dragging = true;
-        setIsDragging(true);
-        state.captureEl?.setPointerCapture?.(e.pointerId);
+          state.dragging = true;
+          setIsDragging(true);
+          state.captureEl?.setPointerCapture?.(e.pointerId);
+        }
       }
 
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
 
       const now = performance.now();
       const dt = Math.max(1, now - state.lastT);
@@ -173,7 +214,7 @@ export function useMobileSheetDrag(options: {
       state.lastT = now;
       setDragY(Math.max(0, dy));
     },
-    [],
+    [releaseCapture],
   );
 
   const endPointerDrag = useCallback(
@@ -184,10 +225,7 @@ export function useMobileSheetDrag(options: {
       const dy = e.clientY - state.startY;
       const dx = e.clientX - state.startX;
       pointerRef.current = null;
-
-      if (state.captureEl?.hasPointerCapture?.(e.pointerId)) {
-        state.captureEl.releasePointerCapture(e.pointerId);
-      }
+      releaseCapture(state, e.pointerId);
 
       if (state.dragging) {
         finishDrag(dy, state.velocityY);
@@ -198,17 +236,22 @@ export function useMobileSheetDrag(options: {
         state.onTap?.();
       }
       setDragY(0);
+      setIsDragging(false);
     },
-    [finishDrag],
+    [finishDrag, releaseCapture],
   );
 
-  const cancelPointerDrag = useCallback((e: PointerEvent) => {
-    const state = pointerRef.current;
-    if (state?.pointerId !== e.pointerId) return;
-    pointerRef.current = null;
-    setIsDragging(false);
-    setDragY(0);
-  }, []);
+  const cancelPointerDrag = useCallback(
+    (e: PointerEvent) => {
+      const state = pointerRef.current;
+      if (state?.pointerId !== e.pointerId) return;
+      releaseCapture(state, e.pointerId);
+      pointerRef.current = null;
+      setIsDragging(false);
+      setDragY(0);
+    },
+    [releaseCapture],
+  );
 
   const startDrag = useCallback(
     (e: ReactPointerEvent) => {
@@ -277,7 +320,8 @@ export function useMobileSheetDrag(options: {
         pointerRef.current = null;
         return;
       }
-      if (state.requireScrollTop && state.scrollTop > 1) {
+      const liveScrollTop = readScrollTop(state.getScrollEl, state.scrollTop);
+      if (state.requireScrollTop && liveScrollTop > SCROLL_TOP_EPSILON) {
         pointerRef.current = null;
         return;
       }
@@ -321,12 +365,13 @@ export function useMobileSheetDrag(options: {
   );
 
   const attachCaptureDragSurface = useCallback(
-    (el: HTMLElement | null, config: DeferredDragConfig) => {
+    (el: HTMLElement | null, config: DeferredDragConfig & { scrollDismissSelector?: string }) => {
       if (!el || !enabled || dragEngine !== "manual") return;
 
       const onPointerDown = (e: PointerEvent) => {
         if (!(e.target instanceof Element)) return;
         if (e.target.closest(".sheet-drag-handle-zone")) return;
+        if (config.scrollDismissSelector && e.target.closest(config.scrollDismissSelector)) return;
         beginDeferredDrag(e, { ...config, captureEl: el });
       };
 
@@ -334,6 +379,46 @@ export function useMobileSheetDrag(options: {
       return () => el.removeEventListener("pointerdown", onPointerDown, { capture: true });
     },
     [enabled, dragEngine, beginDeferredDrag],
+  );
+
+  const attachScrollDismiss = useCallback(
+    (scrollEl: HTMLElement | null, config: DeferredDragConfig) => {
+      if (!scrollEl || !enabled || dragEngine !== "manual") return;
+
+      const syncAtTop = () => {
+        scrollEl.dataset.sheetDismissReady =
+          scrollEl.scrollTop <= SCROLL_TOP_EPSILON ? "true" : "false";
+      };
+
+      syncAtTop();
+      scrollEl.addEventListener("scroll", syncAtTop, { passive: true });
+
+      const onPointerDown = (e: PointerEvent) => {
+        if (!(e.target instanceof Element)) return;
+        if (e.button !== 0) return;
+        if (scrollEl.scrollTop > SCROLL_TOP_EPSILON) return;
+        if (isSheetDragBlockedTarget(e.target)) return;
+        if (config.canStart && !config.canStart(e.target)) return;
+
+        beginPointerDrag(e, {
+          armAtScrollTop: true,
+          getScrollEl: () => scrollEl,
+          scrollGateSelector: config.scrollGateSelector,
+          onTap: e.target
+            ? (config.onTapFromTarget?.(e.target) ?? config.onTap)
+            : config.onTap,
+          captureEl: scrollEl,
+        });
+      };
+
+      scrollEl.addEventListener("pointerdown", onPointerDown, { capture: true });
+      return () => {
+        scrollEl.removeEventListener("pointerdown", onPointerDown, { capture: true });
+        scrollEl.removeEventListener("scroll", syncAtTop);
+        delete scrollEl.dataset.sheetDismissReady;
+      };
+    },
+    [enabled, dragEngine, beginPointerDrag],
   );
 
   const backdropOpacity = Math.max(0.15, 1 - dragY / 280);
@@ -348,6 +433,7 @@ export function useMobileSheetDrag(options: {
     startDrag,
     createDeferredDragHandlers,
     attachCaptureDragSurface,
+    attachScrollDismiss,
     handleDragEnd: useFramerDrag ? handleDragEnd : undefined,
     handleDrag: useFramerDrag ? handleDrag : undefined,
     drag: useFramerDrag ? ("y" as const) : false,

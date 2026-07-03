@@ -109,7 +109,9 @@ export function ListItemRow({
   const useTitleDisplayMode = showEditPencil || clickTitleToEdit;
   const isEditingText = focused || titleEditMode;
   const showTitleAsLabel =
-    useTitleDisplayMode && !titleEditMode && item.text.trim().length > 0;
+    useTitleDisplayMode &&
+    !titleEditMode &&
+    (item.text.trim().length > 0 || (isMobile && showEditPencil));
   const isRowFocused =
     !readOnly &&
     (isRowActive ||
@@ -152,10 +154,10 @@ export function ListItemRow({
   }, [localText, item.text, isEditingText]);
 
   useLayoutEffect(() => {
-    if (useTitleDisplayMode && !item.text.trim()) {
+    if (useTitleDisplayMode && !item.text.trim() && !(isMobile && showEditPencil)) {
       setTitleEditMode(true);
     }
-  }, [useTitleDisplayMode, item.id, item.text]);
+  }, [useTitleDisplayMode, item.id, item.text, isMobile, showEditPencil]);
 
   const applySelectAll = useCallback(() => {
     const input = textareaRef.current;
@@ -388,7 +390,7 @@ export function ListItemRow({
                   titleTapOriginRef.current = null;
                 }}
               >
-                {item.text}
+                {item.text.trim() || (isMobile && showEditPencil ? "New item" : item.text)}
               </span>
             ) : (
               <textarea

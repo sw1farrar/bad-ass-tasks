@@ -91,6 +91,18 @@ describe("sheetDragTarget", () => {
     expect(isListDetailSheetDragTarget(completed)).toBe(true);
   });
 
+  it("allows readonly display-mode item textareas for sheet drag", () => {
+    const sheet = el(`
+      <div class="list-detail-modal-surface">
+        <div class="list-detail-scroll">
+          <textarea readonly class="list-item-text list-item-text--editable"></textarea>
+        </div>
+      </div>
+    `);
+    const textarea = sheet.querySelector("textarea")!;
+    expect(isSheetDragBlockedTarget(textarea)).toBe(false);
+  });
+
   it("rejects interactive controls anywhere on the sheet surface", () => {
     const sheet = el(`
       <div class="list-detail-modal-surface">
