@@ -89,9 +89,6 @@ interface ListCardBodyProps {
   listColorStyle?: ListColorPresentation;
   focusAddItemOnOpen?: boolean;
   listScrollRef?: React.Ref<HTMLDivElement>;
-  sheetListDragHandlers?: {
-    onPointerDown: (e: React.PointerEvent) => void;
-  };
   canShareList?: boolean;
   onShareList?: () => void;
 }
@@ -126,7 +123,6 @@ export function ListCardBody({
   listColorStyle,
   focusAddItemOnOpen = false,
   listScrollRef,
-  sheetListDragHandlers,
   canShareList = false,
   onShareList,
 }: ListCardBodyProps) {
@@ -718,11 +714,7 @@ export function ListCardBody({
           {addItemRow}
           <div
             ref={listScrollRef}
-            className={cn(
-              "list-detail-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain",
-              sheetListDragHandlers && "list-detail-sheet-drag-zone",
-            )}
-            {...sheetListDragHandlers}
+            className="list-detail-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
           >
             {editableItemsList}
           </div>

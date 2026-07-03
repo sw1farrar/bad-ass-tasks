@@ -5,6 +5,8 @@ import { useDragControls, type PanInfo } from "framer-motion";
 import {
   SHEET_DISMISS_OFFSET,
   SHEET_DISMISS_VELOCITY,
+  SHEET_RUBBER_BAND_PREVIEW,
+  SHEET_RUBBER_BAND_PX,
 } from "@/lib/motion/sheet";
 import { isSheetDragBlockedTarget } from "@/lib/motion/sheetDragTarget";
 
@@ -24,6 +26,7 @@ type DeferredDragState = {
   startX: number;
   scrollTop: number;
   onTap?: () => void;
+  previewing?: boolean;
 };
 
 export function useMobileSheetDrag(options: {
@@ -101,12 +104,25 @@ export function useMobileSheetDrag(options: {
       const dx = e.clientX - state.startX;
       if (dy <= DRAG_SLOP_PX) return;
       if (Math.abs(dy) < Math.abs(dx)) return;
+      if (dy < 0) {
+        deferredRef.current = null;
+        if (state.previewing) setDragY(0);
+        return;
+      }
       if (state.scrollTop > 1) {
         deferredRef.current = null;
+        if (state.previewing) setDragY(0);
+        return;
+      }
+
+      if (dy < SHEET_RUBBER_BAND_PX) {
+        state.previewing = true;
+        setDragY(dy * SHEET_RUBBER_BAND_PREVIEW);
         return;
       }
 
       deferredRef.current = null;
+      setDragY(0);
       if (dragMode === "handle") dragControls.start(e);
     },
     [dragControls, dragMode],
@@ -122,6 +138,7 @@ export function useMobileSheetDrag(options: {
     if (dy <= TAP_SLOP_PX && dx <= TAP_SLOP_PX) {
       state.onTap?.();
     }
+    if (state.previewing) setDragY(0);
   }, []);
 
   const cancelDeferredDrag = useCallback((e: PointerEvent | ReactPointerEvent) => {
@@ -167,6 +184,7 @@ export function useMobileSheetDrag(options: {
     drag: enabled ? ("y" as const) : false,
     dragControlsProp: dragMode === "handle" ? dragControls : undefined,
     dragListener: dragMode === "panel",
+    dragMomentum: enabled ? false : undefined,
     dragConstraints: { top: 0, bottom: dragMode === "handle" ? 500 : 400 },
     dragElastic: dragMode === "handle" ? { top: 0, bottom: 0.28 } : 0.15,
   };

@@ -5,8 +5,10 @@ export const SHEET_SPRING = {
   mass: 0.88,
 };
 
-export const SHEET_DISMISS_OFFSET = 100;
-export const SHEET_DISMISS_VELOCITY = 480;
+export const SHEET_DISMISS_OFFSET = 120;
+export const SHEET_DISMISS_VELOCITY = 520;
+export const SHEET_RUBBER_BAND_PX = 12;
+export const SHEET_RUBBER_BAND_PREVIEW = 0.32;
 
 /** Full-viewport mobile drawer height — edge to edge at top */
 export const MOBILE_SHEET_HEIGHT_CLASS = "h-[100dvh] max-h-[100dvh]";

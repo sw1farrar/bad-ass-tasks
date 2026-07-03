@@ -10,8 +10,7 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
 import {
-  isActiveListDetailDragTarget,
-  isListDetailHeaderDragTarget,
+  isListDetailSheetDragTarget,
   isListDetailTitleLabelTarget,
 } from "@/lib/motion/sheetDragTarget";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
@@ -203,6 +202,7 @@ export function ListDetailModal({
     drag,
     dragControlsProp,
     dragListener,
+    dragMomentum,
     dragConstraints,
     dragElastic,
   } = useMobileSheetDrag({
@@ -211,24 +211,40 @@ export function ListDetailModal({
     dragMode: "handle",
   });
 
-  const headerSheetDragHandlers = useMemo(
+  const sheetSurfaceDragHandlers = useMemo(
     () =>
       createDeferredDragHandlers({
-        canStart: isListDetailHeaderDragTarget,
+        getScrollEl: () => listScrollRef.current,
+        canStart: isListDetailSheetDragTarget,
         onTapFromTarget: (target) =>
           isListDetailTitleLabelTarget(target) ? enterTitleEdit : undefined,
       }),
     [createDeferredDragHandlers, enterTitleEdit],
   );
 
-  const listSheetDragHandlers = useMemo(
-    () =>
-      createDeferredDragHandlers({
-        getScrollEl: () => listScrollRef.current,
-        canStart: isActiveListDetailDragTarget,
-      }),
-    [createDeferredDragHandlers],
-  );
+  const handleSheetDragStart = useCallback(() => {
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      panelRef.current?.contains(active) &&
+      active.matches("input,textarea,[contenteditable='true']")
+    ) {
+      active.blur();
+    }
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = listScrollRef.current;
+    if (!scrollEl || !isMobile || !isOpen) return;
+
+    const syncTouchAction = () => {
+      scrollEl.style.touchAction = scrollEl.scrollTop <= 0 ? "pan-down" : "pan-y";
+    };
+
+    syncTouchAction();
+    scrollEl.addEventListener("scroll", syncTouchAction, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", syncTouchAction);
+  }, [isMobile, isOpen, list?.id]);
 
   useScrollLock(isOpen);
 
@@ -306,8 +322,10 @@ export function ListDetailModal({
             drag={isMobile ? drag : false}
             dragControls={isMobile ? dragControlsProp : undefined}
             dragListener={dragListener}
+            dragMomentum={isMobile ? dragMomentum : undefined}
             dragConstraints={isMobile ? dragConstraints : undefined}
             dragElastic={isMobile ? dragElastic : undefined}
+            onDragStart={isMobile ? handleSheetDragStart : undefined}
             onDrag={isMobile ? handleDrag : undefined}
             onDragEnd={isMobile ? handleDragEnd : undefined}
             initial={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
@@ -322,19 +340,17 @@ export function ListDetailModal({
               aria-hidden
             />
             <div
-              className="list-detail-modal-surface relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden"
+              className={cn(
+                "list-detail-modal-surface relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden",
+                isMobile && "list-detail-sheet-drag-zone",
+              )}
               style={{
                 backgroundColor: colorStyle.bg,
                 ...listColorPresentationStyleVars(colorStyle),
               }}
+              {...(isMobile ? sheetSurfaceDragHandlers : {})}
             >
-            <div
-              className={cn(
-                "list-header-band shrink-0",
-                isMobile && "list-detail-sheet-drag-zone",
-              )}
-              {...(isMobile ? headerSheetDragHandlers : {})}
-            >
+            <div className="list-header-band shrink-0">
               {isMobile && (
                 <SheetDragHandle
                   onPointerDown={startDrag}
@@ -487,7 +503,6 @@ export function ListDetailModal({
               focusAddItemOnOpen={focusAddItemOnOpen}
               listColorStyle={colorStyle}
               listScrollRef={listScrollRef}
-              sheetListDragHandlers={isMobile ? listSheetDragHandlers : undefined}
               onUpdateList={onUpdateList}
               onDeleteList={onDeleteList}
               onTogglePinned={onTogglePinned}

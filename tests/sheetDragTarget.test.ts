@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isActiveListDetailDragTarget,
   isListDetailHeaderDragTarget,
+  isListDetailSheetDragTarget,
   isListDetailTitleLabelTarget,
   isSheetDragBlockedTarget,
 } from "@/lib/motion/sheetDragTarget";
@@ -69,5 +70,36 @@ describe("sheetDragTarget", () => {
     `);
     const button = header.querySelector("button")!;
     expect(isListDetailHeaderDragTarget(button)).toBe(false);
+  });
+
+  it("allows full sheet surface including toolbar and completed rows", () => {
+    const sheet = el(`
+      <div class="list-detail-modal-surface">
+        <div class="list-detail-toolbar list-detail-toolbar--mobile">
+          <div class="list-detail-toolbar-filters"></div>
+        </div>
+        <div class="list-detail-scroll">
+          <div class="list-item-row list-item-row--completed-section">
+            <span class="list-item-text">Done task</span>
+          </div>
+        </div>
+      </div>
+    `);
+    const toolbar = sheet.querySelector(".list-detail-toolbar-filters")!;
+    const completed = sheet.querySelector(".list-item-text")!;
+    expect(isListDetailSheetDragTarget(toolbar)).toBe(true);
+    expect(isListDetailSheetDragTarget(completed)).toBe(true);
+  });
+
+  it("rejects interactive controls anywhere on the sheet surface", () => {
+    const sheet = el(`
+      <div class="list-detail-modal-surface">
+        <div class="list-detail-scroll">
+          <button type="button" class="list-item-check">Toggle</button>
+        </div>
+      </div>
+    `);
+    const button = sheet.querySelector("button")!;
+    expect(isListDetailSheetDragTarget(button)).toBe(false);
   });
 });

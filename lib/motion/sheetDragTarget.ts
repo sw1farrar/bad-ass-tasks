@@ -27,6 +27,14 @@ export function isActiveListDetailDragTarget(target: EventTarget | null): boolea
   return true;
 }
 
+/** Full mobile list detail sheet — any non-interactive surface inside the modal. */
+export function isListDetailSheetDragTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (!target.closest(".list-detail-modal-surface")) return false;
+  if (isSheetDragBlockedTarget(target)) return false;
+  return true;
+}
+
 /** Header band in the mobile list detail drawer — excludes icon buttons and menus. */
 export function isListDetailHeaderDragTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
