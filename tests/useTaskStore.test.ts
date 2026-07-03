@@ -418,7 +418,7 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
           { id: 's1', status: 'todo', priority: 'P2', title: 'Starred work', workspaceId: 'w1', starred: true, folderId: 'tf-work' } as any,
           { id: 's2', status: 'todo', priority: 'P2', title: 'Plain', workspaceId: 'w1' } as any,
         ],
-        taskFilter: { search: '', recurring: 'all', starred: 'only', folderFilter: 'all' },
+        taskFilter: { search: '', statusMode: 'all', recurrenceMode: 'all', starred: 'only', folderFilter: 'all' },
       });
       expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id)).toEqual(['s1']);
 

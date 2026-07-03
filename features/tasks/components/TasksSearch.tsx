@@ -90,7 +90,7 @@ export function TasksSearch({
           <button
             onClick={() => {
               setGlobalSearchQuery("");
-              setTaskFilter({ search: "", recurring: "all" });
+              setTaskFilter({ search: "", statusMode: "incomplete", recurrenceMode: "all" });
               setSearchResultType('all');
             }}
             className="px-2 py-1 text-text-muted hover:text-text-primary shrink-0"
@@ -102,10 +102,10 @@ export function TasksSearch({
           {(["all", "only", "none"] as const).map((mode) => (
             <button
               key={`rec-${mode}`}
-              onClick={() => setTaskFilter({ recurring: mode })}
+              onClick={() => setTaskFilter({ recurrenceMode: mode })}
               className={cn(
                 "px-2 py-1 rounded-full border transition snap-start shrink-0",
-                (taskFilter.recurring ?? "all") === mode
+                (taskFilter.recurrenceMode ?? "all") === mode
                   ? "bg-neon-purple text-accent-on border-neon-purple"
                   : "border-border-glass hover:bg-surface-hover text-text-secondary"
               )}

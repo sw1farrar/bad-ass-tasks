@@ -22,6 +22,7 @@ import type { Comment, Task, WorkspaceMember } from "@/types";
 import { getCommentAuthorLabel } from "@/features/tasks/lib/taskCommentIndicators";
 import { TaskOrganizeFields } from "@/features/tasks/components/TaskOrganizeFields";
 import { TaskRecurrenceEditor } from "@/features/tasks/components/TaskRecurrenceEditor";
+import { buildDueDateUpdates } from "@/features/tasks/lib/recurrenceTaskState";
 import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
 
 import { triggerHaptic } from "@/lib/utils";
@@ -106,15 +107,6 @@ function renderCommentContent(content: string) {
       part
     ),
   );
-}
-
-function buildDueDateUpdates(dateStr: string | null | undefined): Partial<Task> {
-  if (!dateStr) {
-    return { dueDate: undefined, recurringRule: null, exceptionDates: undefined };
-  }
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const localDate = new Date(y, m - 1, d);
-  return { dueDate: toDueDateStorage(localDate) };
 }
 
 function TaskMentionSuggestions({

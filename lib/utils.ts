@@ -207,17 +207,31 @@ export interface RecurrencePattern {
   count?: number;             // optional: ends after N total occurrences (RRULE COUNT; mutually exclusive with until in strict RRULE)
 }
 
+/** Normalize UNTIL/COUNT date strings for HTML date inputs (YYYY-MM-DD). */
+export function formatRecurrenceUntilForInput(until: string | null | undefined): string {
+  if (!until) return "";
+  if (until.includes("-")) return until;
+  if (until.length === 8) {
+    return `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}`;
+  }
+  return until;
+}
+
 export function parseRecurringRule(rule: string | null | undefined): RecurrencePattern | null {
   if (!rule || typeof rule !== "string") return null;
   const upper = rule.toUpperCase().trim();
   if (!upper) return null;
 
   const parts = upper.split(";").map((p) => p.trim());
-  let freq: RecurrenceFreq = "WEEKLY";
+  let freq: RecurrenceFreq | null = null;
   let interval = 1;
   let byDay: WeekDay[] = [];
   let until: string | undefined;
   let count: number | undefined;
+
+  let sawInterval = false;
+  let sawCount = false;
+  let sawByDay = false;
 
   for (const part of parts) {
     if (part.startsWith("FREQ=")) {
@@ -225,10 +239,16 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
       if (["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(f)) freq = f;
     }
     if (part.startsWith("INTERVAL=")) {
+      sawInterval = true;
       const n = parseInt(part.slice(9), 10);
-      if (!isNaN(n) && n > 0) interval = n;
+      if (!isNaN(n) && n > 0) {
+        interval = n;
+      } else {
+        interval = 0;
+      }
     }
     if (part.startsWith("BYDAY=")) {
+      sawByDay = true;
       const days = part
         .slice(6)
         .split(",")
@@ -244,10 +264,16 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
       }
     }
     if (part.startsWith("COUNT=")) {
+      sawCount = true;
       const n = parseInt(part.slice(6), 10);
       if (!isNaN(n) && n > 0) count = n;
     }
   }
+
+  if (!freq) return null;
+  if (sawInterval && interval <= 0) return null;
+  if (sawCount && !count) return null;
+  if (sawByDay && freq === "WEEKLY" && byDay.length === 0) return null;
 
   const pat: RecurrencePattern = { freq, interval, byDay: byDay.length ? byDay : undefined };
   if (until) pat.until = until;
@@ -352,6 +378,29 @@ export function getNextRecurringDue(
  *  COUNT: treats anchor as occurrence #1; generates up to COUNT total (pre-exceptions).
  *  Performance: bounded loops + maxCount cap; safe for 100s of recurring tasks in views.
  */
+/** Preserve anchor day-of-month when stepping monthly (Jan 31 → Feb 28 → Mar 31). */
+function addMonthsPreserveDom(anchor: Date, from: Date, months: number): Date {
+  const anchorDom = anchor.getDate();
+  const stepped = addMonths(startOfDay(from), months);
+  const lastDay = new Date(stepped.getFullYear(), stepped.getMonth() + 1, 0).getDate();
+  return startOfDay(new Date(stepped.getFullYear(), stepped.getMonth(), Math.min(anchorDom, lastDay)));
+}
+
+function recurrenceStepForward(d: Date, pattern: RecurrencePattern, anchor: Date): Date {
+  switch (pattern.freq) {
+    case "DAILY":
+      return addDays(d, pattern.interval);
+    case "WEEKLY":
+      return addWeeks(d, pattern.interval);
+    case "MONTHLY":
+      return addMonthsPreserveDom(anchor, d, pattern.interval);
+    case "YEARLY":
+      return addYears(d, pattern.interval);
+    default:
+      return addDays(d, 1);
+  }
+}
+
 export function getOccurrencesInRange(
   anchorDue: string | undefined | null,
   rule: string | null | undefined,
@@ -363,91 +412,73 @@ export function getOccurrencesInRange(
   const pattern = parseRecurringRule(rule);
   if (!anchorDue || !pattern) return [];
 
-  const anchor = parseLocalDate(anchorDue) ?? startOfDay(rangeStart);
+  const anchor = startOfDay(parseLocalDate(anchorDue) ?? rangeStart);
   const rStart = startOfDay(rangeStart);
   const rEnd = startOfDay(rangeEnd);
-  const occ: Date[] = [];
+  if (anchor > rEnd) return [];
 
-  const step = (d: Date): Date => {
-    switch (pattern.freq) {
-      case "DAILY": return addDays(d, pattern.interval);
-      case "WEEKLY": return addWeeks(d, pattern.interval);
-      case "MONTHLY": return addMonths(d, pattern.interval);
-      case "YEARLY": return addYears(d, pattern.interval);
-      default: return addDays(d, 1);
-    }
-  };
-
-  const WEEKDAY_MAP: Record<WeekDay, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-
-  // Start from anchor or earlier to catch past in view
-  let current = new Date(anchor.getTime());
-  if (current > rEnd) return []; // future anchor outside
-
-  // If weekly BYDAY, normalize generation to hit the specified weekdays
+  const untilD = pattern.until ? parseLocalDate(pattern.until) ?? null : null;
+  const maxSeries = pattern.count && pattern.count > 0 ? pattern.count : Infinity;
   const isByDayWeekly = pattern.freq === "WEEKLY" && pattern.byDay && pattern.byDay.length > 0;
+  const WEEKDAY_MAP: Record<WeekDay, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
   const targetWeekdays = isByDayWeekly ? pattern.byDay!.map((d) => WEEKDAY_MAP[d]) : null;
 
-  // Walk forward from a safe start point (anchor - generous lookback for monthly etc)
-  const lookbackDays = pattern.freq === "YEARLY" ? 400 : pattern.freq === "MONTHLY" ? 120 : 30;
-  current = addDays(current, -lookbackDays);
-
-  // Safe until parser
-  const getUntilDate = (): Date | null => {
-    if (!pattern.until) return null;
-    return parseLocalDate(pattern.until) ?? null;
-  };
-  const untilD = getUntilDate();
-
-  // COUNT: anchor = occurrence 1. We count generated occurrences >= anchor date.
-  const maxSeries = pattern.count && pattern.count > 0 ? pattern.count : Infinity;
+  const occ: Date[] = [];
   let seriesOccCounter = 0;
-
   let safety = 0;
-  const maxSafety = maxCount * 3 + 100;
-  while (safety < maxSafety && current <= addDays(rEnd, 2)) {
-    safety++;
-    let include = false;
+  const maxSafety = maxCount * 4 + 200;
 
-    if (isByDayWeekly && targetWeekdays) {
+  if (isByDayWeekly && targetWeekdays) {
+    let current = addDays(anchor, -30);
+    while (safety < maxSafety && current <= addDays(rEnd, 2)) {
+      safety++;
+      let include = false;
       if (targetWeekdays.includes(getDay(current))) {
         const weekDiff = differenceInCalendarWeeks(current, anchor, { weekStartsOn: 0 });
         if (weekDiff >= 0 && weekDiff % pattern.interval === 0) {
           include = true;
         }
       }
-    } else {
-      // For non-BYDAY or other freqs, every stepped occurrence counts
-      include = true;
-    }
 
-    if (include && current >= rStart && current <= rEnd) {
-      if (current >= anchor) {
-        seriesOccCounter++;
-        if (seriesOccCounter > maxSeries) {
-          break;
+      if (include) {
+        if (untilD && current > untilD) break;
+        const skipped = isOccurrenceException(current, exceptionDates);
+        if (current >= anchor && !skipped) {
+          seriesOccCounter++;
+          if (seriesOccCounter > maxSeries) break;
+        }
+        if (current >= anchor && current >= rStart && current <= rEnd && !skipped) {
+          occ.push(new Date(current));
+          if (occ.length >= maxCount) break;
         }
       }
-
+      current = addDays(current, 1);
+    }
+  } else {
+    let current = new Date(anchor.getTime());
+    while (safety < maxSafety) {
+      safety++;
       if (untilD && current > untilD) break;
 
-      occ.push(new Date(current));
-      if (occ.length >= maxCount) break;
-    }
+      const skipped = isOccurrenceException(current, exceptionDates);
+      if (current >= anchor && !skipped) {
+        seriesOccCounter++;
+        if (seriesOccCounter > maxSeries) break;
+      }
 
-    // BYDAY weekly: walk day-by-day so target weekdays are never skipped
-    current = isByDayWeekly ? addDays(current, 1) : step(current);
+      if (current >= rStart && current <= rEnd && !skipped) {
+        occ.push(new Date(current));
+        if (occ.length >= maxCount) break;
+      }
+
+      if (current > addDays(rEnd, 400)) break;
+      current = recurrenceStepForward(current, pattern, anchor);
+    }
   }
 
-  // Dedup + sort
-  let unique = Array.from(new Set(occ.map((d) => d.getTime())))
+  return Array.from(new Set(occ.map((d) => d.getTime())))
     .map((t) => new Date(t))
     .sort((a, b) => a.getTime() - b.getTime());
-
-  // Apply exception filtering (Agent 13 core for "skip one")
-  unique = filterExceptions(unique, exceptionDates);
-
-  return unique;
 }
 
 /** Human preview of next N occurrences (for modal / tooltip).
@@ -555,8 +586,20 @@ export function downloadFile(filename: string, content: string, mimeType = "text
 
 /** Tasks → CSV (headers + rows, quote-safe for Excel/Google Sheets). */
 export function tasksToCSV(tasks: Task[]): string {
-  if (tasks.length === 0) return "id,title,status,priority,dueDate,tags,recurringRule,description\n";
-  const headers = ["id", "title", "status", "priority", "dueDate", "tags", "recurringRule", "description"];
+  if (tasks.length === 0) {
+    return "id,title,status,priority,dueDate,tags,recurringRule,exceptionDates,description\n";
+  }
+  const headers = [
+    "id",
+    "title",
+    "status",
+    "priority",
+    "dueDate",
+    "tags",
+    "recurringRule",
+    "exceptionDates",
+    "description",
+  ];
   const rows = tasks.map((t) => {
     const safe = (s?: string) => `"${(s || "").replace(/"/g, '""').replace(/\n/g, " ")}"`;
     return [
@@ -566,7 +609,8 @@ export function tasksToCSV(tasks: Task[]): string {
       t.priority,
       t.dueDate || "",
       `"${(t.tags || []).join(";")}"`,
-      t.recurringRule || "",
+      safe(t.recurringRule ?? undefined),
+      `"${(t.exceptionDates || []).join(";")}"`,
       safe(t.description),
     ].join(",");
   });
@@ -720,7 +764,9 @@ export function parseCSVToTasks(csv: string): Partial<Task>[] {
       else if (h.includes("due")) obj.dueDate = v || undefined;
       else if (h.includes("tag")) obj.tags = v ? v.split(/;|,/) : [];
       else if (h.includes("recurr")) obj.recurringRule = v || undefined;
-      else if (h.includes("desc")) obj.description = v;
+      else if (h.includes("exception")) {
+        obj.exceptionDates = v ? v.split(/;|,/).map((d) => d.trim()).filter(Boolean) : [];
+      } else if (h.includes("desc")) obj.description = v;
     });
     return obj.title ? (obj as Partial<Task>) : null;
   }).filter(Boolean) as Partial<Task>[];

@@ -107,6 +107,10 @@ import {
   TasksStatusFilter,
   type TasksStatusFilterMode,
 } from "@/features/tasks/components/TasksStatusFilter";
+import {
+  TasksRecurrenceFilter,
+  type TasksRecurrenceFilterMode,
+} from "@/features/tasks/components/TasksRecurrenceFilter";
 import { TasksOrganizeBar } from "@/features/tasks/components/TasksOrganizeBar";
 import "@/features/tasks/tasks-workspace.css";
 import "@/features/teams/teams-workspace.css";
@@ -714,21 +718,6 @@ export default function BadAssTasks() {
     () => getFilteredTasks(),
     [getFilteredTasks, tasks, taskFilter, currentWorkspace.id],
   );
-
-  // Mobile task list uses All / Incomplete / Completed — normalize legacy recurrence sub-filters
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const normalize = () => {
-      if (!mq.matches) return;
-      const mode = taskFilter.recurring ?? "incomplete";
-      if (mode === "only" || mode === "none") {
-        setTaskFilter({ recurring: "incomplete" });
-      }
-    };
-    normalize();
-    mq.addEventListener("change", normalize);
-    return () => mq.removeEventListener("change", normalize);
-  }, [taskFilter.recurring, setTaskFilter]);
 
   const currentWorkspaceTaskCounts = useMemo(
     () =>
@@ -1676,7 +1665,18 @@ export default function BadAssTasks() {
     );
   };
 
-  const taskStatusFilterMode = (taskFilter.recurring ?? "incomplete") as TasksStatusFilterMode;
+  const taskStatusFilterMode = (taskFilter.statusMode ??
+    (taskFilter.recurring === "completed"
+      ? "completed"
+      : taskFilter.recurring === "all"
+        ? "all"
+        : "incomplete")) as TasksStatusFilterMode;
+  const taskRecurrenceFilterMode = (taskFilter.recurrenceMode ??
+    (taskFilter.recurring === "only"
+      ? "only"
+      : taskFilter.recurring === "none"
+        ? "none"
+        : "all")) as TasksRecurrenceFilterMode;
   const taskStarredFilterMode = taskFilter.starred ?? "all";
   const taskFolderFilterMode = taskFilter.folderFilter ?? "all";
   const taskFolders = getTaskFolders();
@@ -1703,7 +1703,11 @@ export default function BadAssTasks() {
           />
           <TasksStatusFilter
             value={taskStatusFilterMode}
-            onChange={(mode) => setTaskFilter({ recurring: mode })}
+            onChange={(mode) => setTaskFilter({ statusMode: mode })}
+          />
+          <TasksRecurrenceFilter
+            value={taskRecurrenceFilterMode}
+            onChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
           />
           <TasksOrganizeBar
             folders={taskFolders}
@@ -1720,11 +1724,18 @@ export default function BadAssTasks() {
           />
         </div>
 
+        <div className="hidden md:flex items-center gap-2 mb-1 flex-wrap">
+          <TasksRecurrenceFilter
+            value={taskRecurrenceFilterMode}
+            onChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
+          />
+        </div>
+
         <TasksOrganizeBar
           className="tasks-organize-bar--desktop hidden md:block"
           showStatusFilter
           statusFilter={taskStatusFilterMode}
-          onStatusFilterChange={(mode) => setTaskFilter({ recurring: mode })}
+          onStatusFilterChange={(mode) => setTaskFilter({ statusMode: mode })}
           folders={taskFolders}
           starredFilter={taskStarredFilterMode}
           folderFilter={taskFolderFilterMode}

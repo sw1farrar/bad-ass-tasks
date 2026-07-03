@@ -73,7 +73,14 @@ import { mapRealtimeNoteRow, mergeRealtimeNoteUpdate } from "@/lib/notes/mapReal
 import { isNoteBodyHydrated, mergeHydratedNote } from "@/lib/files/noteListProjection";
 import { noteUpdatesAreNoOp } from "@/lib/notes/noteUpdates";
 import { generateId, parseNaturalLanguage, getNextRecurringDue, toDueDateStorage, applyTaskUpdateSideEffects } from "@/lib/utils";
-import { defaultTaskDueDate, startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, parseLocalDate, toLocalDateString } from "@/lib/datetime";
+import { defaultTaskDueDate, startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, normalizeCalendarDateKey, parseLocalDate, toLocalDateString } from "@/lib/datetime";
+
+function mapRealtimeExceptionDates(
+  exceptionDates: string[] | null | undefined,
+): string[] | undefined {
+  if (!exceptionDates?.length) return undefined;
+  return exceptionDates.map((ex) => normalizeCalendarDateKey(ex));
+}
 import {
   canDeleteWorkspace,
   getWorkspaceSwitchTargetAfterDelete,
@@ -462,7 +469,11 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   taskFilter: {
     status?: TaskStatus[];
     search: string;
-    // Agent 13: list filter — open tasks by recurrence, or completed-only view
+    /** Open / complete / all tasks */
+    statusMode?: "all" | "incomplete" | "completed";
+    /** Recurring vs one-time (independent of statusMode) */
+    recurrenceMode?: "all" | "only" | "none";
+    /** @deprecated Migrated to statusMode + recurrenceMode on rehydrate */
     recurring?: "all" | "incomplete" | "only" | "none" | "completed";
     starred?: TasksStarredFilterMode;
     folderFilter?: TasksFolderFilterMode;
@@ -1056,7 +1067,13 @@ export const useTaskStore = create<TaskState>()(
       liveEditing: {},
 
       currentView: "home",
-      taskFilter: { search: "", recurring: "incomplete", starred: "all", folderFilter: "all" },
+      taskFilter: {
+        search: "",
+        statusMode: "incomplete",
+        recurrenceMode: "all",
+        starred: "all",
+        folderFilter: "all",
+      },
       selectedTaskId: null,
       selectedNoteId: null,
       selectedNotebookId: null,
@@ -1250,7 +1267,7 @@ export const useTaskStore = create<TaskState>()(
         set({
           currentView: resolved,
           ...(resolved === "tasks"
-            ? { taskFilter: { ...get().taskFilter, recurring: "incomplete" } }
+            ? { taskFilter: { ...get().taskFilter, statusMode: "incomplete" } }
             : {}),
         });
         // Realtime presence: update meta so collaborators see where you are (across views)
@@ -1318,7 +1335,7 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookNoteId: null,
             isInitializing: true,
             ...(onTasksView
-              ? { taskFilter: { ...get().taskFilter, recurring: "incomplete" } }
+              ? { taskFilter: { ...get().taskFilter, statusMode: "incomplete" } }
               : {}),
           });
           saveLastWorkspaceId(get().user?.id, id);
@@ -1356,16 +1373,31 @@ export const useTaskStore = create<TaskState>()(
           result = result.filter((t) => taskFilter.status!.includes(t.status));
         }
 
-        const listFilter = taskFilter.recurring ?? "incomplete";
+        const statusMode =
+          taskFilter.statusMode ??
+          (taskFilter.recurring === "completed"
+            ? "completed"
+            : taskFilter.recurring === "all"
+              ? "all"
+              : "incomplete");
+        const recurrenceMode =
+          taskFilter.recurrenceMode ??
+          (taskFilter.recurring === "only"
+            ? "only"
+            : taskFilter.recurring === "none"
+              ? "none"
+              : "all");
 
-        if (listFilter === "completed") {
+        if (statusMode === "completed") {
           result = result.filter((t) => t.status === "done");
-        } else if (listFilter === "incomplete") {
+        } else if (statusMode === "incomplete") {
           result = result.filter((t) => t.status !== "done");
-        } else if (listFilter === "only") {
-          result = result.filter((t) => t.status !== "done" && !!t.recurringRule);
-        } else if (listFilter === "none") {
-          result = result.filter((t) => t.status !== "done" && !t.recurringRule);
+        }
+
+        if (recurrenceMode === "only") {
+          result = result.filter((t) => !!t.recurringRule);
+        } else if (recurrenceMode === "none") {
+          result = result.filter((t) => !t.recurringRule);
         }
 
         if (taskFilter.starred === "only") {
@@ -1383,7 +1415,7 @@ export const useTaskStore = create<TaskState>()(
 
         // Sort: open tasks by due date; completed by most recently completed
         return result.sort((a, b) => {
-          if (listFilter === "completed") {
+          if (statusMode === "completed") {
             const aDone = a.completedAt ? new Date(a.completedAt).getTime() : 0;
             const bDone = b.completedAt ? new Date(b.completedAt).getTime() : 0;
             return bDone - aDone;
@@ -4755,12 +4787,15 @@ export const useTaskStore = create<TaskState>()(
                   timeEstimate: newRow.time_estimate || undefined,
                   linkedNoteIds: newRow.linked_note_ids || [],
                   recurringRule: newRow.recurring_rule ?? undefined,
-                  exceptionDates: newRow.exception_dates ?? undefined,
+                  exceptionDates: mapRealtimeExceptionDates(newRow.exception_dates),
                   parentTaskId: newRow.parent_task_id ?? undefined,
                 } as Task;
                 set({ tasks: [mapped, ...currentTasks] });
               }
             } else if (eventType === "UPDATE" && newRow) {
+              if (get().taskLoadingStates[newRow.id]) {
+                return;
+              }
               // Agent 30: live conflict detection for concurrent edits (if selected/editing this item right now)
               const st = get();
               const isSelected = st.selectedTaskId === newRow.id;
@@ -4811,7 +4846,7 @@ export const useTaskStore = create<TaskState>()(
                     next.recurringRule = newRow.recurring_rule ?? undefined;
                   }
                   if (Object.prototype.hasOwnProperty.call(newRow, "exception_dates")) {
-                    next.exceptionDates = newRow.exception_dates ?? undefined;
+                    next.exceptionDates = mapRealtimeExceptionDates(newRow.exception_dates);
                   }
                   if (Object.prototype.hasOwnProperty.call(newRow, "parent_task_id")) {
                     next.parentTaskId = newRow.parent_task_id ?? undefined;
@@ -5613,23 +5648,42 @@ if (typeof window !== "undefined") {
     }
     const persistedFilter = (state as { taskFilter?: TaskState["taskFilter"] })?.taskFilter;
     if (persistedFilter) {
-      const recurring = persistedFilter.recurring;
-      const validRecurring = new Set<TaskState["taskFilter"]["recurring"]>([
-        "all",
-        "incomplete",
-        "only",
-        "none",
-        "completed",
-      ]);
-      const normalizedRecurring: TaskState["taskFilter"]["recurring"] =
-        !recurring || recurring === "only" || recurring === "none"
-          ? "incomplete"
-          : validRecurring.has(recurring)
-            ? recurring
-            : "incomplete";
-      if (recurring !== normalizedRecurring) {
+      const legacy = persistedFilter.recurring;
+      let statusMode = persistedFilter.statusMode;
+      let recurrenceMode = persistedFilter.recurrenceMode ?? "all";
+
+      if (!statusMode && legacy) {
+        if (legacy === "completed") statusMode = "completed";
+        else if (legacy === "all") statusMode = "all";
+        else if (legacy === "only") {
+          statusMode = "incomplete";
+          recurrenceMode = "only";
+        } else if (legacy === "none") {
+          statusMode = "incomplete";
+          recurrenceMode = "none";
+        } else {
+          statusMode = "incomplete";
+        }
+      }
+      if (!statusMode) statusMode = "incomplete";
+
+      const validStatus = new Set(["all", "incomplete", "completed"]);
+      const validRecurrence = new Set(["all", "only", "none"]);
+      const normalizedStatus = validStatus.has(statusMode) ? statusMode : "incomplete";
+      const normalizedRecurrence = validRecurrence.has(recurrenceMode) ? recurrenceMode : "all";
+
+      if (
+        persistedFilter.statusMode !== normalizedStatus ||
+        persistedFilter.recurrenceMode !== normalizedRecurrence ||
+        legacy !== undefined
+      ) {
+        const { recurring: _legacy, ...rest } = persistedFilter;
         useTaskStore.setState({
-          taskFilter: { ...persistedFilter, recurring: normalizedRecurring },
+          taskFilter: {
+            ...rest,
+            statusMode: normalizedStatus,
+            recurrenceMode: normalizedRecurrence,
+          },
         });
       }
     }

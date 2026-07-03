@@ -11,6 +11,7 @@ import { TaskLinkedFileIndicator } from "./TaskLinkedFileIndicator";
 import { taskHasLinkedFiles } from "@/features/tasks/lib/taskLinkedFiles";
 import { TaskFolderPicker } from "./TaskFolderPicker";
 import { TaskStarButton } from "./TaskStarButton";
+import { TaskRecurrenceSelectModal } from "./TaskRecurrenceSelectModal";
 import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
 import { useTaskStore } from "@/store/useTaskStore";
 
@@ -59,11 +60,13 @@ export function TaskRow({
     getTaskFolders,
     toggleTaskStarred,
     setTaskFolder,
+    updateTask,
     taskCommentSummaries,
     taskCommentsReadAt,
     currentWorkspace,
     user,
   } = useTaskStore();
+  const [recurrenceOpen, setRecurrenceOpen] = useState(false);
   const folders = showOrganize ? getTaskFolders() : [];
   const folderName = folders.find((f) => f.id === task.folderId)?.name;
   const swipeThreshold = 120;
@@ -259,7 +262,27 @@ export function TaskRow({
               )}
             </div>
           )}
-          {task.recurringRule && (
+          {showOrganize ? (
+            <button
+              type="button"
+              disabled={isOpLoading}
+              className={cn(
+                "md:hidden text-[10px] flex items-center gap-1 min-w-0 leading-none min-h-[28px] rounded-md px-1 -mx-1 transition disabled:opacity-50 disabled:pointer-events-none",
+                task.recurringRule
+                  ? "text-neon-purple hover:bg-neon-purple/10"
+                  : "text-text-muted hover:text-text-secondary hover:bg-surface-hover",
+              )}
+              title={task.recurringRule ? getRecurringLabel(task.recurringRule) : "Set repeat schedule"}
+              aria-label={task.recurringRule ? `Repeat: ${getRecurringLabel(task.recurringRule)}` : "Set repeat schedule"}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isOpLoading) setRecurrenceOpen(true);
+              }}
+            >
+              <Repeat className="h-2.5 w-2.5 shrink-0" aria-hidden />
+              <span className="truncate">{task.recurringRule ? getRecurringLabel(task.recurringRule) : "Repeat"}</span>
+            </button>
+          ) : task.recurringRule ? (
             <div
               className="text-[10px] text-neon-purple flex items-center gap-1 min-w-0 leading-none"
               title={getRecurringLabel(task.recurringRule)}
@@ -267,7 +290,7 @@ export function TaskRow({
               <Repeat className="h-2.5 w-2.5 shrink-0" aria-hidden />
               <span className="truncate">{getRecurringLabel(task.recurringRule)}</span>
             </div>
-          )}
+          ) : null}
           {showOrganize && folders.length > 0 ? (
             <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
               <TaskFolderPicker
@@ -341,6 +364,16 @@ export function TaskRow({
           )}
         </div>
       </motion.div>
+
+      {showOrganize ? (
+        <TaskRecurrenceSelectModal
+          open={recurrenceOpen}
+          onOpenChange={setRecurrenceOpen}
+          task={task}
+          disabled={isOpLoading}
+          onSave={(updates) => void updateTask(task.id, updates)}
+        />
+      ) : null}
     </div>
   );
 }

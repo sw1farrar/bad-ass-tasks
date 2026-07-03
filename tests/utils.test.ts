@@ -13,6 +13,7 @@ import {
   toLocalDateString,
   getRecurrenceEndDescription,
   applyTaskUpdateSideEffects,
+  formatRecurrenceUntilForInput,
   triggerHaptic,
   getNameInitials,
 } from '@/lib/utils';
@@ -131,7 +132,10 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
     it('returns null for invalid', () => {
       expect(parseRecurringRule(null as any)).toBeNull();
       expect(parseRecurringRule('')).toBeNull();
-      expect(parseRecurringRule('FOO=BAR')).toBeTruthy(); // still parses with default
+      expect(parseRecurringRule('FOO=BAR')).toBeNull();
+      expect(parseRecurringRule('FREQ=WEEKLY;INTERVAL=0')).toBeNull();
+      expect(parseRecurringRule('FREQ=DAILY;COUNT=0')).toBeNull();
+      expect(parseRecurringRule('FREQ=WEEKLY;BYDAY=XX')).toBeNull();
     });
   });
 
@@ -197,6 +201,73 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
       const anchor = '2026-01-01';
       const occ = getOccurrencesInRange(anchor, 'FREQ=DAILY;COUNT=5', new Date(2026, 0, 1), new Date(2026, 0, 10), 20);
       expect(occ.length).toBeLessThanOrEqual(5);
+    });
+
+    it('aligns weekly series to anchor weekday without BYDAY', () => {
+      const anchor = '2026-01-15';
+      const occ = getOccurrencesInRange(
+        anchor,
+        'FREQ=WEEKLY',
+        new Date(2026, 0, 1),
+        new Date(2026, 1, 28),
+        10,
+      );
+      expect(occ.length).toBeGreaterThan(0);
+      expect(toLocalDateString(occ[0])).toBe('2026-01-15');
+      expect(toLocalDateString(occ[1])).toBe('2026-01-22');
+    });
+
+    it('aligns monthly series to anchor day-of-month', () => {
+      const anchor = '2026-01-31';
+      const occ = getOccurrencesInRange(
+        anchor,
+        'FREQ=MONTHLY',
+        new Date(2026, 0, 1),
+        new Date(2026, 5, 30),
+        10,
+      );
+      expect(occ.length).toBeGreaterThan(0);
+      expect(toLocalDateString(occ[0])).toBe('2026-01-31');
+      expect(toLocalDateString(occ[1])).toBe('2026-02-28');
+      expect(toLocalDateString(occ[2])).toBe('2026-03-31');
+      expect(toLocalDateString(occ[3])).toBe('2026-04-30');
+    });
+
+    it('does not emit weekly BYDAY occurrences before anchor', () => {
+      const anchor = '2026-06-10';
+      const occ = getOccurrencesInRange(
+        anchor,
+        'FREQ=WEEKLY;BYDAY=MO',
+        new Date(2026, 5, 1),
+        new Date(2026, 5, 30),
+        10,
+      );
+      expect(occ.every((d) => toLocalDateString(d) >= anchor)).toBe(true);
+      expect(toLocalDateString(occ[0])).toBe('2026-06-15');
+    });
+
+    it('does not let skipped dates consume COUNT budget', () => {
+      const anchor = '2026-01-01';
+      const ex = [normalizeExceptionKey('2026-01-02')];
+      const occ = getOccurrencesInRange(
+        anchor,
+        'FREQ=DAILY;COUNT=3',
+        new Date(2026, 0, 1),
+        new Date(2026, 0, 10),
+        10,
+        ex,
+      );
+      expect(occ.map((d) => toLocalDateString(d))).toEqual(['2026-01-01', '2026-01-03', '2026-01-04']);
+    });
+  });
+
+  describe('formatRecurrenceUntilForInput', () => {
+    it('preserves YYYY-MM-DD values', () => {
+      expect(formatRecurrenceUntilForInput('2026-12-31')).toBe('2026-12-31');
+    });
+
+    it('converts compact YYYYMMDD values', () => {
+      expect(formatRecurrenceUntilForInput('20261231')).toBe('2026-12-31');
     });
   });
 

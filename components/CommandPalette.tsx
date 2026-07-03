@@ -181,7 +181,14 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   // New power actions (live + context aware)
   const clearFilters = () => {
-    setTaskFilter({ search: "", status: undefined, recurring: "incomplete" });
+    setTaskFilter({
+      search: "",
+      status: undefined,
+      statusMode: "incomplete",
+      recurrenceMode: "all",
+      starred: "all",
+      folderFilter: "all",
+    });
     toast("Filters cleared");
   };
 

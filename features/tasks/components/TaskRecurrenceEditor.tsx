@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { DateTimePicker } from "@/components/DateTimePicker";
 import {
   cn,
+  formatRecurrenceUntilForInput,
   generateRecurringRule,
   getNextRecurringDue,
   getRecurrenceEndDescription,
@@ -14,6 +15,7 @@ import {
   isDueDatePast,
   normalizeExceptionKey,
   parseRecurringRule,
+  toDueDateStorage,
   type RecurrenceFreq,
   type RecurrencePattern,
   type WeekDay,
@@ -55,19 +57,13 @@ export function TaskRecurrenceEditor({
     currentCount > 0 ? "count" : currentUntil ? "until" : "never",
   );
   const [localCount, setLocalCount] = useState(currentCount || 10);
-  const [localUntil, setLocalUntil] = useState(
-    currentUntil ? `${currentUntil.slice(0, 4)}-${currentUntil.slice(4, 6)}-${currentUntil.slice(6, 8)}` : "",
-  );
+  const [localUntil, setLocalUntil] = useState(formatRecurrenceUntilForInput(currentUntil));
 
   useEffect(() => {
     const mode = currentCount > 0 ? "count" : currentUntil ? "until" : "never";
     setEndMode(mode);
     if (currentCount) setLocalCount(currentCount);
-    if (currentUntil) {
-      setLocalUntil(`${currentUntil.slice(0, 4)}-${currentUntil.slice(4, 6)}-${currentUntil.slice(6, 8)}`);
-    } else {
-      setLocalUntil("");
-    }
+    setLocalUntil(formatRecurrenceUntilForInput(currentUntil));
   }, [currentUntil, currentCount]);
 
   const weekDays: WeekDay[] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
@@ -83,9 +79,8 @@ export function TaskRecurrenceEditor({
     if (mode === "count" && (countVal || localCount) > 0) {
       newPat = { ...base, count: countVal || localCount };
     } else if (mode === "until" && (untilVal || localUntil)) {
-      const d = untilVal || localUntil;
-      const compactUntil = d.replace(/-/g, "");
-      newPat = { ...base, until: compactUntil };
+      const d = formatRecurrenceUntilForInput(untilVal || localUntil);
+      newPat = { ...base, until: d };
     } else {
       newPat = base;
     }
@@ -100,7 +95,7 @@ export function TaskRecurrenceEditor({
       freq: freq as RecurrenceFreq,
       interval: Math.max(1, interval),
       byDay: nextBy.length ? (nextBy as WeekDay[]) : undefined,
-      ...(endMode === "until" && localUntil ? { until: localUntil.replace(/-/g, "") } : {}),
+      ...(endMode === "until" && localUntil ? { until: formatRecurrenceUntilForInput(localUntil) } : {}),
       ...(endMode === "count" ? { count: localCount } : {}),
     };
     save({ recurringRule: generateRecurringRule(newPattern) });
@@ -115,7 +110,7 @@ export function TaskRecurrenceEditor({
       freq: newFreq,
       interval: Math.max(1, interval),
       byDay: newFreq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
-      ...(endMode === "until" && localUntil ? { until: localUntil.replace(/-/g, "") } : {}),
+      ...(endMode === "until" && localUntil ? { until: formatRecurrenceUntilForInput(localUntil) } : {}),
       ...(endMode === "count" ? { count: localCount } : {}),
     };
     save({ recurringRule: generateRecurringRule(newPattern) });
@@ -127,7 +122,7 @@ export function TaskRecurrenceEditor({
       freq: freq as RecurrenceFreq,
       interval: safe,
       byDay: freq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
-      ...(endMode === "until" && localUntil ? { until: localUntil.replace(/-/g, "") } : {}),
+      ...(endMode === "until" && localUntil ? { until: formatRecurrenceUntilForInput(localUntil) } : {}),
       ...(endMode === "count" ? { count: localCount } : {}),
     };
     save({ recurringRule: generateRecurringRule(newPattern) });
@@ -158,7 +153,19 @@ export function TaskRecurrenceEditor({
       return;
     }
     const nextEx = [...currentEx, exKey];
-    save({ exceptionDates: nextEx });
+    const updates: Partial<Task> = { exceptionDates: nextEx };
+    if (isOverdue && localTask.dueDate) {
+      const nextDue = getNextRecurringDue(
+        localTask.recurringRule,
+        localTask.dueDate,
+        localTask.dueDate,
+        nextEx,
+      );
+      if (nextDue) {
+        updates.dueDate = toDueDateStorage(nextDue);
+      }
+    }
+    save(updates);
     toast.success(isOverdue ? "This occurrence skipped" : "Next occurrence skipped", {
       description: `${safeFormatDate(skipTarget, "MMM d", "that date")} excluded from series`,
     });

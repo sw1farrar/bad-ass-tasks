@@ -39,7 +39,7 @@ export function useTasksFilters() {
   const clearFilters = () => {
     setGlobalSearchQuery("");
     setSearchResultType('all');
-    setTaskFilter({ search: "", recurring: "incomplete" });
+    setTaskFilter({ search: "", statusMode: "incomplete", recurrenceMode: "all" });
   };
 
   return {

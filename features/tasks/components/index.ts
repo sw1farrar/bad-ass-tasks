@@ -15,6 +15,7 @@ export { TasksSearch } from "./TasksSearch";
 export { TaskList } from "./TaskList";
 export { TasksTable } from "./TasksTable";
 export { TasksStatusFilter, type TasksStatusFilterMode } from "./TasksStatusFilter";
+export { TasksRecurrenceFilter, type TasksRecurrenceFilterMode } from "./TasksRecurrenceFilter";
 export { TasksOrganizeBar } from "./TasksOrganizeBar";
 export { TaskStarButton } from "./TaskStarButton";
 export { TaskFolderPicker } from "./TaskFolderPicker";

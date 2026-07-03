@@ -2,26 +2,21 @@ import { deliverNotification } from "@/lib/notifications/deliverNotification";
 import { isReminderDismissed, reminderKeyForTask } from "@/lib/notifications/dismissedReminders";
 import { logError } from "@/lib/logger";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import { formatLocalDateShort } from "@/lib/utils";
+import { isDueDatePast, isDueDateToday, formatLocalDateShort } from "@/lib/utils";
 
 type TaskRow = {
   id: string;
   title: string;
   due_date: string | null;
+  recurring_rule: string | null;
   workspace_id: string;
   assignee_ids: string[] | null;
 };
 
-function startOfLocalDay(date = new Date()): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function isDueToday(dueDate: string): boolean {
-  const due = new Date(dueDate);
-  if (Number.isNaN(due.getTime())) return false;
-  const today = startOfLocalDay();
-  const dueDay = startOfLocalDay(due);
-  return dueDay.getTime() === today.getTime();
+function isReminderCandidate(task: TaskRow): boolean {
+  if (!task.due_date) return false;
+  if (isDueDateToday(task.due_date)) return true;
+  return !!task.recurring_rule && isDueDatePast(task.due_date);
 }
 
 async function hasReminderToday(supabase: any, userId: string, taskId: string): Promise<boolean> {
@@ -52,7 +47,7 @@ export async function processDeadlineReminders(userId: string, supabase?: any): 
   try {
     const { data: tasks, error } = await client
       .from("tasks")
-      .select("id, title, due_date, workspace_id, assignee_ids")
+      .select("id, title, due_date, recurring_rule, workspace_id, assignee_ids")
       .contains("assignee_ids", [userId])
       .not("due_date", "is", null)
       .neq("status", "done");
@@ -62,13 +57,11 @@ export async function processDeadlineReminders(userId: string, supabase?: any): 
       return;
     }
 
-    const dueToday = ((tasks ?? []) as TaskRow[]).filter(
-      (task) => task.due_date && isDueToday(task.due_date),
-    );
+    const dueForReminder = ((tasks ?? []) as TaskRow[]).filter(isReminderCandidate);
 
-    if (dueToday.length === 0) return;
+    if (dueForReminder.length === 0) return;
 
-    const workspaceIds = Array.from(new Set(dueToday.map((t) => t.workspace_id)));
+    const workspaceIds = Array.from(new Set(dueForReminder.map((t) => t.workspace_id)));
     const { data: workspaces } = await client
       .from("workspaces")
       .select("id, name")
@@ -80,21 +73,25 @@ export async function processDeadlineReminders(userId: string, supabase?: any): 
     }
 
     // Sequential delivery avoids check-then-insert races between parallel reminders.
-    for (const task of dueToday) {
+    for (const task of dueForReminder) {
       const key = reminderKeyForTask(task.id);
       if (isReminderDismissed(userId, key)) continue;
       if (await hasReminderToday(client, userId, task.id)) continue;
 
       const dueLabel = task.due_date ? formatLocalDateShort(task.due_date) : "today";
       const workspaceName = workspaceNames.get(task.workspace_id) || "your workspace";
+      const isOverdueRecurring =
+        !!task.recurring_rule && task.due_date && isDueDatePast(task.due_date) && !isDueDateToday(task.due_date);
 
       await deliverNotification({
         supabase: client,
         workspaceId: task.workspace_id,
         recipientUserId: userId,
         type: "deadline",
-        title: "Task due today",
-        message: `"${task.title.trim() || "Task"}" is due ${dueLabel} in ${workspaceName}.`,
+        title: isOverdueRecurring ? "Recurring task overdue" : "Task due today",
+        message: isOverdueRecurring
+          ? `"${task.title.trim() || "Task"}" is overdue (${dueLabel}) in ${workspaceName}.`
+          : `"${task.title.trim() || "Task"}" is due ${dueLabel} in ${workspaceName}.`,
         link: `?view=tasks&task=${task.id}`,
         workspaceName,
         metadata: {

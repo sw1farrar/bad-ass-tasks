@@ -28,6 +28,7 @@ import { parseFileAiSuggestion } from "@/lib/files/fileAiSuggestion";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
+import { normalizeCalendarDateKey } from "@/lib/datetime";
 import { TASK_ASSIGNEE_ALL_LABEL } from "@/lib/assignee";
 import { isDueDatePast } from "@/lib/datetime";
 import {
@@ -600,7 +601,7 @@ function mapTaskRow(row: TaskRow): Task {
     linkedNoteIds: row.linked_note_ids ?? [],
     // Recurring + exceptions (Agent 13 production prep, built on Agent 8)
     recurringRule: row.recurring_rule ?? undefined,
-    exceptionDates: row.exception_dates ?? undefined,
+    exceptionDates: row.exception_dates?.map((ex: string) => normalizeCalendarDateKey(ex)) ?? undefined,
     // AI decomposition support (Agent 15): surface parent for hierarchical tasks from extraction
     parentTaskId: row.parent_task_id ?? undefined,
     starred: (row as { starred?: boolean }).starred ?? false,
@@ -5475,7 +5476,8 @@ export async function importWorkspaceData(
         priority: (t.priority as any) || "P2",
         dueDate: t.dueDate,
         tags: t.tags,
-        // recurring etc forwarded if present
+        recurringRule: t.recurringRule ?? undefined,
+        exceptionDates: t.exceptionDates ?? undefined,
       } as any);
       if (res) importedTasks++;
     }
