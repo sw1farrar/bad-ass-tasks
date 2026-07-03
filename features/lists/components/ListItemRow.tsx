@@ -251,10 +251,26 @@ export function ListItemRow({
     setTitleEditMode(true);
   }, [item.text, showEditPencil, onRowActivate, applySelectAll]);
 
+  const titleTapOriginRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleTitleLabelPointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
     if (e.button !== 0 || !useTitleDisplayMode) return;
+    if (isMobile && showEditPencil) {
+      titleTapOriginRef.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
+    activateTitleEdit();
+  };
+
+  const handleTitleLabelPointerUp = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (!isMobile || !showEditPencil || !titleTapOriginRef.current) return;
+    const origin = titleTapOriginRef.current;
+    titleTapOriginRef.current = null;
+    const dx = Math.abs(e.clientX - origin.x);
+    const dy = Math.abs(e.clientY - origin.y);
+    if (dx > 10 || dy > 10) return;
     activateTitleEdit();
   };
 
@@ -367,6 +383,10 @@ export function ListItemRow({
                   item.completed && "is-done",
                 )}
                 onPointerDown={useTitleDisplayMode ? handleTitleLabelPointerDown : undefined}
+                onPointerUp={useTitleDisplayMode ? handleTitleLabelPointerUp : undefined}
+                onPointerCancel={() => {
+                  titleTapOriginRef.current = null;
+                }}
               >
                 {item.text}
               </span>

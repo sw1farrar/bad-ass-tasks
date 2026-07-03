@@ -88,6 +88,7 @@ export function ListDetailModal({
   const [localTitle, setLocalTitle] = useState(list?.title ?? "");
   const menuRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const sheetSurfaceRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobileViewport();
@@ -193,10 +194,11 @@ export function ListDetailModal({
 
   const {
     dragY,
+    isDragging,
     backdropOpacity,
     resetDrag,
     startDrag,
-    createDeferredDragHandlers,
+    attachCaptureDragSurface,
     handleDragEnd,
     handleDrag,
     drag,
@@ -209,20 +211,26 @@ export function ListDetailModal({
     enabled: isMobile && isOpen,
     onDismiss: handleClose,
     dragMode: "handle",
+    dragEngine: "manual",
   });
 
-  const sheetSurfaceDragHandlers = useMemo(
-    () =>
-      createDeferredDragHandlers({
-        getScrollEl: () => listScrollRef.current,
-        canStart: isListDetailSheetDragTarget,
-        onTapFromTarget: (target) =>
-          isListDetailTitleLabelTarget(target) ? enterTitleEdit : undefined,
-      }),
-    [createDeferredDragHandlers, enterTitleEdit],
+  const sheetDragConfig = useMemo(
+    () => ({
+      getScrollEl: () => listScrollRef.current,
+      scrollGateSelector: ".list-detail-scroll",
+      canStart: isListDetailSheetDragTarget,
+      onTapFromTarget: (target: EventTarget) =>
+        isListDetailTitleLabelTarget(target) ? enterTitleEdit : undefined,
+    }),
+    [enterTitleEdit],
   );
 
-  const handleSheetDragStart = useCallback(() => {
+  useLayoutEffect(() => {
+    if (!isMobile || !isOpen) return;
+    return attachCaptureDragSurface(sheetSurfaceRef.current, sheetDragConfig);
+  }, [attachCaptureDragSurface, sheetDragConfig, isMobile, isOpen, list?.id]);
+
+  const blurSheetInputs = useCallback(() => {
     const active = document.activeElement;
     if (
       active instanceof HTMLElement &&
@@ -234,17 +242,8 @@ export function ListDetailModal({
   }, []);
 
   useEffect(() => {
-    const scrollEl = listScrollRef.current;
-    if (!scrollEl || !isMobile || !isOpen) return;
-
-    const syncTouchAction = () => {
-      scrollEl.style.touchAction = scrollEl.scrollTop <= 0 ? "pan-down" : "pan-y";
-    };
-
-    syncTouchAction();
-    scrollEl.addEventListener("scroll", syncTouchAction, { passive: true });
-    return () => scrollEl.removeEventListener("scroll", syncTouchAction);
-  }, [isMobile, isOpen, list?.id]);
+    if (isDragging) blurSheetInputs();
+  }, [isDragging, blurSheetInputs]);
 
   useScrollLock(isOpen);
 
@@ -325,13 +324,12 @@ export function ListDetailModal({
             dragMomentum={isMobile ? dragMomentum : undefined}
             dragConstraints={isMobile ? dragConstraints : undefined}
             dragElastic={isMobile ? dragElastic : undefined}
-            onDragStart={isMobile ? handleSheetDragStart : undefined}
             onDrag={isMobile ? handleDrag : undefined}
             onDragEnd={isMobile ? handleDragEnd : undefined}
             initial={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
             animate={isMobile ? { y: dragY, opacity: 1 } : { scale: 1, opacity: 1 }}
             exit={isMobile ? { y: "100%", opacity: 0.92 } : { scale: 0.96, opacity: 0 }}
-            transition={SHEET_SPRING}
+            transition={isMobile && isDragging ? { duration: 0 } : SHEET_SPRING}
             onClick={(e) => e.stopPropagation()}
           >
             <div
@@ -340,15 +338,16 @@ export function ListDetailModal({
               aria-hidden
             />
             <div
+              ref={sheetSurfaceRef}
               className={cn(
                 "list-detail-modal-surface relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden",
                 isMobile && "list-detail-sheet-drag-zone",
+                isMobile && isDragging && "list-detail-sheet-dragging",
               )}
               style={{
                 backgroundColor: colorStyle.bg,
                 ...listColorPresentationStyleVars(colorStyle),
               }}
-              {...(isMobile ? sheetSurfaceDragHandlers : {})}
             >
             <div className="list-header-band shrink-0">
               {isMobile && (

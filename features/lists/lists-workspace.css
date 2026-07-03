@@ -2061,6 +2061,15 @@
   user-select: none;
 }
 
+.list-detail-sheet-dragging,
+.list-detail-sheet-dragging .list-detail-scroll {
+  touch-action: none;
+}
+
+.list-detail-sheet-dragging .list-detail-scroll {
+  overflow: hidden;
+}
+
 .list-detail-sheet-drag-zone .list-item-text--display-clickable,
 .list-detail-sheet-drag-zone .list-detail-title-label {
   -webkit-user-select: none;
