@@ -35,6 +35,13 @@ export const SHEET_SNAP_BACK_SPRING = {
   mass: 0.82,
 };
 
+/** Programmatic close — ease-in tween mirrors enter curve (no spring kick at rest). */
+export const SHEET_EXIT_TRANSITION = {
+  type: "tween" as const,
+  duration: 0.36,
+  ease: [0.4, 0, 1, 1] as const,
+};
+
 export const SHEET_DISMISS_OFFSET = 120;
 export const SHEET_DISMISS_VELOCITY = 520;
 

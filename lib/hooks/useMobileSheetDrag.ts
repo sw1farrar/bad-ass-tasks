@@ -1,10 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { useDragControls, type PanInfo } from "framer-motion";
+import { animate, useDragControls, useMotionValue, useTransform, type PanInfo } from "framer-motion";
 import {
+  SHEET_DISMISS_EXIT_SPRING,
   SHEET_DISMISS_OFFSET,
   SHEET_DISMISS_VELOCITY,
+  SHEET_ENTER_TRANSITION,
+  SHEET_EXIT_TRANSITION,
+  SHEET_SNAP_BACK_SPRING,
 } from "@/lib/motion/sheet";
 import { isSheetDragBlockedTarget } from "@/lib/motion/sheetDragTarget";
 
@@ -25,6 +29,7 @@ type PointerDragState = {
   pointerId: number;
   startY: number;
   startX: number;
+  startSheetY: number;
   scrollTop: number;
   requireScrollTop: boolean;
   onTap?: () => void;
@@ -62,17 +67,54 @@ export function useMobileSheetDrag(options: {
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isDismissing, setIsDismissing] = useState(false);
+  const [isEntering, setIsEntering] = useState(false);
   const [dismissVelocity, setDismissVelocity] = useState(0);
+  const sheetY = useMotionValue(0);
+  const dismissTargetRef = useRef(
+    typeof window !== "undefined" ? window.innerHeight : 800,
+  );
+  const enterAnimRef = useRef<ReturnType<typeof animate> | null>(null);
+  const exitAnimRef = useRef<ReturnType<typeof animate> | null>(null);
   const dragControls = useDragControls();
   const pointerRef = useRef<PointerDragState | null>(null);
 
+  const setSheetOffset = useCallback(
+    (y: number) => {
+      const next = Math.max(0, y);
+      sheetY.set(next);
+      setDragY(next);
+    },
+    [sheetY],
+  );
+
+  const stopSheetAnimations = useCallback(() => {
+    enterAnimRef.current?.stop();
+    exitAnimRef.current?.stop();
+    enterAnimRef.current = null;
+    exitAnimRef.current = null;
+  }, []);
+
+  const setDismissTarget = useCallback((height?: number) => {
+    const fallback =
+      typeof window !== "undefined" ? window.innerHeight : dismissTargetRef.current;
+    dismissTargetRef.current = Math.max(height ?? fallback, 1);
+  }, []);
+
+  const backdropOpacityMotion = useTransform(sheetY, (y) => {
+    const fadeSpan = 380;
+    return Math.max(0, Math.min(1, 1 - y / fadeSpan));
+  });
+
   const resetDrag = useCallback(() => {
+    stopSheetAnimations();
+    sheetY.set(0);
     setDragY(0);
     setIsDragging(false);
     setIsDismissing(false);
+    setIsEntering(false);
     setDismissVelocity(0);
     pointerRef.current = null;
-  }, []);
+  }, [sheetY, stopSheetAnimations]);
 
   const completeDismiss = useCallback(() => {
     setIsDismissing(false);
@@ -80,12 +122,65 @@ export function useMobileSheetDrag(options: {
     onDismiss();
   }, [onDismiss]);
 
-  const requestDismiss = useCallback((velocityY = 0) => {
-    setIsDragging(false);
-    pointerRef.current = null;
-    setDismissVelocity(Math.max(0, velocityY));
-    setIsDismissing(true);
-  }, []);
+  const runDismissAnimation = useCallback(
+    (velocityY = 0) => {
+      setIsDragging(false);
+      pointerRef.current = null;
+      const velocity = Math.max(0, velocityY);
+      setDismissVelocity(velocity);
+      setIsDismissing(true);
+      stopSheetAnimations();
+
+      const target = dismissTargetRef.current;
+      const transition =
+        velocity > 80
+          ? { ...SHEET_DISMISS_EXIT_SPRING, velocity }
+          : SHEET_EXIT_TRANSITION;
+
+      exitAnimRef.current = animate(sheetY, target, {
+        ...transition,
+        onComplete: () => {
+          exitAnimRef.current = null;
+          completeDismiss();
+        },
+      });
+    },
+    [sheetY, stopSheetAnimations, completeDismiss],
+  );
+
+  const runSnapBackAnimation = useCallback(() => {
+    stopSheetAnimations();
+    exitAnimRef.current = animate(sheetY, 0, {
+      ...SHEET_SNAP_BACK_SPRING,
+      onComplete: () => {
+        exitAnimRef.current = null;
+        setDragY(0);
+      },
+    });
+  }, [sheetY, stopSheetAnimations]);
+
+  const animateEnter = useCallback(() => {
+    stopSheetAnimations();
+    const start = dismissTargetRef.current;
+    sheetY.set(start);
+    setDragY(start);
+    setIsEntering(true);
+    enterAnimRef.current = animate(sheetY, 0, {
+      ...SHEET_ENTER_TRANSITION.y,
+      onComplete: () => {
+        enterAnimRef.current = null;
+        setDragY(0);
+        setIsEntering(false);
+      },
+    });
+  }, [sheetY, stopSheetAnimations]);
+
+  const requestDismiss = useCallback(
+    (velocityY = 0) => {
+      runDismissAnimation(velocityY);
+    },
+    [runDismissAnimation],
+  );
 
   const releaseCapture = useCallback((state: PointerDragState, pointerId: number) => {
     if (state.captureEl?.hasPointerCapture?.(pointerId)) {
@@ -97,13 +192,12 @@ export function useMobileSheetDrag(options: {
     (dy: number, velocityY: number) => {
       setIsDragging(false);
       if (dy > offsetThreshold || velocityY > velocityThreshold) {
-        setDismissVelocity(Math.max(0, velocityY));
-        setIsDismissing(true);
+        runDismissAnimation(velocityY);
         return;
       }
-      setDragY(0);
+      runSnapBackAnimation();
     },
-    [offsetThreshold, velocityThreshold],
+    [offsetThreshold, velocityThreshold, runDismissAnimation, runSnapBackAnimation],
   );
 
   const handleDragEnd = useCallback(
@@ -115,9 +209,9 @@ export function useMobileSheetDrag(options: {
 
   const handleDrag = useCallback(
     (_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-      if (enabled) setDragY(Math.max(0, info.offset.y));
+      if (enabled) setSheetOffset(info.offset.y);
     },
-    [enabled],
+    [enabled, setSheetOffset],
   );
 
   const beginPointerDrag = useCallback(
@@ -134,6 +228,8 @@ export function useMobileSheetDrag(options: {
       },
     ) => {
       if (!enabled || e.button !== 0) return;
+      stopSheetAnimations();
+      setIsEntering(false);
       if (!config.immediate && !config.armAtScrollTop) {
         if (isSheetDragBlockedTarget(e.target)) return;
         if (config.canStart && (!e.target || !config.canStart(e.target))) return;
@@ -155,6 +251,7 @@ export function useMobileSheetDrag(options: {
         pointerId: e.pointerId,
         startY: e.clientY,
         startX: e.clientX,
+        startSheetY: sheetY.get(),
         scrollTop,
         requireScrollTop: Boolean(inScrollGate),
         onTap: config.onTap,
@@ -178,7 +275,7 @@ export function useMobileSheetDrag(options: {
         if (e.cancelable) e.preventDefault();
       }
     },
-    [enabled],
+    [enabled, stopSheetAnimations, sheetY],
   );
 
   const movePointerDrag = useCallback(
@@ -186,12 +283,13 @@ export function useMobileSheetDrag(options: {
       const state = pointerRef.current;
       if (!state || state.pointerId !== e.pointerId) return;
 
-      const dy = e.clientY - state.startY;
+      const fingerDy = e.clientY - state.startY;
       const dx = e.clientX - state.startX;
+      const dy = Math.max(0, state.startSheetY + fingerDy);
 
       if (!state.dragging) {
         if (state.armed) {
-          if (dy <= 0) return;
+          if (fingerDy <= 0) return;
           const liveScrollTop = readScrollTop(state.getScrollEl, state.scrollTop);
           if (liveScrollTop > SCROLL_TOP_EPSILON) {
             releaseCapture(state, e.pointerId);
@@ -200,14 +298,15 @@ export function useMobileSheetDrag(options: {
           }
           state.armed = false;
           state.dragging = true;
+          stopSheetAnimations();
           setIsDragging(true);
         } else {
-          if (Math.abs(dy) <= DRAG_SLOP_PX && Math.abs(dx) <= DRAG_SLOP_PX) return;
-          if (Math.abs(dy) < Math.abs(dx)) {
+          if (Math.abs(fingerDy) <= DRAG_SLOP_PX && Math.abs(dx) <= DRAG_SLOP_PX) return;
+          if (Math.abs(fingerDy) < Math.abs(dx)) {
             pointerRef.current = null;
             return;
           }
-          if (dy < 0) {
+          if (fingerDy < 0) {
             pointerRef.current = null;
             return;
           }
@@ -218,6 +317,7 @@ export function useMobileSheetDrag(options: {
           }
 
           state.dragging = true;
+          stopSheetAnimations();
           setIsDragging(true);
           state.captureEl?.setPointerCapture?.(e.pointerId);
         }
@@ -230,9 +330,9 @@ export function useMobileSheetDrag(options: {
       state.velocityY = ((e.clientY - state.lastY) / dt) * 1000;
       state.lastY = e.clientY;
       state.lastT = now;
-      setDragY(Math.max(0, dy));
+      setSheetOffset(dy);
     },
-    [releaseCapture],
+    [releaseCapture, stopSheetAnimations, setSheetOffset],
   );
 
   const endPointerDrag = useCallback(
@@ -240,8 +340,9 @@ export function useMobileSheetDrag(options: {
       const state = pointerRef.current;
       if (!state || state.pointerId !== e.pointerId) return;
 
-      const dy = e.clientY - state.startY;
+      const fingerDy = e.clientY - state.startY;
       const dx = e.clientX - state.startX;
+      const dy = Math.max(0, state.startSheetY + fingerDy);
       pointerRef.current = null;
       releaseCapture(state, e.pointerId);
 
@@ -250,13 +351,23 @@ export function useMobileSheetDrag(options: {
         return;
       }
 
-      if (Math.abs(dy) <= TAP_SLOP_PX && Math.abs(dx) <= TAP_SLOP_PX) {
+      if (Math.abs(fingerDy) <= TAP_SLOP_PX && Math.abs(dx) <= TAP_SLOP_PX) {
         state.onTap?.();
       }
-      setDragY(0);
       setIsDragging(false);
+      if (sheetY.get() > 0) {
+        stopSheetAnimations();
+        enterAnimRef.current = animate(sheetY, 0, {
+          ...SHEET_ENTER_TRANSITION.y,
+          onComplete: () => {
+            enterAnimRef.current = null;
+            setDragY(0);
+            setIsEntering(false);
+          },
+        });
+      }
     },
-    [finishDrag, releaseCapture],
+    [finishDrag, releaseCapture, sheetY, stopSheetAnimations],
   );
 
   const cancelPointerDrag = useCallback(
@@ -266,9 +377,9 @@ export function useMobileSheetDrag(options: {
       releaseCapture(state, e.pointerId);
       pointerRef.current = null;
       setIsDragging(false);
-      setDragY(0);
+      runSnapBackAnimation();
     },
-    [releaseCapture],
+    [releaseCapture, runSnapBackAnimation],
   );
 
   const startDrag = useCallback(
@@ -442,13 +553,20 @@ export function useMobileSheetDrag(options: {
   const backdropOpacity = Math.max(0.15, 1 - dragY / 280);
   const useFramerDrag = enabled && dragEngine === "framer";
 
+  useEffect(() => () => stopSheetAnimations(), [stopSheetAnimations]);
+
   return {
     dragY,
+    sheetY,
+    backdropOpacityMotion,
     isDragging,
     isDismissing,
+    isEntering,
     dismissVelocity,
     requestDismiss,
     completeDismiss,
+    animateEnter,
+    setDismissTarget,
     backdropOpacity,
     dragControls,
     resetDrag,

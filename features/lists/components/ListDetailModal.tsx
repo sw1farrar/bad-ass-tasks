@@ -10,9 +10,7 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import {
   MOBILE_SHEET_HEIGHT_CLASS,
-  SHEET_DISMISS_EXIT_SPRING,
   SHEET_ENTER_TRANSITION,
-  SHEET_SNAP_BACK_SPRING,
   SHEET_SPRING,
 } from "@/lib/motion/sheet";
 import {
@@ -96,7 +94,6 @@ export function ListDetailModal({
   const panelRef = useRef<HTMLElement>(null);
   const sheetSurfaceRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
-  const dismissAnimationDoneRef = useRef(false);
   const openedListIdRef = useRef<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobileViewport();
@@ -200,13 +197,14 @@ export function ListDetailModal({
   }, [onClose]);
 
   const {
-    dragY,
+    sheetY,
+    backdropOpacityMotion,
     isDragging,
     isDismissing,
-    dismissVelocity,
+    isEntering,
     requestDismiss,
-    completeDismiss,
-    backdropOpacity,
+    animateEnter,
+    setDismissTarget,
     resetDrag,
     attachCaptureDragSurface,
     attachScrollDismiss,
@@ -245,8 +243,18 @@ export function ListDetailModal({
     [enterTitleEdit],
   );
 
+  useEffect(() => {
+    if (!isMobile || !isOpen) return;
+    const syncDismissTarget = () => {
+      setDismissTarget(panelRef.current?.offsetHeight ?? window.innerHeight);
+    };
+    syncDismissTarget();
+    window.addEventListener("resize", syncDismissTarget);
+    return () => window.removeEventListener("resize", syncDismissTarget);
+  }, [isMobile, isOpen, setDismissTarget, list?.id]);
+
   useLayoutEffect(() => {
-    if (!isMobile || !isOpen || isDismissing) return;
+    if (!isMobile || !isOpen || isDismissing || isEntering) return;
     const cleanupSurface = attachCaptureDragSurface(sheetSurfaceRef.current, {
       ...sheetDragConfig,
       scrollDismissSelector: ".list-detail-scroll",
@@ -263,6 +271,7 @@ export function ListDetailModal({
     isMobile,
     isOpen,
     isDismissing,
+    isEntering,
     list?.id,
   ]);
 
@@ -273,9 +282,13 @@ export function ListDetailModal({
     }
     if (openedListIdRef.current === list.id) return;
     openedListIdRef.current = list.id;
-    dismissAnimationDoneRef.current = false;
     resetDrag();
-  }, [list?.id, isOpen, list, resetDrag]);
+
+    if (!isMobile) return;
+    const height = panelRef.current?.offsetHeight ?? window.innerHeight;
+    setDismissTarget(height);
+    animateEnter();
+  }, [list?.id, isOpen, list, isMobile, resetDrag, setDismissTarget, animateEnter]);
 
   const blurSheetInputs = useCallback(() => {
     const active = document.activeElement;
@@ -291,10 +304,6 @@ export function ListDetailModal({
   useEffect(() => {
     if (isDragging) blurSheetInputs();
   }, [isDragging, blurSheetInputs]);
-
-  useEffect(() => {
-    if (isDismissing) dismissAnimationDoneRef.current = false;
-  }, [isDismissing]);
 
   useScrollLock(isMobile ? isOpen && !isDismissing : isOpen);
 
@@ -343,19 +352,12 @@ export function ListDetailModal({
               "absolute inset-0",
               isMobile ? "sheet-backdrop" : "overlay-scrim backdrop-blur-sm",
             )}
-            initial={{ opacity: 0 }}
-            animate={{
-              opacity: isMobile ? (isDismissing ? 0 : backdropOpacity) : 1,
-            }}
+            initial={isMobile ? false : { opacity: 0 }}
+            animate={isMobile ? undefined : { opacity: 1 }}
+            style={isMobile ? { opacity: backdropOpacityMotion } : undefined}
             exit={{ opacity: 0 }}
             transition={
-              isMobile && (isDragging || (dragY > 0 && !isDismissing))
-                ? { duration: 0 }
-                : isMobile && isDismissing
-                  ? { duration: 0.2, ease: "easeOut" }
-                  : isMobile
-                    ? SHEET_ENTER_TRANSITION.opacity
-                    : { duration: 0.22, ease: "easeOut" }
+              isMobile ? undefined : { duration: 0.22, ease: "easeOut" }
             }
             onClick={handleClose}
             aria-hidden="true"
@@ -378,7 +380,7 @@ export function ListDetailModal({
               backgroundColor: colorStyle.bg,
               borderColor: colorStyle.border,
               ...listColorPresentationStyleVars(colorStyle),
-              ...(isMobile ? { touchAction: "pan-y" as const } : {}),
+              ...(isMobile ? { y: sheetY, touchAction: "pan-y" as const } : {}),
             }}
             drag={isMobile ? drag : false}
             dragControls={isMobile ? dragControlsProp : undefined}
@@ -388,35 +390,14 @@ export function ListDetailModal({
             dragElastic={isMobile ? dragElastic : undefined}
             onDrag={isMobile ? handleDrag : undefined}
             onDragEnd={isMobile ? handleDragEnd : undefined}
-            initial={isMobile ? { y: "100%", opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
-            animate={
-              isMobile
-                ? {
-                    y: isDismissing ? "100%" : dragY > 0 ? dragY : "0%",
-                    opacity: isDismissing ? 0.96 : 1,
-                  }
-                : { scale: 1, opacity: 1 }
-            }
-            exit={isMobile ? { y: "100%", opacity: 0 } : { scale: 0.96, opacity: 0 }}
+            initial={isMobile ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
+            animate={isMobile ? { opacity: 1 } : { scale: 1, opacity: 1 }}
+            exit={isMobile ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
             transition={
-              isMobile && isDragging
-                ? { duration: 0 }
-                : isMobile && isDismissing
-                  ? {
-                      y: { ...SHEET_DISMISS_EXIT_SPRING, velocity: dismissVelocity },
-                      opacity: { duration: 0.2, ease: "easeOut" },
-                    }
-                  : isMobile && dragY > 0
-                    ? { y: SHEET_SNAP_BACK_SPRING, opacity: { duration: 0.12 } }
-                    : isMobile
-                      ? SHEET_ENTER_TRANSITION
-                      : SHEET_SPRING
+              isMobile
+                ? SHEET_ENTER_TRANSITION.opacity
+                : SHEET_SPRING
             }
-            onAnimationComplete={() => {
-              if (!isMobile || !isDismissing || dismissAnimationDoneRef.current) return;
-              dismissAnimationDoneRef.current = true;
-              completeDismiss();
-            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
