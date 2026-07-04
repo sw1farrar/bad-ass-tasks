@@ -2345,7 +2345,7 @@ export function TipTapEditor({
       {stickyChromeLayout ? (
         <div
           className={cn(
-            "flex-1 min-h-0 overflow-auto overscroll-contain",
+            "flex flex-1 flex-col min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain",
             stickyPreviewChrome ? "notes-files-preview-body" : "notes-editor-scroll-body",
           )}
         >

@@ -957,6 +957,7 @@ function isSafeId(raw: any): boolean {
 // Allows resetting state without exposing mutable lets. Do not use in production code.
 export function __resetRealtimeGuardForTests(): void {
   currentRealtimeWorkspaceId = null;
+  lastSubscribedSharedListKey = null;
   activeTaskChannel = null;
   activeNoteChannel = null;
   activeInviteChannel = null;
@@ -965,6 +966,8 @@ export function __resetRealtimeGuardForTests(): void {
   activeCommentChannel = null;
   activeListChannel = null;
   activeListItemChannel = null;
+  activeSharedListChannel = null;
+  activeListShareChannel = null;
 }
 
 export function __getCurrentRealtimeWorkspaceIdForTests(): string | null {
@@ -4849,6 +4852,11 @@ let activeRealtimeCleanup: (() => void) | null = null;
 // Track the workspace we are currently actively subscribed for (prevents double-subscribe on rapid switchWorkspace + initializeFromSupabase)
 // This let is intentionally module-private. Use __getCurrentRealtimeWorkspaceIdForTests() / __reset... for tests only.
 let currentRealtimeWorkspaceId: string | null = null;
+let lastSubscribedSharedListKey: string | null = null;
+
+function sharedListIdsKey(ids: string[]): string {
+  return [...ids].sort().join(",");
+}
 
 export function subscribeToWorkspaceRealtime(
   workspaceId: string,
@@ -4880,6 +4888,13 @@ export function subscribeToWorkspaceRealtime(
   const supabase = getClient();
   if (!supabase) return () => {};
 
+  const sharedListIds = (options?.sharedListIds ?? [])
+    .map((id) => sanitizeId(id, "list"))
+    .filter((id): id is string => !!id);
+  const sharedKey = sharedListIdsKey(sharedListIds);
+  const sharedListsChanged =
+    currentRealtimeWorkspaceId === wsId && sharedKey !== lastSubscribedSharedListKey;
+
   // === STRENGTHENED IDEMPOTENCY GUARD ===
   // If already wired for this *exact* workspace (after coercion), bail early with no-op.
   // This is the primary defense against the Supabase Realtime "cannot add postgres_changes callbacks after subscribe()" crash
@@ -4888,9 +4903,12 @@ export function subscribeToWorkspaceRealtime(
   //  - currentRealtimeWorkspaceId is set once we decide to subscribe (after prior cleared)
   //  - currentRealtimeWorkspaceId cleared in every teardown path (see below)
   //  - Comparison + channel presence check after String coercion
-  if (currentRealtimeWorkspaceId === wsId &&
-      (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-        activeCommentChannel || activeListChannel || activeListItemChannel || activeSharedListChannel || activeListShareChannel)) {
+  if (
+    currentRealtimeWorkspaceId === wsId &&
+    !sharedListsChanged &&
+    (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeSharedListChannel || activeListShareChannel)
+  ) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
       `(currentRealtimeWorkspaceId=${currentRealtimeWorkspaceId}). Skipping to avoid postgres_changes-after-subscribe crash on rapid switch.`
@@ -4944,6 +4962,7 @@ export function subscribeToWorkspaceRealtime(
       activeListShareChannel = null;
     }
     currentRealtimeWorkspaceId = null; // explicit clear in teardown path
+    lastSubscribedSharedListKey = null;
   }
 
   // Commit: we are now the active subscription for this workspace.
@@ -4961,10 +4980,6 @@ export function subscribeToWorkspaceRealtime(
     onListItemChange,
     onListShareChange,
   } = handlers;
-
-  const sharedListIds = (options?.sharedListIds ?? [])
-    .map((id) => sanitizeId(id, "list"))
-    .filter((id): id is string => !!id);
 
   if (onTaskChange) {
     activeTaskChannel = supabase
@@ -5177,11 +5192,14 @@ export function subscribeToWorkspaceRealtime(
     }
     activeSharedListChannel = sharedChannel.subscribe((status: string) => {
       if (status === "SUBSCRIBED") {
+        lastSubscribedSharedListKey = sharedKey;
         console.log(
           `[realtime] shared lists subscribed for workspace ${wsId} (${sharedListIds.length} list(s))`,
         );
       }
     });
+  } else {
+    lastSubscribedSharedListKey = sharedKey;
   }
 
   if (onListShareChange) {
@@ -5249,6 +5267,7 @@ export function subscribeToWorkspaceRealtime(
       activeListShareChannel = null;
     }
     currentRealtimeWorkspaceId = null;
+    lastSubscribedSharedListKey = null;
     activeRealtimeCleanup = null;
   };
   return activeRealtimeCleanup;

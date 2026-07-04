@@ -1,5 +1,11 @@
 import { stripHtmlToPlainText } from "@/lib/brevo/inboundNoteContent";
 import { stripInvisibleUnicode } from "@/lib/files/archiveTitle";
+import {
+  extractReceiptLineItemsFromEmailHtml,
+  extractReceiptLineItemsFromPlainBody,
+  formatEmailReceiptLinesForPrompt,
+} from "@/lib/files/extractEmailReceiptLineItems";
+import type { ReceiptLineItemInput } from "@/lib/files/receiptLineItems";
 import { extractNoteSearchText } from "@/lib/notes/extractNoteSearchText";
 import {
   extractMerchantInstitution,
@@ -11,6 +17,9 @@ export type ArchiveTitleSignals = {
   dollarLines: string[];
   merchantCandidates: string[];
   rejectedBoilerplate: string[];
+  /** Structured line items parsed from email HTML tables (order confirmations). */
+  emailReceiptLineItems: ReceiptLineItemInput[];
+  emailReceiptLinesText: string;
 };
 
 const BOILERPLATE_SUBJECT_RE =
@@ -159,11 +168,38 @@ export function preprocessArchiveTitleSignals(ctx: ArchiveTitleContext): Archive
   const bodyText = noteBodyPlain(ctx);
   const texts = [attachmentText, bodyText].filter(Boolean);
 
-  const dollarLines = extractDollarLines(texts.join("\n\n"));
+  const emailReceiptLineItems = (() => {
+    const fromHtml = ctx.emailHtml?.trim()
+      ? extractReceiptLineItemsFromEmailHtml(ctx.emailHtml)
+      : [];
+    if (fromHtml.length >= 2) return fromHtml;
+
+    const fromBody = bodyText.trim() ? extractReceiptLineItemsFromPlainBody(bodyText) : [];
+    if (!fromHtml.length) return fromBody;
+    if (!fromBody.length) return fromHtml;
+
+    const merged = new Map<string, ReceiptLineItemInput>();
+    for (const item of [...fromHtml, ...fromBody]) {
+      const key = `${item.itemName.toLowerCase()}|${item.pricePaid ?? ""}`;
+      if (!merged.has(key)) merged.set(key, item);
+    }
+    return [...merged.values()];
+  })();
+  const emailReceiptLinesText = formatEmailReceiptLinesForPrompt(emailReceiptLineItems);
+
+  const dollarLines = extractDollarLines(
+    [texts.join("\n\n"), emailReceiptLinesText].filter(Boolean).join("\n\n"),
+  );
   const merchantCandidates = collectMerchantCandidates(ctx, texts);
   const rejectedBoilerplate = collectRejectedBoilerplate(ctx);
 
-  return { dollarLines, merchantCandidates, rejectedBoilerplate };
+  return {
+    dollarLines,
+    merchantCandidates,
+    rejectedBoilerplate,
+    emailReceiptLineItems,
+    emailReceiptLinesText,
+  };
 }
 
 /** Rich text for classification, validation, and sanitization (attachments + body, not search_document). */

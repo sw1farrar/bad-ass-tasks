@@ -1,5 +1,8 @@
 import type { ArchiveTitleContext } from "@/lib/files/archiveTitleRules";
-import { noteBodyPlain } from "@/lib/files/preprocessArchiveTitleContext";
+import {
+  noteBodyPlain,
+  preprocessArchiveTitleSignals,
+} from "@/lib/files/preprocessArchiveTitleContext";
 
 const MAX_SECTION_CHARS = 12_000;
 const MAX_TOTAL_CHARS = 32_000;
@@ -35,7 +38,19 @@ export function buildSmartDocumentNameUserPrompt(
     );
   }
 
+  const signals = preprocessArchiveTitleSignals(ctx);
   const visionImages = options?.visionImages ?? [];
+
+  if (signals.emailReceiptLineItems.length > 0) {
+    sections.push(
+      "=== EMAIL RECEIPT LINE ITEMS (parsed from email body HTML — HIGH PRIORITY) ===",
+      "The receipt is in the email body, not an attachment. Use these rows as your starting line_items list.",
+      "Verify each row against the email body; add missing items; drop marketing/footer noise.",
+      signals.emailReceiptLinesText,
+      "",
+    );
+  }
+
   if (visionImages.length === 1) {
     const name = visionImages[0].fileName;
     sections.push(
@@ -81,7 +96,11 @@ export function buildSmartDocumentNameUserPrompt(
 
   const body = noteBodyPlain(ctx);
   if (body) {
-    sections.push("=== EMAIL / NOTE BODY ===", truncate(body), "");
+    const bodyLabel =
+      visionImages.length === 0 && signals.emailReceiptLineItems.length > 0
+        ? "=== EMAIL / NOTE BODY (receipt content — read tables and priced rows carefully) ==="
+        : "=== EMAIL / NOTE BODY ===";
+    sections.push(bodyLabel, truncate(body), "");
   }
 
   if (ctx.memo?.trim()) {

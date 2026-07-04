@@ -1,0 +1,38 @@
+our store »Micro Center Tustin
+1100 E Edinger Ave.
+Tustin, CA 92780
+General Manager Greg Moore
+www.microcenter.com
+Reference Number »    101-SE-14460820
+Transaction Date »    07/03/2026
+Customer »STEVE FARRAR
+CSR »Bryan M
+
+Your Sale Information
+SKU    Description    Quantity    Price PerTotal Price
+081042    KB AUTO KB SALES CHECK-OUT    1    $0.01    $0.01
+768879    GIGABYTE Z890 AORUS PRO ICE
+S/N: SN244650081222    1    $191.16    $191.16
+823583    LIANLI LANCOOL 217 TG ATX BLK    1    $119.99    $119.99
+778191    SAMDAYBLD EXPRESS PROBUILD SERVICE
+S/N: MCB2143308    1    $249.99    $249.99
+SYMPTOMS: Cx looking to do a build with us, cx            
+provided info            
+SECURITY: ESET            
+061770    ASSIGN ASSIGN LABOR TO TECHNICIA    1    $0.01    $0.01
+781021    CORSAIR 32GB 2X16 6000 36 R B    1    $387.37    $387.37
+531830    MICROSOFT WIN HOME FPP 11 USB FLASH    1    $139.99    $139.99
+815266    SAMSUNG E 1TB 9100PRO NVME GEN5 SSD
+S/N: S7YENJ0L506283    1    $229.99    $229.99
+761098    INTEL INTEL CORE ULTRA 9 285K
+S/N: M6X1127E00157    1    $221.46    $221.46
+596155    MSI MAG A850GL 80+G ATX3
+S/N: 3067ZP8A23CE010611009274    1    $109.99    $109.99
+866715    ARCTIC LIQ FREEZE III PRO 360 BK    1    $119.99    $119.99
+815118    MSI RTX5070TI 16G VEN 3X OC
+S/N: 602-V531-205ST2603000904    1    $999.99    $999.99
+Subtotal »            $2769.94
+City Tax »            $0.00
+State Tax »            $214.67
+Sale TOTAL »            $2984.61
+Master Card XXXXXXXX1172 »            $2984.61

@@ -100,6 +100,12 @@ type ListStoreSlice = {
 type Get = () => ListStoreSlice & {
   currentWorkspace: { id: string };
   triggerCelebration: () => void;
+  broadcastLiveListItemToggle?: (
+    listId: string,
+    itemId: string,
+    completed: boolean,
+    completedAt?: string,
+  ) => void;
 };
 type Set = (partial: Partial<ListStoreSlice> | ((state: ListStoreSlice) => Partial<ListStoreSlice>)) => void;
 
@@ -303,7 +309,7 @@ export function createListSliceActions(get: Get, set: Set) {
       const allowEmpty = Boolean(options?.afterItemId);
       if (!trimmed && !allowEmpty) return null;
       const list = get().workspaceLists.find((l) => l.id === listId);
-      const workspaceId = list?.workspaceId ?? wsId();
+      const workspaceId = list?.sourceWorkspaceId ?? list?.workspaceId ?? wsId();
       const now = new Date().toISOString();
       const allItems = get().listItems;
 
@@ -376,6 +382,13 @@ export function createListSliceActions(get: Get, set: Set) {
         triggerHaptic("light");
       }
 
+      get().broadcastLiveListItemToggle?.(
+        current.listId,
+        id,
+        completing,
+        completing ? now : undefined,
+      );
+
       if (shouldPersistLists(current.workspaceId)) {
         void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
           completed: completing,
@@ -411,6 +424,10 @@ export function createListSliceActions(get: Get, set: Set) {
 
       triggerHaptic("success");
       get().triggerCelebration();
+
+      for (const item of toComplete) {
+        get().broadcastLiveListItemToggle?.(item.listId, item.id, true, now);
+      }
 
       if (shouldPersistLists(current.workspaceId)) {
         for (const item of toComplete) {

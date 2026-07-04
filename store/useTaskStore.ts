@@ -555,6 +555,12 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   // Live collab (lightweight broadcast) - Slice 1 foundation
   broadcastLiveTaskEdit: (taskId: string, updates: { title?: string; description?: string }) => void;
   broadcastLiveNoteContent: (noteId: string, content: string) => void;
+  broadcastLiveListItemToggle: (
+    listId: string,
+    itemId: string,
+    completed: boolean,
+    completedAt?: string,
+  ) => void;
 
   // Actions - Tasks
   addTask: (input: string) => Promise<Task | null>;
@@ -3737,6 +3743,7 @@ export const useTaskStore = create<TaskState>()(
               workspaceLists: lists.filter((l) => !(l.isShared && l.id === listId)),
               listItems: (get().listItems || []).filter((i) => i.listId !== listId),
             });
+            get().setupWorkspaceRealtime();
           }
           toast.success("Workspace link removed");
         } else {
@@ -4793,14 +4800,12 @@ export const useTaskStore = create<TaskState>()(
                 set({ tasks: [mapped, ...currentTasks] });
               }
             } else if (eventType === "UPDATE" && newRow) {
-              if (get().taskLoadingStates[newRow.id]) {
-                return;
-              }
               // Agent 30: live conflict detection for concurrent edits (if selected/editing this item right now)
               const st = get();
               const isSelected = st.selectedTaskId === newRow.id;
               const isEditing = st.onlineUsers?.some(u => u.editingItemId === newRow.id && u.userId !== (st.user?.id || 'me')) || isSelected;
               const existing = currentTasks.find(t => t.id === newRow.id);
+              const prevStatus = existing?.status;
               const remotePreview = newRow.title || '';
 
               // Live collab polish: if we have a recent liveEditing signal for this task, the lightweight broadcast is already flowing — suppress the heavier conflict banner
@@ -4816,50 +4821,58 @@ export const useTaskStore = create<TaskState>()(
                   }
                 }));
               }
-              set({
-                tasks: currentTasks.map((t) => {
-                  if (t.id !== newRow.id) return t;
-                  const next = {
-                    ...t,
-                    title: newRow.title ?? t.title,
-                    description: newRow.description ?? t.description,
-                    status: newRow.status ?? t.status,
-                    priority: newRow.priority ?? t.priority,
-                    dueDate: newRow.due_date ?? t.dueDate,
-                    tags: newRow.tags ?? t.tags,
-                    completedAt:
-                      (newRow.status ?? t.status) === "done"
-                        ? (Object.prototype.hasOwnProperty.call(newRow, "completed_at")
-                            ? (newRow.completed_at ?? undefined)
-                            : t.completedAt)
-                        : undefined,
-                  } as Task;
-                  if (Object.prototype.hasOwnProperty.call(newRow, "assignee_ids")) {
-                    next.assigneeIds = newRow.assignee_ids ?? [];
-                    next.assignee = resolveAssigneeLabel(
-                      next.assigneeIds,
-                      get().members || [],
-                      get().user?.id
-                    );
-                  }
-                  if (Object.prototype.hasOwnProperty.call(newRow, "recurring_rule")) {
-                    next.recurringRule = newRow.recurring_rule ?? undefined;
-                  }
-                  if (Object.prototype.hasOwnProperty.call(newRow, "exception_dates")) {
-                    next.exceptionDates = mapRealtimeExceptionDates(newRow.exception_dates);
-                  }
-                  if (Object.prototype.hasOwnProperty.call(newRow, "parent_task_id")) {
-                    next.parentTaskId = newRow.parent_task_id ?? undefined;
-                  }
-                  if (Object.prototype.hasOwnProperty.call(newRow, "linked_note_ids")) {
-                    next.linkedNoteIds = newRow.linked_note_ids ?? [];
-                  }
-                  if (Object.prototype.hasOwnProperty.call(newRow, "time_estimate")) {
-                    next.timeEstimate = newRow.time_estimate ?? undefined;
-                  }
-                  return next;
-                }),
-              });
+              const mergeRemoteTask = (t: Task): Task => {
+                const next = {
+                  ...t,
+                  title: newRow.title ?? t.title,
+                  description: newRow.description ?? t.description,
+                  status: newRow.status ?? t.status,
+                  priority: newRow.priority ?? t.priority,
+                  dueDate: newRow.due_date ?? t.dueDate,
+                  tags: newRow.tags ?? t.tags,
+                  completedAt:
+                    (newRow.status ?? t.status) === "done"
+                      ? (Object.prototype.hasOwnProperty.call(newRow, "completed_at")
+                          ? (newRow.completed_at ?? undefined)
+                          : t.completedAt)
+                      : undefined,
+                } as Task;
+                if (Object.prototype.hasOwnProperty.call(newRow, "assignee_ids")) {
+                  next.assigneeIds = newRow.assignee_ids ?? [];
+                  next.assignee = resolveAssigneeLabel(
+                    next.assigneeIds,
+                    get().members || [],
+                    get().user?.id
+                  );
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "recurring_rule")) {
+                  next.recurringRule = newRow.recurring_rule ?? undefined;
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "exception_dates")) {
+                  next.exceptionDates = mapRealtimeExceptionDates(newRow.exception_dates);
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "parent_task_id")) {
+                  next.parentTaskId = newRow.parent_task_id ?? undefined;
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "linked_note_ids")) {
+                  next.linkedNoteIds = newRow.linked_note_ids ?? [];
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "time_estimate")) {
+                  next.timeEstimate = newRow.time_estimate ?? undefined;
+                }
+                return next;
+              };
+              set((state) =>
+                withTaskSliceNavStats(
+                  state,
+                  newRow.workspace_id,
+                  patchTaskInSlices(state, newRow.id, mergeRemoteTask),
+                ),
+              );
+              const nextStatus = newRow.status ?? prevStatus;
+              if (prevStatus !== nextStatus) {
+                get().refreshHomeTaskFocusFromStore();
+              }
             } else if (eventType === "DELETE" && oldRow) {
               set({ tasks: currentTasks.filter((t) => t.id !== oldRow.id) });
             }
@@ -4899,6 +4912,9 @@ export const useTaskStore = create<TaskState>()(
                     : n
                 ),
               });
+              if (Object.prototype.hasOwnProperty.call(newRow, "review_status")) {
+                get().refreshHomeNoteAggregatesFromStore();
+              }
             } else if (eventType === "DELETE" && oldRow) {
               set({ notes: currentNotes.filter((n) => n.id !== oldRow.id) });
               get().refreshHomeNoteAggregatesFromStore();
@@ -5303,6 +5319,25 @@ export const useTaskStore = create<TaskState>()(
                 }));
               }
             })
+            .on('broadcast', { event: 'live-list-item-toggle' }, ({ payload }) => {
+              if (!payload?.itemId || !payload?.userId) return;
+              const selfId = get().user?.id || 'me';
+              if (payload.userId === selfId) return;
+              const ts = payload.ts || new Date().toISOString();
+              set((s) => ({
+                listItems: (s.listItems || []).map((i) =>
+                  i.id === payload.itemId
+                    ? {
+                        ...i,
+                        completed: !!payload.completed,
+                        completedAt: payload.completed ? (payload.completedAt || ts) : undefined,
+                        pending: payload.pending === true ? true : payload.pending === false ? false : i.pending,
+                        updatedAt: ts,
+                      }
+                    : i
+                ),
+              }));
+            })
             .subscribe(async (status) => {
               if (status === "SUBSCRIBED") {
                 markBroadcastChannelReady(presenceChannel);
@@ -5465,6 +5500,27 @@ export const useTaskStore = create<TaskState>()(
             },
           },
         }));
+      },
+
+      broadcastLiveListItemToggle: (listId, itemId, completed, completedAt) => {
+        const pres = (get() as any)._presenceChannel;
+        const st = get();
+        const user = st.user;
+        if (!user || !isSupabaseLive() || ["w1", "w2"].includes(st.currentWorkspace.id)) return;
+
+        const payload = {
+          listId,
+          itemId,
+          userId: user.id || 'me',
+          email: user.email,
+          completed,
+          completedAt: completed ? (completedAt || new Date().toISOString()) : undefined,
+          ts: new Date().toISOString(),
+        };
+
+        if (pres) {
+          sendChannelBroadcast(pres, "live-list-item-toggle", payload);
+        }
       },
 
       // Agent 30: resolve concurrent edit conflict (LWW aware + UI choice)

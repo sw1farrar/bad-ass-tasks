@@ -52,6 +52,14 @@ export function buildArchiveTitleUserPrompt(ctx: ArchiveTitleContext): string {
     signalLines.push("", "Rejected boilerplate:");
     signalLines.push(...signals.rejectedBoilerplate.map((b) => `- ${b}`));
   }
+  if (signals.emailReceiptLineItems.length) {
+    sections.push(
+      "=== EMAIL RECEIPT LINE ITEMS (parsed from email body HTML) ===",
+      signals.emailReceiptLinesText,
+      "",
+    );
+  }
+
   if (signalLines.length) {
     sections.push("=== EXTRACTED SIGNALS (hints — verify in sources) ===", signalLines.join("\n"), "");
   }

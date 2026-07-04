@@ -40,11 +40,18 @@ When WORKSPACE FILING TAGS are provided in the user message:
 ## How to read (order matters)
 1. Attached document image(s) — photos and scans of receipts, statements, tax forms, bills. Read text, logos, line items, and form headers visually when present.
 2. Attachment extracted text (PDF/OCR) — often the real document.
-3. Email / note body — tables, letterhead, form headers, body copy.
+3. Email / note body — tables, letterhead, form headers, body copy. **Many order confirmations put the full receipt in the HTML body (no image attachment).**
 4. Email subject line — LOW TRUST for receipts/orders; may help for statements or tax notices but verify in the body.
 5. Upload timestamp — use ONLY when no real document date exists in the content.
 
 When a note is only a photo of a document (no email body, no OCR text), analyze the image(s) directly — same naming rules apply.
+
+### Email-body receipts (no attachment image)
+When EMAIL RECEIPT LINE ITEMS or priced rows appear in the email body:
+- Treat the email HTML/body as the primary receipt source (same as reading a scanned receipt).
+- Extract **every purchasable product row** from HTML tables and priced lines into line_items.
+- Do not stop at one item — order emails often list multiple products plus quantity/variant text in the description cell.
+- Ignore footer links, unsubscribe text, shipping policy blurbs, and payment-method rows.
 
 ### Multiple images (critical)
 When more than one image is attached, assume they are usually separate photos of the SAME receipt or document until proven otherwise (e.g. photo 1 = header/store, photo 2 = line items, photo 3 = total/payment).
