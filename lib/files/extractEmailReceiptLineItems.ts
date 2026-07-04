@@ -48,10 +48,6 @@ function htmlToReceiptPlainText(html: string): string {
     .trim();
 }
 
-function stripTags(html: string): string {
-  return normalizeText(htmlToReceiptPlainText(html));
-}
-
 function parseMoney(value: string): number | null {
   const match = value.match(/(?:\$|USD\s*)?\s*([\d,]+\.\d{2})\b/i);
   if (!match) return null;
@@ -141,7 +137,7 @@ function stripPricesAndQty(line: string): string {
 function extractSaleSection(text: string): string {
   const startMatch = text.match(SALE_SECTION_START_RE);
   const startIndex = startMatch?.index ?? 0;
-  let section = text.slice(startIndex);
+  const section = text.slice(startIndex);
 
   const endPatterns = [
     /\n\s*subtotal\b/i,
