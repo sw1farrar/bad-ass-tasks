@@ -6,7 +6,7 @@ import { format, parseISO } from "date-fns";
 import { ArrowDown, ArrowUp, Eye, Loader2, Pencil, Receipt, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
-import { buildReceiptPreviewCatalog } from "@/lib/files/receiptPreview";
+
 import { ReceiptSourcePreviewModal } from "./ReceiptSourcePreviewModal";
 import { apiFetch } from "@/lib/api/apiFetch";
 import {
@@ -414,10 +414,8 @@ export function ReceiptItemsModal({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ReceiptLineItemRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [previewStartNoteId, setPreviewStartNoteId] = useState<string | null>(null);
-  const [previewCatalog, setPreviewCatalog] = useState<
-    ReturnType<typeof buildReceiptPreviewCatalog>
-  >([]);
+  const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
+  const [previewLabel, setPreviewLabel] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const fetchGenerationRef = useRef(0);
@@ -524,13 +522,13 @@ export function ReceiptItemsModal({
   useEffect(() => {
     if (!present) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && entered && !editingId && !deleteTarget && !previewStartNoteId) {
+      if (e.key === "Escape" && entered && !editingId && !deleteTarget && !previewNoteId) {
         onClose();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [present, entered, onClose, editingId, deleteTarget, previewStartNoteId]);
+  }, [present, entered, onClose, editingId, deleteTarget, previewNoteId]);
 
   const hasActiveFilters = useMemo(
     () =>
@@ -630,15 +628,15 @@ export function ReceiptItemsModal({
   };
 
   const handleRowOpen = (noteId: string) => {
-    if (editingId || deleteTarget || previewStartNoteId) return;
+    if (editingId || deleteTarget || previewNoteId) return;
     onOpenFile(noteId);
     onClose();
   };
 
-  const handlePreviewReceipt = (noteId: string) => {
-    if (editingId || deleteTarget || previewStartNoteId) return;
-    setPreviewCatalog(buildReceiptPreviewCatalog(items));
-    setPreviewStartNoteId(noteId);
+  const handlePreviewReceipt = (item: ReceiptLineItemRecord) => {
+    if (editingId || deleteTarget || previewNoteId) return;
+    setPreviewLabel(item.vendor?.trim() || item.itemName?.trim() || "Receipt");
+    setPreviewNoteId(item.noteId);
   };
 
   const clearFilters = () => {
@@ -674,9 +672,9 @@ export function ReceiptItemsModal({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          handlePreviewReceipt(item.noteId);
+          handlePreviewReceipt(item);
         }}
-        disabled={!!editingId || isDeletingRow || !!deleteTarget || !!previewStartNoteId}
+        disabled={!!editingId || isDeletingRow || !!deleteTarget || !!previewNoteId}
         className="receipt-ledger-row-action receipt-ledger-row-action--preview"
         aria-label={`Preview receipt for ${item.itemName}`}
         title="Preview receipt"
@@ -1037,11 +1035,11 @@ export function ReceiptItemsModal({
       </div>
 
       <ReceiptSourcePreviewModal
-        catalog={previewCatalog}
-        startNoteId={previewStartNoteId}
+        noteId={previewNoteId}
+        label={previewLabel}
         onClose={() => {
-          setPreviewStartNoteId(null);
-          setPreviewCatalog([]);
+          setPreviewNoteId(null);
+          setPreviewLabel("");
         }}
       />
 
