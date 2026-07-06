@@ -78,6 +78,12 @@ const REQUIRED_FUNCTIONS = {
     p_invite_id: "00000000-0000-0000-0000-000000000000",
     p_target_workspace_id: "00000000-0000-0000-0000-000000000000",
   },
+  decline_list_share_invite: {
+    p_invite_id: "00000000-0000-0000-0000-000000000000",
+  },
+  get_list_share_linked_workspaces: {
+    p_invite_id: "00000000-0000-0000-0000-000000000000",
+  },
   get_shared_lists_for_workspace: {
     p_target_workspace_id: "00000000-0000-0000-0000-000000000000",
   },

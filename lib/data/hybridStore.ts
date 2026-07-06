@@ -4563,12 +4563,15 @@ export async function declineListShareInvite(shareId: string): Promise<boolean> 
     });
     if (error) {
       logHybridError("declineListShareInvite", error);
-      return false;
+      throw new Error(error.message || "Could not decline shared list.");
     }
-    return !!data;
+    if (!data) {
+      throw new Error("Share invite not found or already handled.");
+    }
+    return true;
   } catch (err) {
     logHybridError("declineListShareInvite", err);
-    return false;
+    throw err;
   }
 }
 

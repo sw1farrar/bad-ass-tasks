@@ -3771,14 +3771,18 @@ export const useTaskStore = create<TaskState>()(
 
       declineReceivedListShare: async (shareId) => {
         if (!isSupabaseLive()) return false;
-        const ok = await declineListShareInvite(shareId);
-        if (ok) {
-          toast.success("Share declined");
-          await get().fetchNotifications?.().catch(() => {});
-        } else {
-          toast.error("Could not decline share");
+        try {
+          const ok = await declineListShareInvite(shareId);
+          if (ok) {
+            toast.success("Share declined");
+            await get().fetchNotifications?.().catch(() => {});
+          }
+          return ok;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Could not decline share";
+          toast.error("Could not decline share", { description: message });
+          return false;
         }
-        return ok;
       },
 
       loadListShareWorkspaces: async (shareId) => fetchListShareWorkspaces(shareId),

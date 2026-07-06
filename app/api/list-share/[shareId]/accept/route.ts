@@ -3,6 +3,11 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { ensureUserProfile } from "@/lib/invite/ensureUserProfile";
 import { getListSharePreview, isValidListShareId } from "@/lib/list-share/getListSharePreview";
+import {
+  isListShareRecipient,
+  listShareRecipientMismatchMessage,
+  normalizeListShareEmail,
+} from "@/lib/list-share/listShareRecipientAuth";
 import { checkUsernameAvailable } from "@/lib/profile/checkUsernameAvailable";
 import { sanitizeUsername, validateUsername } from "@/lib/profile/username";
 import { isBrevoConfigured, sendListShareAcceptedEmail } from "@/lib/brevo";
@@ -18,9 +23,7 @@ type AcceptBody = {
   location?: string;
 };
 
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
-}
+
 
 async function acceptShareForUser(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
@@ -122,13 +125,34 @@ export async function POST(request: Request, context: RouteContext) {
   } = await supabase.auth.getUser();
 
   if (sessionUser) {
+    const admin = createAdminSupabaseClient();
+    const { data: invite } = await admin
+      .from("list_share_invites")
+      .select("invited_user_id, recipient_email")
+      .eq("id", shareId)
+      .maybeSingle();
+
+    const inviteRow = invite as {
+      invited_user_id?: string | null;
+      recipient_email?: string | null;
+    } | null;
+
     if (
-      preview.recipientEmail &&
-      sessionUser.email &&
-      normalizeEmail(sessionUser.email) !== normalizeEmail(preview.recipientEmail)
+      !isListShareRecipient(
+        {
+          invitedUserId: inviteRow?.invited_user_id,
+          recipientEmail: inviteRow?.recipient_email ?? preview.recipientEmail,
+        },
+        { id: sessionUser.id, email: sessionUser.email },
+      )
     ) {
       return NextResponse.json(
-        { error: "This share was sent to a different email address. Sign out and open the link again." },
+        {
+          error: listShareRecipientMismatchMessage({
+            invitedUserId: inviteRow?.invited_user_id,
+            recipientEmail: inviteRow?.recipient_email ?? preview.recipientEmail,
+          }),
+        },
         { status: 403 },
       );
     }
@@ -150,8 +174,8 @@ export async function POST(request: Request, context: RouteContext) {
   const fullName = body.fullName?.trim() ?? "";
   const username = sanitizeUsername(body.username ?? "");
   const location = body.location?.trim() ?? "";
-  const requestedEmail = body.email ? normalizeEmail(body.email) : "";
-  const inviteEmail = preview.recipientEmail ? normalizeEmail(preview.recipientEmail) : "";
+  const requestedEmail = body.email ? normalizeListShareEmail(body.email) ?? "" : "";
+  const inviteEmail = preview.recipientEmail ? normalizeListShareEmail(preview.recipientEmail) ?? "" : "";
   const email = inviteEmail || requestedEmail;
 
   if (!email || !email.includes("@")) {

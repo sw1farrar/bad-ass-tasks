@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { getListSharePreview, isValidListShareId } from "@/lib/list-share/getListSharePreview";
+import {
+  isListShareRecipient,
+  listShareRecipientMismatchMessage,
+} from "@/lib/list-share/listShareRecipientAuth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type RouteContext = { params: Promise<{ shareId: string }> };
@@ -41,22 +45,27 @@ export async function GET(_request: Request, context: RouteContext) {
     .eq("id", shareId)
     .maybeSingle();
 
-  const invitedUserId = (invite as { invited_user_id?: string } | null)?.invited_user_id;
-  if (invitedUserId && invitedUserId !== user.id) {
-    return NextResponse.json(
-      { error: "This share was sent to a different Badazz Tasks account." },
-      { status: 403 },
-    );
-  }
+  const inviteRow = invite as {
+    invited_user_id?: string | null;
+    recipient_email?: string | null;
+  } | null;
 
-  const recipientEmail = (invite as { recipient_email?: string | null } | null)?.recipient_email;
   if (
-    recipientEmail &&
-    user.email &&
-    recipientEmail.trim().toLowerCase() !== user.email.trim().toLowerCase()
+    !isListShareRecipient(
+      {
+        invitedUserId: inviteRow?.invited_user_id,
+        recipientEmail: inviteRow?.recipient_email,
+      },
+      { id: user.id, email: user.email },
+    )
   ) {
     return NextResponse.json(
-      { error: "This share was sent to a different email address." },
+      {
+        error: listShareRecipientMismatchMessage({
+          invitedUserId: inviteRow?.invited_user_id,
+          recipientEmail: inviteRow?.recipient_email,
+        }),
+      },
       { status: 403 },
     );
   }

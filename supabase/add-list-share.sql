@@ -291,14 +291,14 @@ BEGIN
     RAISE EXCEPTION 'Share invite not found, declined, revoked, or expired';
   END IF;
 
-  IF v_invite.invited_user_id <> auth.uid() THEN
-    RAISE EXCEPTION 'This share was sent to a different user';
-  END IF;
-
-  IF v_invite.recipient_email IS NOT NULL AND (
-    v_caller_email IS NULL OR lower(v_caller_email) <> lower(v_invite.recipient_email)
-  ) THEN
-    RAISE EXCEPTION 'This share was sent to a different email address';
+  IF v_invite.invited_user_id <> auth.uid()
+    AND (
+      v_invite.recipient_email IS NULL
+      OR v_caller_email IS NULL
+      OR lower(v_caller_email) <> lower(v_invite.recipient_email)
+    )
+  THEN
+    RAISE EXCEPTION 'Not authorized to accept this share';
   END IF;
 
   IF NOT is_workspace_member(p_target_workspace_id, auth.uid()) THEN
@@ -371,7 +371,11 @@ BEGIN
   IF NOT FOUND THEN RETURN FALSE; END IF;
 
   IF v_invite.invited_user_id <> auth.uid()
-    AND (v_invite.recipient_email IS NULL OR lower(v_caller_email) <> lower(v_invite.recipient_email))
+    AND (
+      v_invite.recipient_email IS NULL
+      OR v_caller_email IS NULL
+      OR lower(v_caller_email) <> lower(v_invite.recipient_email)
+    )
   THEN
     RAISE EXCEPTION 'Not authorized to decline this share';
   END IF;
@@ -510,11 +514,23 @@ SET search_path = public
 AS $$
 DECLARE
   v_invite RECORD;
+  v_caller_email TEXT;
 BEGIN
+  SELECT COALESCE(p.email, u.email) INTO v_caller_email
+  FROM auth.users u
+  LEFT JOIN profiles p ON p.id = u.id
+  WHERE u.id = auth.uid();
+
   SELECT * INTO v_invite FROM list_share_invites WHERE id = p_invite_id;
   IF NOT FOUND THEN RETURN; END IF;
 
-  IF v_invite.invited_user_id <> auth.uid() THEN
+  IF v_invite.invited_user_id <> auth.uid()
+    AND (
+      v_invite.recipient_email IS NULL
+      OR v_caller_email IS NULL
+      OR lower(v_caller_email) <> lower(v_invite.recipient_email)
+    )
+  THEN
     RETURN;
   END IF;
 

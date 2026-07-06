@@ -21,7 +21,6 @@ interface ListShareAcceptPageProps {
 
 export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
   const router = useRouter();
-  const user = useTaskStore((state) => state.user);
   const acceptReceivedListShare = useTaskStore((state) => state.acceptReceivedListShare);
   const loadListShareWorkspaces = useTaskStore((state) => state.loadListShareWorkspaces);
   const [share, setShare] = useState<ListSharePreviewClient | null>(null);
@@ -29,7 +28,7 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<ListShareWorkspaceOption[]>([]);
-  const isSignedIn = !!user;
+  const [isSignedIn, setIsSignedIn] = useState(false);
   const [workspacesLoading, setWorkspacesLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
 
@@ -44,7 +43,20 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
   const usernameCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     void useTaskStore.getState().initializeAuth();
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabaseClient();
+      supabase?.auth.getUser().then(({ data }) => {
+        if (!cancelled) setIsSignedIn(!!data.user);
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
