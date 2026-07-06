@@ -108,6 +108,8 @@ import {
   createListShareInvite,
   revokeListShareInvite,
   declineListShareInvite,
+  acceptListShareInvite,
+  fetchListShareWorkspaces,
   shareListToWorkspace as shareListToWorkspaceRpc,
   revokeListShareGrant as revokeListShareGrantRpc,
   getListShareTargets as getListShareTargetsRpc,
@@ -663,6 +665,16 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   revokeListShareGrant: (listId: string, targetWorkspaceId: string) => Promise<boolean>;
   getListShareTargets: (listId: string) => Promise<ListShareTarget[]>;
   declineReceivedListShare: (shareId: string) => Promise<boolean>;
+  acceptReceivedListShare: (
+    shareId: string,
+    targetWorkspaceId: string,
+  ) => Promise<{ listId: string; targetWorkspaceId: string } | null>;
+  loadListShareWorkspaces: (
+    shareId: string,
+  ) => Promise<
+    | { ok: true; workspaces: Array<{ id: string; name: string; alreadyLinked: boolean }> }
+    | { ok: false; error: string }
+  >;
   revokeInvite: (inviteId: string) => Promise<boolean>; // new for invite flow
   resendInvite: (inviteId: string) => Promise<boolean>; // resend UX: create fresh invite (same email/role, new expiry) then revoke old. Small increment.
   declineReceivedInvite: (inviteId: string) => Promise<boolean>; // recipient declines → fully removes the invite for everyone
@@ -3767,6 +3779,42 @@ export const useTaskStore = create<TaskState>()(
           toast.error("Could not decline share");
         }
         return ok;
+      },
+
+      loadListShareWorkspaces: async (shareId) => fetchListShareWorkspaces(shareId),
+
+      acceptReceivedListShare: async (shareId, targetWorkspaceId) => {
+        if (!isSupabaseLive()) {
+          toast.info("List share accept is live-only");
+          return null;
+        }
+
+        try {
+          const result = await acceptListShareInvite(shareId, targetWorkspaceId);
+          if (!result) {
+            toast.error("Could not accept shared list");
+            return null;
+          }
+
+          await Promise.all([
+            get().fetchNotifications?.().catch(() => {}),
+            get().fetchUserWorkspaces?.().catch(() => {}),
+          ]);
+
+          const fresh = get().workspaces.find((workspace) => workspace.id === result.targetWorkspaceId);
+          if (fresh) {
+            await get().switchWorkspace(result.targetWorkspaceId);
+          } else {
+            await get().fetchUserWorkspaces?.().catch(() => {});
+            await get().switchWorkspace(result.targetWorkspaceId);
+          }
+
+          return result;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Could not accept shared list.";
+          toast.error("Could not accept share", { description: message });
+          throw err;
+        }
       },
 
       acceptInviteLink: async (inviteId) => {
