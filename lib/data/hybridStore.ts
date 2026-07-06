@@ -4572,6 +4572,81 @@ export async function declineListShareInvite(shareId: string): Promise<boolean> 
   }
 }
 
+export async function fetchListShareWorkspaces(
+  shareId: string,
+): Promise<
+  | { ok: true; workspaces: Array<{ id: string; name: string; alreadyLinked: boolean }> }
+  | { ok: false; error: string; status?: number }
+> {
+  if (!isSupabaseLive()) {
+    return { ok: false, error: "List sharing is only available in live mode." };
+  }
+
+  try {
+    const response = await fetch(`/api/list-share/${shareId}/workspaces`, {
+      credentials: "include",
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      workspaces?: Array<{ id: string; name: string; alreadyLinked: boolean }>;
+      error?: string;
+    };
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: payload.error || "Could not load your workspaces.",
+        status: response.status,
+      };
+    }
+
+    return { ok: true, workspaces: payload.workspaces ?? [] };
+  } catch (err) {
+    logHybridError("fetchListShareWorkspaces", err);
+    return { ok: false, error: "Could not load your workspaces." };
+  }
+}
+
+export async function acceptListShareInvite(
+  shareId: string,
+  targetWorkspaceId: string,
+): Promise<{ listId: string; targetWorkspaceId: string } | null> {
+  if (!isSupabaseLive()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  try {
+    const ensureRes = await fetch("/api/profile/ensure", {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!ensureRes.ok) {
+      const payload = (await ensureRes.json().catch(() => ({}))) as { error?: string };
+      throw new Error(payload.error || "Could not prepare your profile before accepting the share.");
+    }
+
+    const { data, error } = await (supabase.rpc as any)("accept_list_share_invite", {
+      p_invite_id: shareId,
+      p_target_workspace_id: targetWorkspaceId,
+    });
+
+    if (error) {
+      logHybridError("acceptListShareInvite", error);
+      throw new Error(error.message || "Could not accept shared list.");
+    }
+
+    const row = (data as Array<{ list_id: string; target_workspace_id: string }> | null)?.[0];
+    if (!row?.list_id || !row?.target_workspace_id) {
+      throw new Error("Could not accept shared list.");
+    }
+
+    return { listId: row.list_id, targetWorkspaceId: row.target_workspace_id };
+  } catch (err) {
+    logHybridError("acceptListShareInvite", err);
+    throw err;
+  }
+}
+
 export async function getListShareInvitesForList(
   listId: string,
 ): Promise<import("@/types").ListShareInvite[]> {
