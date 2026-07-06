@@ -63,6 +63,21 @@ const LEDGER_SORTABLE_COLUMNS: { column: ReceiptLedgerSortColumn; label: string 
   { column: "returnPolicy", label: "Return policy" },
 ];
 
+function ReceiptLedgerTableColgroup() {
+  return (
+    <colgroup>
+      <col className="receipt-ledger-table__col-date" />
+      <col className="receipt-ledger-table__col-vendor" />
+      <col className="receipt-ledger-table__col-item" />
+      <col className="receipt-ledger-table__col-category" />
+      <col className="receipt-ledger-table__col-price" />
+      <col className="receipt-ledger-table__col-warranty" />
+      <col className="receipt-ledger-table__col-return" />
+      <col className="receipt-ledger-table__col-actions" />
+    </colgroup>
+  );
+}
+
 function formatMoney(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat(undefined, {
@@ -417,6 +432,7 @@ export function ReceiptItemsModal({
   const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
   const [previewLabel, setPreviewLabel] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tableHeadScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const fetchGenerationRef = useRef(0);
 
@@ -518,6 +534,20 @@ export function ReceiptItemsModal({
     observer.observe(target);
     return () => observer.disconnect();
   }, [open, hasMore, loading, loadingMore, items.length, fetchPage]);
+
+  useEffect(() => {
+    if (!present || items.length === 0) return;
+    const body = scrollRef.current;
+    const head = tableHeadScrollRef.current;
+    if (!body || !head) return;
+
+    const syncHeadScroll = () => {
+      head.scrollLeft = body.scrollLeft;
+    };
+
+    body.addEventListener("scroll", syncHeadScroll, { passive: true });
+    return () => body.removeEventListener("scroll", syncHeadScroll);
+  }, [present, items.length]);
 
   useEffect(() => {
     if (!present) return;
@@ -856,29 +886,30 @@ export function ReceiptItemsModal({
           className="receipt-ledger-drawer__panel"
           onClick={(e) => e.stopPropagation()}
         >
-          <header className="receipt-ledger-drawer__header">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-neon-purple">
-                <Receipt className="h-5 w-5 shrink-0" aria-hidden />
-                <h2 id="receipt-ledger-title" className="text-lg font-semibold text-text-primary">
-                  Receipt ledger
-                </h2>
+          <div className="receipt-ledger-drawer__chrome">
+            <header className="receipt-ledger-drawer__header">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-neon-purple">
+                  <Receipt className="h-5 w-5 shrink-0" aria-hidden />
+                  <h2 id="receipt-ledger-title" className="text-lg font-semibold text-text-primary">
+                    Receipt ledger
+                  </h2>
+                </div>
+                <p className="mt-1 text-sm text-text-muted">
+                  Search, edit, or remove line items. Preview the receipt or open a row to view the
+                  source file.
+                </p>
               </div>
-              <p className="mt-1 text-sm text-text-muted">
-                Search, edit, or remove line items. Preview the receipt or open a row to view the
-                source file.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="receipt-ledger-drawer__close"
-            >
-              Close
-            </button>
-          </header>
+              <button
+                type="button"
+                onClick={onClose}
+                className="receipt-ledger-drawer__close"
+              >
+                Close
+              </button>
+            </header>
 
-          <div className="receipt-ledger-drawer__filters">
+            <div className="receipt-ledger-drawer__filters">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint" />
@@ -967,7 +998,33 @@ export function ReceiptItemsModal({
                 </button>
               ) : null}
             </div>
+            </div>
           </div>
+
+          {items.length > 0 ? (
+            <div ref={tableHeadScrollRef} className="receipt-ledger-drawer__table-head">
+              <table className="receipt-ledger-table w-full text-left text-sm">
+                <ReceiptLedgerTableColgroup />
+                <thead>
+                  <tr>
+                    {LEDGER_SORTABLE_COLUMNS.map(({ column, label }) => (
+                      <ReceiptLedgerSortHeader
+                        key={column}
+                        label={label}
+                        column={column}
+                        activeColumn={sort.column}
+                        direction={sort.direction}
+                        onSort={handleSort}
+                      />
+                    ))}
+                    <th scope="col" className="receipt-ledger-table__actions-col">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          ) : null}
 
           <div ref={scrollRef} className="receipt-ledger-drawer__body">
             {loading && items.length === 0 ? (
@@ -990,24 +1047,8 @@ export function ReceiptItemsModal({
                 <div className="receipt-ledger-cards">{items.map(renderItemCard)}</div>
 
                 <div className="receipt-ledger-table-wrap">
-                  <table className="receipt-ledger-table w-full border-collapse text-left text-sm">
-                    <thead className="sticky top-0 z-[1] bg-bg-secondary/95 backdrop-blur-sm">
-                      <tr>
-                        {LEDGER_SORTABLE_COLUMNS.map(({ column, label }) => (
-                          <ReceiptLedgerSortHeader
-                            key={column}
-                            label={label}
-                            column={column}
-                            activeColumn={sort.column}
-                            direction={sort.direction}
-                            onSort={handleSort}
-                          />
-                        ))}
-                        <th scope="col" className="receipt-ledger-table__actions-col">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
+                  <table className="receipt-ledger-table w-full text-left text-sm">
+                    <ReceiptLedgerTableColgroup />
                     <tbody>{items.map(renderTableRow)}</tbody>
                   </table>
                 </div>

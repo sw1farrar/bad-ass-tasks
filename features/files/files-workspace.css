@@ -1880,14 +1880,24 @@
 }
 
 .receipt-ledger-drawer--open .receipt-ledger-drawer__panel {
-  transform: translate3d(0, 0, 0);
+  transform: none;
+}
+
+.receipt-ledger-drawer__chrome {
+  flex: 0 0 auto;
+  z-index: 3;
 }
 
 @media (min-width: 768px) {
-  .receipt-ledger-drawer__header,
-  .receipt-ledger-drawer__filters {
+  .receipt-ledger-drawer__chrome {
     padding-left: max(1.5rem, env(safe-area-inset-left));
     padding-right: max(1.5rem, env(safe-area-inset-right));
+  }
+
+  .receipt-ledger-drawer__header,
+  .receipt-ledger-drawer__filters {
+    padding-left: 0;
+    padding-right: 0;
   }
 }
 
@@ -1941,6 +1951,29 @@
   background: var(--bg-panel, var(--bg-card));
 }
 
+.receipt-ledger-drawer__table-head {
+  display: none;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  border-bottom: 1px solid var(--border-glass);
+  background: color-mix(in srgb, var(--bg-panel, var(--bg-card)) 94%, var(--bg-secondary) 6%);
+  z-index: 2;
+}
+
+.receipt-ledger-drawer__table-head::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .receipt-ledger-drawer__table-head {
+    display: block;
+    padding: 0 max(1rem, env(safe-area-inset-right)) 0 max(1rem, env(safe-area-inset-left));
+  }
+}
+
 .receipt-ledger-drawer__body {
   min-height: 0;
   flex: 1 1 auto;
@@ -1982,7 +2015,6 @@
 .receipt-ledger-table-wrap {
   display: none;
   min-width: 0;
-  overflow-x: auto;
   padding: 0 max(1rem, env(safe-area-inset-right)) 1rem max(1rem, env(safe-area-inset-left));
 }
 
@@ -2062,7 +2094,42 @@
 
 .receipt-ledger-table {
   width: 100%;
-  min-width: 0;
+  min-width: 72rem;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.receipt-ledger-table__col-date {
+  width: 8.5rem;
+}
+
+.receipt-ledger-table__col-vendor {
+  width: 10rem;
+}
+
+.receipt-ledger-table__col-item {
+  width: 14rem;
+}
+
+.receipt-ledger-table__col-category {
+  width: 9rem;
+}
+
+.receipt-ledger-table__col-price {
+  width: 7rem;
+}
+
+.receipt-ledger-table__col-warranty {
+  width: 12rem;
+}
+
+.receipt-ledger-table__col-return {
+  width: 12rem;
+}
+
+.receipt-ledger-table__col-actions {
+  width: 7.5rem;
 }
 
 .receipt-ledger-table th {
@@ -2074,6 +2141,7 @@
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-glass);
   white-space: nowrap;
+  background: color-mix(in srgb, var(--bg-panel, var(--bg-card)) 94%, var(--bg-secondary) 6%);
 }
 
 .receipt-ledger-table__sort {
