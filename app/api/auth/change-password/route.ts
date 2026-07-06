@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { logAuthLoginEventFromRequest } from "@/lib/auth/loginEvents";
+import { formatPasswordUpdateError } from "@/lib/auth/passwordUpdateErrors";
 import { checkRateLimit } from "@/lib/auth/rateLimit";
 import { userHasEmailPassword } from "@/lib/auth/userAuthProviders";
 import { verifyUserPassword } from "@/lib/auth/verifyUserPassword";
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
 
   const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
   if (updateError) {
-    const message = updateError.message || "Could not update password.";
+    const message = formatPasswordUpdateError(updateError.message);
     return NextResponse.json({ error: message }, { status: 400 });
   }
 

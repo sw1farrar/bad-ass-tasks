@@ -13,6 +13,7 @@ import {
   consumeResetEmail,
   stashResetEmail,
 } from "@/lib/auth/passwordResetClient";
+import { formatPasswordUpdateError } from "@/lib/auth/passwordUpdateErrors";
 import {
   clearRecoveryFlow,
   isRecoverySession,
@@ -60,6 +61,7 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
   const [password, setPassword] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -89,7 +91,7 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
       return;
     }
 
-    if (user && onSuccess) {
+    if (user && onSuccess && !isRecoverySession(session)) {
       onSuccess();
     }
   }, [user, session, onSuccess]);
@@ -120,13 +122,34 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
     return () => subscription.unsubscribe();
   }, []);
 
+  const abandonRecoverySession = async () => {
+    clearRecoveryFlow();
+    setRecoverySessionReady(false);
+    if (!isSupabaseConfigured()) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore sign-out errors while abandoning an unfinished recovery.
+    }
+  };
+
   const switchMode = (next: AuthMode) => {
     setMode(next);
     setAuthError(null);
     setOtpCode("");
     setNewPassword("");
+    setConfirmNewPassword("");
     setRecoverySessionReady(false);
     if (next === "signin" || next === "signup") setPassword("");
+  };
+
+  const handleResetBack = async () => {
+    if (recoverySessionReady) {
+      await abandonRecoverySession();
+    }
+    switchMode("reset-request");
   };
 
   const handleGoogleSignIn = async () => {
@@ -444,10 +467,62 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
     }
   };
 
-  const handleResetVerify = async (e: React.FormEvent) => {
+  const handleResetVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword) return;
-    if (!recoverySessionReady && (!email || !otpCode)) return;
+    if (!email || !otpCode) return;
+
+    setLoading(true);
+    setAuthError(null);
+
+    if (!isSupabaseConfigured()) {
+      setLoading(false);
+      markRecoveryFlow();
+      setRecoverySessionReady(true);
+      toast.success("Demo: code accepted");
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: otpCode.trim(),
+        type: "recovery",
+      });
+
+      if (verifyError) {
+        const message = verifyError.message || "Invalid or expired code. Request a new one.";
+        setAuthError(message);
+        toast.error("Invalid code", { description: message });
+        return;
+      }
+
+      markRecoveryFlow();
+      setRecoverySessionReady(true);
+      setOtpCode("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      toast.success("Code accepted", { description: "Choose a new password to finish resetting." });
+    } catch {
+      setAuthError("Something went wrong. Please try again.");
+      toast.error("Reset error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recoverySessionReady || !newPassword) return;
+    if (newPassword !== confirmNewPassword) {
+      setAuthError("Passwords do not match.");
+      return;
+    }
 
     setLoading(true);
     setAuthError(null);
@@ -468,54 +543,29 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
     let keepLoading = false;
 
     try {
-      if (!recoverySessionReady && otpCode) {
-        const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-          email,
-          token: otpCode.trim(),
-          type: "recovery",
-        });
-
-        if (verifyError) {
-          setAuthError(verifyError.message || "Invalid or expired code. Request a new one.");
-          toast.error("Invalid code", { description: verifyError.message });
-          setLoading(false);
-          return;
-        }
-
-        const recoverySignIn = await completeClientSignInFromSession(verifyData.session);
-        if (!recoverySignIn.ok) {
-          const message = recoverySignIn.error || "Recovery code accepted but sign-in could not finish.";
-          setAuthError(message);
-          toast.error("Sign in incomplete", { description: message });
-          setLoading(false);
-          return;
-        }
-      } else if (!recoverySessionReady) {
-        setAuthError("Enter the recovery code from your email, or use the reset link we sent.");
-        setLoading(false);
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) {
+        const message = formatPasswordUpdateError(updateError.message);
+        setAuthError(message);
+        toast.error("Password not updated", { description: message });
         return;
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-      if (updateError) {
-        setAuthError(updateError.message || "Could not update password.");
-        toast.error("Update failed", { description: updateError.message });
-      } else {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const signInResult = await completeClientSignInFromSession(sessionData.session);
-        if (!signInResult.ok) {
-          const message = signInResult.error || "Password updated but sign-in could not finish. Please sign in.";
-          setAuthError(message);
-          toast.error("Sign in incomplete", { description: message });
-          switchMode("signin");
-          return;
-        }
-
-        clearResetEmail();
-        clearRecoveryFlow();
-        toast.success("Password updated — opening your workspace");
-        keepLoading = true;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const signInResult = await completeClientSignInFromSession(sessionData.session);
+      if (!signInResult.ok) {
+        const message = signInResult.error || "Password updated but sign-in could not finish. Please sign in.";
+        setAuthError(message);
+        toast.error("Sign in incomplete", { description: message });
+        switchMode("signin");
+        return;
       }
+
+      clearResetEmail();
+      clearRecoveryFlow();
+      setRecoverySessionReady(false);
+      toast.success("Password updated — opening your workspace");
+      keepLoading = true;
     } catch {
       setAuthError("Something went wrong. Please try again.");
       toast.error("Reset error");
@@ -557,11 +607,13 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
       {(mode === "reset-request" || mode === "reset-verify" || mode === "signup-verify") && (
         <button
           type="button"
-          onClick={() =>
-            switchMode(
-              mode === "reset-verify" ? "reset-request" : mode === "signup-verify" ? "signup" : "signin",
-            )
-          }
+          onClick={() => {
+            if (mode === "reset-verify") {
+              void handleResetBack();
+              return;
+            }
+            switchMode(mode === "signup-verify" ? "signup" : "signin");
+          }}
           className="mb-4 text-text-muted hover:text-text-primary flex items-center gap-1 text-xs"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back
@@ -747,33 +799,59 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
         </form>
       )}
 
-      {mode === "reset-verify" && (
-        <form onSubmit={handleResetVerify} className="space-y-4">
-          {!recoverySessionReady && (
-            <>
-              <p className="text-xs text-text-muted text-center -mt-2 mb-2">
-                Sent to <span className="text-text-secondary">{email || "your email"}</span>
-              </p>
-              <p className="text-[11px] text-text-muted text-center -mt-1 mb-1">
-                Check spam. You can also use the one-click reset link in the same email.
-              </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
-                value={otpCode}
-                onChange={(e) => {
-                  setOtpCode(e.target.value.replace(/\D/g, ""));
-                  if (authError) setAuthError(null);
-                }}
-                placeholder="8-digit recovery code"
-                className="input w-full px-4 py-3 rounded-2xl text-base text-center tracking-[0.35em] font-mono"
-                required
-                autoComplete="one-time-code"
-              />
-            </>
-          )}
+      {mode === "reset-verify" && !recoverySessionReady && (
+        <form onSubmit={handleResetVerifyOtp} className="space-y-4">
+          <p className="text-xs text-text-muted text-center -mt-2 mb-2">
+            Sent to <span className="text-text-secondary">{email || "your email"}</span>
+          </p>
+          <p className="text-[11px] text-text-muted text-center -mt-1 mb-1">
+            Enter the code from your email first. You will choose a new password on the next step.
+            You can also use the one-click reset link in the same email.
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={8}
+            value={otpCode}
+            onChange={(e) => {
+              setOtpCode(e.target.value.replace(/\D/g, ""));
+              if (authError) setAuthError(null);
+            }}
+            placeholder="8-digit recovery code"
+            className="input w-full px-4 py-3 rounded-2xl text-base text-center tracking-[0.35em] font-mono"
+            required
+            autoComplete="one-time-code"
+          />
+          <button
+            type="submit"
+            disabled={loading || !otpCode}
+            className="btn btn-primary w-full py-3 text-base disabled:opacity-60"
+          >
+            {loading ? "Verifying..." : "Continue"}
+          </button>
+          <button
+            type="button"
+            onClick={handleResendResetCode}
+            disabled={loading}
+            className="text-xs text-text-secondary hover:text-text-primary w-full text-center disabled:opacity-60"
+          >
+            Didn&apos;t get it? Resend code
+          </button>
+        </form>
+      )}
+
+      {mode === "reset-verify" && recoverySessionReady && (
+        <form onSubmit={handleResetSetPassword} className="space-y-4">
+          <p className="text-xs text-text-muted text-center -mt-2 mb-2">
+            {email ? (
+              <>
+                Resetting <span className="text-text-secondary">{email}</span>
+              </>
+            ) : (
+              "Choose a new password to finish resetting your account."
+            )}
+          </p>
           <input
             type="password"
             value={newPassword}
@@ -787,23 +865,34 @@ export function AuthPanel({ initialMode = "signin", initialEmail = "", onSuccess
             minLength={6}
             autoComplete="new-password"
           />
+          <input
+            type="password"
+            value={confirmNewPassword}
+            onChange={(e) => {
+              setConfirmNewPassword(e.target.value);
+              if (authError) setAuthError(null);
+            }}
+            placeholder="Confirm new password"
+            className="input w-full px-4 py-3 rounded-2xl text-base"
+            required
+            minLength={6}
+            autoComplete="new-password"
+          />
+          {confirmNewPassword.length > 0 && newPassword !== confirmNewPassword ? (
+            <p className="text-xs text-[var(--priority-p1)] -mt-2">Passwords do not match.</p>
+          ) : null}
           <button
             type="submit"
-            disabled={loading || !newPassword || (!recoverySessionReady && !otpCode)}
+            disabled={
+              loading ||
+              !newPassword ||
+              !confirmNewPassword ||
+              newPassword !== confirmNewPassword
+            }
             className="btn btn-primary w-full py-3 text-base disabled:opacity-60"
           >
             {loading ? "Updating..." : "Set new password"}
           </button>
-          {!recoverySessionReady && (
-            <button
-              type="button"
-              onClick={handleResendResetCode}
-              disabled={loading}
-              className="text-xs text-text-secondary hover:text-text-primary w-full text-center disabled:opacity-60"
-            >
-              Didn&apos;t get it? Resend code
-            </button>
-          )}
         </form>
       )}
 

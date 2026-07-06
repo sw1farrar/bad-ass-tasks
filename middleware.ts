@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isDualAuthEnforced, isDualAuthSatisfied } from "@/lib/auth/dualAuthEdge";
+import { isRecoverySession } from "@/lib/auth/recoverySession";
 
 export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -40,8 +41,12 @@ export async function middleware(request: NextRequest) {
 
   // Refresh session if expired
   const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const {
     data: { user },
   } = await supabase.auth.getUser();
+  const pendingPasswordRecovery = isRecoverySession(session);
 
   const pathname = request.nextUrl.pathname;
 
@@ -113,8 +118,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: "dual_auth_required" }, { status: 403 });
   }
 
-  // Signed-in users should not linger on the login page
-  if (user && pathname.startsWith("/login")) {
+  // Recovery sessions must finish setting a new password before using the app
+  if (user && pendingPasswordRecovery && !isAuthPage) {
+    const recoveryLogin = new URL("/login", request.url);
+    recoveryLogin.searchParams.set("mode", "reset-verify");
+    return NextResponse.redirect(recoveryLogin);
+  }
+
+  // Signed-in users should not linger on the login page (except unfinished password recovery)
+  if (user && pathname.startsWith("/login") && !pendingPasswordRecovery) {
     const nextParam = request.nextUrl.searchParams.get("next");
     const destination =
       nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
