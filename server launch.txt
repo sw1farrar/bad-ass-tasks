@@ -1,0 +1,2 @@
+cd "C:\Users\Steve\Dropbox\Projects\Bad Ass Tasks"
+npm run dev
