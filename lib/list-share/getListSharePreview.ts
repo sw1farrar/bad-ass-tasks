@@ -37,7 +37,9 @@ export async function getListSharePreview(shareId: string): Promise<ListSharePre
 
   const { data: invite, error } = await admin
     .from("list_share_invites")
-    .select("id, list_id, source_workspace_id, invited_by, recipient_email, expires_at, declined_at, revoked_at")
+    .select(
+      "id, list_id, source_workspace_id, invited_by, invited_user_id, recipient_email, expires_at, accepted_at, declined_at, revoked_at",
+    )
     .eq("id", shareId)
     .maybeSingle();
 
@@ -50,8 +52,10 @@ export async function getListSharePreview(shareId: string): Promise<ListSharePre
     list_id: string;
     source_workspace_id: string;
     invited_by: string | null;
+    invited_user_id: string | null;
     recipient_email: string | null;
     expires_at: string | null;
+    accepted_at: string | null;
     declined_at: string | null;
     revoked_at: string | null;
   };
@@ -88,7 +92,10 @@ export async function getListSharePreview(shareId: string): Promise<ListSharePre
   let isValid = true;
   let invalidReason: string | undefined;
 
-  if (row.declined_at) {
+  if (row.accepted_at) {
+    isValid = false;
+    invalidReason = "This shared list was already added to a workspace.";
+  } else if (row.declined_at) {
     isValid = false;
     invalidReason = "This share invitation was declined.";
   } else if (row.revoked_at) {

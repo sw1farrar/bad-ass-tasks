@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
+import { getListSharePreview, isValidListShareId } from "@/lib/list-share/getListSharePreview";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { isValidListShareId } from "@/lib/list-share/getListSharePreview";
 
 type RouteContext = { params: Promise<{ shareId: string }> };
 
@@ -19,6 +20,45 @@ export async function GET(_request: Request, context: RouteContext) {
 
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!isSupabaseAdminConfigured()) {
+    return NextResponse.json({ error: "List share is not configured on the server." }, { status: 503 });
+  }
+
+  const preview = await getListSharePreview(shareId);
+  if (!preview) {
+    return NextResponse.json({ error: "Share not found" }, { status: 404 });
+  }
+  if (!preview.isValid) {
+    return NextResponse.json({ error: preview.invalidReason || "Share is no longer valid" }, { status: 409 });
+  }
+
+  const admin = createAdminSupabaseClient();
+  const { data: invite } = await admin
+    .from("list_share_invites")
+    .select("invited_user_id, recipient_email")
+    .eq("id", shareId)
+    .maybeSingle();
+
+  const invitedUserId = (invite as { invited_user_id?: string } | null)?.invited_user_id;
+  if (invitedUserId && invitedUserId !== user.id) {
+    return NextResponse.json(
+      { error: "This share was sent to a different Badazz Tasks account." },
+      { status: 403 },
+    );
+  }
+
+  const recipientEmail = (invite as { recipient_email?: string | null } | null)?.recipient_email;
+  if (
+    recipientEmail &&
+    user.email &&
+    recipientEmail.trim().toLowerCase() !== user.email.trim().toLowerCase()
+  ) {
+    return NextResponse.json(
+      { error: "This share was sent to a different email address." },
+      { status: 403 },
+    );
   }
 
   type RpcClient = {
