@@ -47,7 +47,9 @@ import { LandingPage } from "@/components/LandingPage";
 import { TaskModal } from "@/components/TaskModal";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
+import { ListShareAcceptModal } from "@/components/ListShareAcceptModal";
 import { LoginActivityModal } from "@/components/LoginActivityModal";
+import { isValidListShareId } from "@/lib/list-share/getListSharePreview";
 import { FilesView } from "@/features/files";
 import { NotebooksView } from "@/features/notebooks";
 import { HealthView } from "@/features/health";
@@ -224,6 +226,8 @@ export default function BadAssTasks() {
     resendInvite,
     declineReceivedInvite,
     declineReceivedListShare,
+    acceptReceivedListShare,
+    loadListShareWorkspaces,
     updateMyProfile, // self name + location profile editing
     searchPotentialTeammates, // new backend search for name/username/city in empty owner invite state
     myProfile,
@@ -424,6 +428,7 @@ export default function BadAssTasks() {
   const profilePopoverRef = React.useRef<HTMLDivElement>(null);
   // Notification detail modal (opened from bell dropdown clicks for better readability + actions)
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
+  const [pendingListShareAcceptId, setPendingListShareAcceptId] = useState<string | null>(null);
   // Workspace creation UI state (inline in switcher dropdown — production real DB)
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -1447,10 +1452,40 @@ export default function BadAssTasks() {
     fetchGlobalHomeAggregates();
   };
 
-  const handleHomeAcceptListShare = (shareId: string) => {
+  const resolveListShareId = useCallback((shareId: string | undefined, link?: string) => {
+    const trimmed = shareId?.trim();
+    if (trimmed && isValidListShareId(trimmed)) return trimmed;
+
+    if (link) {
+      const match = link.match(/\/list-share\/([0-9a-f-]{36})/i);
+      if (match?.[1] && isValidListShareId(match[1])) return match[1];
+    }
+
+    return null;
+  }, []);
+
+  const handleHomeAcceptListShare = (shareId: string, link?: string) => {
+    const resolvedShareId = resolveListShareId(shareId, link);
+    if (!resolvedShareId) {
+      toast.error("Could not open shared list", {
+        description: "This notification is missing a valid share link. Ask the sender to share again.",
+      });
+      return;
+    }
+
     setShowNotifications(false);
     setSelectedNotification(null);
-    router.push(`/list-share/${shareId}`);
+    setPendingListShareAcceptId(resolvedShareId);
+  };
+
+  const handleListShareAccepted = async (result: { listId: string; targetWorkspaceId: string }) => {
+    setView("lists");
+    setHighlightListId(result.listId);
+    await Promise.all([
+      fetchNotifications?.().catch(() => {}),
+      fetchGlobalHomeAggregates(),
+      refreshHomeListAggregatesFromStore?.(),
+    ]);
   };
 
   const handleHomeDeclineListShare = async (shareId: string) => {
@@ -3493,7 +3528,7 @@ export default function BadAssTasks() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     const shareId = n.metadata?.list_share_id as string | undefined;
-                                    if (shareId) handleHomeAcceptListShare(shareId);
+                                    if (shareId) handleHomeAcceptListShare(shareId, n.link);
                                   }}
                                   className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-neon-purple/20 text-neon-purple hover:bg-neon-purple/30"
                                 >
@@ -3797,7 +3832,7 @@ export default function BadAssTasks() {
                   onClick={() => {
                     const first = pendingReceivedListShares[0];
                     const shareId = first?.metadata?.list_share_id as string | undefined;
-                    if (shareId) handleHomeAcceptListShare(shareId);
+                    if (shareId) handleHomeAcceptListShare(shareId, first?.link);
                   }}
                   className="btn btn-primary text-sm px-5 py-2"
                 >
@@ -4194,6 +4229,17 @@ export default function BadAssTasks() {
             </div>
       </BottomSheet>
 
+      <ListShareAcceptModal
+        open={!!pendingListShareAcceptId}
+        shareId={pendingListShareAcceptId}
+        onOpenChange={(open) => {
+          if (!open) setPendingListShareAcceptId(null);
+        }}
+        onLoadWorkspaces={loadListShareWorkspaces}
+        onAccept={acceptReceivedListShare}
+        onAccepted={handleListShareAccepted}
+      />
+
       <NotificationDetailModal
         notification={selectedNotification}
         onClose={() => setSelectedNotification(null)}
@@ -4201,7 +4247,9 @@ export default function BadAssTasks() {
         onDismiss={handleDismissNotification}
         onViewChange={setView}
         onOpenNote={setSelectedNoteId}
-        onAcceptListShare={handleHomeAcceptListShare}
+        onAcceptListShare={(shareId) => {
+          handleHomeAcceptListShare(shareId, selectedNotification?.link);
+        }}
         onDeclineListShare={handleHomeDeclineListShare}
       />
 
