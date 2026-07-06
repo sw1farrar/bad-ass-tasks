@@ -7,24 +7,11 @@ import { ArrowRight, Check, ListChecks, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { sanitizeUsername, USERNAME_MIN_LENGTH, validateUsername } from "@/lib/profile/username";
-
-type ListSharePreview = {
-  id: string;
-  listId: string;
-  listTitle: string;
-  openItemCount: number;
-  sourceWorkspaceName: string;
-  sharerName: string;
-  recipientEmail: string | null;
-  isValid: boolean;
-  invalidReason?: string;
-};
-
-type WorkspaceOption = {
-  id: string;
-  name: string;
-  alreadyLinked: boolean;
-};
+import type {
+  ListSharePreviewClient,
+  ListShareWorkspaceOption,
+} from "@/lib/list-share/listShareAcceptTypes";
+import { useTaskStore } from "@/store/useTaskStore";
 
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
@@ -34,12 +21,15 @@ interface ListShareAcceptPageProps {
 
 export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
   const router = useRouter();
-  const [share, setShare] = useState<ListSharePreview | null>(null);
+  const user = useTaskStore((state) => state.user);
+  const acceptReceivedListShare = useTaskStore((state) => state.acceptReceivedListShare);
+  const loadListShareWorkspaces = useTaskStore((state) => state.loadListShareWorkspaces);
+  const [share, setShare] = useState<ListSharePreviewClient | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSignedIn, setIsSignedIn] = useState(false);
-  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [workspaces, setWorkspaces] = useState<ListShareWorkspaceOption[]>([]);
+  const isSignedIn = !!user;
   const [workspacesLoading, setWorkspacesLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
 
@@ -54,13 +44,17 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
   const usernameCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    void useTaskStore.getState().initializeAuth();
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
         const response = await fetch(`/api/list-share/${shareId}`);
         const payload = (await response.json().catch(() => ({}))) as {
-          share?: ListSharePreview;
+          share?: ListSharePreviewClient;
           error?: string;
         };
 
@@ -80,13 +74,6 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
       }
     })();
 
-    if (isSupabaseConfigured()) {
-      const supabase = getSupabaseClient();
-      supabase?.auth.getUser().then(({ data }) => {
-        if (!cancelled) setIsSignedIn(!!data.user);
-      });
-    }
-
     return () => {
       cancelled = true;
     };
@@ -97,32 +84,37 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
 
     let cancelled = false;
     setWorkspacesLoading(true);
+    setError(null);
 
     (async () => {
-      try {
-        const response = await fetch(`/api/list-share/${shareId}/workspaces`, {
-          credentials: "include",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          workspaces?: WorkspaceOption[];
-          error?: string;
-        };
-        if (!cancelled && response.ok && payload.workspaces) {
-          setWorkspaces(payload.workspaces);
-          const firstAvailable = payload.workspaces.find((w) => !w.alreadyLinked);
-          if (firstAvailable) setSelectedWorkspaceId(firstAvailable.id);
-        }
-      } catch {
-        if (!cancelled) setError("Could not load your workspaces.");
-      } finally {
-        if (!cancelled) setWorkspacesLoading(false);
+      const result = await loadListShareWorkspaces(shareId);
+      if (cancelled) return;
+
+      if (!result.ok) {
+        setError(result.error);
+        setWorkspaces([]);
+        setSelectedWorkspaceId(null);
+        setWorkspacesLoading(false);
+        return;
       }
+
+      setWorkspaces(result.workspaces);
+      const firstAvailable = result.workspaces.find((workspace) => !workspace.alreadyLinked);
+      setSelectedWorkspaceId(firstAvailable?.id ?? null);
+
+      if (result.workspaces.length === 0) {
+        setError("Create a workspace in Badazz Tasks, then return to this link to accept the list.");
+      } else if (!firstAvailable) {
+        setError("This list is already connected to all of your workspaces.");
+      }
+
+      setWorkspacesLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, share?.isValid, shareId]);
+  }, [isSignedIn, share?.isValid, shareId, loadListShareWorkspaces]);
 
   useEffect(() => {
     if (usernameCheckRef.current) {
@@ -221,7 +213,13 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
     setSubmitting(true);
     setError(null);
     try {
-      await acceptShare({ targetWorkspaceId: selectedWorkspaceId });
+      const result = await acceptReceivedListShare(shareId, selectedWorkspaceId);
+      if (result) {
+        redirectToList(result.targetWorkspaceId, result.listId);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not accept shared list.";
+      setError(message);
     } finally {
       setSubmitting(false);
     }
@@ -262,6 +260,8 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
     }
   };
 
+  const signInHref = `/login?next=${encodeURIComponent(`/list-share/${shareId}`)}`;
+
   const workspacePicker = (
     <div className="space-y-2">
       <p className="text-sm text-text-secondary text-center">
@@ -273,11 +273,17 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
         </div>
       ) : workspaces.length === 0 ? (
         <p className="text-sm text-text-muted text-center py-4">
-          You need a workspace first.{" "}
-          <Link href={`/login?next=/list-share/${shareId}`} className="text-neon-purple underline">
-            Sign in
-          </Link>{" "}
-          and create one from the app.
+          {isSignedIn
+            ? "Create a workspace in Badazz Tasks, then come back to this page to finish accepting the list."
+            : (
+              <>
+                You need an account and workspace first.{" "}
+                <Link href={signInHref} className="text-neon-purple underline">
+                  Sign in
+                </Link>{" "}
+                to continue.
+              </>
+            )}
         </p>
       ) : (
         <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -313,8 +319,6 @@ export function ListShareAcceptPage({ shareId }: ListShareAcceptPageProps) {
       )}
     </div>
   );
-
-  const signInHref = `/login?next=${encodeURIComponent(`/list-share/${shareId}`)}`;
 
   return (
     <div className="invite-accept-page min-h-screen bg-bg text-text-primary overflow-y-auto">

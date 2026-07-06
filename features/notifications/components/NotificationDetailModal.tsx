@@ -202,7 +202,7 @@ export function NotificationDetailModal({
                 }}
                 className="btn btn-primary text-sm flex-1 min-h-[44px]"
               >
-                Review share
+                Choose workspace
               </button>
             </>
           ) : (
@@ -222,7 +222,7 @@ export function NotificationDetailModal({
                   onClick={handleLinkAction}
                   className="btn btn-primary text-sm flex-1 min-h-[44px]"
                 >
-                  {notification.type === "invite" ? "View invites" : "Go to link"}
+                {notification.type === "invite" ? "View invites" : "Go to link"}
                 </button>
               )}
             </>
