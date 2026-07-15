@@ -136,7 +136,7 @@ export function NotebookNoteStream({
               if (!note) return null;
               const isSelected = note.id === selectedId;
               const isEditing = editingId === note.id;
-              const dateLabel = safeFormatTimestampIso(note.updatedAt, "MMM d", "");
+              const dateLabel = safeFormatTimestampIso(note.updatedAt, "MMM d, h:mm a", "");
 
               return (
                 <div

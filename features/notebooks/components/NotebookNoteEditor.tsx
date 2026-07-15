@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Loader2, Maximize2, Minimize2, Trash2 } from "lucide-react";
 import { TipTapEditor } from "@/features/notes/editor/TipTapEditor";
 import { NoteAttachmentsPanel } from "@/features/notes/components/NoteAttachmentsPanel";
 import { uploadFilesToNote } from "@/lib/files/uploadNoteAttachments";
@@ -11,6 +12,8 @@ import {
   schedulePendingNoteFieldSave,
 } from "@/lib/notebooks/noteEditorSave";
 import { invalidateNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Note } from "@/types";
 
@@ -40,6 +43,8 @@ export function NotebookNoteEditor({
 }: NotebookNoteEditorProps) {
   const [title, setTitle] = useState("");
   const [attachmentRevision, setAttachmentRevision] = useState(0);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,6 +52,12 @@ export function NotebookNoteEditor({
   const pendingContentRef = useRef<{ noteId: string; value: string } | null>(null);
   const previousNoteIdRef = useRef<string | null>(null);
   const isTitleDirtyRef = useRef(false);
+
+  useScrollLock(isExpanded);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const saveTitle = useCallback(
     (noteId: string, value: string) => {
@@ -66,6 +77,7 @@ export function NotebookNoteEditor({
     if (!note) {
       setTitle("");
       isTitleDirtyRef.current = false;
+      setIsExpanded(false);
       return;
     }
     isTitleDirtyRef.current = false;
@@ -74,6 +86,10 @@ export function NotebookNoteEditor({
       void onHydrateNote(note.id);
     }
   }, [note?.id, onHydrateNote]);
+
+  useEffect(() => {
+    setIsExpanded(false);
+  }, [note?.id]);
 
   useEffect(() => {
     const prevId = previousNoteIdRef.current;
@@ -103,6 +119,18 @@ export function NotebookNoteEditor({
     });
     return () => cancelAnimationFrame(frame);
   }, [focusTitle, note?.id, onTitleFocusConsumed]);
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isExpanded]);
 
   const scheduleTitleSave = useCallback(
     (nextTitle: string) => {
@@ -172,68 +200,116 @@ export function NotebookNoteEditor({
   const bodyReady = isNoteBodyHydrated(note);
 
   return (
-    <div className="notebooks-note-editor flex flex-1 flex-col min-h-0 min-w-0">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border-glass shrink-0">
-        <input
-          ref={titleInputRef}
-          value={title}
-          onChange={(e) => {
-            isTitleDirtyRef.current = true;
-            setTitle(e.target.value);
-            scheduleTitleSave(e.target.value);
-          }}
-          onBlur={() => {
-            if (!isTitleDirtyRef.current) return;
-            flushPendingNoteFieldSave(titleSaveTimer, pendingTitleRef, saveTitle);
-            void onUpdateNote(note.id, { title: title.trim() || "Untitled note" });
-            isTitleDirtyRef.current = false;
-          }}
-          placeholder="Note title"
-          className="flex-1 min-w-0 bg-transparent text-lg font-semibold text-text-primary focus:outline-none placeholder:text-text-faint"
-          aria-label="Note title"
-        />
-        <button
-          type="button"
-          onClick={() => (onRequestDelete ? onRequestDelete(note.id) : void onDeleteNote(note.id))}
-          className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover shrink-0"
-          aria-label="Delete note"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
+    <>
+      {isExpanded && (
+        <div className="notebooks-note-editor__dock-placeholder flex flex-1 flex-col items-center justify-center gap-3 min-h-0 min-w-0 px-6 text-center">
+          <p className="text-sm text-text-muted">Editing in expanded view</p>
+          <button
+            type="button"
+            onClick={() => setIsExpanded(false)}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-primary hover:bg-surface-hover border border-border-glass"
+          >
+            <Minimize2 className="h-4 w-4" />
+            Return to panel
+          </button>
+        </div>
+      )}
 
-      <div className="notebooks-note-editor__body flex-1 min-h-0 overflow-hidden flex flex-col">
-        {!bodyReady ? (
-          <div className="flex flex-1 items-center justify-center gap-2 text-sm text-text-muted py-12">
-            <Loader2 className="h-4 w-4 animate-spin text-neon-purple" />
-            Loading note…
-          </div>
-        ) : (
-          <TipTapEditor
-            key={note.id}
-            noteId={note.id}
-            content={note.content || EMPTY_DOC}
-            onChange={scheduleContentSave}
-            placeholder="Start writing… Use Tab / Shift+Tab to indent lists."
-            minHeight="100%"
-            className="flex-1 min-h-0"
-            variant="notebook"
-            stickyToolbar
-            onAttachFiles={handleAttachFiles}
-            showAttachFilesButton
-            belowToolbar={
-              isLive ? (
-                <NoteAttachmentsPanel
-                  key={`${note.id}-${attachmentRevision}`}
-                  selectedNote={note}
-                  embedded
-                  showWhenEmpty
-                />
-              ) : null
-            }
-          />
+      {isExpanded &&
+        portalReady &&
+        createPortal(
+          <div
+            className="notebooks-note-editor__backdrop"
+            onClick={() => setIsExpanded(false)}
+            aria-hidden="true"
+          />,
+          document.body,
         )}
+
+      {/*
+        Keep TipTap in this same React tree when expanding (position: fixed via CSS)
+        so autosave + undo history continue without remounting.
+      */}
+      <div
+        className={cn(
+          "notebooks-note-editor flex flex-col min-h-0 min-w-0",
+          isExpanded ? "notebooks-note-editor--expanded" : "flex-1",
+        )}
+        role={isExpanded ? "dialog" : undefined}
+        aria-modal={isExpanded ? true : undefined}
+        aria-label={isExpanded ? "Expanded note editor" : undefined}
+      >
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border-glass shrink-0">
+          <input
+            ref={titleInputRef}
+            value={title}
+            onChange={(e) => {
+              isTitleDirtyRef.current = true;
+              setTitle(e.target.value);
+              scheduleTitleSave(e.target.value);
+            }}
+            onBlur={() => {
+              if (!isTitleDirtyRef.current) return;
+              flushPendingNoteFieldSave(titleSaveTimer, pendingTitleRef, saveTitle);
+              void onUpdateNote(note.id, { title: title.trim() || "Untitled note" });
+              isTitleDirtyRef.current = false;
+            }}
+            placeholder="Note title"
+            className="flex-1 min-w-0 bg-transparent text-lg font-semibold text-text-primary focus:outline-none placeholder:text-text-faint"
+            aria-label="Note title"
+          />
+          <button
+            type="button"
+            onClick={() => setIsExpanded((open) => !open)}
+            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover shrink-0"
+            aria-label={isExpanded ? "Minimize note" : "Expand note"}
+            title={isExpanded ? "Minimize note" : "Expand note"}
+          >
+            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => (onRequestDelete ? onRequestDelete(note.id) : void onDeleteNote(note.id))}
+            className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover shrink-0"
+            aria-label="Delete note"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="notebooks-note-editor__body flex-1 min-h-0 overflow-hidden flex flex-col">
+          {!bodyReady ? (
+            <div className="flex flex-1 items-center justify-center gap-2 text-sm text-text-muted py-12">
+              <Loader2 className="h-4 w-4 animate-spin text-neon-purple" />
+              Loading note…
+            </div>
+          ) : (
+            <TipTapEditor
+              key={note.id}
+              noteId={note.id}
+              content={note.content || EMPTY_DOC}
+              onChange={scheduleContentSave}
+              placeholder="Start writing… Use Tab / Shift+Tab to indent lists."
+              minHeight="100%"
+              className="flex-1 min-h-0"
+              variant="notebook"
+              stickyToolbar
+              onAttachFiles={handleAttachFiles}
+              showAttachFilesButton
+              belowToolbar={
+                isLive ? (
+                  <NoteAttachmentsPanel
+                    key={`${note.id}-${attachmentRevision}`}
+                    selectedNote={note}
+                    embedded
+                    showWhenEmpty
+                  />
+                ) : null
+              }
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

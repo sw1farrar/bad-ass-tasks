@@ -34,6 +34,49 @@
   background: var(--bg);
 }
 
+.notebooks-note-editor__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(8, 8, 12, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.notebooks-note-editor--expanded {
+  display: flex !important;
+  flex-direction: column;
+  position: fixed;
+  z-index: 301;
+  top: max(0.75rem, env(safe-area-inset-top, 0px));
+  right: max(0.75rem, env(safe-area-inset-right, 0px));
+  bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  left: max(0.75rem, env(safe-area-inset-left, 0px));
+  width: auto;
+  max-width: min(96vw, 1440px);
+  max-height: calc(100dvh - 1.5rem);
+  margin-inline: auto;
+  border-radius: 1rem;
+  border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+@media (min-width: 768px) {
+  .notebooks-note-editor--expanded {
+    top: 3vh;
+    right: 3vw;
+    bottom: 3vh;
+    left: 3vw;
+    max-height: 94dvh;
+  }
+}
+
+.notebooks-note-editor__dock-placeholder {
+  background: var(--bg);
+}
+
 .notebooks-note-editor__body {
   display: flex;
   flex-direction: column;
