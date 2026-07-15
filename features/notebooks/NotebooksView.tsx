@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, Search, Trash2 } from "lucide-react";
+import React, { useCallback, useMemo, useState } from "react";
+import { Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
@@ -45,6 +45,7 @@ import {
 import { NotebookRail } from "./components/NotebookRail";
 import { NotebookStream } from "./components/NotebookStream";
 import { NotebookContentArea } from "./components/NotebookContentArea";
+import { EditNotebookModal } from "./components/EditNotebookModal";
 import "../files/files-workspace.css";
 import "./notebooks-workspace.css";
 import "../meetings/meetings-workspace.css";
@@ -91,7 +92,10 @@ export interface NotebooksViewProps {
   onSelectMeeting: (id: string | null) => void;
   onSelectAgendaItem: (id: string | null) => void;
   onAddNotebook: (name?: string) => Promise<Notebook>;
-  onUpdateNotebook: (id: string, updates: Partial<Pick<Notebook, "name" | "sortOrder">>) => Promise<unknown>;
+  onUpdateNotebook: (
+    id: string,
+    updates: Partial<Pick<Notebook, "name" | "sortOrder" | "enabledSections">>,
+  ) => Promise<unknown>;
   onDeleteNotebook: (id: string) => Promise<unknown>;
   onCreateNote: (title: string, content?: string, options?: { notebookId?: string }) => Promise<Note | null>;
   onUpdateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
@@ -260,17 +264,18 @@ export function NotebooksView({
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [pendingDeleteNotebookId, setPendingDeleteNotebookId] = useState<string | null>(null);
   const [focusTitleNoteId, setFocusTitleNoteId] = useState<string | null>(null);
-  const [focusRenameNotebookId, setFocusRenameNotebookId] = useState<string | null>(null);
+  const [editNotebookId, setEditNotebookId] = useState<string | null>(null);
   const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null);
   const [isDeletingNotebook, setIsDeletingNotebook] = useState(false);
   const [isDeletingNote, setIsDeletingNote] = useState(false);
   const [pendingDestructiveDelete, setPendingDestructiveDelete] =
     useState<PendingDestructiveDelete | null>(null);
   const [isDeletingDestructive, setIsDeletingDestructive] = useState(false);
-  const [mobileRenameEditingId, setMobileRenameEditingId] = useState<string | null>(null);
-  const [mobileRenameName, setMobileRenameName] = useState("");
-  const mobileRenameRef = useRef<HTMLInputElement>(null);
-  const mobileRenameFocusPending = useRef(false);
+
+  const editingNotebook = useMemo(
+    () => notebooks.find((nb) => nb.id === editNotebookId) ?? null,
+    [notebooks, editNotebookId],
+  );
 
   const filteredNotebooks = useMemo(
     () => filterNotebooksBySearch(notebooks, searchQuery),
@@ -380,19 +385,13 @@ export function NotebooksView({
     try {
       const nb = await onAddNotebook("Untitled notebook");
       onSelectNotebook(nb.id);
-      setMobileRenameName(nb.name);
-      if (isMobile) {
-        setMobileRenameEditingId(nb.id);
-        mobileRenameFocusPending.current = true;
-      } else {
-        setFocusRenameNotebookId(nb.id);
-      }
+      setEditNotebookId(nb.id);
     } catch {
       toast.error("Could not create notebook");
     } finally {
       setIsCreatingNotebook(false);
     }
-  }, [isMobile, onAddNotebook, onSelectNotebook]);
+  }, [onAddNotebook, onSelectNotebook]);
 
   const handleCreateNote = useCallback(async () => {
     if (!selectedNotebookId) return;
@@ -412,27 +411,13 @@ export function NotebooksView({
     }
   }, [selectedNotebookId, onCreateNote, onSelectNote]);
 
-  const isMobileRenaming =
-    isMobile && mobileRenameEditingId === selectedNotebookId && !!selectedNotebook;
-
-  useEffect(() => {
-    if (!mobileRenameFocusPending.current || !isMobileRenaming) return;
-    const frame = requestAnimationFrame(() => {
-      const input = mobileRenameRef.current;
-      if (!input) return;
-      input.focus();
-      input.select();
-      mobileRenameFocusPending.current = false;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [isMobileRenaming, selectedNotebookId]);
-
-  const commitMobileRename = useCallback(() => {
-    if (!selectedNotebookId) return;
-    const name = mobileRenameName.trim();
-    if (name) void onUpdateNotebook(selectedNotebookId, { name });
-    setMobileRenameEditingId(null);
-  }, [mobileRenameName, onUpdateNotebook, selectedNotebookId]);
+  const handleSaveNotebookEdit = useCallback(
+    async (id: string, updates: Partial<Pick<Notebook, "name" | "enabledSections">>) => {
+      await onUpdateNotebook(id, updates);
+      toast.success("Notebook updated");
+    },
+    [onUpdateNotebook],
+  );
 
   const handleConfirmDestructiveDelete = useCallback(async () => {
     if (!pendingDestructiveDelete) return;
@@ -518,12 +503,9 @@ export function NotebooksView({
     }
   }, [pendingDeleteNotebookId, onDeleteNotebook, onSelectNotebook, onSelectNote]);
 
-  const startMobileNotebookRename = useCallback(() => {
-    if (!selectedNotebookId || !selectedNotebook) return;
-    setMobileRenameEditingId(selectedNotebookId);
-    setMobileRenameName(selectedNotebook.name);
-    mobileRenameFocusPending.current = true;
-  }, [selectedNotebook, selectedNotebookId]);
+  const openNotebookEditor = useCallback((id: string) => {
+    setEditNotebookId(id);
+  }, []);
 
   const handleAddMeeting = useCallback(async (input: {
     title: string;
@@ -570,7 +552,7 @@ export function NotebooksView({
       notebooks={filteredNotebooks}
       selectedId={selectedNotebookId}
       onSelect={onSelectNotebook}
-      onRename={(id, name) => void onUpdateNotebook(id, { name })}
+      onEdit={openNotebookEditor}
       onDelete={(id) => setPendingDeleteNotebookId(id)}
 
       emptyMessage={
@@ -713,32 +695,17 @@ export function NotebooksView({
           >
             Close
           </button>
-          {isMobileRenaming ? (
-            <input
-              ref={mobileRenameRef}
-              value={mobileRenameName}
-              onChange={(e) => setMobileRenameName(e.target.value)}
-              onBlur={() => commitMobileRename()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitMobileRename();
-                if (e.key === "Escape") {
-                  setMobileRenameName(selectedNotebook?.name || "");
-                  setMobileRenameEditingId(null);
-                }
-              }}
-              className="min-w-0 flex-1 bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none"
-              aria-label="Rename notebook"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={startMobileNotebookRename}
-              className="min-w-0 flex-1 text-left text-sm font-semibold truncate text-text-primary px-1 rounded-lg hover:bg-surface-hover py-1"
-              aria-label={`Rename ${selectedNotebook?.name || "notebook"}`}
-            >
-              {selectedNotebook?.name || "Notebook"}
-            </button>
-          )}
+          <div className="min-w-0 flex-1 text-sm font-semibold truncate text-text-primary px-1">
+            {selectedNotebook?.name || "Notebook"}
+          </div>
+          <button
+            type="button"
+            onClick={() => selectedNotebookId && openNotebookEditor(selectedNotebookId)}
+            className="p-2 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover shrink-0"
+            aria-label={`Edit ${selectedNotebook?.name || "notebook"}`}
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
           <button
             type="button"
             onClick={() => selectedNotebookId && setPendingDeleteNotebookId(selectedNotebookId)}
@@ -852,7 +819,9 @@ export function NotebooksView({
           onSelectCompetitor={onSelectNotebookCompetitor}
           onCreateNote={() => void handleCreateNote()}
           onUpdateNote={onUpdateNote}
-          onUpdateNotebook={(id, updates) => void onUpdateNotebook(id, updates)}
+          onEditNotebook={() => {
+            if (selectedNotebookId) openNotebookEditor(selectedNotebookId);
+          }}
           onRequestDeleteNotebook={() => {
             if (selectedNotebookId) setPendingDeleteNotebookId(selectedNotebookId);
           }}
@@ -912,10 +881,17 @@ export function NotebooksView({
           }
           focusTitleNoteId={focusTitleNoteId}
           onTitleFocusConsumed={() => setFocusTitleNoteId(null)}
-          focusRenameNotebook={!isMobile && focusRenameNotebookId === selectedNotebookId}
-          onNotebookRenameFocusConsumed={() => setFocusRenameNotebookId(null)}
         />
       )}
+
+      <EditNotebookModal
+        open={!!editNotebookId && !!editingNotebook}
+        notebook={editingNotebook}
+        onOpenChange={(open) => {
+          if (!open) setEditNotebookId(null);
+        }}
+        onSave={handleSaveNotebookEdit}
+      />
 
       <ConfirmationModal
         open={!!pendingDestructiveDelete && !!destructiveConfirm}

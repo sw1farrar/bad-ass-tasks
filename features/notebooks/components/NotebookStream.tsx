@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Notebook as NotebookIcon, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,12 +10,9 @@ interface NotebookStreamProps {
   notebooks: Notebook[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onRename: (id: string, name: string) => void;
+  onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   emptyMessage?: string;
-  /** Enter rename mode with name selected (new notebook flow). */
-  focusRenameId?: string | null;
-  onFocusRenameConsumed?: () => void;
 }
 
 const ROW_ESTIMATE_PX = 64;
@@ -24,36 +21,11 @@ export function NotebookStream({
   notebooks,
   selectedId,
   onSelect,
-  onRename,
+  onEdit,
   onDelete,
   emptyMessage = "No notebooks yet. Add one to get started.",
-  focusRenameId,
-  onFocusRenameConsumed,
 }: NotebookStreamProps) {
-  const parentRef = useRef<HTMLDivElement>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-
-  useEffect(() => {
-    if (!focusRenameId || editingId != null) return;
-    const nb = notebooks.find((n) => n.id === focusRenameId);
-    if (!nb) return;
-    setEditingId(nb.id);
-    setEditingName(nb.name);
-  }, [focusRenameId, notebooks, editingId]);
-
-  useEffect(() => {
-    if (!focusRenameId || editingId !== focusRenameId) return;
-    const frame = requestAnimationFrame(() => {
-      const input = renameInputRef.current;
-      if (!input) return;
-      input.focus();
-      input.select();
-      onFocusRenameConsumed?.();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusRenameId, editingId, onFocusRenameConsumed]);
+  const parentRef = React.useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
     count: notebooks.length,
@@ -70,18 +42,6 @@ export function NotebookStream({
     );
   }
 
-  const startRename = (nb: Notebook) => {
-    setEditingId(nb.id);
-    setEditingName(nb.name);
-  };
-
-  const commitRename = (id: string) => {
-    const name = editingName.trim();
-    if (name) onRename(id, name);
-    setEditingId(null);
-    setEditingName("");
-  };
-
   return (
     <div
       ref={parentRef}
@@ -97,7 +57,6 @@ export function NotebookStream({
           const nb = notebooks[virtualRow.index];
           if (!nb) return null;
           const isSelected = nb.id === selectedId;
-          const isEditing = editingId === nb.id;
 
           return (
             <div
@@ -111,72 +70,48 @@ export function NotebookStream({
                 className={cn(
                   "files-list-item w-full max-w-full text-left px-3 md:px-4 py-3 transition relative box-border overflow-hidden group",
                   isSelected && "files-list-item--selected",
-                  !isSelected && !isEditing && "hover:bg-surface-hover",
-                  !isEditing && "cursor-pointer",
+                  !isSelected && "hover:bg-surface-hover",
+                  "cursor-pointer",
                 )}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  {isEditing ? (
-                    <>
-                      <NotebookIcon className="h-4 w-4 shrink-0 text-neon-purple/80" />
-                      <input
-                        ref={editingId === nb.id ? renameInputRef : undefined}
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onBlur={() => commitRename(nb.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename(nb.id);
-                          if (e.key === "Escape") {
-                            setEditingId(null);
-                            setEditingName("");
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex-1 min-w-0 bg-bg-secondary border border-neon-purple/30 rounded-lg px-2 py-1 text-sm focus:outline-none"
-                        aria-label="Rename notebook"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={isSelected}
-                        onClick={() => onSelect(nb.id)}
-                        onDoubleClick={() => startRename(nb)}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left -mx-3 md:-mx-4 -my-3 px-3 md:px-4 py-3 cursor-pointer"
-                      >
-                        <NotebookIcon className="h-4 w-4 shrink-0 text-neon-purple/80 pointer-events-none" />
-                        <span className="flex-1 min-w-0 font-medium text-sm truncate text-text-primary">
-                          {nb.name}
-                        </span>
-                      </button>
-                      <div className="relative z-10 flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRename(nb);
-                          }}
-                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
-                          aria-label={`Rename ${nb.name}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDelete(nb.id);
-                          }}
-                          className="p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover"
-                          aria-label={`Delete ${nb.name}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => onSelect(nb.id)}
+                    onDoubleClick={() => onEdit(nb.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left -mx-3 md:-mx-4 -my-3 px-3 md:px-4 py-3 cursor-pointer"
+                  >
+                    <NotebookIcon className="h-4 w-4 shrink-0 text-neon-purple/80 pointer-events-none" />
+                    <span className="flex-1 min-w-0 font-medium text-sm truncate text-text-primary">
+                      {nb.name}
+                    </span>
+                  </button>
+                  <div className="relative z-10 flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit(nb.id);
+                      }}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                      aria-label={`Edit ${nb.name}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(nb.id);
+                      }}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover"
+                      aria-label={`Delete ${nb.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

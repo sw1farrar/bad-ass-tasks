@@ -3,24 +3,34 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 import {
-  NOTEBOOK_SECTION_TABS,
+  getNotebookSectionTabsForNotebook,
   type NotebookSectionTab,
 } from "@/lib/notebooks/notebookSections";
+import type { Notebook } from "@/types";
 
 export type { NotebookSectionTab };
 
 interface NotebookSectionMenuProps {
+  notebook: Notebook;
   activeTab: NotebookSectionTab;
   onTabChange: (tab: NotebookSectionTab) => void;
 }
 
-export function NotebookSectionMenu({ activeTab, onTabChange }: NotebookSectionMenuProps) {
+export function NotebookSectionMenu({
+  notebook,
+  activeTab,
+  onTabChange,
+}: NotebookSectionMenuProps) {
+  const tabs = getNotebookSectionTabsForNotebook(notebook);
+
+  if (tabs.length <= 1) return null;
+
   return (
     <nav
       className="notebooks-section-menu flex w-full items-stretch gap-1.5 px-3 py-2 border-b border-border-glass bg-bg shrink-0 max-md:overflow-x-auto max-md:snap-x max-md:touch-pan-x"
       aria-label="Notebook sections"
     >
-      {NOTEBOOK_SECTION_TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"

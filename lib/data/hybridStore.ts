@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api/apiFetch";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
 import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem, TaskFolder, Notebook, Meeting, MeetingAgendaItem, MeetingAgendaEntry } from "@/types";
+import { coerceNotebookEnabledSections, DEFAULT_NOTEBOOK_ENABLED_SECTIONS } from "@/lib/notebooks/notebookSections";
 import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
 import {
   NOTE_LIST_SELECT,
@@ -6884,6 +6885,7 @@ type NotebookRow = {
   workspace_id: string;
   name: string;
   sort_order: number;
+  enabled_sections?: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -6955,6 +6957,8 @@ export function mapNotebookRow(row: NotebookRow): Notebook {
     workspaceId: row.workspace_id,
     name: row.name,
     sortOrder: row.sort_order,
+    enabledSections:
+      coerceNotebookEnabledSections(row.enabled_sections) ?? DEFAULT_NOTEBOOK_ENABLED_SECTIONS,
     ourSales: Number((row as { our_sales?: number }).our_sales) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -6994,6 +6998,7 @@ export async function createNotebook(input: {
   workspaceId: string;
   name: string;
   sortOrder?: number;
+  enabledSections?: Notebook["enabledSections"];
   createdAt?: string;
   updatedAt?: string;
 }): Promise<boolean> {
@@ -7006,6 +7011,7 @@ export async function createNotebook(input: {
     workspace_id: input.workspaceId,
     name: input.name,
     sort_order: input.sortOrder ?? 0,
+    enabled_sections: input.enabledSections ?? DEFAULT_NOTEBOOK_ENABLED_SECTIONS,
     created_at: input.createdAt ?? now,
     updated_at: input.updatedAt ?? now,
   };
@@ -7036,7 +7042,7 @@ export async function createNotebook(input: {
 export async function updateNotebook(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales">>,
+  updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isNotebookPersistenceEnabled()) return true;
@@ -7045,6 +7051,9 @@ export async function updateNotebook(
   if (updates.name !== undefined) payload.name = updates.name;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
   if (updates.ourSales !== undefined) payload.our_sales = updates.ourSales;
+  if (updates.enabledSections !== undefined) {
+    payload.enabled_sections = updates.enabledSections;
+  }
   if (Object.keys(payload).length === 0) return true;
   payload.updated_at = new Date().toISOString();
 

@@ -98,6 +98,8 @@ export interface Notebook {
   workspaceId: string;
   name: string;
   sortOrder: number;
+  /** Section tabs shown for this notebook (notes, tasks, investments, etc.). */
+  enabledSections?: import("@/lib/notebooks/notebookSections").NotebookSectionTab[];
   /** Our sales for market-share comparison in the Competitors section. */
   ourSales?: number;
   createdAt: string;

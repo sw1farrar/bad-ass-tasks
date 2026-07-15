@@ -1,6 +1,7 @@
 import type { Note, Notebook } from "@/types";
 import { generateId } from "@/lib/utils";
 import { filterNotebookNotes, sortNotebookNotes } from "@/lib/notebooks/notebookFilters";
+import { DEFAULT_NOTEBOOK_ENABLED_SECTIONS } from "@/lib/notebooks/notebookSections";
 import {
   createNotebook as createNotebookSupabase,
   deleteNotebook as deleteNotebookSupabase,
@@ -101,6 +102,7 @@ export function createNotebookSliceActions(get: Get, set: Set) {
         workspaceId,
         name: name.trim() || "Untitled notebook",
         sortOrder: maxOrder + 1000,
+        enabledSections: [...DEFAULT_NOTEBOOK_ENABLED_SECTIONS],
         createdAt: now,
         updatedAt: now,
       };
@@ -115,6 +117,7 @@ export function createNotebookSliceActions(get: Get, set: Set) {
           workspaceId,
           name: notebook.name,
           sortOrder: notebook.sortOrder,
+          enabledSections: notebook.enabledSections,
           createdAt: notebook.createdAt,
           updatedAt: notebook.updatedAt,
         });
@@ -127,7 +130,7 @@ export function createNotebookSliceActions(get: Get, set: Set) {
 
     updateNotebook: async (
       id: string,
-      updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales">>,
+      updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections">>,
     ) => {
       const now = new Date().toISOString();
       const workspaceId = get().notebooks.find((nb) => nb.id === id)?.workspaceId ?? wsId();

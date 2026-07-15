@@ -16,7 +16,10 @@ import type {
   WorkspaceMember,
 } from "@/types";
 import { filterNotebookNotesBySearch } from "@/lib/notebooks/notebookFilters";
-import { DEFAULT_NOTEBOOK_SECTION_TAB } from "@/lib/notebooks/notebookSections";
+import {
+  DEFAULT_NOTEBOOK_SECTION_TAB,
+  resolveNotebookEnabledSections,
+} from "@/lib/notebooks/notebookSections";
 import { NotebookDetailHeader } from "./NotebookDetailHeader";
 import { NotebookNotesPanel } from "./NotebookNotesPanel";
 import { NotebookSectionMenu, type NotebookSectionTab } from "./NotebookSectionMenu";
@@ -61,7 +64,7 @@ interface NotebookContentAreaProps {
   onUpdateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   onDeleteNote: (id: string) => Promise<boolean | null>;
   onHydrateNote: (id: string) => Promise<Note | null>;
-  onUpdateNotebook: (id: string, updates: Partial<Pick<Notebook, "name" | "sortOrder">>) => void;
+  onEditNotebook: () => void;
   onRequestDeleteNotebook: () => void;
   onRequestDeleteNote?: (id: string) => void;
   onAddNotebookTask: (title?: string) => void | Promise<unknown>;
@@ -96,8 +99,6 @@ interface NotebookContentAreaProps {
   onSetNotebookOurSales: (value: number) => void | Promise<unknown>;
   focusTitleNoteId?: string | null;
   onTitleFocusConsumed?: () => void;
-  focusRenameNotebook?: boolean;
-  onNotebookRenameFocusConsumed?: () => void;
 }
 
 export function NotebookContentArea({
@@ -136,7 +137,7 @@ export function NotebookContentArea({
   onUpdateNote,
   onDeleteNote,
   onHydrateNote,
-  onUpdateNotebook,
+  onEditNotebook,
   onRequestDeleteNotebook,
   onRequestDeleteNote,
   onAddNotebookTask,
@@ -168,15 +169,28 @@ export function NotebookContentArea({
   onSetNotebookOurSales,
   focusTitleNoteId,
   onTitleFocusConsumed,
-  focusRenameNotebook,
-  onNotebookRenameFocusConsumed,
 }: NotebookContentAreaProps) {
   const [activeTab, setActiveTab] = useState<NotebookSectionTab>(DEFAULT_NOTEBOOK_SECTION_TAB);
   const [noteSearchQuery, setNoteSearchQuery] = useState("");
 
+  const enabledSections = useMemo(
+    () => (notebook ? resolveNotebookEnabledSections(notebook) : []),
+    [notebook],
+  );
+
   useEffect(() => {
     setNoteSearchQuery("");
-  }, [notebook?.id]);
+    if (!notebook) return;
+    setActiveTab((current) =>
+      enabledSections.includes(current) ? current : enabledSections[0] ?? DEFAULT_NOTEBOOK_SECTION_TAB,
+    );
+  }, [notebook?.id, enabledSections, notebook]);
+
+  useEffect(() => {
+    if (!enabledSections.includes(activeTab)) {
+      setActiveTab(enabledSections[0] ?? DEFAULT_NOTEBOOK_SECTION_TAB);
+    }
+  }, [activeTab, enabledSections]);
 
   const filteredNotes = useMemo(
     () => (notebook ? filterNotebookNotesBySearch(notes, noteSearchQuery) : []),
@@ -199,15 +213,17 @@ export function NotebookContentArea({
       {showNotebookHeader && (
         <NotebookDetailHeader
           notebook={notebook}
-          onRename={(name) => onUpdateNotebook(notebook.id, { name })}
+          onEdit={onEditNotebook}
           onDelete={onRequestDeleteNotebook}
-          focusRename={focusRenameNotebook}
-          onFocusRenameConsumed={onNotebookRenameFocusConsumed}
         />
       )}
 
       {showSectionMenu && (
-        <NotebookSectionMenu activeTab={activeTab} onTabChange={setActiveTab} />
+        <NotebookSectionMenu
+          notebook={notebook}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
       )}
 
       {activeTab === "notes" && (
