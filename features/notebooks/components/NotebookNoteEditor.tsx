@@ -11,6 +11,7 @@ import {
   flushPendingNoteFieldSave,
   schedulePendingNoteFieldSave,
 } from "@/lib/notebooks/noteEditorSave";
+import { noteContentEquivalent } from "@/lib/notes/noteUpdates";
 import { invalidateNoteAttachments } from "@/lib/notes/noteAttachmentListCache";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,8 @@ export function NotebookNoteEditor({
   const pendingContentRef = useRef<{ noteId: string; value: string } | null>(null);
   const previousNoteIdRef = useRef<string | null>(null);
   const isTitleDirtyRef = useRef(false);
+  const noteRef = useRef(note);
+  noteRef.current = note;
 
   useScrollLock(isExpanded);
 
@@ -61,13 +64,19 @@ export function NotebookNoteEditor({
 
   const saveTitle = useCallback(
     (noteId: string, value: string) => {
-      void onUpdateNote(noteId, { title: value.trim() || "Untitled note" });
+      const existing = noteRef.current;
+      const nextTitle = value.trim() || "Untitled note";
+      if (existing?.id === noteId && (existing.title || "Untitled note") === nextTitle) return;
+      void onUpdateNote(noteId, { title: nextTitle });
     },
     [onUpdateNote],
   );
 
   const saveContent = useCallback(
     (noteId: string, value: string) => {
+      const existing = noteRef.current;
+      // TipTap can emit normalized JSON on open; skip if body is unchanged.
+      if (existing?.id === noteId && noteContentEquivalent(existing.content, value)) return;
       void onUpdateNote(noteId, { content: value });
     },
     [onUpdateNote],

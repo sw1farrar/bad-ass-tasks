@@ -636,10 +636,10 @@ export function TipTapEditor({
         if (editor.isFocused) return;
         const latestInEditor = JSON.stringify(editor.getJSON());
         if (latestInEditor !== incoming && incoming !== lastEmittedContentRef.current) {
-          // Note: we intentionally do NOT emit an update here to avoid feedback loops.
-          // The content we are applying came from outside (store) and matches what we last saved.
-          editor.commands.setContent(prepareInitialContent(incoming));
-          lastEmittedContentRef.current = incoming;
+          // Do not emit onUpdate: applying store content must not look like a user edit
+          // (otherwise notebooks re-sort by updatedAt when merely opening a note).
+          editor.commands.setContent(prepareInitialContent(incoming), { emitUpdate: false });
+          lastEmittedContentRef.current = JSON.stringify(editor.getJSON());
         }
       });
     }
