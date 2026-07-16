@@ -65,4 +65,27 @@ describe("noteContentEquivalent / isEmptyNoteContent", () => {
     expect(noteContentEquivalent("", EMPTY_DOC)).toBe(true);
     expect(noteContentEquivalent(EMPTY_DOC, EMPTY_DOC)).toBe(true);
   });
+
+  it("equates TipTap docs that only differ by key order / null attrs", () => {
+    const a = JSON.stringify({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { textAlign: null },
+          content: [{ type: "text", text: "hello" }],
+        },
+      ],
+    });
+    const b = JSON.stringify({
+      content: [
+        {
+          content: [{ text: "hello", type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    expect(noteContentEquivalent(a, b)).toBe(true);
+  });
 });

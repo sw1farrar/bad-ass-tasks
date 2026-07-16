@@ -436,6 +436,7 @@ export function TipTapEditor({
   const editor = useEditor({
     // Client-only editor; avoid Next.js hydration warning and first-paint delay.
     immediatelyRender: true,
+    autofocus: false,
     extensions: editorExtensions,
     editable: !readOnly,
     content: prepareInitialContent(content),
@@ -451,6 +452,13 @@ export function TipTapEditor({
       const contentString = JSON.stringify(richJson);
 
       if (contentString === lastEmittedContentRef.current) return;
+
+      // Mount / setEditable / setContent can emit "update" without a user edit.
+      // Only persist while focused so opening a note does not bump updatedAt.
+      if (!editor.isFocused) {
+        lastEmittedContentRef.current = contentString;
+        return;
+      }
 
       // Record what we emit so the external-content effect can avoid echo
       lastEmittedContentRef.current = contentString;
@@ -647,7 +655,10 @@ export function TipTapEditor({
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!readOnly);
+    // Seed baseline before deferred onCreate; avoid treating mount as an edit.
+    lastEmittedContentRef.current = JSON.stringify(editor.getJSON());
+    // TipTap's setEditable emits "update" by default — suppress that noise.
+    editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
 
   // ========== BIDIRECTIONAL LINK PICKER STATE (Agent 24) ==========

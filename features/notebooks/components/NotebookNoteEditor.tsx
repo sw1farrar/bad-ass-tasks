@@ -53,8 +53,9 @@ export function NotebookNoteEditor({
   const pendingContentRef = useRef<{ noteId: string; value: string } | null>(null);
   const previousNoteIdRef = useRef<string | null>(null);
   const isTitleDirtyRef = useRef(false);
-  const noteRef = useRef(note);
-  noteRef.current = note;
+  /** Snapshots keyed by note id so flush-on-switch doesn't compare against the next note. */
+  const titleByIdRef = useRef<Map<string, string>>(new Map());
+  const contentByIdRef = useRef<Map<string, string>>(new Map());
 
   useScrollLock(isExpanded);
 
@@ -64,9 +65,10 @@ export function NotebookNoteEditor({
 
   const saveTitle = useCallback(
     (noteId: string, value: string) => {
-      const existing = noteRef.current;
       const nextTitle = value.trim() || "Untitled note";
-      if (existing?.id === noteId && (existing.title || "Untitled note") === nextTitle) return;
+      const prevTitle = titleByIdRef.current.get(noteId) || "Untitled note";
+      if (prevTitle === nextTitle) return;
+      titleByIdRef.current.set(noteId, nextTitle);
       void onUpdateNote(noteId, { title: nextTitle });
     },
     [onUpdateNote],
@@ -74,9 +76,10 @@ export function NotebookNoteEditor({
 
   const saveContent = useCallback(
     (noteId: string, value: string) => {
-      const existing = noteRef.current;
+      const prevContent = contentByIdRef.current.get(noteId);
       // TipTap can emit normalized JSON on open; skip if body is unchanged.
-      if (existing?.id === noteId && noteContentEquivalent(existing.content, value)) return;
+      if (noteContentEquivalent(prevContent, value)) return;
+      contentByIdRef.current.set(noteId, value);
       void onUpdateNote(noteId, { content: value });
     },
     [onUpdateNote],
@@ -91,10 +94,18 @@ export function NotebookNoteEditor({
     }
     isTitleDirtyRef.current = false;
     setTitle(note.title || "");
+    titleByIdRef.current.set(note.id, note.title || "Untitled note");
+    contentByIdRef.current.set(note.id, note.content ?? "");
     if (!isNoteBodyHydrated(note)) {
       void onHydrateNote(note.id);
     }
   }, [note?.id, onHydrateNote]);
+
+  // Keep content snapshot in sync after hydrate without treating it as a user edit.
+  useEffect(() => {
+    if (!note || !isNoteBodyHydrated(note)) return;
+    contentByIdRef.current.set(note.id, note.content ?? "");
+  }, [note?.id, note?.content, note?.bodyHydrated]);
 
   useEffect(() => {
     setIsExpanded(false);
@@ -260,7 +271,6 @@ export function NotebookNoteEditor({
             onBlur={() => {
               if (!isTitleDirtyRef.current) return;
               flushPendingNoteFieldSave(titleSaveTimer, pendingTitleRef, saveTitle);
-              void onUpdateNote(note.id, { title: title.trim() || "Untitled note" });
               isTitleDirtyRef.current = false;
             }}
             placeholder="Note title"
