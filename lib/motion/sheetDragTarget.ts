@@ -10,7 +10,6 @@ export const SHEET_DRAG_BLOCKER_SELECTOR = [
   ".list-item-menu",
   ".list-item-pending-btn",
   ".list-item-text--display-clickable",
-  ".list-item-row",
   '[data-sheet-drag-block="true"]',
 ].join(", ");
 
