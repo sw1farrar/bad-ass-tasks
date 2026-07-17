@@ -842,6 +842,128 @@
 }
 
 /*
+ * Agenda compose/edit TipTap follows app theme.
+ * Scoped to .meeting-entry-rich-editor so notebook note editors keep their light paper canvas.
+ */
+.meeting-entry-rich-editor {
+  --note-canvas-bg: var(--bg-secondary, #ffffff);
+  --note-canvas-surface: var(--bg-tertiary, #f1f5f9);
+  --note-canvas-text: var(--text-primary);
+  --note-canvas-text-secondary: var(--text-secondary, #64748b);
+  --note-canvas-text-muted: var(--text-muted, #94a3b8);
+  --note-canvas-border: var(--border-glass, rgba(15, 23, 42, 0.1));
+  background: var(--bg-secondary, var(--bg));
+}
+
+.meeting-entry-rich-editor .notes-editor-sticky-chrome {
+  background: var(--bg-tertiary, var(--bg-secondary));
+  border-bottom-color: var(--note-canvas-border);
+  box-shadow: none;
+}
+
+.meeting-entry-rich-editor .notes-editor-toolbar--compact,
+.meeting-entry-rich-editor .notes-editor-toolbar--full {
+  background: var(--bg-tertiary, var(--bg-secondary)) !important;
+  border-bottom-color: var(--note-canvas-border) !important;
+}
+
+.meeting-entry-rich-editor .notes-editor-scroll-body,
+.meeting-entry-rich-editor .notes-editor-body {
+  background: var(--note-canvas-bg) !important;
+}
+
+.meeting-entry-rich-editor .ProseMirror {
+  color: var(--note-canvas-text) !important;
+}
+
+.meeting-entry-rich-editor .ProseMirror h1,
+.meeting-entry-rich-editor .ProseMirror h2,
+.meeting-entry-rich-editor .ProseMirror h3 {
+  color: var(--note-canvas-text) !important;
+}
+
+.meeting-entry-rich-editor .ProseMirror blockquote {
+  color: var(--note-canvas-text-secondary) !important;
+  border-left-color: var(--note-canvas-border) !important;
+}
+
+.meeting-entry-rich-editor .ProseMirror a {
+  color: var(--neon-purple-tint, var(--note-canvas-text));
+}
+
+.meeting-entry-rich-editor .ProseMirror code {
+  background: color-mix(in srgb, var(--note-canvas-text) 10%, transparent);
+  color: var(--note-canvas-text);
+}
+
+.meeting-entry-rich-editor .ProseMirror pre {
+  background: var(--bg-tertiary, rgba(24, 24, 27, 0.35));
+  border-color: var(--note-canvas-border);
+  color: var(--note-canvas-text);
+}
+
+.meeting-entry-rich-editor .ProseMirror th,
+.meeting-entry-rich-editor .ProseMirror td {
+  border-color: var(--note-canvas-border);
+  color: var(--note-canvas-text);
+}
+
+.meeting-entry-rich-editor .ProseMirror th {
+  background: color-mix(in srgb, var(--note-canvas-text) 6%, transparent);
+}
+
+.meeting-entry-rich-editor .ProseMirror p.is-editor-empty:first-child::before,
+.meeting-entry-rich-editor .ProseMirror .is-empty::before {
+  color: var(--note-canvas-text-muted) !important;
+}
+
+[data-theme="dark"] .meeting-entry-rich-editor.notebooks-note-editor .notes-editor-scroll-body {
+  background: var(--bg-secondary, #1a1a1f) !important;
+}
+
+[data-theme="dark"] .meeting-entry-rich-editor.notebooks-note-editor .notes-editor-scroll-body .notes-editor-body {
+  --note-canvas-bg: var(--bg-secondary, #1a1a1f);
+  --note-canvas-surface: var(--bg-tertiary, #25252b);
+  --note-canvas-text: var(--text-primary, #f4f4f8);
+  --note-canvas-text-secondary: var(--text-secondary, #a1a1aa);
+  --note-canvas-text-muted: var(--text-muted, #71717a);
+  --note-canvas-border: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .meeting-entry-rich-editor {
+  --note-canvas-bg: var(--bg-secondary, #1a1a1f);
+  --note-canvas-surface: var(--bg-tertiary, #25252b);
+  --note-canvas-text: var(--text-primary, #f4f4f8);
+  --note-canvas-text-secondary: var(--text-secondary, #a1a1aa);
+  --note-canvas-text-muted: var(--text-muted, #71717a);
+  --note-canvas-border: rgba(255, 255, 255, 0.12);
+  background: var(--bg-secondary, #1a1a1f);
+}
+
+[data-theme="dark"] .meeting-entry-rich-editor .notes-editor-toolbar__group {
+  background: var(--bg, #0f0f12) !important;
+  border-color: var(--note-canvas-border) !important;
+}
+
+[data-theme="dark"] .meeting-entry-rich-editor .notes-editor-toolbar--compact button {
+  color: var(--note-canvas-text-muted);
+}
+
+[data-theme="dark"] .meeting-entry-rich-editor .notes-editor-toolbar--compact button:hover {
+  color: var(--note-canvas-text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .meeting-entry-rich-editor {
+  --note-canvas-bg: var(--bg-secondary, #ffffff);
+  --note-canvas-surface: var(--bg-tertiary, #f1f5f9);
+  --note-canvas-text: var(--text-primary, #0f172a);
+  --note-canvas-text-secondary: var(--text-secondary, #475569);
+  --note-canvas-text-muted: var(--text-muted, #64748b);
+  --note-canvas-border: rgba(15, 23, 42, 0.12);
+}
+
+/*
  * Agenda item note previews follow app theme (unlike notebook notes, which keep
  * a light paper canvas in dark mode).
  */
