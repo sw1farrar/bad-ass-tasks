@@ -13,6 +13,10 @@ import {
   buildAgendaEntryGroupsDocumentHtml,
   buildAgendaEntryGroupsSummaryHtml,
 } from "@/lib/meetings/agendaEntryGroups";
+import {
+  agendaEntryHasDecisionTag,
+  stripAgendaDecisionTag,
+} from "@/lib/meetings/agendaEntryBody";
 import { sortAgendaItems } from "@/lib/meetings/meetingFilters";
 
 function escapeHtml(text: string): string {
@@ -100,7 +104,7 @@ export function buildMeetingSummaryHtml(input: {
 }): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
+  const decisions = entries.filter((e) => e.isDecision || agendaEntryHasDecisionTag(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
 
@@ -138,7 +142,7 @@ export function buildMeetingSummaryHtml(input: {
     html += `<h2 class="meeting-summary-doc__section-title">Decisions</h2>`;
     html += `<ul class="meeting-summary-doc__decision-list">`;
     for (const d of decisions) {
-      html += `<li>${escapeHtml(d.body.replace(/#decision/gi, "").trim())}</li>`;
+      html += `<li>${escapeHtml(stripAgendaDecisionTag(d.body))}</li>`;
     }
     html += `</ul></section>`;
   }
@@ -176,7 +180,7 @@ export function buildMeetingSummaryMarkdown(input: {
 }): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
+  const decisions = entries.filter((e) => e.isDecision || agendaEntryHasDecisionTag(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
 
@@ -194,7 +198,7 @@ export function buildMeetingSummaryMarkdown(input: {
   if (decisions.length) {
     lines.push("## Decisions", "");
     for (const d of decisions) {
-      lines.push(`- ${d.body.replace(/#decision/gi, "").trim()}`);
+      lines.push(`- ${stripAgendaDecisionTag(d.body)}`);
     }
     lines.push("");
   }

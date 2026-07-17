@@ -34,6 +34,10 @@ import {
 import { shouldAutoDeferAgendaItem } from "@/lib/meetings/meetingLifecycle";
 import { buildMeetingSummaryHtml } from "@/lib/meetings/summaryBuilder";
 import {
+  agendaEntryHasDecisionTag,
+  isEmptyAgendaEntryBody,
+} from "@/lib/meetings/agendaEntryBody";
+import {
   createMeeting as createMeetingSupabase,
   createMeetingAgendaItem as createAgendaItemSupabase,
   createMeetingAgendaEntry as createAgendaEntrySupabase,
@@ -440,10 +444,10 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     addAgendaEntry: async (agendaItemId: string, body: string) => {
       const trimmed = body.trim();
-      if (!trimmed) return null;
+      if (isEmptyAgendaEntryBody(trimmed)) return null;
       const workspaceId = wsId();
       const now = new Date().toISOString();
-      const isDecision = /#decision/i.test(trimmed);
+      const isDecision = agendaEntryHasDecisionTag(trimmed);
       const entry: MeetingAgendaEntry = {
         id: isLiveMeetingWorkspace(workspaceId) ? generateClientId() : generateId(),
         agendaItemId,
@@ -461,10 +465,10 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     updateAgendaEntry: async (id: string, body: string) => {
       const trimmed = body.trim();
-      if (!trimmed) return;
+      if (isEmptyAgendaEntryBody(trimmed)) return;
       const entry = get().meetingAgendaEntries.find((e) => e.id === id);
       if (!entry || entry.body === trimmed) return;
-      const isDecision = /#decision/i.test(trimmed);
+      const isDecision = agendaEntryHasDecisionTag(trimmed);
       set((state) => ({
         meetingAgendaEntries: state.meetingAgendaEntries.map((e) =>
           e.id === id ? { ...e, body: trimmed, isDecision } : e,

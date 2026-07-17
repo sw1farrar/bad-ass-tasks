@@ -4,6 +4,10 @@ import {
   appendAgendaEntryGroupsPlainText,
   buildAgendaEntryGroupsClipboardHtml,
 } from "@/lib/meetings/agendaEntryGroups";
+import {
+  agendaEntryHasDecisionTag,
+  stripAgendaDecisionTag,
+} from "@/lib/meetings/agendaEntryBody";
 import { getAgendaItemOwnerLabel } from "@/lib/meetings/agendaOwners";
 import { sortAgendaItems } from "@/lib/meetings/meetingFilters";
 
@@ -72,7 +76,7 @@ function appendSummaryTopicPlainText(
 export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentInput): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
+  const decisions = entries.filter((e) => e.isDecision || agendaEntryHasDecisionTag(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
 
@@ -103,7 +107,7 @@ export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentIn
     html += `<p style="margin: 0 0 6px; font-size: 9pt; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #000000;">Decisions</p>`;
     html += `<ul style="margin: 0 0 12px; padding-left: 22px;">`;
     for (const d of decisions) {
-      html += `<li style="margin: 0 0 4px;">${escapeHtml(d.body.replace(/#decision/gi, "").trim())}</li>`;
+      html += `<li style="margin: 0 0 4px;">${escapeHtml(stripAgendaDecisionTag(d.body))}</li>`;
     }
     html += `</ul>`;
   }
@@ -134,7 +138,7 @@ export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentIn
 export function buildMeetingSummaryPlainText(input: MeetingSummaryDocumentInput): string {
   const { meeting, items, entries, members, currentUserId } = input;
   const sorted = sortAgendaItems(items);
-  const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
+  const decisions = entries.filter((e) => e.isDecision || agendaEntryHasDecisionTag(e.body));
   const discussionItems = sorted.filter((i) => i.status !== "continued");
   const followUps = sorted.filter((i) => i.status === "continued");
 
@@ -152,7 +156,7 @@ export function buildMeetingSummaryPlainText(input: MeetingSummaryDocumentInput)
   if (decisions.length) {
     lines.push("DECISIONS", "");
     for (const d of decisions) {
-      lines.push(`• ${d.body.replace(/#decision/gi, "").trim()}`);
+      lines.push(`• ${stripAgendaDecisionTag(d.body)}`);
     }
     lines.push("");
   }

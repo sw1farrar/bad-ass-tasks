@@ -256,7 +256,8 @@ export function TipTapEditor({
 }: TipTapEditorProps) {
   const stickyChromeLayout = stickyPreviewChrome || stickyToolbar;
   const isNotebookVariant = variant === "notebook";
-  const attachButtonVisible = showAttachFilesButton || isNotebookVariant;
+  const attachButtonVisible =
+    Boolean(onAttachFiles) && (showAttachFilesButton || isNotebookVariant);
   const imageButtonVisible = isNotebookVariant || !attachButtonVisible;
   /**
    * Prepare initial content for TipTap:

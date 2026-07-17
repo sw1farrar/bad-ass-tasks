@@ -1,4 +1,5 @@
 import { previewEntryBody } from "@/lib/notebooks/entryPreview";
+import { agendaEntryPlainText } from "@/lib/meetings/agendaEntryBody";
 import type {
   MeetingAgendaEntry,
   MeetingAgendaItem,
@@ -160,7 +161,9 @@ export function buildDestructiveConfirmContent(
       const entry = ctx.agendaEntries.find((e) => e.id === pending.id);
       return {
         title: "Delete meeting note?",
-        highlight: entry ? previewEntryBody(entry.body) : "Meeting note",
+        highlight: entry
+          ? previewEntryBody(agendaEntryPlainText(entry.body))
+          : "Meeting note",
         description: "This note will be permanently removed from the topic. This cannot be undone.",
         confirmText: "Delete note",
       };

@@ -8,6 +8,11 @@ import { cn } from "@/lib/utils";
 import type { MeetingAgendaEntry, WorkspaceMember } from "@/types";
 import { getMemberDisplayName } from "@/lib/assignee";
 import { sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
+import {
+  EMPTY_AGENDA_DOC,
+  isEmptyAgendaEntryBody,
+} from "@/lib/meetings/agendaEntryBody";
+import { MeetingEntryBodyView, MeetingEntryRichEditor } from "./MeetingEntryRichEditor";
 
 interface MeetingEntryTimelineProps {
   entries: MeetingAgendaEntry[];
@@ -27,7 +32,7 @@ export function MeetingEntryTimeline({
   onRequestDeleteEntry,
 }: MeetingEntryTimelineProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftBody, setDraftBody] = useState("");
+  const [draftBody, setDraftBody] = useState(EMPTY_AGENDA_DOC);
   const [isSaving, setIsSaving] = useState(false);
 
   const canEdit = !!onUpdateEntry;
@@ -39,20 +44,19 @@ export function MeetingEntryTimeline({
 
   const startEdit = (entry: MeetingAgendaEntry) => {
     setEditingId(entry.id);
-    setDraftBody(entry.body);
+    setDraftBody(entry.body || EMPTY_AGENDA_DOC);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setDraftBody("");
+    setDraftBody(EMPTY_AGENDA_DOC);
   };
 
   const saveEdit = async (id: string) => {
-    const trimmed = draftBody.trim();
-    if (!trimmed || !onUpdateEntry) return;
+    if (isEmptyAgendaEntryBody(draftBody) || !onUpdateEntry) return;
     setIsSaving(true);
     try {
-      await onUpdateEntry(id, trimmed);
+      await onUpdateEntry(id, draftBody);
       cancelEdit();
       toast.success("Note updated");
     } catch {
@@ -125,30 +129,29 @@ export function MeetingEntryTimeline({
               )}
             </div>
             {isEditing ? (
-              <div className="space-y-2">
-                <textarea
-                  value={draftBody}
-                  onChange={(e) => setDraftBody(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      cancelEdit();
-                    }
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      void saveEdit(entry.id);
-                    }
-                  }}
+              <div
+                className="space-y-2"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEdit();
+                  }
+                }}
+              >
+                <MeetingEntryRichEditor
+                  content={draftBody}
+                  onChange={setDraftBody}
                   disabled={isSaving}
-                  rows={3}
-                  autoFocus
-                  className="w-full resize-none bg-bg-secondary border border-neon-purple/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-neon-purple/50 min-h-[72px]"
+                  editorKey={`edit-${entry.id}`}
+                  className="rounded-xl border border-neon-purple/30 overflow-hidden"
+                  minHeight="140px"
+                  onModEnter={() => void saveEdit(entry.id)}
                 />
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => void saveEdit(entry.id)}
-                    disabled={isSaving || !draftBody.trim()}
+                    disabled={isSaving || isEmptyAgendaEntryBody(draftBody)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-neon-purple/30 bg-neon-purple/10 px-2.5 py-1.5 text-xs font-medium text-neon-purple-tint disabled:opacity-40"
                   >
                     <Check className="h-3.5 w-3.5" />
@@ -163,12 +166,13 @@ export function MeetingEntryTimeline({
                     <X className="h-3.5 w-3.5" />
                     Cancel
                   </button>
+                  <span className="text-[11px] text-text-faint ml-auto">Ctrl+Enter to save</span>
                 </div>
               </div>
             ) : (
-              <p className={cn("text-sm text-text-primary whitespace-pre-wrap", canEdit && "md:pr-14")}>
-                {entry.body}
-              </p>
+              <div className={cn(canEdit && "md:pr-14")}>
+                <MeetingEntryBodyView body={entry.body} />
+              </div>
             )}
           </div>
         );

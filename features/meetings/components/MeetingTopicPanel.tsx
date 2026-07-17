@@ -177,7 +177,10 @@ export function MeetingTopicPanel({
       </div>
 
       {canTakeNotes && (
-        <MeetingEntryComposer onSubmit={(body) => onAddEntry(item.id, body)} />
+        <MeetingEntryComposer
+          key={item.id}
+          onSubmit={(body) => onAddEntry(item.id, body)}
+        />
       )}
     </div>
   );

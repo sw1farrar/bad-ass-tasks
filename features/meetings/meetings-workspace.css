@@ -601,3 +601,35 @@
     background: #fff !important;
   }
 }
+
+/* Rich agenda note composer / edit (TipTap, shared notebook expand chrome) */
+.meeting-entry-composer .meeting-entry-rich-editor:not(.notebooks-note-editor--expanded) {
+  max-height: 16rem;
+}
+
+.meeting-entry-composer .meeting-entry-rich-editor:not(.notebooks-note-editor--expanded) .ProseMirror {
+  min-height: 5.5rem;
+  padding: 0.65rem 0.85rem 1rem;
+}
+
+.meeting-entry-timeline .meeting-entry-rich-editor:not(.notebooks-note-editor--expanded) .ProseMirror {
+  min-height: 7rem;
+  padding: 0.75rem 1rem 1.25rem;
+}
+
+.meeting-entry-body-view .notes-editor-body,
+.meeting-entry-body-view .ProseMirror {
+  min-height: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.meeting-entry-body-view .notes-rich-editor {
+  background: transparent;
+}
+
+.meeting-entry-body-view .ProseMirror {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary, inherit);
+}

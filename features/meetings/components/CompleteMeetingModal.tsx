@@ -4,6 +4,7 @@ import React from "react";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import type { MeetingAgendaEntry, MeetingAgendaItem } from "@/types";
 import { computeCompleteMeetingStats } from "@/lib/meetings/meetingLifecycle";
+import { agendaEntryHasDecisionTag } from "@/lib/meetings/agendaEntryBody";
 
 interface CompleteMeetingModalProps {
   open: boolean;
@@ -22,7 +23,9 @@ export function CompleteMeetingModal({
   isLoading,
   onConfirm,
 }: CompleteMeetingModalProps) {
-  const decisionCount = entries.filter((e) => e.isDecision || /#decision/i.test(e.body)).length;
+  const decisionCount = entries.filter(
+    (e) => e.isDecision || agendaEntryHasDecisionTag(e.body),
+  ).length;
   const stats = computeCompleteMeetingStats(items, decisionCount);
 
   return (

@@ -2,8 +2,12 @@ import { format, parseISO } from "date-fns";
 import type { MeetingAgendaEntry } from "@/types";
 import {
   appendIndentedPlainTextBlock,
-  formatClipboardHtmlText,
 } from "@/lib/meetings/agendaEntryLabels";
+import {
+  agendaEntryBodyToClipboardHtml,
+  agendaEntryBodyToHtml,
+  agendaEntryPlainText,
+} from "@/lib/meetings/agendaEntryBody";
 import { sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
 
 export type AgendaEntryDateGroup = {
@@ -55,7 +59,7 @@ export function buildAgendaEntryGroupsDocumentHtml(
     html += `<ul class="meeting-agenda-doc__comment-list">`;
     for (const entry of group.entries) {
       html += `<li class="meeting-agenda-doc__comment">`;
-      html += `<p class="meeting-agenda-doc__comment-body">${escapeHtml(entry.body)}</p>`;
+      html += `<div class="meeting-agenda-doc__comment-body">${agendaEntryBodyToHtml(entry.body, escapeHtml)}</div>`;
       html += `</li>`;
     }
     html += `</ul></section>`;
@@ -81,7 +85,7 @@ export function buildAgendaEntryGroupsClipboardHtml(
       const isLast = i === group.entries.length - 1;
       const divider = isLast ? "" : "border-bottom: 1px solid #eeeeee;";
       html += `<li style="margin: 0; padding: 0 0 6px; ${divider}">`;
-      html += `<span style="display: block; font-size: 10pt; color: #000000;">${formatClipboardHtmlText(entry.body, escapeHtml)}</span>`;
+      html += `<span style="display: block; font-size: 10pt; color: #000000;">${agendaEntryBodyToClipboardHtml(entry.body, escapeHtml)}</span>`;
       html += `</li>`;
     }
     html += `</ul></section>`;
@@ -104,7 +108,7 @@ export function buildAgendaEntryGroupsSummaryHtml(
     html += `<ul class="meeting-summary-doc__note-list">`;
     for (const entry of group.entries) {
       html += `<li class="meeting-summary-doc__note">`;
-      html += `<p class="meeting-summary-doc__note-body">${escapeHtml(entry.body)}</p>`;
+      html += `<div class="meeting-summary-doc__note-body">${agendaEntryBodyToHtml(entry.body, escapeHtml)}</div>`;
       html += `</li>`;
     }
     html += `</ul></section>`;
@@ -122,7 +126,11 @@ export function appendAgendaEntryGroupsPlainText(
   groups.forEach((group, index) => {
     lines.push(`${indent}${group.dateLabel}`);
     for (let i = 0; i < group.entries.length; i++) {
-      appendIndentedPlainTextBlock(lines, group.entries[i].body, `${indent}  `);
+      appendIndentedPlainTextBlock(
+        lines,
+        agendaEntryPlainText(group.entries[i].body),
+        `${indent}  `,
+      );
       if (i < group.entries.length - 1) lines.push("");
     }
     if (index < groups.length - 1) lines.push("");

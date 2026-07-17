@@ -3,6 +3,10 @@
 import React from "react";
 import type { MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
 import { getAgendaItemOwnerLabel, hasAgendaItemOwner } from "@/lib/meetings/agendaOwners";
+import {
+  agendaEntryHasDecisionTag,
+  stripAgendaDecisionTag,
+} from "@/lib/meetings/agendaEntryBody";
 
 interface MeetingSidebarProps {
   items: MeetingAgendaItem[];
@@ -19,7 +23,7 @@ export function MeetingSidebar({
   currentUserId,
   onSelectItem,
 }: MeetingSidebarProps) {
-  const decisions = entries.filter((e) => e.isDecision || /#decision/i.test(e.body));
+  const decisions = entries.filter((e) => e.isDecision || agendaEntryHasDecisionTag(e.body));
   const carryOver = items.filter((i) => i.status === "continued");
   const actionItems = items.filter(
     (i) =>
@@ -63,7 +67,7 @@ export function MeetingSidebar({
           <ul className="space-y-2">
             {decisions.map((d) => (
               <li key={d.id} className="text-text-secondary text-xs">
-                {d.body.replace(/#decision/gi, "").trim()}
+                {stripAgendaDecisionTag(d.body)}
               </li>
             ))}
           </ul>

@@ -3,6 +3,11 @@
 import React, { useState } from "react";
 import { Send } from "lucide-react";
 import { toast } from "sonner";
+import { MeetingEntryRichEditor } from "./MeetingEntryRichEditor";
+import {
+  EMPTY_AGENDA_DOC,
+  isEmptyAgendaEntryBody,
+} from "@/lib/meetings/agendaEntryBody";
 
 interface MeetingEntryComposerProps {
   disabled?: boolean;
@@ -10,16 +15,19 @@ interface MeetingEntryComposerProps {
 }
 
 export function MeetingEntryComposer({ disabled, onSubmit }: MeetingEntryComposerProps) {
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(EMPTY_AGENDA_DOC);
+  const [editorKey, setEditorKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const canSubmit = !disabled && !isSubmitting && !isEmptyAgendaEntryBody(body);
+
   const handleSubmit = async () => {
-    const trimmed = body.trim();
-    if (!trimmed || disabled || isSubmitting) return;
+    if (!canSubmit) return;
     setIsSubmitting(true);
     try {
-      await onSubmit(trimmed);
-      setBody("");
+      await onSubmit(body);
+      setBody(EMPTY_AGENDA_DOC);
+      setEditorKey((k) => k + 1);
     } catch {
       toast.error("Could not save note");
     } finally {
@@ -30,30 +38,30 @@ export function MeetingEntryComposer({ disabled, onSubmit }: MeetingEntryCompose
   return (
     <div className="meeting-entry-composer shrink-0 border-t border-border-glass p-3 bg-bg">
       <div className="flex gap-2 items-end">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void handleSubmit();
-            }
-          }}
+        <MeetingEntryRichEditor
+          content={body}
+          onChange={setBody}
           disabled={disabled || isSubmitting}
-          placeholder="Log a note… (#decision tags decisions)"
-          rows={2}
-          className="flex-1 resize-none bg-bg-secondary border border-border-glass rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint min-h-[44px]"
+          editorKey={editorKey}
+          className="flex-1 min-w-0 rounded-xl border border-border-glass overflow-hidden"
+          minHeight="112px"
+          compactToolbar
+          onModEnter={() => void handleSubmit()}
         />
         <button
           type="button"
           onClick={() => void handleSubmit()}
-          disabled={disabled || isSubmitting || !body.trim()}
+          disabled={!canSubmit}
           className="btn btn-primary p-2.5 rounded-xl shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
           aria-label="Add note"
+          title="Add note (Ctrl+Enter)"
         >
           <Send className="h-4 w-4" />
         </button>
       </div>
+      <p className="mt-1.5 text-[11px] text-text-faint px-0.5">
+        Paste keeps formatting. Expand for a larger editor. Ctrl+Enter to send.
+      </p>
     </div>
   );
 }
