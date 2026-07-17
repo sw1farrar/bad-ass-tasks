@@ -22,6 +22,19 @@ export function setChatLastReadAt(userId: string, workspaceId: string, iso: stri
   }
 }
 
+/** Latest activity timestamp + 1ms so equal-second DB rows still count as read. */
+export function computeChatReadWatermark(
+  messages: Array<{ createdAt: string }>,
+  reactions: Array<{ createdAt: string }>,
+): string {
+  let maxMs = Date.now();
+  for (const item of [...messages, ...reactions]) {
+    const ms = new Date(item.createdAt).getTime();
+    if (!Number.isNaN(ms) && ms > maxMs) maxMs = ms;
+  }
+  return new Date(maxMs + 1).toISOString();
+}
+
 export function hasUnreadChatActivity(
   userId: string | undefined,
   workspaceId: string,

@@ -1,4 +1,5 @@
 import type { Note, Notebook } from "@/types";
+import type { NotebookSectionTab } from "@/lib/notebooks/notebookSections";
 import { generateId } from "@/lib/utils";
 import { filterNotebookNotes, sortNotebookNotes } from "@/lib/notebooks/notebookFilters";
 import { DEFAULT_NOTEBOOK_ENABLED_SECTIONS } from "@/lib/notebooks/notebookSections";
@@ -36,6 +37,7 @@ type NotebookStoreSlice = {
   notes: Note[];
   selectedNotebookId: string | null;
   selectedNotebookNoteId: string | null;
+  selectedNotebookSectionTab?: NotebookSectionTab;
   selectedNoteId: string | null;
   selectedTaskId: string | null;
 };
@@ -68,7 +70,15 @@ export function createNotebookSliceActions(get: Get, set: Set) {
 
   return {
     getNotebooks: (): Notebook[] => {
-      return sortNotebooks(get().notebooks.filter((nb) => nb.workspaceId === wsId()));
+      return sortNotebooks(
+        get().notebooks.filter((nb) => nb.workspaceId === wsId() && !nb.archived),
+      );
+    },
+
+    getArchivedNotebooks: (): Notebook[] => {
+      return sortNotebooks(
+        get().notebooks.filter((nb) => nb.workspaceId === wsId() && !!nb.archived),
+      );
     },
 
     getNotebookNotes: (notebookId: string | null): Note[] => {
@@ -87,7 +97,13 @@ export function createNotebookSliceActions(get: Get, set: Set) {
     setSelectedNotebookNoteId: (id: string | null) => {
       set({
         selectedNotebookNoteId: id,
-        ...(id ? { selectedNoteId: null, selectedTaskId: null } : {}),
+        ...(id
+          ? {
+              selectedNoteId: null,
+              selectedTaskId: null,
+              selectedNotebookSectionTab: "notes",
+            }
+          : {}),
       });
     },
 
@@ -103,6 +119,7 @@ export function createNotebookSliceActions(get: Get, set: Set) {
         name: name.trim() || "Untitled notebook",
         sortOrder: maxOrder + 1000,
         enabledSections: [...DEFAULT_NOTEBOOK_ENABLED_SECTIONS],
+        archived: false,
         createdAt: now,
         updatedAt: now,
       };
@@ -130,14 +147,20 @@ export function createNotebookSliceActions(get: Get, set: Set) {
 
     updateNotebook: async (
       id: string,
-      updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections">>,
+      updates: Partial<
+        Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections" | "archived">
+      >,
     ) => {
       const now = new Date().toISOString();
       const workspaceId = get().notebooks.find((nb) => nb.id === id)?.workspaceId ?? wsId();
+      const willArchive = updates.archived === true;
       set((state) => ({
         notebooks: state.notebooks.map((nb) =>
           nb.id === id ? { ...nb, ...updates, updatedAt: now } : nb,
         ),
+        ...(willArchive && state.selectedNotebookId === id
+          ? { selectedNotebookId: null, selectedNotebookNoteId: null }
+          : {}),
       }));
       if (workspaceId && shouldPersistNotebooks(workspaceId)) {
         void updateNotebookSupabase(id, workspaceId, updates);

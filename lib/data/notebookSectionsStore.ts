@@ -93,6 +93,7 @@ type TaskRow = {
   title: string;
   completed: boolean;
   sort_order: number;
+  show_on_workspace?: boolean | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -112,6 +113,8 @@ type InvestmentRow = {
   workspace_id: string;
   title: string;
   sort_order: number;
+  completed?: boolean | null;
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -160,6 +163,21 @@ type CompetitorNoteRow = {
   created_at: string;
 };
 
+export function mapNotebookTaskRow(row: {
+  id: string;
+  notebook_id: string;
+  workspace_id: string;
+  title: string;
+  completed: boolean;
+  sort_order: number;
+  show_on_workspace?: boolean | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}): NotebookTask {
+  return mapTask(row);
+}
+
 function mapTask(row: TaskRow): NotebookTask {
   return {
     id: row.id,
@@ -168,6 +186,7 @@ function mapTask(row: TaskRow): NotebookTask {
     title: row.title,
     completed: row.completed,
     sortOrder: row.sort_order,
+    showOnWorkspace: row.show_on_workspace === true,
     completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -191,6 +210,8 @@ function mapInvestment(row: InvestmentRow): NotebookInvestment {
     workspaceId: row.workspace_id,
     title: row.title,
     sortOrder: row.sort_order,
+    completed: row.completed === true,
+    completedAt: row.completed_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -369,6 +390,7 @@ export async function createNotebookTask(input: {
   workspaceId: string;
   title: string;
   sortOrder?: number;
+  showOnWorkspace?: boolean;
 }): Promise<boolean> {
   if (!(await persistOrSkip(input.workspaceId))) return true;
   if (!isOnline()) return true;
@@ -381,6 +403,7 @@ export async function createNotebookTask(input: {
     workspace_id: input.workspaceId,
     title: input.title,
     sort_order: input.sortOrder ?? 0,
+    show_on_workspace: input.showOnWorkspace === true,
     created_at: now,
     updated_at: now,
   };
@@ -402,7 +425,9 @@ export async function createNotebookTask(input: {
 export async function updateNotebookTask(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<NotebookTask, "title" | "completed" | "sortOrder" | "completedAt">>,
+  updates: Partial<
+    Pick<NotebookTask, "title" | "completed" | "sortOrder" | "completedAt" | "showOnWorkspace">
+  >,
 ): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
   if (!isOnline()) return true;
@@ -413,6 +438,7 @@ export async function updateNotebookTask(
   if (updates.completed !== undefined) payload.completed = updates.completed;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
   if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
+  if (updates.showOnWorkspace !== undefined) payload.show_on_workspace = updates.showOnWorkspace;
   if (Object.keys(payload).length === 1) return true;
   try {
     const { error } = await (supabase.from("notebook_tasks") as any)
@@ -544,7 +570,9 @@ export async function createNotebookInvestment(input: {
 export async function updateNotebookInvestment(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<NotebookInvestment, "title" | "sortOrder">>,
+  updates: Partial<
+    Pick<NotebookInvestment, "title" | "sortOrder" | "completed" | "completedAt">
+  >,
 ): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
   if (!isOnline()) return true;
@@ -553,6 +581,8 @@ export async function updateNotebookInvestment(
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (updates.title !== undefined) payload.title = updates.title;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (updates.completed !== undefined) payload.completed = updates.completed;
+  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
   if (Object.keys(payload).length === 1) return true;
   try {
     const { error } = await (supabase.from("notebook_investments") as any)

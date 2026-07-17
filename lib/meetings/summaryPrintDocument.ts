@@ -42,10 +42,16 @@ export const MEETING_SUMMARY_PRINT_CSS = `
     color: #000000;
   }
   .meeting-summary-doc__title {
-    margin: 0 0 10px;
+    margin: 0 0 4px;
     font-size: 14pt;
     font-weight: 700;
     line-height: 1.2;
+    color: #000000;
+  }
+  .meeting-summary-doc__description {
+    margin: 0 0 10px;
+    font-size: 10pt;
+    font-weight: 400;
     color: #000000;
   }
   .meeting-summary-doc__facts {
@@ -123,14 +129,6 @@ export const MEETING_SUMMARY_PRINT_CSS = `
   .meeting-summary-doc__topic-meta {
     font-size: 9pt;
     color: #000000;
-  }
-  .meeting-summary-doc__badge {
-    font-weight: 700;
-    text-transform: uppercase;
-    font-size: 8pt;
-  }
-  .meeting-summary-doc__owner::before {
-    content: " · ";
   }
   .meeting-summary-doc__topic-context {
     margin: 0 0 6px;

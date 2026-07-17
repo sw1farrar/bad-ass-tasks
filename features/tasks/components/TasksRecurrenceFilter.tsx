@@ -16,18 +16,27 @@ interface TasksRecurrenceFilterProps {
   value: TasksRecurrenceFilterMode;
   onChange: (mode: TasksRecurrenceFilterMode) => void;
   className?: string;
+  trackClassName?: string;
 }
 
-export function TasksRecurrenceFilter({ value, onChange, className }: TasksRecurrenceFilterProps) {
+export function TasksRecurrenceFilter({
+  value,
+  onChange,
+  className,
+  trackClassName,
+}: TasksRecurrenceFilterProps) {
   return (
     <div
       className={cn(
-        "task-recurrence-type-filters w-full max-md:w-full md:w-auto md:shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0",
+        "task-recurring-filters w-full max-md:w-full md:w-auto md:shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0",
         className,
       )}
     >
       <div
-        className="task-recurrence-type-filters__track flex w-full md:w-auto items-center gap-0.5 p-1 md:p-0.5 rounded-full border border-border-glass bg-surface-hover"
+        className={cn(
+          "task-recurring-filters__track flex w-full md:w-auto items-center gap-0.5 p-1 md:p-0.5 rounded-full border border-border-glass bg-surface-hover",
+          trackClassName,
+        )}
         role="group"
         aria-label="Filter tasks by recurrence"
       >
@@ -40,7 +49,7 @@ export function TasksRecurrenceFilter({ value, onChange, className }: TasksRecur
               onClick={() => onChange(mode)}
               aria-pressed={isActive}
               className={cn(
-                "task-recurrence-filter-pill inline-flex items-center justify-center rounded-full text-xs font-semibold whitespace-nowrap transition-all",
+                "task-recurring-filter-pill inline-flex items-center justify-center rounded-full text-xs font-semibold whitespace-nowrap transition-all",
                 isActive
                   ? "is-active bg-neon-purple text-accent-on shadow-[0_0_12px_rgba(192,132,252,0.28)]"
                   : "text-text-secondary hover:text-text-primary hover:bg-surface-hover",

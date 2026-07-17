@@ -14,14 +14,20 @@ interface NotebookSectionMenuProps {
   notebook: Notebook;
   activeTab: NotebookSectionTab;
   onTabChange: (tab: NotebookSectionTab) => void;
+  /** Workspace-level section toggles; further restricts the per-notebook enabledSections. */
+  enabledTabs?: NotebookSectionTab[];
 }
 
 export function NotebookSectionMenu({
   notebook,
   activeTab,
   onTabChange,
+  enabledTabs,
 }: NotebookSectionMenuProps) {
-  const tabs = getNotebookSectionTabsForNotebook(notebook);
+  const notebookTabs = getNotebookSectionTabsForNotebook(notebook);
+  const tabs = enabledTabs
+    ? notebookTabs.filter((tab) => enabledTabs.includes(tab.id))
+    : notebookTabs;
 
   if (tabs.length <= 1) return null;
 

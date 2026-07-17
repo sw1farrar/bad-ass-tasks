@@ -23,19 +23,6 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function topicOutcomeLabel(status: AgendaItemStatus): string {
-  switch (status) {
-    case "completed":
-      return "Done";
-    case "continued":
-      return "Deferred";
-    case "in_progress":
-      return "In progress";
-    default:
-      return "Open";
-  }
-}
-
 function topicOutcomeModifier(status: AgendaItemStatus): string {
   switch (status) {
     case "completed":
@@ -62,12 +49,12 @@ function renderSummaryTopicArticle(
   let html = `<article class="meeting-summary-doc__topic" data-outcome="${modifier}">`;
   html += `<div class="meeting-summary-doc__topic-head">`;
   html += `<h3 class="meeting-summary-doc__topic-title">${escapeHtml(item.title)}</h3>`;
-  html += `<div class="meeting-summary-doc__topic-meta">`;
-  html += `<span class="meeting-summary-doc__badge meeting-summary-doc__badge--${modifier}">${topicOutcomeLabel(item.status)}</span>`;
   if (owner) {
+    html += `<div class="meeting-summary-doc__topic-meta">`;
     html += `<span class="meeting-summary-doc__owner">${escapeHtml(owner)}</span>`;
+    html += `</div>`;
   }
-  html += `</div></div>`;
+  html += `</div>`;
 
   if (item.description?.trim()) {
     html += `<p class="meeting-summary-doc__topic-context">${escapeHtml(item.description.trim())}</p>`;
@@ -90,8 +77,7 @@ function appendSummaryTopicMarkdown(
   currentUserId?: string,
 ): void {
   const owner = getAgendaItemOwnerLabel(item, members, currentUserId);
-  const suffix = owner ? ` · ${owner}` : "";
-  lines.push(`### ${item.title} (${topicOutcomeLabel(item.status)}${suffix})`, "");
+  lines.push(owner ? `### ${item.title} (${owner})` : `### ${item.title}`, "");
   if (item.description?.trim()) {
     lines.push(item.description.trim(), "");
   }
@@ -123,6 +109,9 @@ export function buildMeetingSummaryHtml(input: {
   html += `<header class="meeting-summary-doc__header">`;
   html += `<p class="meeting-summary-doc__eyebrow">Meeting summary</p>`;
   html += `<h1 class="meeting-summary-doc__title">${escapeHtml(meeting.title)}</h1>`;
+  if (meeting.description?.trim()) {
+    html += `<p class="meeting-summary-doc__description">${escapeHtml(meeting.description.trim())}</p>`;
+  }
   html += `<dl class="meeting-summary-doc__facts">`;
   if (meeting.scheduledAt) {
     html += `<div class="meeting-summary-doc__fact">`;
@@ -193,6 +182,10 @@ export function buildMeetingSummaryMarkdown(input: {
 
   const lines: string[] = [`# ${meeting.title}`, "", "*Meeting summary*", ""];
 
+  if (meeting.description?.trim()) {
+    lines.push(meeting.description.trim(), "");
+  }
+
   if (meeting.scheduledAt) {
     lines.push(`**When:** ${format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy")}`);
   }
@@ -248,6 +241,9 @@ export function buildMeetingAgendaHtml(input: {
 
   let html = `<article class="meeting-agenda-doc">`;
   html += `<h1 class="meeting-agenda-doc__title">${escapeHtml(meeting.title)}</h1>`;
+  if (meeting.description?.trim()) {
+    html += `<p class="meeting-agenda-doc__description">${escapeHtml(meeting.description.trim())}</p>`;
+  }
   if (meeting.scheduledAt) {
     html += `<p class="meeting-agenda-doc__date">${escapeHtml(format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy"))}</p>`;
   }

@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Notebook as NotebookIcon, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Notebook as NotebookIcon, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Notebook } from "@/types";
 
@@ -12,6 +12,9 @@ interface NotebookStreamProps {
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onArchive?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
+  isArchivedView?: boolean;
   emptyMessage?: string;
 }
 
@@ -23,6 +26,9 @@ export function NotebookStream({
   onSelect,
   onEdit,
   onDelete,
+  onArchive,
+  onUnarchive,
+  isArchivedView = false,
   emptyMessage = "No notebooks yet. Add one to get started.",
 }: NotebookStreamProps) {
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -47,7 +53,7 @@ export function NotebookStream({
       ref={parentRef}
       className="files-list-scroll flex-1 min-w-0 overflow-y-auto overflow-x-hidden"
       role="listbox"
-      aria-label="Notebooks"
+      aria-label={isArchivedView ? "Archived notebooks" : "Notebooks"}
     >
       <div
         className="files-list-virtual relative w-full"
@@ -89,17 +95,48 @@ export function NotebookStream({
                     </span>
                   </button>
                   <div className="relative z-10 flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEdit(nb.id);
-                      }}
-                      className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
-                      aria-label={`Edit ${nb.name}`}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                    {!isArchivedView && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(nb.id);
+                        }}
+                        className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                        aria-label={`Edit ${nb.name}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {isArchivedView ? (
+                      onUnarchive && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUnarchive(nb.id);
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                          aria-label={`Restore ${nb.name}`}
+                        >
+                          <ArchiveRestore className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    ) : (
+                      onArchive && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onArchive(nb.id);
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                          aria-label={`Archive ${nb.name}`}
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {

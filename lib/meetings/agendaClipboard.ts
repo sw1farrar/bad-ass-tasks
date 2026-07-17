@@ -46,6 +46,9 @@ export function buildMeetingAgendaClipboardHtml(input: MeetingAgendaDocumentInpu
 
   let html = `<div style="font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.35;">`;
   html += `<p style="margin: 0 0 2px; font-size: 14pt; font-weight: 700; color: #000000;">${escapeHtml(meeting.title)}</p>`;
+  if (meeting.description?.trim()) {
+    html += `<p style="margin: 0 0 4px; font-size: 10pt; color: #000000;">${escapeHtml(meeting.description.trim())}</p>`;
+  }
   if (meeting.scheduledAt) {
     html += `<p style="margin: 0 0 10px; font-size: 10pt; color: #000000;">${escapeHtml(format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy"))}</p>`;
   }
@@ -85,6 +88,10 @@ export function buildMeetingAgendaPlainText(input: MeetingAgendaDocumentInput): 
   const { meeting, items, entries = [], members, currentUserId, includeComments = false } = input;
   const sorted = sortAgendaItems(items);
   const lines: string[] = [meeting.title, ""];
+
+  if (meeting.description?.trim()) {
+    lines.push(meeting.description.trim(), "");
+  }
 
   if (meeting.scheduledAt) {
     lines.push(format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy"), "");

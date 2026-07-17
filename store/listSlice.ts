@@ -167,12 +167,17 @@ export function createListSliceActions(get: Get, set: Set) {
       );
     },
 
-    getListItemsForList: (listId: string): ListItem[] => {
-      const list = get().workspaceLists.find((l) => l.id === listId);
+    getListItemsForList: (listId: string, workspaceId?: string): ListItem[] => {
+      const scopeWs = workspaceId ?? wsId();
+      // Prefer the list row for the viewing workspace (owned + shared copies can share an id).
+      const list =
+        get().workspaceLists.find((l) => l.id === listId && l.workspaceId === scopeWs) ??
+        get().workspaceLists.find((l) => l.id === listId);
       const items = get().listItems.filter((i) => {
         if (i.listId !== listId) return false;
+        // Shared items keep their source workspaceId — do not filter them out.
         if (list?.isShared) return true;
-        return i.workspaceId === wsId();
+        return i.workspaceId === (list?.workspaceId ?? scopeWs);
       });
       return flattenListItems(items);
     },
@@ -219,7 +224,11 @@ export function createListSliceActions(get: Get, set: Set) {
 
     updateList: async (id: string, updates: Partial<WorkspaceList>) => {
       const now = new Date().toISOString();
-      const workspaceId = get().workspaceLists.find((l) => l.id === id)?.workspaceId ?? wsId();
+      const list =
+        get().workspaceLists.find((l) => l.id === id && l.workspaceId === wsId()) ??
+        get().workspaceLists.find((l) => l.id === id);
+      // Shared list rows are projected into the target workspace; persist against the source.
+      const workspaceId = list?.sourceWorkspaceId ?? list?.workspaceId ?? wsId();
       set((state) => ({
         workspaceLists: state.workspaceLists.map((l) =>
           l.id === id ? { ...l, ...updates, updatedAt: now } : l
@@ -232,7 +241,19 @@ export function createListSliceActions(get: Get, set: Set) {
     },
 
     deleteList: async (id: string) => {
-      const workspaceId = get().workspaceLists.find((l) => l.id === id)?.workspaceId ?? wsId();
+      const list =
+        get().workspaceLists.find((l) => l.id === id && l.workspaceId === wsId()) ??
+        get().workspaceLists.find((l) => l.id === id);
+      // Never delete the source list when removing a shared projection locally.
+      if (list?.isShared) {
+        set((state) => ({
+          workspaceLists: state.workspaceLists.filter(
+            (l) => !(l.id === id && l.workspaceId === (list.workspaceId ?? wsId())),
+          ),
+        }));
+        return true;
+      }
+      const workspaceId = list?.workspaceId ?? wsId();
       set((state) => ({
         workspaceLists: state.workspaceLists.filter((l) => l.id !== id),
         listItems: state.listItems.filter((i) => i.listId !== id),
@@ -370,6 +391,8 @@ export function createListSliceActions(get: Get, set: Set) {
             ...i,
             completed: completing,
             completedAt: completing ? now : undefined,
+            // Completing clears pending so the item lands in the completed bucket.
+            ...(completing && i.pending ? { pending: false } : {}),
             updatedAt: now,
           };
         }),
@@ -392,7 +415,8 @@ export function createListSliceActions(get: Get, set: Set) {
       if (shouldPersistLists(current.workspaceId)) {
         void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
           completed: completing,
-          completedAt: completing ? now : undefined,
+          completedAt: completing ? now : null,
+          ...(completing && current.pending ? { pending: false } : {}),
         });
       }
       return true;
@@ -467,7 +491,7 @@ export function createListSliceActions(get: Get, set: Set) {
             updates.completed === true
               ? now
               : updates.completed === false
-                ? undefined
+                ? null
                 : current.completedAt,
         });
       }
@@ -498,13 +522,19 @@ export function createListSliceActions(get: Get, set: Set) {
           ),
       }));
 
+      // Reparent children first — FK is ON DELETE CASCADE, so deleting the parent
+      // before reparent updates would wipe nested items in the DB.
       if (shouldPersistLists(current.workspaceId)) {
-        void deleteListItemSupabase(normalizeListEntityId(id), current.workspaceId);
-        for (const childId of childIds) {
-          void updateListItemSupabase(normalizeListEntityId(childId), current.workspaceId, {
-            parentItemId: reparentTo,
-          });
+        if (childIds.length > 0) {
+          await Promise.all(
+            childIds.map((childId) =>
+              updateListItemSupabase(normalizeListEntityId(childId), current.workspaceId, {
+                parentItemId: reparentTo,
+              }),
+            ),
+          );
         }
+        await deleteListItemSupabase(normalizeListEntityId(id), current.workspaceId);
       }
       return true;
     },
@@ -752,12 +782,15 @@ export function createListSliceActions(get: Get, set: Set) {
       if (!current) return false;
       if (!!current.pending === pending) return true;
 
+      // Pending and completed are mutually exclusive display buckets.
+      const clearCompleted = pending && current.completed;
       set((state) => ({
         listItems: state.listItems.map((i) => {
           if (i.id !== id) return i;
           return {
             ...i,
             pending,
+            ...(clearCompleted ? { completed: false, completedAt: undefined } : {}),
             updatedAt: now,
           };
         }),
@@ -766,7 +799,10 @@ export function createListSliceActions(get: Get, set: Set) {
       if (pending) triggerHaptic("light");
 
       if (shouldPersistLists(current.workspaceId)) {
-        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, { pending });
+        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
+          pending,
+          ...(clearCompleted ? { completed: false, completedAt: null } : {}),
+        });
       }
       return true;
     },

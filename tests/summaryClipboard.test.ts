@@ -81,6 +81,19 @@ describe("summaryClipboard", () => {
     expect(html).toContain("June 23, 2026");
     expect(html.indexOf("Demo went well")).toBeLessThan(html.indexOf("Need more stakeholder input"));
     expect(html).toContain('style="');
+    expect(html).not.toContain("Done");
+    expect(html).not.toContain("Deferred");
+  });
+
+  it("includes meeting description near the title", () => {
+    const html = buildMeetingSummaryClipboardHtml({
+      meeting: { ...meeting, description: "Q3 planning alignment" },
+      items,
+      entries,
+      members: [],
+    });
+    expect(html).toContain("Q3 planning alignment");
+    expect(html.indexOf("Sprint Review")).toBeLessThan(html.indexOf("Q3 planning alignment"));
   });
 
   it("builds plain text fallback", () => {
@@ -98,5 +111,7 @@ describe("summaryClipboard", () => {
     expect(plain).toContain("Roadmap");
     expect(plain).toContain("Need more stakeholder input");
     expect(plain).toContain("June 23, 2026");
+    expect(plain).not.toContain("Done");
+    expect(plain).not.toContain("Deferred");
   });
 });

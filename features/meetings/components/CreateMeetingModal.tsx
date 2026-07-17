@@ -15,6 +15,7 @@ import type { Meeting, MeetingAgendaItem } from "@/types";
 
 export interface CreateMeetingInput {
   title: string;
+  description?: string;
   scheduledAt?: string;
   carryOverFromMeetingId?: string;
   carryOver?: CarryOverOptions;
@@ -48,6 +49,7 @@ export function CreateMeetingModal({
 }: CreateMeetingModalProps) {
   const isMobile = useIsMobileViewport();
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [scheduledAt, setScheduledAt] = useState(defaultDateLocal);
   const [carryOverMeetingId, setCarryOverMeetingId] = useState<string>("");
   const [includeContinued, setIncludeContinued] = useState(true);
@@ -85,6 +87,7 @@ export function CreateMeetingModal({
   useEffect(() => {
     if (!open) {
       setTitle("");
+      setDescription("");
       setScheduledAt(defaultDateLocal());
       setCarryOverMeetingId("");
       setIncludeContinued(true);
@@ -117,6 +120,7 @@ export function CreateMeetingModal({
     try {
       await onCreate({
         title: trimmedTitle,
+        description: description.trim() || undefined,
         scheduledAt: iso,
         carryOverFromMeetingId: carryOverMeetingId || undefined,
         carryOver: carryOverMeetingId
@@ -159,6 +163,20 @@ export function CreateMeetingModal({
             }}
             placeholder="Weekly team sync"
             autoFocus={!isMobile}
+            enterKeyHint="next"
+            className="w-full min-h-[44px] bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-text-muted">Description (optional)</label>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleCreate();
+            }}
+            placeholder="What is this meeting about?"
             enterKeyHint="next"
             className="w-full min-h-[44px] bg-bg-secondary border border-border-glass rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40"
           />

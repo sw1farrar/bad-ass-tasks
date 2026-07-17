@@ -3223,6 +3223,39 @@
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28) !important;
 }
 
+[data-theme="light"] .tasks-export-modal .task-recurring-filters__track {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
+[data-theme="light"] .tasks-export-modal .task-recurring-filter-pill {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .tasks-export-modal .task-recurring-filter-pill:hover:not(.is-active) {
+  color: #334155 !important;
+  background: #f8fafc !important;
+}
+
+[data-theme="light"] .tasks-export-modal .task-recurring-filter-pill.is-active {
+  background: #7c3aed !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28) !important;
+}
+
+[data-theme="light"] .tasks-export-modal .tasks-folder-chip:not(.is-active) {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+[data-theme="light"] .tasks-export-modal .tasks-folder-chip:not(.is-active):hover {
+  color: #334155 !important;
+  border-color: color-mix(in srgb, #7c3aed 35%, #e2e8f0) !important;
+  background: #f8fafc !important;
+}
+
 /* Mobile task tiles */
 [data-theme="light"] .tasks-root .task-row {
   background: #ffffff !important;

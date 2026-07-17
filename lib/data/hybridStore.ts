@@ -967,6 +967,7 @@ export function __resetRealtimeGuardForTests(): void {
   activeCommentChannel = null;
   activeListChannel = null;
   activeListItemChannel = null;
+  activeNotebookTaskChannel = null;
   activeSharedListChannel = null;
   activeListShareChannel = null;
 }
@@ -4924,6 +4925,7 @@ let activeProfileChannel: any = null;
 let activeCommentChannel: any = null;
 let activeListChannel: any = null;
 let activeListItemChannel: any = null;
+let activeNotebookTaskChannel: any = null;
 let activeSharedListChannel: any = null;
 let activeListShareChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
@@ -4948,6 +4950,7 @@ export function subscribeToWorkspaceRealtime(
     onCommentChange?: (payload: any) => void;
     onListChange?: (payload: any) => void;
     onListItemChange?: (payload: any) => void;
+    onNotebookTaskChange?: (payload: any) => void;
     onListShareChange?: (payload: any) => void;
   },
   options?: {
@@ -4986,7 +4989,7 @@ export function subscribeToWorkspaceRealtime(
     currentRealtimeWorkspaceId === wsId &&
     !sharedListsChanged &&
     (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel || activeSharedListChannel || activeListShareChannel)
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel)
   ) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
@@ -4999,7 +5002,7 @@ export function subscribeToWorkspaceRealtime(
   // Defensive: clear any stale channels from previous workspace BEFORE setting new guard value.
   // We clear currentRealtimeWorkspaceId here so that a subsequent subscribe for a *different* ws always proceeds.
   if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel || activeSharedListChannel || activeListShareChannel) {
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel) {
     if (activeTaskChannel) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
       activeTaskChannel = null;
@@ -5032,6 +5035,10 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeListItemChannel).catch(() => {});
       activeListItemChannel = null;
     }
+    if (activeNotebookTaskChannel) {
+      supabase.removeChannel(activeNotebookTaskChannel).catch(() => {});
+      activeNotebookTaskChannel = null;
+    }
     if (activeSharedListChannel) {
       supabase.removeChannel(activeSharedListChannel).catch(() => {});
       activeSharedListChannel = null;
@@ -5057,6 +5064,7 @@ export function subscribeToWorkspaceRealtime(
     onCommentChange,
     onListChange,
     onListItemChange,
+    onNotebookTaskChange,
     onListShareChange,
   } = handlers;
 
@@ -5236,6 +5244,28 @@ export function subscribeToWorkspaceRealtime(
       });
   }
 
+  if (onNotebookTaskChange) {
+    activeNotebookTaskChannel = supabase
+      .channel(`ws-notebook-tasks-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "notebook_tasks",
+          filter: `workspace_id=eq.${wsId}`,
+        },
+        (payload: any) => {
+          onNotebookTaskChange(payload);
+        },
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[realtime] notebook_tasks subscribed for workspace ${wsId}`);
+        }
+      });
+  }
+
   // Live-linked lists: items/metadata live under the source workspace_id, so subscribe by list_id.
   if (sharedListIds.length > 0 && (onListChange || onListItemChange)) {
     let sharedChannel = supabase.channel(`ws-shared-lists-${wsId}`);
@@ -5336,6 +5366,10 @@ export function subscribeToWorkspaceRealtime(
     if (activeListItemChannel && supabase) {
       supabase.removeChannel(activeListItemChannel).catch(() => {});
       activeListItemChannel = null;
+    }
+    if (activeNotebookTaskChannel && supabase) {
+      supabase.removeChannel(activeNotebookTaskChannel).catch(() => {});
+      activeNotebookTaskChannel = null;
     }
     if (activeSharedListChannel && supabase) {
       supabase.removeChannel(activeSharedListChannel).catch(() => {});
@@ -6311,7 +6345,6 @@ export async function createListItem(input: {
   completedAt?: string;
 }): Promise<boolean> {
   if (!isLiveDataWorkspace(input.workspaceId)) return false;
-  if (!(await ensureWorkspaceListPersistenceReady())) return true;
 
   const clientId = normalizeListEntityId(input.id);
   const payload = stripListItemNestingField({
@@ -6324,6 +6357,17 @@ export async function createListItem(input: {
     completed: input.completed ?? false,
     completed_at: input.completedAt ?? null,
   } as ListItemInsert);
+
+  if (!(await ensureWorkspaceListPersistenceReady())) {
+    enqueuePendingOperation({
+      type: "create",
+      entityType: "list_item",
+      targetId: clientId,
+      payload,
+      workspaceId: input.workspaceId,
+    });
+    return true;
+  }
 
   if (!isCurrentlyOnline()) {
     enqueuePendingOperation({
@@ -6392,7 +6436,11 @@ export async function createListItem(input: {
 export async function updateListItem(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<ListItem, "text" | "completed" | "pending" | "sortOrder" | "parentItemId" | "completedAt" | "listId">>,
+  updates: Partial<
+    Omit<Pick<ListItem, "text" | "completed" | "pending" | "sortOrder" | "parentItemId" | "listId">, never> & {
+      completedAt?: string | null;
+    }
+  >,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isWorkspaceListPersistenceEnabled()) return true;
@@ -6886,6 +6934,7 @@ type NotebookRow = {
   name: string;
   sort_order: number;
   enabled_sections?: unknown;
+  archived?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -6960,6 +7009,7 @@ export function mapNotebookRow(row: NotebookRow): Notebook {
     enabledSections:
       coerceNotebookEnabledSections(row.enabled_sections) ?? DEFAULT_NOTEBOOK_ENABLED_SECTIONS,
     ourSales: Number((row as { our_sales?: number }).our_sales) || 0,
+    archived: Boolean(row.archived),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -7042,7 +7092,9 @@ export async function createNotebook(input: {
 export async function updateNotebook(
   id: string,
   workspaceId: string,
-  updates: Partial<Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections">>,
+  updates: Partial<
+    Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections" | "archived">
+  >,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isNotebookPersistenceEnabled()) return true;
@@ -7054,6 +7106,7 @@ export async function updateNotebook(
   if (updates.enabledSections !== undefined) {
     payload.enabled_sections = updates.enabledSections;
   }
+  if (updates.archived !== undefined) payload.archived = updates.archived;
   if (Object.keys(payload).length === 0) return true;
   payload.updated_at = new Date().toISOString();
 
@@ -7149,6 +7202,7 @@ type MeetingRow = {
   id: string;
   workspace_id: string;
   title: string;
+  description?: string | null;
   status: string;
   scheduled_at: string | null;
   started_at: string | null;
@@ -7158,6 +7212,7 @@ type MeetingRow = {
   attendee_ids: string[] | null;
   summary_html: string | null;
   sort_order: number;
+  archived?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -7238,6 +7293,7 @@ export function mapMeetingRow(row: MeetingRow): Meeting {
     id: row.id,
     workspaceId: row.workspace_id,
     title: row.title,
+    description: row.description ?? null,
     status: row.status as Meeting["status"],
     scheduledAt: row.scheduled_at,
     startedAt: row.started_at,
@@ -7247,6 +7303,7 @@ export function mapMeetingRow(row: MeetingRow): Meeting {
     attendeeIds: row.attendee_ids ?? [],
     summaryHtml: row.summary_html,
     sortOrder: row.sort_order,
+    archived: Boolean(row.archived),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -7360,6 +7417,7 @@ export async function createMeeting(meeting: Meeting): Promise<boolean> {
     id: meeting.id,
     workspace_id: meeting.workspaceId,
     title: meeting.title,
+    description: meeting.description ?? null,
     status: meeting.status,
     scheduled_at: meeting.scheduledAt ?? null,
     started_at: meeting.startedAt ?? null,
@@ -7402,6 +7460,7 @@ export async function updateMeeting(
 
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.description !== undefined) payload.description = updates.description;
   if (updates.status !== undefined) payload.status = updates.status;
   if (updates.scheduledAt !== undefined) payload.scheduled_at = updates.scheduledAt;
   if (updates.startedAt !== undefined) payload.started_at = updates.startedAt;
@@ -7411,6 +7470,7 @@ export async function updateMeeting(
   if (updates.attendeeIds !== undefined) payload.attendee_ids = updates.attendeeIds;
   if (updates.summaryHtml !== undefined) payload.summary_html = updates.summaryHtml;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
+  if (updates.archived !== undefined) payload.archived = updates.archived;
 
   try {
     const { error } = await (supabase.from("meetings") as any)

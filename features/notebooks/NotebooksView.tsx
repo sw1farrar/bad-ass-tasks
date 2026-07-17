@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
-import { Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Archive, ArchiveRestore, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
@@ -36,6 +36,7 @@ import {
   type PendingDestructiveDelete,
 } from "@/lib/notebooks/destructiveConfirm";
 import {
+  CopyMeetingModal,
   CreateMeetingModal,
   MeetingRail,
   MeetingStream,
@@ -56,8 +57,10 @@ export interface NotebooksViewProps {
   workspaceId: string;
   workspaceName?: string;
   notebooks: Notebook[];
+  archivedNotebooks?: Notebook[];
   notes: Note[];
   meetings: Meeting[];
+  archivedMeetings?: Meeting[];
   meetingAgendaItems: MeetingAgendaItem[];
   meetingAgendaEntries: MeetingAgendaEntry[];
   members: WorkspaceMember[];
@@ -94,7 +97,7 @@ export interface NotebooksViewProps {
   onAddNotebook: (name?: string) => Promise<Notebook>;
   onUpdateNotebook: (
     id: string,
-    updates: Partial<Pick<Notebook, "name" | "sortOrder" | "enabledSections">>,
+    updates: Partial<Pick<Notebook, "name" | "sortOrder" | "enabledSections" | "archived">>,
   ) => Promise<unknown>;
   onDeleteNotebook: (id: string) => Promise<unknown>;
   onCreateNote: (title: string, content?: string, options?: { notebookId?: string }) => Promise<Note | null>;
@@ -103,6 +106,7 @@ export interface NotebooksViewProps {
   onHydrateNote: (id: string) => Promise<Note | null>;
   onAddMeeting: (input?: {
     title?: string;
+    description?: string | null;
     scheduledAt?: string | null;
     carryOverFromMeetingId?: string | null;
     carryOver?: { includeContinued: boolean; includeOpen: boolean };
@@ -125,15 +129,26 @@ export interface NotebooksViewProps {
     id: string,
     options: { includeContinued: boolean; includeOpen: boolean },
   ) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
+  onDuplicateMeeting: (
+    id: string,
+    options: {
+      title?: string;
+      scheduledAt?: string | null;
+      includeNotes: boolean;
+      agendaItemIds?: string[];
+    },
+  ) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onSaveSummaryAsNote?: (meeting: Meeting) => Promise<void>;
   onAddNotebookTask: (title?: string) => void | Promise<unknown>;
   onToggleNotebookTask: (id: string) => void | Promise<unknown>;
   onUpdateNotebookTask: (id: string, title: string) => void | Promise<unknown>;
+  onSetNotebookTaskShowOnWorkspace: (id: string, showOnWorkspace: boolean) => void | Promise<unknown>;
   onDeleteNotebookTask: (id: string) => void | Promise<unknown>;
   onAddNotebookTaskProgress: (taskId: string, body: string) => void | Promise<unknown>;
   onUpdateNotebookTaskProgress: (id: string, body: string) => void | Promise<unknown>;
   onDeleteNotebookTaskProgress: (id: string) => void | Promise<unknown>;
   onAddNotebookInvestment: (title?: string) => void | Promise<unknown>;
+  onToggleNotebookInvestment: (id: string) => void | Promise<unknown>;
   onUpdateNotebookInvestment: (id: string, title: string) => void | Promise<unknown>;
   onReorderNotebookInvestments: (orderedIds: string[]) => void | Promise<unknown>;
   onDeleteNotebookInvestment: (id: string) => void | Promise<unknown>;
@@ -163,8 +178,10 @@ export function NotebooksView({
   workspaceId,
   workspaceName,
   notebooks,
+  archivedNotebooks = [],
   notes,
   meetings,
+  archivedMeetings = [],
   meetingAgendaItems,
   meetingAgendaEntries,
   members,
@@ -221,15 +238,18 @@ export function NotebooksView({
   onCompleteMeeting,
   onReopenMeeting,
   onStartNextMeeting,
+  onDuplicateMeeting,
   onSaveSummaryAsNote,
   onAddNotebookTask,
   onToggleNotebookTask,
   onUpdateNotebookTask,
+  onSetNotebookTaskShowOnWorkspace,
   onDeleteNotebookTask,
   onAddNotebookTaskProgress,
   onUpdateNotebookTaskProgress,
   onDeleteNotebookTaskProgress,
   onAddNotebookInvestment,
+  onToggleNotebookInvestment,
   onUpdateNotebookInvestment,
   onReorderNotebookInvestments,
   onDeleteNotebookInvestment,
@@ -254,12 +274,23 @@ export function NotebooksView({
   const isMobile = useIsMobileViewport();
   const isDesktop = !isMobile;
   const isMeetingsMode = notesPageMode === "meetings";
+  const [libraryView, setLibraryView] = useState<"active" | "archived">("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [meetingSearchQuery, setMeetingSearchQuery] = useState("");
+  const isArchivedView = libraryView === "archived";
+
+  useEffect(() => {
+    setLibraryView("active");
+  }, [notesPageMode]);
+
+  const sourceNotebooks = isArchivedView ? archivedNotebooks : notebooks;
+  const sourceMeetings = isArchivedView ? archivedMeetings : meetings;
   const [isCreatingNotebook, setIsCreatingNotebook] = useState(false);
   const [isCreatingMeeting, setIsCreatingMeeting] = useState(false);
   const [createMeetingOpen, setCreateMeetingOpen] = useState(false);
   const [pendingDeleteMeetingId, setPendingDeleteMeetingId] = useState<string | null>(null);
+  const [pendingCopyMeetingId, setPendingCopyMeetingId] = useState<string | null>(null);
+  const [isCopyingMeeting, setIsCopyingMeeting] = useState(false);
   const [isDeletingMeeting, setIsDeletingMeeting] = useState(false);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [pendingDeleteNotebookId, setPendingDeleteNotebookId] = useState<string | null>(null);
@@ -278,13 +309,14 @@ export function NotebooksView({
   );
 
   const filteredNotebooks = useMemo(
-    () => filterNotebooksBySearch(notebooks, searchQuery),
-    [notebooks, searchQuery],
+    () => filterNotebooksBySearch(sourceNotebooks, searchQuery),
+    [sourceNotebooks, searchQuery],
   );
 
   const selectedNotebook = useMemo(
-    () => notebooks.find((nb) => nb.id === selectedNotebookId) ?? null,
-    [notebooks, selectedNotebookId],
+    () =>
+      [...notebooks, ...archivedNotebooks].find((nb) => nb.id === selectedNotebookId) ?? null,
+    [notebooks, archivedNotebooks, selectedNotebookId],
   );
 
   const notebookNotes = useMemo(
@@ -298,8 +330,9 @@ export function NotebooksView({
   );
 
   const pendingDeleteNotebook = useMemo(
-    () => notebooks.find((nb) => nb.id === pendingDeleteNotebookId) ?? null,
-    [notebooks, pendingDeleteNotebookId],
+    () =>
+      [...notebooks, ...archivedNotebooks].find((nb) => nb.id === pendingDeleteNotebookId) ?? null,
+    [notebooks, archivedNotebooks, pendingDeleteNotebookId],
   );
 
   const pendingDeleteNotebookNoteCount = useMemo(
@@ -316,13 +349,14 @@ export function NotebooksView({
   );
 
   const filteredMeetings = useMemo(
-    () => sortMeetings(filterMeetingsBySearch(meetings, meetingSearchQuery)),
-    [meetings, meetingSearchQuery],
+    () => sortMeetings(filterMeetingsBySearch(sourceMeetings, meetingSearchQuery)),
+    [sourceMeetings, meetingSearchQuery],
   );
 
   const selectedMeeting = useMemo(
-    () => meetings.find((m) => m.id === selectedMeetingId) ?? null,
-    [meetings, selectedMeetingId],
+    () =>
+      [...meetings, ...archivedMeetings].find((m) => m.id === selectedMeetingId) ?? null,
+    [meetings, archivedMeetings, selectedMeetingId],
   );
 
   const selectedMeetingAgendaItems = useMemo(() => {
@@ -338,9 +372,29 @@ export function NotebooksView({
   }, [meetingAgendaEntries, selectedMeetingAgendaItems]);
 
   const pendingDeleteMeeting = useMemo(
-    () => meetings.find((m) => m.id === pendingDeleteMeetingId) ?? null,
-    [meetings, pendingDeleteMeetingId],
+    () =>
+      [...meetings, ...archivedMeetings].find((m) => m.id === pendingDeleteMeetingId) ?? null,
+    [meetings, archivedMeetings, pendingDeleteMeetingId],
   );
+
+  const pendingCopyMeeting = useMemo(
+    () =>
+      [...meetings, ...archivedMeetings].find((m) => m.id === pendingCopyMeetingId) ?? null,
+    [meetings, archivedMeetings, pendingCopyMeetingId],
+  );
+
+  const pendingCopyAgendaItems = useMemo(() => {
+    if (!pendingCopyMeetingId) return [];
+    return sortAgendaItems(
+      meetingAgendaItems.filter((i) => i.meetingId === pendingCopyMeetingId),
+    );
+  }, [meetingAgendaItems, pendingCopyMeetingId]);
+
+  const pendingCopyAgendaEntries = useMemo(() => {
+    if (!pendingCopyMeetingId) return [];
+    const itemIds = new Set(pendingCopyAgendaItems.map((i) => i.id));
+    return meetingAgendaEntries.filter((e) => itemIds.has(e.agendaItemId));
+  }, [meetingAgendaEntries, pendingCopyAgendaItems, pendingCopyMeetingId]);
 
   const destructiveConfirm = useMemo(
     () =>
@@ -509,6 +563,7 @@ export function NotebooksView({
 
   const handleAddMeeting = useCallback(async (input: {
     title: string;
+    description?: string;
     scheduledAt?: string;
     carryOverFromMeetingId?: string;
     carryOver?: { includeContinued: boolean; includeOpen: boolean };
@@ -517,6 +572,7 @@ export function NotebooksView({
     try {
       const { meeting, agendaItems: createdItems } = await onAddMeeting({
         title: input.title,
+        description: input.description ?? null,
         scheduledAt: input.scheduledAt ?? null,
         carryOverFromMeetingId: input.carryOverFromMeetingId ?? null,
         carryOver: input.carryOver,
@@ -534,6 +590,31 @@ export function NotebooksView({
     }
   }, [onAddMeeting, onSelectMeeting, onSelectAgendaItem]);
 
+  const handleDuplicateMeeting = useCallback(async (options: {
+    title?: string;
+    scheduledAt?: string | null;
+    includeNotes: boolean;
+    agendaItemIds?: string[];
+  }) => {
+    if (!pendingCopyMeetingId) return;
+    setIsCopyingMeeting(true);
+    try {
+      const result = await onDuplicateMeeting(pendingCopyMeetingId, options);
+      if (!result) throw new Error("copy meeting failed");
+      onSelectMeeting(result.meeting.id);
+      const firstItem = [...result.agendaItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+      if (firstItem) onSelectAgendaItem(firstItem.id);
+      toast.success(
+        options.includeNotes ? "Meeting copied with notes" : "Meeting copied",
+      );
+      setPendingCopyMeetingId(null);
+    } catch {
+      toast.error("Could not copy meeting");
+    } finally {
+      setIsCopyingMeeting(false);
+    }
+  }, [pendingCopyMeetingId, onDuplicateMeeting, onSelectMeeting, onSelectAgendaItem]);
+
   const meetingList = (
     <MeetingStream
       meetings={filteredMeetings}
@@ -541,8 +622,30 @@ export function NotebooksView({
       selectedId={selectedMeetingId}
       onSelect={(id) => onSelectMeeting(id)}
       onDelete={(id) => setPendingDeleteMeetingId(id)}
+      onCopy={(id) => setPendingCopyMeetingId(id)}
+      onArchive={
+        isArchivedView
+          ? undefined
+          : (id) => {
+              void onUpdateMeeting(id, { archived: true });
+              toast.success("Meeting archived");
+            }
+      }
+      onUnarchive={
+        isArchivedView
+          ? (id) => {
+              void onUpdateMeeting(id, { archived: false });
+              toast.success("Meeting restored");
+            }
+          : undefined
+      }
+      isArchivedView={isArchivedView}
       emptyMessage={
-        meetingSearchQuery.trim() ? "No meetings match your search." : undefined
+        meetingSearchQuery.trim()
+          ? "No meetings match your search."
+          : isArchivedView
+            ? "No archived meetings."
+            : undefined
       }
     />
   );
@@ -554,9 +657,29 @@ export function NotebooksView({
       onSelect={onSelectNotebook}
       onEdit={openNotebookEditor}
       onDelete={(id) => setPendingDeleteNotebookId(id)}
-
+      onArchive={
+        isArchivedView
+          ? undefined
+          : (id) => {
+              void onUpdateNotebook(id, { archived: true });
+              toast.success("Notebook archived");
+            }
+      }
+      onUnarchive={
+        isArchivedView
+          ? (id) => {
+              void onUpdateNotebook(id, { archived: false });
+              toast.success("Notebook restored");
+            }
+          : undefined
+      }
+      isArchivedView={isArchivedView}
       emptyMessage={
-        searchQuery.trim() ? "No notebooks match your search." : undefined
+        searchQuery.trim()
+          ? "No notebooks match your search."
+          : isArchivedView
+            ? "No archived notebooks."
+            : undefined
       }
     />
   );
@@ -583,6 +706,9 @@ export function NotebooksView({
           isCreating={isCreatingMeeting}
           searchQuery={meetingSearchQuery}
           onSearchQueryChange={setMeetingSearchQuery}
+          libraryView={libraryView}
+          onLibraryViewChange={setLibraryView}
+          archivedCount={archivedMeetings.length}
           listContent={isDesktop ? meetingList : undefined}
         />
       ) : (
@@ -594,6 +720,9 @@ export function NotebooksView({
           isCreating={isCreatingNotebook}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
+          libraryView={libraryView}
+          onLibraryViewChange={setLibraryView}
+          archivedCount={archivedNotebooks.length}
           listContent={isDesktop ? notebookList : undefined}
         />
       )}
@@ -621,26 +750,72 @@ export function NotebooksView({
                       ? setMeetingSearchQuery(e.target.value)
                       : setSearchQuery(e.target.value)
                   }
-                  placeholder={isMeetingsMode ? "Search meetings…" : "Search notebooks…"}
+                  placeholder={
+                    isArchivedView
+                      ? isMeetingsMode
+                        ? "Search archived…"
+                        : "Search archived…"
+                      : isMeetingsMode
+                        ? "Search meetings…"
+                        : "Search notebooks…"
+                  }
                   className="files-mobile-search-input w-full min-w-0 bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint min-h-[44px]"
-                  aria-label={isMeetingsMode ? "Search meetings" : "Search notebooks"}
+                  aria-label={
+                    isArchivedView
+                      ? isMeetingsMode
+                        ? "Search archived meetings"
+                        : "Search archived notebooks"
+                      : isMeetingsMode
+                        ? "Search meetings"
+                        : "Search notebooks"
+                  }
                 />
               </div>
             </div>
-            <div className="files-mobile-toolbar-row__actions flex items-center shrink-0">
+            <div className="files-mobile-toolbar-row__actions flex items-center gap-1.5 shrink-0">
+              {!isArchivedView && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    isMeetingsMode ? setCreateMeetingOpen(true) : void handleAddNotebook()
+                  }
+                  disabled={isMeetingsMode ? isCreatingMeeting : isCreatingNotebook}
+                  className="files-mobile-add-note-btn flex items-center justify-center rounded-xl border border-neon-purple/30 bg-neon-purple/10 min-h-[44px] min-w-[44px] text-neon-purple-tint"
+                  aria-label={isMeetingsMode ? "New meeting" : "Add notebook"}
+                >
+                  {(isMeetingsMode ? isCreatingMeeting : isCreatingNotebook) ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" strokeWidth={2.5} />
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() =>
-                  isMeetingsMode ? setCreateMeetingOpen(true) : void handleAddNotebook()
+                  setLibraryView((view) => (view === "active" ? "archived" : "active"))
                 }
-                disabled={isMeetingsMode ? isCreatingMeeting : isCreatingNotebook}
-                className="files-mobile-add-note-btn flex items-center justify-center rounded-xl border border-neon-purple/30 bg-neon-purple/10 min-h-[44px] min-w-[44px] text-neon-purple-tint"
-                aria-label={isMeetingsMode ? "Schedule meeting" : "Add notebook"}
+                className={cn(
+                  "flex items-center justify-center rounded-xl border min-h-[44px] min-w-[44px] transition",
+                  isArchivedView
+                    ? "border-neon-purple/40 bg-neon-purple/15 text-neon-purple-tint"
+                    : "border-border-glass bg-bg-secondary text-text-muted",
+                )}
+                aria-pressed={isArchivedView}
+                aria-label={
+                  isArchivedView
+                    ? isMeetingsMode
+                      ? "Back to active meetings"
+                      : "Back to active notebooks"
+                    : isMeetingsMode
+                      ? "View archived meetings"
+                      : "View archived notebooks"
+                }
               >
-                {(isMeetingsMode ? isCreatingMeeting : isCreatingNotebook) ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                {isArchivedView ? (
+                  <ArchiveRestore className="h-4 w-4" />
                 ) : (
-                  <Plus className="h-4 w-4" />
+                  <Archive className="h-4 w-4" />
                 )}
               </button>
             </div>
@@ -833,6 +1008,7 @@ export function NotebooksView({
           }
           onToggleNotebookTask={onToggleNotebookTask}
           onUpdateNotebookTask={onUpdateNotebookTask}
+          onSetNotebookTaskShowOnWorkspace={onSetNotebookTaskShowOnWorkspace}
           onRequestDeleteNotebookTask={(id) =>
             setPendingDestructiveDelete({ kind: "task", id })
           }
@@ -844,6 +1020,7 @@ export function NotebooksView({
           onAddNotebookInvestment={(title) =>
             selectedNotebookId ? onAddNotebookInvestment(title) : undefined
           }
+          onToggleNotebookInvestment={onToggleNotebookInvestment}
           onUpdateNotebookInvestment={onUpdateNotebookInvestment}
           onReorderNotebookInvestments={onReorderNotebookInvestments}
           onRequestDeleteNotebookInvestment={(id) =>
@@ -940,6 +1117,16 @@ export function NotebooksView({
         meetings={meetings}
         agendaItems={meetingAgendaItems}
         onCreate={handleAddMeeting}
+      />
+
+      <CopyMeetingModal
+        open={!!pendingCopyMeetingId}
+        onOpenChange={(open) => !open && !isCopyingMeeting && setPendingCopyMeetingId(null)}
+        sourceTitle={pendingCopyMeeting?.title?.trim() || "Untitled meeting"}
+        agendaItems={pendingCopyAgendaItems}
+        agendaEntries={pendingCopyAgendaEntries}
+        isLoading={isCopyingMeeting}
+        onConfirm={handleDuplicateMeeting}
       />
 
       <ConfirmationModal

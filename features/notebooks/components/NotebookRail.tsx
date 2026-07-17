@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Loader2, Plus, Search } from "lucide-react";
+import { Archive, ArchiveRestore, Loader2, Plus, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { NotesMeetingsToggle } from "@/features/meetings/components/NotesMeetingsToggle";
 import type { NotesPageMode } from "@/types";
 
@@ -13,6 +14,9 @@ interface NotebookRailProps {
   onNotesPageModeChange?: (mode: NotesPageMode) => void;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
+  libraryView?: "active" | "archived";
+  onLibraryViewChange?: (view: "active" | "archived") => void;
+  archivedCount?: number;
   listContent?: React.ReactNode;
 }
 
@@ -24,9 +28,14 @@ export function NotebookRail({
   onNotesPageModeChange,
   searchQuery = "",
   onSearchQueryChange,
+  libraryView = "active",
+  onLibraryViewChange,
+  archivedCount = 0,
   listContent,
 }: NotebookRailProps) {
   if (!isDesktop) return null;
+
+  const isArchivedView = libraryView === "archived";
 
   return (
     <aside
@@ -38,26 +47,63 @@ export function NotebookRail({
           <NotesMeetingsToggle mode={notesPageMode} onModeChange={onNotesPageModeChange} />
         )}
 
-        <button
-          type="button"
-          onClick={onNewNotebook}
-          disabled={isCreating}
-          className="w-full btn btn-primary py-2.5 text-sm flex items-center justify-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Add Notebook
-        </button>
-
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange?.(e.target.value)}
-            placeholder="Search notebooks…"
-            className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint"
-            aria-label="Search notebooks"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange?.(e.target.value)}
+              placeholder={isArchivedView ? "Search archived…" : "Search notebooks…"}
+              className="w-full bg-bg-secondary border border-border-glass rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-neon-purple/40 placeholder:text-text-faint"
+              aria-label={isArchivedView ? "Search archived notebooks" : "Search notebooks"}
+            />
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!isArchivedView && (
+              <button
+                type="button"
+                onClick={onNewNotebook}
+                disabled={isCreating}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neon-purple/30 bg-neon-purple/10 text-neon-purple-tint transition hover:bg-neon-purple/15 active:scale-95 disabled:opacity-50"
+                aria-label="Add notebook"
+              >
+                {isCreating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" strokeWidth={2.5} />
+                )}
+              </button>
+            )}
+            {onLibraryViewChange && (
+              <button
+                type="button"
+                onClick={() =>
+                  onLibraryViewChange(isArchivedView ? "active" : "archived")
+                }
+                className={cn(
+                  "inline-flex h-10 w-10 items-center justify-center rounded-xl border transition active:scale-95",
+                  isArchivedView
+                    ? "border-neon-purple/40 bg-neon-purple/15 text-neon-purple-tint"
+                    : "border-border-glass bg-bg-secondary text-text-muted hover:text-text-primary hover:bg-surface-hover",
+                )}
+                aria-pressed={isArchivedView}
+                aria-label={
+                  isArchivedView
+                    ? "Back to active notebooks"
+                    : archivedCount > 0
+                      ? `View archived notebooks (${archivedCount})`
+                      : "View archived notebooks"
+                }
+              >
+                {isArchivedView ? (
+                  <ArchiveRestore className="h-4 w-4" />
+                ) : (
+                  <Archive className="h-4 w-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Check, Loader2, Search } from "lucide-react";
+import { Check, Loader2, MessageSquare, Notebook, Search, StickyNote } from "lucide-react";
 import { cn, formatDueDate, triggerHaptic } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskRow } from "./TaskRow";
@@ -13,6 +13,7 @@ import { getTaskLinkedFileNotes, taskHasLinkedFiles } from "@/features/tasks/lib
 import { resolveAssigneeLabel } from "@/lib/assignee";
 import { TaskAssigneeSelectModal } from "./TaskAssigneeSelectModal";
 import { TaskTableAssigneeCell } from "./TaskTableAssigneeCell";
+import { TaskNotesIndicator, taskHasNotes } from "./TaskNotesIndicator";
 import { TaskStarButton } from "./TaskStarButton";
 import { TaskTableDueDateCell } from "./TaskTableDueDateCell";
 import { TaskTableFolderCell } from "./TaskTableFolderCell";
@@ -84,6 +85,7 @@ export function TasksTable({
     showQuickAdd && onAddTask && isMobile && (quickTitle.length > 0 || isAdding);
   const showDesktopToolbar = Boolean(onSearchChange);
   const showWorkspaceColumn = Boolean(getWorkspaceName);
+  const showNotebookColumn = tasks.some((t) => !!t.notebookId);
 
   const focusQuickAdd = () => {
     window.requestAnimationFrame(() => {
@@ -98,7 +100,10 @@ export function TasksTable({
   }, [isAdding]);
 
   const tableColSpan =
-    6 + (showWorkspaceColumn ? 1 : 0) + (showAssignee ? 1 : 0);
+    8 +
+    (showWorkspaceColumn ? 1 : 0) +
+    (showNotebookColumn ? 1 : 0) +
+    (showAssignee ? 1 : 0);
 
   const submitQuickAdd = async () => {
     const title = quickTitle.trim();
@@ -254,31 +259,42 @@ export function TasksTable({
       </div>
 
       <div className="tasks-desktop-table hidden md:flex md:flex-col md:flex-1 md:min-h-0 overflow-hidden">
-        <div className="tasks-desktop-table__scroll overflow-x-auto overflow-y-auto min-h-0 flex-1">
+        <div className="tasks-desktop-table__scroll overflow-x-hidden overflow-y-auto min-h-0 flex-1">
           <table className="tasks-desktop-table__grid w-full table-fixed text-sm border-collapse">
             <thead>
               <tr className="tasks-desktop-table__head-row text-left text-[10px] uppercase tracking-wide text-text-muted border-b border-border-glass bg-surface-overlay">
-                <th className="w-10 p-3 font-medium" scope="col" aria-label="Important" />
-                <th className="w-10 p-3 font-medium" scope="col" aria-label="Complete" />
-                <th className="tasks-desktop-table__title-col p-3 font-medium" scope="col">
+                <th className="tasks-desktop-table__icon-col p-2 font-medium" scope="col" aria-label="Important" />
+                <th className="tasks-desktop-table__icon-col p-2 font-medium" scope="col" aria-label="Complete" />
+                <th className="tasks-desktop-table__title-col p-2 font-medium" scope="col">
                   Title
                 </th>
-                <th className="tasks-desktop-table__folder-col p-3 font-medium w-40 hidden lg:table-cell" scope="col">
+                {showNotebookColumn ? (
+                  <th className="tasks-desktop-table__notebook-col p-2 font-medium hidden md:table-cell" scope="col">
+                    Notebook
+                  </th>
+                ) : null}
+                <th className="tasks-desktop-table__folder-col p-2 font-medium hidden lg:table-cell" scope="col">
                   Folder
                 </th>
                 {showWorkspaceColumn ? (
-                  <th className="p-3 font-medium w-36 hidden md:table-cell" scope="col">
+                  <th className="tasks-desktop-table__workspace-col p-2 font-medium hidden md:table-cell" scope="col">
                     Workspace
                   </th>
                 ) : null}
-                <th className="p-3 font-medium w-28 hidden lg:table-cell" scope="col">
+                <th className="tasks-desktop-table__due-col p-2 font-medium hidden lg:table-cell" scope="col">
                   Due
                 </th>
-                <th className="tasks-desktop-table__repeat-col p-3 font-medium w-36 hidden md:table-cell" scope="col">
+                <th className="tasks-desktop-table__repeat-col p-2 font-medium hidden md:table-cell" scope="col">
                   Repeat
                 </th>
+                <th className="tasks-desktop-table__notes-col p-2 font-medium" scope="col" aria-label="Notes">
+                  <StickyNote className="mx-auto h-3.5 w-3.5" aria-hidden />
+                </th>
+                <th className="tasks-desktop-table__comments-col p-2 font-medium" scope="col" aria-label="Comments">
+                  <MessageSquare className="mx-auto h-3.5 w-3.5" aria-hidden />
+                </th>
                 {showAssignee ? (
-                  <th className="p-3 font-medium w-32 hidden xl:table-cell" scope="col">
+                  <th className="tasks-desktop-table__assignee-col p-2 font-medium hidden md:table-cell" scope="col">
                     Assignee
                   </th>
                 ) : null}
@@ -295,6 +311,7 @@ export function TasksTable({
                 tasks.map((task) => {
                   const isDone = task.status === "done";
                   const loading = !!taskLoadingStates?.[task.id];
+                  const isNotebookTask = !!task.notebookId;
                   const commentState = getTaskCommentIndicatorState(
                     task.id,
                     taskCommentSummaries,
@@ -316,12 +333,16 @@ export function TasksTable({
                       )}
                     >
                       <td className="p-2 align-middle" onClick={(e) => e.stopPropagation()}>
-                        <TaskStarButton
-                          size="sm"
-                          starred={!!task.starred}
-                          disabled={loading}
-                          onToggle={() => void toggleTaskStarred(task.id)}
-                        />
+                        {isNotebookTask ? (
+                          <span className="text-text-muted px-1">—</span>
+                        ) : (
+                          <TaskStarButton
+                            size="sm"
+                            starred={!!task.starred}
+                            disabled={loading}
+                            onToggle={() => void toggleTaskStarred(task.id)}
+                          />
+                        )}
                       </td>
                       <td className="p-3 align-middle" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -348,7 +369,7 @@ export function TasksTable({
                           >
                             {task.title}
                           </div>
-                          {taskHasLinkedFiles(task) ? (
+                          {!isNotebookTask && taskHasLinkedFiles(task) ? (
                             <TaskLinkedFileIndicator
                               count={task.linkedNoteIds?.length ?? 0}
                               onClick={(e) => {
@@ -357,28 +378,40 @@ export function TasksTable({
                               }}
                             />
                           ) : null}
-                          {commentState.hasComments ? (
-                            <TaskCommentIndicator
-                              count={commentState.count}
-                              unread={commentState.unread}
-                              className="shrink-0"
-                            />
-                          ) : null}
                         </div>
                       </td>
+                      {showNotebookColumn ? (
+                        <td className="tasks-desktop-table__notebook-cell p-2 align-middle hidden md:table-cell min-w-0">
+                          {task.notebookName ? (
+                            <span
+                              className="inline-flex max-w-full items-center gap-1 rounded-md border border-neon-purple/25 bg-neon-purple/8 px-2 py-0.5 text-[11px] font-medium text-neon-purple-tint truncate"
+                              title={task.notebookName}
+                            >
+                              <Notebook className="h-3 w-3 shrink-0" aria-hidden />
+                              <span className="truncate">{task.notebookName}</span>
+                            </span>
+                          ) : (
+                            <span className="text-text-muted">—</span>
+                          )}
+                        </td>
+                      ) : null}
                       <td
-                        className="tasks-desktop-table__folder-cell p-2 align-middle hidden lg:table-cell min-w-[9rem] max-w-[12rem]"
+                        className="tasks-desktop-table__folder-cell p-2 align-middle hidden lg:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <TaskTableFolderCell
-                          folders={folders}
-                          folderId={task.folderId}
-                          disabled={loading}
-                          onChange={(folderId) => void setTaskFolder(task.id, folderId)}
-                        />
+                        {isNotebookTask ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <TaskTableFolderCell
+                            folders={folders}
+                            folderId={task.folderId}
+                            disabled={loading}
+                            onChange={(folderId) => void setTaskFolder(task.id, folderId)}
+                          />
+                        )}
                       </td>
                       {showWorkspaceColumn ? (
-                        <td className="p-3 align-middle hidden md:table-cell min-w-0 max-w-[10rem]">
+                        <td className="tasks-desktop-table__workspace-cell p-2 align-middle hidden md:table-cell min-w-0">
                           {workspaceName ? (
                             <span
                               className="tasks-table-workspace inline-flex max-w-full items-center rounded-md border border-neon-purple/25 bg-neon-purple/8 px-2 py-0.5 text-[11px] font-medium text-neon-purple-tint truncate"
@@ -392,31 +425,61 @@ export function TasksTable({
                         </td>
                       ) : null}
                       <td
-                        className="p-2 align-middle hidden lg:table-cell"
+                        className="tasks-desktop-table__due-cell p-2 align-middle hidden lg:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <TaskTableDueDateCell
-                          taskId={task.id}
-                          dueDate={task.dueDate ?? undefined}
-                          disabled={loading}
-                        />
+                        {isNotebookTask ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <TaskTableDueDateCell
+                            taskId={task.id}
+                            dueDate={task.dueDate ?? undefined}
+                            disabled={loading}
+                          />
+                        )}
                       </td>
                       <td
                         className="tasks-desktop-table__repeat-cell p-2 align-top hidden md:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <TaskTableRepeatCell task={task} disabled={loading} />
+                        {isNotebookTask ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <TaskTableRepeatCell task={task} disabled={loading} />
+                        )}
+                      </td>
+                      <td className="tasks-desktop-table__notes-cell p-1.5 align-middle">
+                        {!isNotebookTask && taskHasNotes(task.description) ? (
+                          <TaskNotesIndicator />
+                        ) : (
+                          <span className="text-text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="tasks-desktop-table__comments-cell p-1.5 align-middle">
+                        {!isNotebookTask && commentState.hasComments ? (
+                          <TaskCommentIndicator
+                            count={commentState.count}
+                            unread={commentState.unread}
+                            className="shrink-0"
+                          />
+                        ) : (
+                          <span className="text-text-muted">—</span>
+                        )}
                       </td>
                       {showAssignee ? (
                         <td
-                          className="p-2 align-middle hidden xl:table-cell min-w-0 max-w-[10rem]"
+                          className="tasks-desktop-table__assignee-cell p-2 align-middle hidden md:table-cell min-w-0"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <TaskTableAssigneeCell
-                            assigneeLabel={task.assignee}
-                            disabled={loading}
-                            onOpen={() => setAssigneePickerTaskId(task.id)}
-                          />
+                          {isNotebookTask ? (
+                            <span className="text-text-muted">—</span>
+                          ) : (
+                            <TaskTableAssigneeCell
+                              assigneeLabel={task.assignee}
+                              disabled={loading}
+                              onOpen={() => setAssigneePickerTaskId(task.id)}
+                            />
+                          )}
                         </td>
                       ) : null}
                     </tr>

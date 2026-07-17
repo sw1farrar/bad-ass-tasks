@@ -20,9 +20,11 @@ import {
   DEFAULT_NOTEBOOK_SECTION_TAB,
   resolveNotebookEnabledSections,
 } from "@/lib/notebooks/notebookSections";
+import { getEnabledNotebookSections } from "@/lib/workspace/workspaceSettings";
+import { useTaskStore } from "@/store/useTaskStore";
 import { NotebookDetailHeader } from "./NotebookDetailHeader";
 import { NotebookNotesPanel } from "./NotebookNotesPanel";
-import { NotebookSectionMenu, type NotebookSectionTab } from "./NotebookSectionMenu";
+import { NotebookSectionMenu } from "./NotebookSectionMenu";
 import { NotebookTasksPanel } from "./NotebookTasksPanel";
 import { NotebookInvestmentsPanel } from "./NotebookInvestmentsPanel";
 import { NotebookCustomersPanel } from "./NotebookCustomersPanel";
@@ -70,11 +72,13 @@ interface NotebookContentAreaProps {
   onAddNotebookTask: (title?: string) => void | Promise<unknown>;
   onToggleNotebookTask: (id: string) => void | Promise<unknown>;
   onUpdateNotebookTask: (id: string, title: string) => void | Promise<unknown>;
+  onSetNotebookTaskShowOnWorkspace: (id: string, showOnWorkspace: boolean) => void | Promise<unknown>;
   onRequestDeleteNotebookTask: (id: string) => void;
   onAddNotebookTaskProgress: (taskId: string, body: string) => void | Promise<unknown>;
   onUpdateNotebookTaskProgress: (id: string, body: string) => void | Promise<unknown>;
   onRequestDeleteNotebookTaskProgress: (id: string) => void;
   onAddNotebookInvestment: (title?: string) => void | Promise<unknown>;
+  onToggleNotebookInvestment: (id: string) => void | Promise<unknown>;
   onUpdateNotebookInvestment: (id: string, title: string) => void | Promise<unknown>;
   onReorderNotebookInvestments: (orderedIds: string[]) => void | Promise<unknown>;
   onRequestDeleteNotebookInvestment: (id: string) => void;
@@ -143,11 +147,13 @@ export function NotebookContentArea({
   onAddNotebookTask,
   onToggleNotebookTask,
   onUpdateNotebookTask,
+  onSetNotebookTaskShowOnWorkspace,
   onRequestDeleteNotebookTask,
   onAddNotebookTaskProgress,
   onUpdateNotebookTaskProgress,
   onRequestDeleteNotebookTaskProgress,
   onAddNotebookInvestment,
+  onToggleNotebookInvestment,
   onUpdateNotebookInvestment,
   onReorderNotebookInvestments,
   onRequestDeleteNotebookInvestment,
@@ -170,7 +176,13 @@ export function NotebookContentArea({
   focusTitleNoteId,
   onTitleFocusConsumed,
 }: NotebookContentAreaProps) {
-  const [activeTab, setActiveTab] = useState<NotebookSectionTab>(DEFAULT_NOTEBOOK_SECTION_TAB);
+  const workspaceSettings = useTaskStore((s) => s.currentWorkspace.settings);
+  const activeTab = useTaskStore((s) => s.selectedNotebookSectionTab);
+  const setActiveTab = useTaskStore((s) => s.setSelectedNotebookSectionTab);
+  const enabledTabs = useMemo(
+    () => getEnabledNotebookSections(workspaceSettings),
+    [workspaceSettings],
+  );
   const [noteSearchQuery, setNoteSearchQuery] = useState("");
 
   const enabledSections = useMemo(
@@ -181,9 +193,10 @@ export function NotebookContentArea({
   useEffect(() => {
     setNoteSearchQuery("");
     if (!notebook) return;
-    setActiveTab((current) =>
-      enabledSections.includes(current) ? current : enabledSections[0] ?? DEFAULT_NOTEBOOK_SECTION_TAB,
-    );
+    if (!enabledSections.includes(activeTab)) {
+      setActiveTab(enabledSections[0] ?? DEFAULT_NOTEBOOK_SECTION_TAB);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notebook?.id, enabledSections, notebook]);
 
   useEffect(() => {
@@ -191,6 +204,13 @@ export function NotebookContentArea({
       setActiveTab(enabledSections[0] ?? DEFAULT_NOTEBOOK_SECTION_TAB);
     }
   }, [activeTab, enabledSections]);
+
+  useEffect(() => {
+    if (enabledTabs.length === 0) return;
+    if (!enabledTabs.includes(activeTab)) {
+      setActiveTab(enabledTabs[0]);
+    }
+  }, [activeTab, enabledTabs, setActiveTab]);
 
   const filteredNotes = useMemo(
     () => (notebook ? filterNotebookNotesBySearch(notes, noteSearchQuery) : []),
@@ -223,6 +243,7 @@ export function NotebookContentArea({
           notebook={notebook}
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          enabledTabs={enabledTabs}
         />
       )}
 
@@ -260,6 +281,7 @@ export function NotebookContentArea({
           onAddTask={onAddNotebookTask}
           onToggleTask={onToggleNotebookTask}
           onUpdateTask={onUpdateNotebookTask}
+          onSetShowOnWorkspace={onSetNotebookTaskShowOnWorkspace}
           onRequestDeleteTask={onRequestDeleteNotebookTask}
           onAddProgress={onAddNotebookTaskProgress}
           onUpdateProgress={onUpdateNotebookTaskProgress}
@@ -276,6 +298,7 @@ export function NotebookContentArea({
           selectedInvestmentId={selectedInvestmentId}
           onSelectInvestment={onSelectInvestment}
           onAdd={onAddNotebookInvestment}
+          onToggle={onToggleNotebookInvestment}
           onUpdate={onUpdateNotebookInvestment}
           onReorder={(orderedIds) => onReorderNotebookInvestments(orderedIds)}
           onRequestDelete={onRequestDeleteNotebookInvestment}

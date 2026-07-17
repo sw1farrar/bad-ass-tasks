@@ -8,8 +8,8 @@ import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
 import {
-  MOBILE_SHEET_HEIGHT_CLASS,
   SHEET_ENTER_TRANSITION,
   SHEET_SPRING,
 } from "@/lib/motion/sheet";
@@ -223,6 +223,8 @@ export function ListDetailModal({
     dragEngine: "manual",
   });
 
+  useVisualViewportInsets(isMobile && isOpen);
+
   const handleClose = useCallback(() => {
     if (isMobile) {
       triggerHaptic("light");
@@ -372,15 +374,20 @@ export function ListDetailModal({
             className={cn(
               "list-detail-modal modal-panel relative flex w-full flex-col overflow-hidden border shadow-2xl",
               isMobile
-                ? cn("list-detail-sheet list-detail-sheet--mobile rounded-t-3xl max-w-none", MOBILE_SHEET_HEIGHT_CLASS)
-                : "list-detail-panel max-h-[min(85vh,720px)] max-w-2xl rounded-2xl",
+                ? "list-detail-sheet list-detail-sheet--mobile rounded-t-3xl max-w-none"
+                : "list-detail-panel min-h-0 max-h-[min(85vh,720px)] max-w-2xl rounded-2xl",
             )}
             data-list-color={list.color}
             style={{
               backgroundColor: colorStyle.bg,
               borderColor: colorStyle.border,
               ...listColorPresentationStyleVars(colorStyle),
-              ...(isMobile ? { y: sheetY, touchAction: "pan-y" as const } : {}),
+              ...(isMobile
+                ? {
+                    y: sheetY,
+                    touchAction: "pan-y" as const,
+                  }
+                : {}),
             }}
             drag={isMobile ? drag : false}
             dragControls={isMobile ? dragControlsProp : undefined}

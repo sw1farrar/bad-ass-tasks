@@ -67,6 +67,48 @@ describe("workspaceNavCounts", () => {
     expect(counts.openCount).toBe(1);
   });
 
+  it("clears counts instantly when local tasks are empty after hydrate", () => {
+    const counts = getWorkspaceNavTaskCounts({
+      workspaceId: "ws-1",
+      tasks: [],
+      globalTodayFocus: [],
+      globalOpenTaskFocus: [],
+      preferLocalTasks: true,
+      globalWorkspaceStats: {
+        "ws-1": {
+          openCount: 4,
+          totalTaskCount: 4,
+          doneCount: 0,
+          overdueCount: 2,
+          dueTodayCount: 1,
+          assigneeBreakdown: [],
+        },
+      },
+    });
+    expect(counts).toEqual({ openCount: 0, overdueCount: 0 });
+  });
+
+  it("falls back to aggregate stats before local tasks hydrate", () => {
+    const counts = getWorkspaceNavTaskCounts({
+      workspaceId: "ws-1",
+      tasks: [],
+      globalTodayFocus: [],
+      globalOpenTaskFocus: [],
+      preferLocalTasks: false,
+      globalWorkspaceStats: {
+        "ws-1": {
+          openCount: 4,
+          totalTaskCount: 4,
+          doneCount: 0,
+          overdueCount: 2,
+          dueTodayCount: 1,
+          assigneeBreakdown: [],
+        },
+      },
+    });
+    expect(counts).toEqual({ openCount: 4, overdueCount: 2 });
+  });
+
   it("counts pending review files for nav badge", () => {
     const notes = [
       note({ id: "n1", workspaceId: "ws-1", reviewStatus: "pending_review" }),

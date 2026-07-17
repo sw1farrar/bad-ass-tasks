@@ -16,6 +16,14 @@ import {
   hasMeetingBeenCarriedForward,
   type CarryOverOptions,
 } from "@/lib/meetings/carryOver";
+import {
+  cloneMeetingAgendaEntriesForDuplicate,
+  cloneMeetingAgendaItemsForDuplicate,
+  DEFAULT_DUPLICATE_MEETING_OPTIONS,
+  DUPLICATE_MEETING_TITLE,
+  selectAgendaItemsForDuplicate,
+  type DuplicateMeetingOptions,
+} from "@/lib/meetings/duplicateMeeting";
 import { getMeetingTemplate, type MeetingTemplate } from "@/lib/meetings/agendaTemplates";
 import { getFirstAgendaItemId, getNextActiveAgendaItemId } from "@/lib/meetings/agendaNavigation";
 import {
@@ -48,6 +56,7 @@ export const SAMPLE_MEETINGS: Meeting[] = [
     id: "mtg-demo-1",
     workspaceId: "w1",
     title: "Weekly Team Sync — Jun 16, 2026",
+    description: "Standup + blocker review for the notes workspace.",
     status: "completed",
     scheduledAt: new Date(Date.now() - 86400000 * 7).toISOString(),
     startedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
@@ -111,6 +120,7 @@ type MeetingSliceActionsInternal = {
   updateAgendaItem: (id: string, updates: Partial<MeetingAgendaItem>) => Promise<boolean>;
   addMeeting: (input?: {
     title?: string;
+    description?: string | null;
     scheduledAt?: string | null;
     templateId?: string;
     previousMeetingId?: string | null;
@@ -160,7 +170,15 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
   const actions = {
     getMeetings: (): Meeting[] => {
-      return sortMeetings(get().meetings.filter((m) => m.workspaceId === wsId()));
+      return sortMeetings(
+        get().meetings.filter((m) => m.workspaceId === wsId() && !m.archived),
+      );
+    },
+
+    getArchivedMeetings: (): Meeting[] => {
+      return sortMeetings(
+        get().meetings.filter((m) => m.workspaceId === wsId() && !!m.archived),
+      );
     },
 
     getMeetingAgendaItems: (meetingId: string | null): MeetingAgendaItem[] => {
@@ -204,6 +222,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     addMeeting: async (input?: {
       title?: string;
+      description?: string | null;
       scheduledAt?: string | null;
       templateId?: string;
       previousMeetingId?: string | null;
@@ -268,11 +287,13 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         id: meetingId,
         workspaceId,
         title: input?.title?.trim() || "Untitled meeting",
+        description: input?.description?.trim() || null,
         status: input?.scheduledAt ? "scheduled" : "draft",
         scheduledAt: input?.scheduledAt ?? null,
         attendeeIds: input?.attendeeIds ?? [],
         previousMeetingId,
         sortOrder: maxOrder + 1000,
+        archived: false,
         createdAt: now,
         updatedAt: now,
       };
@@ -286,18 +307,20 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       }));
 
       if (isLiveMeetingWorkspace(workspaceId)) {
-        void (async () => {
-          const ready = await ensureMeetingPersistenceReady();
-          if (!ready) return;
+        // Await the parent meeting insert before returning so follow-on agenda
+        // writes (copy / carry-over) don't race RLS (meeting must exist first).
+        const ready = await ensureMeetingPersistenceReady();
+        if (ready) {
           const ok = await createMeetingSupabase(meeting);
-          if (!ok) return;
-          for (const item of allAgendaItems) {
-            await createAgendaItemSupabase(item);
+          if (ok) {
+            for (const item of allAgendaItems) {
+              await createAgendaItemSupabase(item);
+            }
+            for (const entry of carryEntries) {
+              await createAgendaEntrySupabase(entry);
+            }
           }
-          for (const entry of carryEntries) {
-            await createAgendaEntrySupabase(entry);
-          }
-        })();
+        }
       }
 
       return { meeting, agendaItems: allAgendaItems };
@@ -306,10 +329,14 @@ export function createMeetingSliceActions(get: Get, set: Set) {
     updateMeeting: async (id: string, updates: Partial<Meeting>) => {
       const now = new Date().toISOString();
       const workspaceId = get().meetings.find((m) => m.id === id)?.workspaceId ?? wsId();
+      const willArchive = updates.archived === true;
       set((state) => ({
         meetings: state.meetings.map((m) =>
           m.id === id ? { ...m, ...updates, updatedAt: now } : m,
         ),
+        ...(willArchive && state.selectedMeetingId === id
+          ? { selectedMeetingId: null, selectedAgendaItemId: null }
+          : {}),
       }));
       if (workspaceId && shouldPersistMeetings(workspaceId)) {
         void updateMeetingSupabase(id, workspaceId, updates);
@@ -560,14 +587,75 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         }));
         if (shouldPersistMeetings(meeting.workspaceId)) {
           for (const item of carryItems) {
-            void createAgendaItemSupabase(item);
+            await createAgendaItemSupabase(item);
           }
           for (const entry of carryEntries) {
-            void createAgendaEntrySupabase(entry);
+            await createAgendaEntrySupabase(entry);
           }
         }
       }
       return { meeting, agendaItems: [...templateItems, ...carryItems] };
+    },
+
+    duplicateMeeting: async (
+      sourceMeetingId: string,
+      options: DuplicateMeetingOptions = DEFAULT_DUPLICATE_MEETING_OPTIONS,
+    ) => {
+      const source = get().meetings.find((m) => m.id === sourceMeetingId);
+      if (!source) throw new Error("Meeting not found");
+
+      const title = options.title?.trim() || DUPLICATE_MEETING_TITLE;
+      const scheduledAt =
+        options.scheduledAt === undefined
+          ? new Date().toISOString()
+          : options.scheduledAt;
+      const { meeting } = await actions.addMeeting({
+        title,
+        description: source.description ?? null,
+        scheduledAt,
+        attendeeIds: [...source.attendeeIds],
+      });
+
+      const idFn = isLiveMeetingWorkspace(meeting.workspaceId) ? generateClientId : generateId;
+      const allSourceItems = get().meetingAgendaItems.filter((i) => i.meetingId === sourceMeetingId);
+      const sourceItems = selectAgendaItemsForDuplicate(allSourceItems, options.agendaItemIds);
+      const { items: clonedItems, idMap } = cloneMeetingAgendaItemsForDuplicate(
+        sourceItems,
+        meeting.id,
+        idFn,
+      );
+
+      let clonedEntries: MeetingAgendaEntry[] = [];
+      if (options.includeNotes && clonedItems.length > 0) {
+        const sourceItemIds = new Set(sourceItems.map((item) => item.id));
+        const sourceEntries = get().meetingAgendaEntries.filter((entry) =>
+          sourceItemIds.has(entry.agendaItemId),
+        );
+        clonedEntries = cloneMeetingAgendaEntriesForDuplicate(sourceEntries, idMap, idFn);
+      }
+
+      if (clonedItems.length) {
+        set((state) => ({
+          meetingAgendaItems: [...state.meetingAgendaItems, ...clonedItems],
+          meetingAgendaEntries: [...state.meetingAgendaEntries, ...clonedEntries],
+        }));
+        if (shouldPersistMeetings(meeting.workspaceId)) {
+          for (const item of clonedItems) {
+            const ok = await createAgendaItemSupabase(item);
+            if (!ok) {
+              throw new Error("Could not save copied agenda topics");
+            }
+          }
+          for (const entry of clonedEntries) {
+            const ok = await createAgendaEntrySupabase(entry);
+            if (!ok) {
+              throw new Error("Could not save copied agenda notes");
+            }
+          }
+        }
+      }
+
+      return { meeting, agendaItems: clonedItems };
     },
   };
 

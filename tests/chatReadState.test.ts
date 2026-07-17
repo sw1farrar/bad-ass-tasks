@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  computeChatReadWatermark,
   getChatLastReadAt,
   setChatLastReadAt,
   hasUnreadChatActivity,
@@ -28,5 +29,24 @@ describe("chatReadState", () => {
     expect(hasUnreadChatActivity("me", "ws-1", messages, [])).toBe(true);
     expect(hasUnreadChatActivity("me", "ws-1", [], reactions)).toBe(true);
     expect(hasUnreadChatActivity("me", "ws-1", [{ userId: "me", createdAt: "2026-06-05T13:00:00.000Z" }], [])).toBe(false);
+  });
+
+  it("watermark covers all loaded activity so viewed messages stay read", () => {
+    const messages = [
+      { createdAt: "2026-06-06T10:00:00.000Z" },
+      { createdAt: "2026-06-06T10:00:01.000Z" },
+    ];
+    const reactions = [{ createdAt: "2026-06-06T10:00:02.000Z" }];
+    const watermark = computeChatReadWatermark(messages, reactions);
+    setChatLastReadAt("me", "ws-1", watermark);
+
+    expect(
+      hasUnreadChatActivity(
+        "me",
+        "ws-1",
+        [{ userId: "other", createdAt: "2026-06-06T10:00:02.000Z" }],
+        [{ userId: "other", createdAt: "2026-06-06T10:00:02.000Z" }],
+      ),
+    ).toBe(false);
   });
 });

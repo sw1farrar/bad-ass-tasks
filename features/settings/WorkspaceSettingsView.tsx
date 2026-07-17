@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Settings, Trash2, Bell, Mail, Pencil, Check, X, Notebook, HeartPulse } from "lucide-react";
-import { isHealthFeatureEnabled, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
+import {
+  getEnabledNotebookSections,
+  isHealthFeatureEnabled,
+  isNotebookSectionEnabled,
+  isNotesFeatureEnabled,
+} from "@/lib/workspace/workspaceSettings";
+import { NOTEBOOK_SECTION_TABS, type NotebookSectionTab } from "@/lib/notebooks/notebookSections";
 import { cn } from "@/lib/utils";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { NoteEmailInboxesPanel } from "./components/NoteEmailInboxesPanel";
@@ -55,9 +61,27 @@ export function WorkspaceSettingsView() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingNotesFeature, setIsSavingNotesFeature] = useState(false);
+  const [isSavingNotebookSections, setIsSavingNotebookSections] = useState(false);
   const [isSavingHealthFeature, setIsSavingHealthFeature] = useState(false);
   const notesEnabled = isNotesFeatureEnabled(currentWorkspace.settings);
   const healthEnabled = isHealthFeatureEnabled(currentWorkspace.settings);
+  const enabledNotebookSectionCount = getEnabledNotebookSections(currentWorkspace.settings).length;
+
+  const handleToggleNotebookSection = async (tab: NotebookSectionTab, enabled: boolean) => {
+    if (!isOwner || isSavingNotebookSections) return;
+    if (!enabled && enabledNotebookSectionCount <= 1) {
+      toast.error("Keep at least one notebook section enabled");
+      return;
+    }
+    setIsSavingNotebookSections(true);
+    try {
+      await updateWorkspaceDetails({
+        settings: { features: { notebookSections: { [tab]: enabled } } },
+      });
+    } finally {
+      setIsSavingNotebookSections(false);
+    }
+  };
 
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
@@ -232,6 +256,40 @@ export function WorkspaceSettingsView() {
             />
             <span className="text-sm text-text-primary">Enable Notes in navigation</span>
           </label>
+
+          {notesEnabled && (
+            <div className="space-y-2 pt-1 border-t border-border-glass">
+              <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
+                Choose which sections appear inside each notebook. At least one must stay on.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {NOTEBOOK_SECTION_TABS.map((tab) => {
+                  const checked = isNotebookSectionEnabled(currentWorkspace.settings, tab.id);
+                  const isLastEnabled = checked && enabledNotebookSectionCount <= 1;
+                  return (
+                    <label
+                      key={tab.id}
+                      className={cn(
+                        "flex items-center gap-3 cursor-pointer",
+                        (isSavingNotebookSections || isLastEnabled) && "opacity-80",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={isSavingNotebookSections || isLastEnabled}
+                        onChange={(e) => {
+                          void handleToggleNotebookSection(tab.id, e.target.checked);
+                        }}
+                        className="h-4 w-4 accent-neon-purple"
+                      />
+                      <span className="text-sm text-text-primary">{tab.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS meetings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
+  description TEXT,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'in_progress', 'completed')),
   scheduled_at TIMESTAMPTZ,
   started_at TIMESTAMPTZ,

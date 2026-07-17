@@ -15,6 +15,7 @@ import {
   canReopenMeeting,
   canStartNextMeeting,
 } from "@/lib/meetings/meetingLifecycle";
+
 interface MeetingHeaderProps {
   meeting: Meeting;
   meetings: Meeting[];
@@ -37,10 +38,19 @@ export function MeetingHeader({
   onOpenSummaryPreview,
 }: MeetingHeaderProps) {
   const [title, setTitle] = useState(meeting.title);
+  const [description, setDescription] = useState(meeting.description ?? "");
 
   useEffect(() => {
     setTitle(meeting.title);
-  }, [meeting.id, meeting.title]);
+    setDescription(meeting.description ?? "");
+  }, [meeting.id, meeting.title, meeting.description]);
+
+  const saveDescription = () => {
+    const next = description.trim();
+    const prev = (meeting.description ?? "").trim();
+    if (next === prev) return;
+    onUpdateMeeting(meeting.id, { description: next || null });
+  };
 
   return (
     <header className="meetings-header shrink-0 border-b border-border-glass px-4 py-3 space-y-3 bg-bg">
@@ -56,6 +66,7 @@ export function MeetingHeader({
             }}
             disabled={meeting.status === "completed"}
             className="w-full bg-transparent text-xl font-bold focus:outline-none text-text-primary disabled:opacity-80"
+            aria-label="Meeting title"
           />
           <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-text-muted">
             {meeting.status === "completed" && (
@@ -67,6 +78,20 @@ export function MeetingHeader({
               <span>{format(parseISO(meeting.scheduledAt), "MMM d, yyyy")}</span>
             )}
           </div>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={saveDescription}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+            disabled={meeting.status === "completed"}
+            placeholder="Add a short description…"
+            className="mt-1.5 w-full bg-transparent text-sm text-text-secondary placeholder:text-text-faint focus:outline-none disabled:opacity-80"
+            aria-label="Meeting description"
+          />
         </div>
 
         <div className="meetings-header-actions flex flex-wrap items-center gap-2">

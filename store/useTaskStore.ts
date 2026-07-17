@@ -1,7 +1,16 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, NotebookCompetitorNote, HealthReading, HealthProfile, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
-import { parseWorkspaceSettings, isHealthFeatureEnabled, isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
+import {
+  DEFAULT_NOTEBOOK_SECTION_TAB,
+  type NotebookSectionTab,
+} from "@/lib/notebooks/notebookSections";
+import {
+  parseWorkspaceSettings,
+  mergeWorkspaceSettings,
+  isHealthFeatureEnabled,
+  isNotesFeatureEnabled,
+} from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -130,6 +139,7 @@ import {
   areMeetingTablesReady,
   isMeetingPersistenceEnabled,
   remapLegacyListIdsInState,
+  normalizeListEntityId,
   createTask as createTaskSupabase,
   updateTask as updateTaskSupabase,
   deleteTask as deleteTaskSupabase,
@@ -205,6 +215,7 @@ import {
   areNotebookSectionTablesReady,
   ensureNotebookSectionPersistenceReady,
   getNotebookSectionBundle,
+  mapNotebookTaskRow,
 } from "@/lib/data/notebookSectionsStore";
 import {
   areHealthTablesReady,
@@ -350,23 +361,22 @@ function patchNavStatsForWorkspace(
   );
 
   if (wsTasks.length === 0) {
-    if (!prev) {
-      return {
-        ...state.globalWorkspaceStats,
-        [workspaceId]: {
-          openCount: 0,
-          totalTaskCount: 0,
-          doneCount: 0,
-          overdueCount: 0,
-          dueTodayCount: 0,
-          assigneeBreakdown: [],
-          pendingReviewCount,
-        },
-      };
-    }
     return {
       ...state.globalWorkspaceStats,
-      [workspaceId]: { ...prev, pendingReviewCount },
+      [workspaceId]: {
+        openCount: 0,
+        totalTaskCount: 0,
+        doneCount: 0,
+        overdueCount: 0,
+        dueTodayCount: 0,
+        assigneeBreakdown: [],
+        listCount: prev?.listCount,
+        openListItemsCount: prev?.openListItemsCount,
+        noteCount: prev?.noteCount,
+        pendingReviewCount,
+        memberCount: prev?.memberCount,
+        unreadChat: prev?.unreadChat,
+      },
     };
   }
 
@@ -484,6 +494,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   selectedNoteId: string | null;
   selectedNotebookId: string | null;
   selectedNotebookNoteId: string | null;
+  /** Last active notebook section tab (notes/tasks/…) — restored when returning to Notebooks. */
+  selectedNotebookSectionTab: NotebookSectionTab;
   isCommandPaletteOpen: boolean;
   isKeyboardCheatsheetOpen: boolean;
   /** One-shot: Files view should open on Review drawer (Home, ⌘K). */
@@ -563,6 +575,11 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
     completed: boolean,
     completedAt?: string,
   ) => void;
+  broadcastLiveNotebookTaskToggle: (
+    taskId: string,
+    completed: boolean,
+    completedAt?: string | null,
+  ) => void;
 
   // Actions - Tasks
   addTask: (input: string) => Promise<Task | null>;
@@ -613,6 +630,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   setFilesSelectNoteId: (id: string | null) => void;
   setFilesCaptureOpen: (open: boolean) => void;
   triggerCelebration: () => void;
+  setSelectedNotebookSectionTab: (tab: NotebookSectionTab) => void;
   setTheme: (mode: ThemeMode, options?: { persist?: boolean }) => void;
 
   // Workspace (demo in !live mode)
@@ -721,6 +739,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   refreshHomeListAggregatesFromStore: () => void;
   /** Instant Home note counts for the active workspace from local store (no network). */
   refreshHomeNoteAggregatesFromStore: () => void;
+  /** Clear unread chat badge for a workspace after the user reads messages. */
+  clearWorkspaceUnreadChat: (workspaceId: string) => void;
   /** Instant Home upcoming task rows from local store (no network). */
   refreshHomeTaskFocusFromStore: () => void;
   /** Load list + item rows for a workspace into the store (no workspace switch). */
@@ -1096,6 +1116,7 @@ export const useTaskStore = create<TaskState>()(
       selectedNoteId: null,
       selectedNotebookId: null,
       selectedNotebookNoteId: null,
+      selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
       isCommandPaletteOpen: false,
       isKeyboardCheatsheetOpen: false,
       filesOpenReview: false,
@@ -1322,6 +1343,7 @@ export const useTaskStore = create<TaskState>()(
       setFilesCaptureOpen: (open) => set({ filesCaptureOpen: open }),
       triggerCelebration: () =>
         set((state) => ({ celebrationTrigger: state.celebrationTrigger + 1 })),
+      setSelectedNotebookSectionTab: (tab) => set({ selectedNotebookSectionTab: tab }),
 
       setTheme: (mode, options) => {
         const next = normalizeThemeMode(mode);
@@ -1344,13 +1366,22 @@ export const useTaskStore = create<TaskState>()(
             onlineUsers: [],
             tasks: [],
             notes: [],
-            workspaceLists: [],
-            listItems: [],
+            // Keep lists/items across switch so board/detail stay instant when
+            // home aggregates (or prior visits) already hold this workspace's data.
+            // initializeFromSupabase replaces with the authoritative bundle.
             comments: [],
             selectedTaskId: null,
             selectedNoteId: null,
             selectedNotebookId: null,
             selectedNotebookNoteId: null,
+            selectedNotebookTaskId: null,
+            selectedNotebookInvestmentId: null,
+            selectedNotebookCustomerId: null,
+            selectedNotebookCompetitorId: null,
+            selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
+            notesPageMode: "notes",
+            selectedMeetingId: null,
+            selectedAgendaItemId: null,
             isInitializing: true,
             ...(onTasksView
               ? { taskFilter: { ...get().taskFilter, statusMode: "incomplete" } }
@@ -1375,7 +1406,7 @@ export const useTaskStore = create<TaskState>()(
       },
 
       getFilteredTasks: () => {
-        const { tasks, taskFilter, currentWorkspace } = get();
+        const { tasks, taskFilter, currentWorkspace, notebookTasks, notebooks } = get();
         let result = tasks.filter((t) => t.workspaceId === currentWorkspace.id);
 
         if (taskFilter.search) {
@@ -1429,6 +1460,50 @@ export const useTaskStore = create<TaskState>()(
           } else {
             result = result.filter((t) => t.folderId === folderFilter);
           }
+        }
+
+        // Notebook tasks opted into the workspace Tasks page
+        const includeNotebookRows =
+          recurrenceMode !== "only" &&
+          taskFilter.starred !== "only" &&
+          (folderFilter === "all" || folderFilter === "none");
+
+        if (includeNotebookRows) {
+          const notebookNameById = new Map(notebooks.map((n) => [n.id, n.name]));
+          let notebookRows: Task[] = notebookTasks
+            .filter(
+              (nt) =>
+                nt.workspaceId === currentWorkspace.id && nt.showOnWorkspace === true,
+            )
+            .map((nt) => ({
+              id: nt.id,
+              title: nt.title,
+              description: "",
+              status: (nt.completed ? "done" : "todo") as TaskStatus,
+              priority: "P2" as Priority,
+              tags: [],
+              createdAt: nt.createdAt,
+              completedAt: nt.completedAt ?? undefined,
+              linkedNoteIds: [],
+              workspaceId: nt.workspaceId,
+              notebookId: nt.notebookId,
+              notebookName: notebookNameById.get(nt.notebookId) ?? "Notebook",
+            }));
+
+          if (taskFilter.search) {
+            const q = taskFilter.search.toLowerCase();
+            notebookRows = notebookRows.filter((t) => t.title.toLowerCase().includes(q));
+          }
+          if (statusMode === "completed") {
+            notebookRows = notebookRows.filter((t) => t.status === "done");
+          } else if (statusMode === "incomplete") {
+            notebookRows = notebookRows.filter((t) => t.status !== "done");
+          }
+          if (taskFilter.status?.length) {
+            notebookRows = notebookRows.filter((t) => taskFilter.status!.includes(t.status));
+          }
+
+          result = [...result, ...notebookRows];
         }
 
         // Sort: open tasks by due date; completed by most recently completed
@@ -1641,6 +1716,43 @@ export const useTaskStore = create<TaskState>()(
               (loadingStates[t.id] || pendingTaskIds.has(t.id)),
           );
           const mergedTasks = [...localOnlyTasks, ...realTasks];
+
+          const pendingOps = getPendingOperations();
+          const serverListIds = new Set(nextLists.map((l) => l.id));
+          const serverItemIds = new Set(nextItems.map((i) => i.id));
+          const pendingListIds = new Set(
+            pendingOps
+              .filter((op) => op.entityType === "list" && op.workspaceId === workspaceId)
+              .map((op) => op.targetId),
+          );
+          const pendingItemIds = new Set(
+            pendingOps
+              .filter((op) => op.entityType === "list_item" && op.workspaceId === workspaceId)
+              .map((op) => op.targetId),
+          );
+          // Prefer live store at merge time so creates during the fetch aren't wiped.
+          const liveLists = get().workspaceLists;
+          const liveItems = get().listItems;
+          const localOnlyLists = liveLists.filter((l) => {
+            if (l.workspaceId !== workspaceId) return false;
+            if (serverListIds.has(l.id) || serverListIds.has(normalizeListEntityId(l.id))) {
+              return false;
+            }
+            return (
+              pendingListIds.has(l.id) || pendingListIds.has(normalizeListEntityId(l.id))
+            );
+          });
+          const localOnlyListIds = new Set(localOnlyLists.map((l) => l.id));
+          const localOnlyItems = liveItems.filter((i) => {
+            if (serverItemIds.has(i.id) || serverItemIds.has(normalizeListEntityId(i.id))) {
+              return false;
+            }
+            const queued =
+              pendingItemIds.has(i.id) || pendingItemIds.has(normalizeListEntityId(i.id));
+            return queued || localOnlyListIds.has(i.listId);
+          });
+          nextLists = [...localOnlyLists, ...nextLists];
+          nextItems = [...localOnlyItems, ...nextItems];
 
           if (get().currentWorkspace.id !== requestWorkspaceId) {
             return;
@@ -2345,7 +2457,27 @@ export const useTaskStore = create<TaskState>()(
         const patchedStats: Record<string, WorkspaceTaskStats> = { ...prevStats };
         for (const ws of wss) {
           const wsTasks = storeTasks.filter((t) => t.workspaceId === ws.id);
-          if (wsTasks.length === 0) continue;
+          // Only recompute for workspaces that have local task rows loaded.
+          // Empty current-workspace after delete is already zeroed by withTaskSliceNavStats.
+          if (wsTasks.length === 0) {
+            if (ws.id === get().currentWorkspace.id) {
+              patchedStats[ws.id] = {
+                openCount: 0,
+                totalTaskCount: 0,
+                doneCount: 0,
+                overdueCount: 0,
+                dueTodayCount: 0,
+                assigneeBreakdown: [],
+                listCount: prevStats[ws.id]?.listCount,
+                openListItemsCount: prevStats[ws.id]?.openListItemsCount,
+                noteCount: prevStats[ws.id]?.noteCount,
+                pendingReviewCount: prevStats[ws.id]?.pendingReviewCount,
+                memberCount: prevStats[ws.id]?.memberCount,
+                unreadChat: prevStats[ws.id]?.unreadChat,
+              };
+            }
+            continue;
+          }
           const computed = computeWorkspaceTaskStats(wsTasks, members, userId, today);
           patchedStats[ws.id] = {
             ...computed,
@@ -2353,6 +2485,8 @@ export const useTaskStore = create<TaskState>()(
             openListItemsCount: prevStats[ws.id]?.openListItemsCount,
             noteCount: prevStats[ws.id]?.noteCount,
             memberCount: prevStats[ws.id]?.memberCount,
+            pendingReviewCount: prevStats[ws.id]?.pendingReviewCount,
+            unreadChat: prevStats[ws.id]?.unreadChat,
           };
         }
 
@@ -2419,6 +2553,19 @@ export const useTaskStore = create<TaskState>()(
           pendingReviewCount,
         };
         set({ globalWorkspaceStats: patchedStats });
+      },
+
+      clearWorkspaceUnreadChat: (workspaceId: string) => {
+        if (!workspaceId) return;
+        const stats = get().globalWorkspaceStats;
+        const prev = stats[workspaceId];
+        if (!prev?.unreadChat) return;
+        set({
+          globalWorkspaceStats: {
+            ...stats,
+            [workspaceId]: { ...prev, unreadChat: false },
+          },
+        });
       },
 
       fetchGlobalHomeAggregates: async () => {
@@ -2840,6 +2987,7 @@ export const useTaskStore = create<TaskState>()(
             },
           ),
         );
+        get().refreshHomeTaskFocusFromStore();
 
         if (isSupabaseLive()) {
           try {
@@ -2942,6 +3090,7 @@ export const useTaskStore = create<TaskState>()(
             { taskLoadingStates: { ...state.taskLoadingStates, [id]: true } },
           ),
         );
+        get().refreshHomeTaskFocusFromStore();
 
         if (isSupabaseLive()) {
           try {
@@ -4703,10 +4852,10 @@ export const useTaskStore = create<TaskState>()(
           return false;
         }
         if (updates.settings) {
-          const merged = parseWorkspaceSettings(get().currentWorkspace.settings);
-          const nextSettings = {
-            features: { ...merged.features, ...updates.settings.features },
-          };
+          const nextSettings = mergeWorkspaceSettings(
+            get().currentWorkspace.settings,
+            updates.settings,
+          );
           set((state) => ({
             currentWorkspace: { ...state.currentWorkspace, settings: nextSettings },
             workspaces: state.workspaces.map((w) =>
@@ -4926,7 +5075,16 @@ export const useTaskStore = create<TaskState>()(
                 get().refreshHomeTaskFocusFromStore();
               }
             } else if (eventType === "DELETE" && oldRow) {
-              set({ tasks: currentTasks.filter((t) => t.id !== oldRow.id) });
+              const workspaceId =
+                (oldRow as { workspace_id?: string }).workspace_id ||
+                get().currentWorkspace.id;
+              set((state) =>
+                withTaskSliceNavStats(
+                  state,
+                  workspaceId,
+                  removeTaskFromSlices(state, oldRow.id),
+                ),
+              );
             }
           },
           onNoteChange: (payload) => {
@@ -5245,6 +5403,31 @@ export const useTaskStore = create<TaskState>()(
               set({ listItems: items.filter((i) => i.id !== oldRow.id) });
             }
           },
+          onNotebookTaskChange: (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const existing = get().notebookTasks || [];
+            if (eventType === "INSERT" && newRow) {
+              const mapped = mapNotebookTaskRow(newRow);
+              if (existing.some((t) => t.id === mapped.id)) return;
+              set({ notebookTasks: [...existing, mapped] });
+            } else if (eventType === "UPDATE" && newRow) {
+              const mapped = mapNotebookTaskRow(newRow);
+              set({
+                notebookTasks: existing.map((t) => (t.id === mapped.id ? mapped : t)),
+              });
+            } else if (eventType === "DELETE" && oldRow) {
+              set({
+                notebookTasks: existing.filter((t) => t.id !== oldRow.id),
+                notebookTaskProgress: get().notebookTaskProgress.filter(
+                  (p) => p.taskId !== oldRow.id,
+                ),
+                selectedNotebookTaskId:
+                  get().selectedNotebookTaskId === oldRow.id
+                    ? null
+                    : get().selectedNotebookTaskId,
+              });
+            }
+          },
         }, { sharedListIds });
 
         // Store cleanup for later teardown (simple closure capture via state flag)
@@ -5387,6 +5570,24 @@ export const useTaskStore = create<TaskState>()(
                         updatedAt: ts,
                       }
                     : i
+                ),
+              }));
+            })
+            .on('broadcast', { event: 'live-notebook-task-toggle' }, ({ payload }) => {
+              if (!payload?.taskId || !payload?.userId) return;
+              const selfId = get().user?.id || 'me';
+              if (payload.userId === selfId) return;
+              const ts = payload.ts || new Date().toISOString();
+              set((s) => ({
+                notebookTasks: (s.notebookTasks || []).map((t) =>
+                  t.id === payload.taskId
+                    ? {
+                        ...t,
+                        completed: !!payload.completed,
+                        completedAt: payload.completed ? (payload.completedAt || ts) : null,
+                        updatedAt: ts,
+                      }
+                    : t,
                 ),
               }));
             })
@@ -5575,6 +5776,26 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
+      broadcastLiveNotebookTaskToggle: (taskId, completed, completedAt) => {
+        const pres = (get() as any)._presenceChannel;
+        const st = get();
+        const user = st.user;
+        if (!user || !isSupabaseLive() || ["w1", "w2"].includes(st.currentWorkspace.id)) return;
+
+        const payload = {
+          taskId,
+          userId: user.id || "me",
+          email: user.email,
+          completed,
+          completedAt: completed ? (completedAt || new Date().toISOString()) : null,
+          ts: new Date().toISOString(),
+        };
+
+        if (pres) {
+          sendChannelBroadcast(pres, "live-notebook-task-toggle", payload);
+        }
+      },
+
       // Agent 30: resolve concurrent edit conflict (LWW aware + UI choice)
       resolveConflict: async (itemId, keepLocal) => {
         const conflicts = get().activeConflicts || {};
@@ -5680,6 +5901,8 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
             selectedNotebookCustomerId: state.selectedNotebookCustomerId,
             selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
+            selectedNotebookSectionTab: state.selectedNotebookSectionTab,
+            notesPageMode: state.notesPageMode,
             selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
             theme: state.theme,
@@ -5713,6 +5936,8 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
           selectedNotebookCustomerId: state.selectedNotebookCustomerId,
           selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
+          selectedNotebookSectionTab: state.selectedNotebookSectionTab,
+          notesPageMode: state.notesPageMode,
           selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
           myProfile: state.myProfile,

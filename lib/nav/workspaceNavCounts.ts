@@ -34,6 +34,12 @@ export function getWorkspaceNavTaskCounts(input: {
   globalTodayFocus: WorkspaceNavFocusItem[];
   globalOpenTaskFocus: WorkspaceNavFocusItem[];
   globalWorkspaceStats?: Record<string, WorkspaceTaskStats>;
+  /**
+   * When true (workspace tasks hydrated), always derive counts from local slices —
+   * including empty → 0 — so complete/delete clear the badge instantly.
+   * When false (still booting), fall back to aggregate stats if local slices are empty.
+   */
+  preferLocalTasks?: boolean;
 }): { openCount: number; overdueCount: number } {
   const wsTasks = mergeWorkspaceTasksForNavCounts(
     input.workspaceId,
@@ -41,7 +47,7 @@ export function getWorkspaceNavTaskCounts(input: {
     input.globalTodayFocus,
     input.globalOpenTaskFocus,
   );
-  if (wsTasks.length > 0) {
+  if (wsTasks.length > 0 || input.preferLocalTasks) {
     return countOpenAndOverdueTasks(wsTasks);
   }
   const stats = input.globalWorkspaceStats?.[input.workspaceId];

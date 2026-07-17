@@ -295,13 +295,13 @@ export function NotebookCompetitorsPanel({
                       type="button"
                       onClick={() => onSelectCompetitor(competitor.id)}
                       className={cn(
-                        "w-full text-left px-3 py-2.5 transition border-l-2",
-                        isSelected
-                          ? "bg-neon-purple/10 border-neon-purple/60"
-                          : "border-transparent hover:bg-surface-hover",
+                        "files-list-item w-full text-left px-3 py-2.5 transition relative",
+                        isSelected && "files-list-item--selected",
+                        !isSelected && "hover:bg-surface-hover",
                       )}
+                      aria-selected={isSelected}
                     >
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2 relative z-[1]">
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium truncate text-text-primary">
                             {competitor.name}
@@ -323,7 +323,7 @@ export function NotebookCompetitorsPanel({
                         </div>
                       </div>
                       <MarketShareBar
-                        className="mt-2 h-1"
+                        className="mt-2 h-1 relative z-[1]"
                         segments={[
                           {
                             id: "share",

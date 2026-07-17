@@ -105,7 +105,7 @@ export function ThemeToggleSegmented({
             aria-checked={active}
             onClick={() => setMode(option.mode)}
             className={cn(
-              "flex-1 min-h-[40px] inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition",
+              "flex-1 min-h-[34px] inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition",
               active
                 ? "bg-bg-secondary text-text-primary shadow-sm border border-border-glass"
                 : "text-text-muted hover:text-text-primary",

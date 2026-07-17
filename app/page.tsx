@@ -66,7 +66,7 @@ import { useNoteKeyboard } from "@/features/notes/hooks";
 import { hasOpenOverlay } from "@/lib/dom/hasOpenOverlay";
 import { HomeView, getGreeting } from "@/features/home";
 import { ListDetailModal } from "@/features/lists/components/ListDetailModal";
-import { flattenListItems, getIncompleteSubtreeItems } from "@/lib/lists/listItemTree";
+import { getIncompleteSubtreeItems } from "@/lib/lists/listItemTree";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import {
   AnimatedBottomNavItemContent,
@@ -74,7 +74,7 @@ import {
   WorkspaceSwitchEffects,
 } from "@/components/WorkspaceSwitchEffects";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { ThemeToggleSegmented } from "@/components/ThemeToggle";
 import { TasksNavIndicator } from "@/components/TasksNavIndicator";
 import { FilesNavIndicator } from "@/components/FilesNavIndicator";
 import { filterPendingReview, sortFiledNotes } from "@/lib/files/fileFilters";
@@ -204,6 +204,7 @@ export default function BadAssTasks() {
     fetchGlobalHomeAggregates,
     refreshHomeListAggregatesFromStore,
     refreshHomeNoteAggregatesFromStore,
+    clearWorkspaceUnreadChat,
     refreshHomeTaskFocusFromStore,
     hydrateWorkspaceListData,
     // Offline / sync (Agent 17 mobile polish — exposed from hybrid + store)
@@ -251,12 +252,14 @@ export default function BadAssTasks() {
     filesCaptureOpen,
     setFilesCaptureOpen,
     getNotebooks,
+    getArchivedNotebooks,
     getNotebookNotes,
     getNotebookTasks,
     getNotebookInvestments,
     getNotebookCustomers,
     getNotebookCompetitors,
     getMeetings,
+    getArchivedMeetings,
     getMeetingAgendaItems,
     selectedNotebookId,
     selectedNotebookNoteId,
@@ -282,11 +285,13 @@ export default function BadAssTasks() {
     addNotebookTask,
     toggleNotebookTask,
     updateNotebookTask,
+    setNotebookTaskShowOnWorkspace,
     deleteNotebookTask,
     addNotebookTaskProgress,
     updateNotebookTaskProgress,
     deleteNotebookTaskProgress,
     addNotebookInvestment,
+    toggleNotebookInvestment,
     updateNotebookInvestment,
     reorderNotebookInvestments,
     deleteNotebookInvestment,
@@ -323,6 +328,7 @@ export default function BadAssTasks() {
     completeMeeting,
     reopenMeeting,
     startNextMeeting,
+    duplicateMeeting,
     meetingAgendaItems,
     meetingAgendaEntries,
     notebookTaskProgress,
@@ -330,6 +336,8 @@ export default function BadAssTasks() {
     notebookCustomerNotes,
     notebookCompetitors,
     notebookCompetitorNotes,
+    notebookTasks,
+    notebooks,
     healthProfiles,
     selectedHealthMemberId,
     healthSectionTab,
@@ -377,22 +385,48 @@ export default function BadAssTasks() {
   const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
   const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
 
-  // Messages panel collapsed by default; close when switching workspace or chat unavailable.
-  useEffect(() => {
-    setChatOpen(false);
-  }, [currentWorkspace.id, showWorkspaceChat]);
-
   const workspaceChat = useWorkspaceChat({
     workspaceId: currentWorkspace.id,
     userId: user?.id,
     members,
     isOpen: chatOpen,
   });
+  const markChatReadRef = useRef(workspaceChat.markRead);
+  markChatReadRef.current = workspaceChat.markRead;
+  const chatOpenRef = useRef(chatOpen);
+  chatOpenRef.current = chatOpen;
+
+  const closeChat = useCallback(() => {
+    markChatReadRef.current();
+    clearWorkspaceUnreadChat(currentWorkspace.id);
+    setChatOpen(false);
+  }, [clearWorkspaceUnreadChat, currentWorkspace.id]);
 
   const toggleChat = () => {
     triggerHaptic("light");
-    setChatOpen((open) => !open);
+    if (chatOpen) {
+      closeChat();
+      return;
+    }
+    setShowNotifications(false);
+    setShowProfilePopover(false);
+    setChatOpen(true);
   };
+
+  // Messages panel collapsed by default; close when switching workspace or chat unavailable.
+  useEffect(() => {
+    if (chatOpenRef.current) {
+      markChatReadRef.current();
+      clearWorkspaceUnreadChat(currentWorkspace.id);
+    }
+    setChatOpen(false);
+  }, [currentWorkspace.id, showWorkspaceChat, clearWorkspaceUnreadChat]);
+
+  useEffect(() => {
+    if (!workspaceChat.hasUnread) {
+      clearWorkspaceUnreadChat(currentWorkspace.id);
+    }
+  }, [workspaceChat.hasUnread, currentWorkspace.id, clearWorkspaceUnreadChat]);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
@@ -721,7 +755,7 @@ export default function BadAssTasks() {
   // Note: getFilteredTasks is stable from Zustand but computation is non-trivial.
   const filteredTasks = useMemo(
     () => getFilteredTasks(),
-    [getFilteredTasks, tasks, taskFilter, currentWorkspace.id],
+    [getFilteredTasks, tasks, notebookTasks, notebooks, taskFilter, currentWorkspace.id],
   );
 
   const currentWorkspaceTaskCounts = useMemo(
@@ -732,8 +766,17 @@ export default function BadAssTasks() {
         globalTodayFocus,
         globalOpenTaskFocus,
         globalWorkspaceStats,
+        preferLocalTasks: !isInitializing && !isAuthLoading,
       }),
-    [tasks, globalTodayFocus, globalOpenTaskFocus, currentWorkspace.id, globalWorkspaceStats],
+    [
+      tasks,
+      globalTodayFocus,
+      globalOpenTaskFocus,
+      currentWorkspace.id,
+      globalWorkspaceStats,
+      isInitializing,
+      isAuthLoading,
+    ],
   );
 
   const pendingReviewCount = useMemo(
@@ -1127,6 +1170,16 @@ export default function BadAssTasks() {
     id: string,
     undoContext?: { task: Task; workspaceId: string; workspaceName: string },
   ) => {
+    const notebookTask = notebookTasks.find((t) => t.id === id);
+    if (notebookTask) {
+      const wasCompleted = notebookTask.completed;
+      await toggleNotebookTask(id);
+      toast.success(wasCompleted ? "Task reopened" : "Task completed", {
+        description: notebookTask.title,
+      });
+      return;
+    }
+
     triggerHaptic("success");
     const task = resolveTaskById(id);
     if (!task || taskLoadingStates?.[id]) return;
@@ -1170,6 +1223,13 @@ export default function BadAssTasks() {
   }, []);
 
   const openTask = (task: Task) => {
+    if (task.notebookId) {
+      setNotesPageMode("notes");
+      setSelectedNotebookId(task.notebookId);
+      setSelectedNotebookTaskId(task.id);
+      setView("notebooks");
+      return;
+    }
     selectTask(task.id);
     setModalTask(task);
     setShowFullTaskModal(true);
@@ -1205,18 +1265,14 @@ export default function BadAssTasks() {
 
   const listDetailItems = useMemo(() => {
     if (!listDetailTarget) return [];
-    const items = listItems.filter(
-      (i) => i.listId === listDetailTarget.listId && i.workspaceId === listDetailTarget.workspaceId,
-    );
-    return flattenListItems(items);
-  }, [listDetailTarget, listItems]);
+    // Shared-aware + workspace-scoped: shared items keep source workspaceId.
+    return getListItemsForList(listDetailTarget.listId, listDetailTarget.workspaceId);
+  }, [listDetailTarget, getListItemsForList, listItems]);
 
   const closeListDetail = useCallback(() => {
     setListDetailTarget((current) => {
       if (current?.discardIfEmpty) {
-        const hasItems = listItems.some(
-          (item) => item.listId === current.listId && item.workspaceId === current.workspaceId,
-        );
+        const hasItems = getListItemsForList(current.listId, current.workspaceId).length > 0;
         if (!hasItems) {
           void deleteList(current.listId);
         }
@@ -1224,7 +1280,7 @@ export default function BadAssTasks() {
       return null;
     });
     refreshHomeListAggregatesFromStore();
-  }, [deleteList, listItems, refreshHomeListAggregatesFromStore]);
+  }, [deleteList, getListItemsForList, refreshHomeListAggregatesFromStore]);
 
   const handleToggleListItem = useCallback(
     async (id: string) => {
@@ -1555,21 +1611,21 @@ export default function BadAssTasks() {
     };
 
     return (
-      <div className="profile-popover-panel__body p-4 md:p-4 text-sm space-y-4">
-        <div className="space-y-3">
+      <div className="profile-popover-panel__body p-3 text-sm space-y-2.5">
+        <div className="space-y-2">
           <div>
-            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1">
               Signed in as
             </label>
             <p
-              className="profile-popover-email px-3 py-2.5 text-sm rounded-xl min-h-[44px] bg-surface-hover border border-border-glass text-text-primary truncate"
+              className="profile-popover-email px-2.5 py-1.5 text-xs rounded-lg bg-surface-hover border border-border-glass text-text-primary truncate"
               title={user.email ?? undefined}
             >
               {user.email || "No email on this account"}
             </p>
           </div>
           <div>
-            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1">
               Full name
             </label>
             <input
@@ -1577,16 +1633,16 @@ export default function BadAssTasks() {
               value={nameVal}
               onChange={(e) => setProfileFullName(e.target.value)}
               placeholder="Alex Rivera"
-              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
+              className="input w-full px-2.5 py-1.5 text-sm rounded-lg min-h-[36px]"
               disabled={profileDisabled}
             />
           </div>
           <div>
-            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1">
               Username / handle
             </label>
             <div className="flex items-center gap-1">
-              <span className="text-text-secondary px-2">@</span>
+              <span className="text-text-secondary px-1.5 text-sm">@</span>
               <input
                 type="text"
                 value={userVal}
@@ -1594,13 +1650,13 @@ export default function BadAssTasks() {
                   setProfileUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
                 }
                 placeholder="alexr"
-                className="input flex-1 px-3 py-2.5 text-sm rounded-xl font-mono min-h-[44px]"
+                className="input flex-1 px-2.5 py-1.5 text-sm rounded-lg font-mono min-h-[36px]"
                 disabled={profileDisabled}
               />
             </div>
           </div>
           <div>
-            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1.5">
+            <label className="block text-[10px] uppercase tracking-widest text-text-muted mb-1">
               Where you&apos;re from
             </label>
             <input
@@ -1608,23 +1664,23 @@ export default function BadAssTasks() {
               value={locVal}
               onChange={(e) => setProfileLocation(e.target.value)}
               placeholder="San Francisco, CA or Remote"
-              className="input w-full px-3 py-2.5 text-sm rounded-xl min-h-[44px]"
+              className="input w-full px-2.5 py-1.5 text-sm rounded-lg min-h-[36px]"
               disabled={profileDisabled}
             />
           </div>
         </div>
 
-        <div className="border-t border-border-glass pt-3 space-y-1">
+        <div className="border-t border-border-glass pt-2 grid grid-cols-2 gap-1.5">
           <button
             type="button"
             onClick={() => {
               setShowProfilePopover(false);
               setShowChangePassword(true);
             }}
-            className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium text-text-primary hover:bg-surface-hover"
+            className="min-h-[36px] flex items-center justify-center gap-1.5 rounded-lg transition text-xs font-medium text-text-primary hover:bg-surface-hover border border-border-glass"
           >
-            <Lock className="h-4 w-4 text-neon-purple" />
-            Change password
+            <Lock className="h-3.5 w-3.5 text-neon-purple shrink-0" />
+            Password
           </button>
           <button
             type="button"
@@ -1632,22 +1688,23 @@ export default function BadAssTasks() {
               setShowProfilePopover(false);
               setShowLoginActivity(true);
             }}
-            className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium text-text-primary hover:bg-surface-hover"
+            className="min-h-[36px] flex items-center justify-center gap-1.5 rounded-lg transition text-xs font-medium text-text-primary hover:bg-surface-hover border border-border-glass"
           >
-            <KeyRound className="h-4 w-4 text-neon-purple" />
-            Login activity
+            <KeyRound className="h-3.5 w-3.5 text-neon-purple shrink-0" />
+            Activity
           </button>
         </div>
 
-        <div className="border-t border-border-glass pt-4">
-          <ThemeToggle compact onThemeChange={() => setShowProfilePopover(false)} />
+        <div className="border-t border-border-glass pt-2 space-y-1.5">
+          <div className="text-[10px] uppercase tracking-widest text-text-muted">Appearance</div>
+          <ThemeToggleSegmented onThemeChange={() => setShowProfilePopover(false)} />
         </div>
 
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => setShowProfilePopover(false)}
-            className="btn btn-ghost flex-1 min-h-[44px]"
+            className="btn btn-ghost flex-1 min-h-[36px] text-sm py-1.5"
           >
             Cancel
           </button>
@@ -1655,16 +1712,16 @@ export default function BadAssTasks() {
             type="button"
             onClick={() => void save()}
             disabled={profileDisabled}
-            className="btn btn-primary flex-1 min-h-[44px] disabled:opacity-50"
+            className="btn btn-primary flex-1 min-h-[36px] text-sm py-1.5 disabled:opacity-50"
           >
             {isSavingProfile ? "Saving..." : "Save"}
           </button>
         </div>
         {!isLiveWorkspace && (
-          <p className="text-[10px] text-neon-purple text-center">Live connection required to save</p>
+          <p className="text-[10px] text-neon-purple text-center -mt-1">Live connection required to save</p>
         )}
         {isSiteAdmin && (
-          <div className="border-t border-border-glass pt-3 md:hidden">
+          <div className="border-t border-border-glass pt-2 md:hidden">
             <button
               type="button"
               onClick={() => {
@@ -1672,7 +1729,7 @@ export default function BadAssTasks() {
                 setView("admin");
               }}
               className={cn(
-                "w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg transition font-medium",
+                "w-full min-h-[36px] flex items-center justify-center gap-2 rounded-lg transition text-sm font-medium",
                 currentView === "admin"
                   ? "text-neon-purple bg-neon-purple/10"
                   : "text-text-primary hover:bg-surface-hover",
@@ -1683,16 +1740,16 @@ export default function BadAssTasks() {
             </button>
           </div>
         )}
-        <div className="border-t border-border-glass pt-3">
+        <div className="border-t border-border-glass pt-2">
           <button
             type="button"
             onClick={() => {
               setShowProfilePopover(false);
               setPendingSignOut(true);
             }}
-            className="profile-popover-sign-out w-full min-h-[44px] flex items-center justify-center gap-2 text-[var(--priority-p0)] hover:opacity-90 hover:bg-red-500/10 rounded-lg transition font-medium"
+            className="profile-popover-sign-out w-full min-h-[36px] flex items-center justify-center gap-2 text-[var(--priority-p0)] hover:opacity-90 hover:bg-red-500/10 rounded-lg transition text-sm font-medium"
           >
-            <LogOut className="h-4 w-4 text-[var(--priority-p0)]" />
+            <LogOut className="h-3.5 w-3.5 text-[var(--priority-p0)]" />
             Log out
           </button>
         </div>
@@ -2968,6 +3025,7 @@ export default function BadAssTasks() {
             workspaceId={currentWorkspace.id}
             workspaceName={currentWorkspace.name}
             notebooks={getNotebooks()}
+            archivedNotebooks={getArchivedNotebooks()}
             notes={getNotebookNotes(selectedNotebookId)}
             notebookTasks={getNotebookTasks(selectedNotebookId)}
             notebookTaskProgress={notebookTaskProgress.filter((p) =>
@@ -2988,6 +3046,7 @@ export default function BadAssTasks() {
             )}
             workspaceCompetitorNotes={notebookCompetitorNotes}
             meetings={getMeetings()}
+            archivedMeetings={getArchivedMeetings()}
             meetingAgendaItems={meetingAgendaItems}
             meetingAgendaEntries={meetingAgendaEntries}
             members={members}
@@ -3039,11 +3098,13 @@ export default function BadAssTasks() {
             onCompleteMeeting={completeMeeting}
             onReopenMeeting={reopenMeeting}
             onStartNextMeeting={startNextMeeting}
+            onDuplicateMeeting={duplicateMeeting}
             onAddNotebookTask={(title) =>
               selectedNotebookId ? addNotebookTask(selectedNotebookId, title) : undefined
             }
             onToggleNotebookTask={toggleNotebookTask}
             onUpdateNotebookTask={(id, title) => updateNotebookTask(id, { title })}
+            onSetNotebookTaskShowOnWorkspace={setNotebookTaskShowOnWorkspace}
             onDeleteNotebookTask={deleteNotebookTask}
             onAddNotebookTaskProgress={addNotebookTaskProgress}
             onUpdateNotebookTaskProgress={updateNotebookTaskProgress}
@@ -3051,6 +3112,7 @@ export default function BadAssTasks() {
             onAddNotebookInvestment={(title) =>
               selectedNotebookId ? addNotebookInvestment(selectedNotebookId, title) : undefined
             }
+            onToggleNotebookInvestment={toggleNotebookInvestment}
             onUpdateNotebookInvestment={(id, title) => updateNotebookInvestment(id, { title })}
             onReorderNotebookInvestments={(orderedIds) =>
               selectedNotebookId
@@ -3664,12 +3726,12 @@ export default function BadAssTasks() {
                   aria-label="Your profile"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="profile-popover-panel__header shrink-0 px-4 py-3 border-b border-border-glass flex items-center justify-between gap-2">
+                  <div className="profile-popover-panel__header shrink-0 px-3 py-2 border-b border-border-glass flex items-center justify-between gap-2">
                     <h2 className="font-semibold text-sm tracking-tight text-text-primary">Your profile</h2>
                     <button
                       type="button"
                       onClick={() => setShowProfilePopover(false)}
-                      className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition"
+                      className="shrink-0 p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition"
                       aria-label="Close profile editor"
                     >
                       <X className="h-4 w-4" />
@@ -3966,7 +4028,7 @@ export default function BadAssTasks() {
                 userId={user?.id}
                 members={members}
                 chat={workspaceChat}
-                onCollapse={() => setChatOpen(false)}
+                onCollapse={closeChat}
               />
             </div>
           </motion.aside>
@@ -4041,7 +4103,7 @@ export default function BadAssTasks() {
       {showWorkspaceChat && (
         <ChatDrawer
           open={chatOpen}
-          onClose={() => setChatOpen(false)}
+          onClose={closeChat}
           chat={workspaceChat}
           workspaceId={currentWorkspace.id}
           workspaceName={currentWorkspace.name}

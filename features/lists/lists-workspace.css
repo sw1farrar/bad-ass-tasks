@@ -2063,14 +2063,16 @@
 
 .list-detail-scroll--mobile-sheet {
   touch-action: pan-y;
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: max(
+    1.25rem,
+    env(safe-area-inset-bottom, 12px),
+    var(--keyboard-inset, 0px)
+  );
 }
 
-.list-detail-scroll--mobile-sheet[data-sheet-dismiss-ready="true"] {
-  touch-action: none;
-}
-
+/* Only lock touch while the sheet is actually dragging — not merely at scrollTop 0. */
 .list-detail-sheet-dragging,
 .list-detail-sheet-dragging .list-detail-scroll {
   touch-action: none;
@@ -2200,10 +2202,22 @@
 .list-detail-body {
   scrollbar-gutter: stable;
   background: var(--list-bg, transparent);
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .list-detail-scroll {
   background: var(--list-bg, transparent);
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding-bottom: 1rem;
 }
 
@@ -2572,6 +2586,9 @@
 
 .list-detail-panel {
   width: min(42rem, 100%);
+  max-height: min(85vh, 720px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .list-detail-modal .list-header-title,
@@ -2616,6 +2633,9 @@
 .list-detail-sheet--mobile {
   width: 100%;
   max-width: 100%;
+  height: var(--vvh, 100dvh);
+  max-height: var(--vvh, 100dvh);
+  min-height: 0;
   margin-left: auto;
   margin-right: auto;
   will-change: transform;
@@ -3129,7 +3149,11 @@
   .list-detail-modal .list-detail-scroll {
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 12px));
+    padding-bottom: max(
+      1.25rem,
+      env(safe-area-inset-bottom, 12px),
+      var(--keyboard-inset, 0px)
+    );
   }
 
   .list-detail-modal.list-detail-sheet--mobile .list-detail-toolbar--mobile {

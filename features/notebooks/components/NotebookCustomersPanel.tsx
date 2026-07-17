@@ -128,24 +128,27 @@ export function NotebookCustomersPanel({
             </p>
           ) : (
             <ul className="py-1">
-              {filteredCustomers.map((customer) => (
+              {filteredCustomers.map((customer) => {
+                const isSelected = selectedCustomerId === customer.id;
+                return (
                 <li key={customer.id}>
                   <button
                     type="button"
                     onClick={() => onSelectCustomer(customer.id)}
                     className={cn(
-                      "w-full text-left px-3 py-2.5 transition",
-                      selectedCustomerId === customer.id
-                        ? "bg-neon-purple/10"
-                        : "hover:bg-surface-hover",
+                      "files-list-item w-full text-left px-3 py-2.5 transition relative",
+                      isSelected && "files-list-item--selected",
+                      !isSelected && "hover:bg-surface-hover",
                     )}
+                    aria-selected={isSelected}
                   >
-                    <div className="text-sm font-medium truncate text-text-primary">
+                    <div className="text-sm font-medium truncate text-text-primary relative z-[1]">
                       {customer.accountName}
                     </div>
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>

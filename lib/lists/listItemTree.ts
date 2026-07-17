@@ -500,7 +500,39 @@ export function getFlatListNudgeTargets(
   upOverId: string | null;
   downOverId: string | null;
 } {
-  let flat = flattenListItems(items);
+  const fullFlat = flattenListItems(items);
+  const active = fullFlat.find((row) => row.id === itemId);
+  if (!active) {
+    return { canMoveUp: false, canMoveDown: false, upOverId: null, downOverId: null };
+  }
+
+  // Top-level parents move as complete families. Targeting the immediately
+  // preceding flat row would target the previous parent's last child and could
+  // split or nest the families instead of swapping them.
+  if (active.depth === 0) {
+    const visibleRoots = fullFlat.filter(
+      (row) => row.depth === 0 && (!visibleItemIds || visibleItemIds.has(row.id)),
+    );
+    const rootIndex = visibleRoots.findIndex((row) => row.id === itemId);
+    if (rootIndex < 0) {
+      return { canMoveUp: false, canMoveDown: false, upOverId: null, downOverId: null };
+    }
+
+    const previousRoot = visibleRoots[rootIndex - 1];
+    const nextRoot = visibleRoots[rootIndex + 1];
+    const nextFamilyIds = nextRoot ? getSubtreeFlatIds(nextRoot.id, items) : [];
+    const downOverId = nextFamilyIds.at(-1) ?? null;
+    const upOverId = previousRoot?.id ?? null;
+
+    return {
+      canMoveUp: upOverId !== null,
+      canMoveDown: downOverId !== null,
+      upOverId,
+      downOverId,
+    };
+  }
+
+  let flat = fullFlat;
   if (visibleItemIds && visibleItemIds.size > 0) {
     flat = flat.filter((row) => visibleItemIds.has(row.id));
   }

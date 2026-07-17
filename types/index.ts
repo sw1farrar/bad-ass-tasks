@@ -38,6 +38,12 @@ export interface Task {
   starred?: boolean;
   /** Workspace task folder (organizational grouping) */
   folderId?: string | null;
+  /**
+   * When set, this row is a notebook task surfaced on the workspace Tasks page
+   * (not a native workspace task row).
+   */
+  notebookId?: string | null;
+  notebookName?: string | null;
 }
 
 /** Workspace-scoped folder for grouping tasks (distinct from Files view). */
@@ -102,6 +108,7 @@ export interface Notebook {
   enabledSections?: import("@/lib/notebooks/notebookSections").NotebookSectionTab[];
   /** Our sales for market-share comparison in the Competitors section. */
   ourSales?: number;
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -113,6 +120,8 @@ export interface NotebookTask {
   title: string;
   completed: boolean;
   sortOrder: number;
+  /** When true, also appear on the workspace Tasks page. */
+  showOnWorkspace?: boolean;
   completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -132,6 +141,8 @@ export interface NotebookInvestment {
   workspaceId: string;
   title: string;
   sortOrder: number;
+  completed?: boolean;
+  completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -222,6 +233,8 @@ export interface Meeting {
   id: string;
   workspaceId: string;
   title: string;
+  /** Optional one-line / short blurb shown in the header and on agenda/summary exports. */
+  description?: string | null;
   status: MeetingStatus;
   scheduledAt?: string | null;
   startedAt?: string | null;
@@ -231,6 +244,7 @@ export interface Meeting {
   attendeeIds: string[];
   summaryHtml?: string | null;
   sortOrder: number;
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }

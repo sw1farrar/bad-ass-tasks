@@ -9,7 +9,8 @@ import type {
   NotebookTask,
   NotebookTaskProgress,
 } from "@/types";
-import { generateId } from "@/lib/utils";
+import type { NotebookSectionTab } from "@/lib/notebooks/notebookSections";
+import { generateId, triggerHaptic } from "@/lib/utils";
 import { generateClientId, isSupabaseLive, updateNotebook } from "@/lib/data/hybridStore";
 import { sortProgressEntriesNewestFirst } from "@/lib/notebooks/progressEntries";
 import {
@@ -73,11 +74,18 @@ type SectionStoreSlice = {
   selectedNotebookInvestmentId: string | null;
   selectedNotebookCustomerId: string | null;
   selectedNotebookCompetitorId: string | null;
+  selectedNotebookSectionTab?: NotebookSectionTab;
 };
 
 type Get = () => SectionStoreSlice & {
   currentWorkspace: { id: string };
   user: { id: string } | null;
+  broadcastLiveNotebookTaskToggle?: (
+    taskId: string,
+    completed: boolean,
+    completedAt?: string | null,
+  ) => void;
+  triggerCelebration?: () => void;
 };
 type Set = (
   partial: Partial<SectionStoreSlice> | ((state: SectionStoreSlice) => Partial<SectionStoreSlice>),
@@ -137,12 +145,26 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       );
     },
 
-    setSelectedNotebookTaskId: (id: string | null) => set({ selectedNotebookTaskId: id }),
+    setSelectedNotebookTaskId: (id: string | null) =>
+      set({
+        selectedNotebookTaskId: id,
+        ...(id ? { selectedNotebookSectionTab: "tasks" } : {}),
+      }),
     setSelectedNotebookInvestmentId: (id: string | null) =>
-      set({ selectedNotebookInvestmentId: id }),
-    setSelectedNotebookCustomerId: (id: string | null) => set({ selectedNotebookCustomerId: id }),
+      set({
+        selectedNotebookInvestmentId: id,
+        ...(id ? { selectedNotebookSectionTab: "investments" } : {}),
+      }),
+    setSelectedNotebookCustomerId: (id: string | null) =>
+      set({
+        selectedNotebookCustomerId: id,
+        ...(id ? { selectedNotebookSectionTab: "customers" } : {}),
+      }),
     setSelectedNotebookCompetitorId: (id: string | null) =>
-      set({ selectedNotebookCompetitorId: id }),
+      set({
+        selectedNotebookCompetitorId: id,
+        ...(id ? { selectedNotebookSectionTab: "competitors" } : {}),
+      }),
 
     addNotebookTask: async (notebookId: string, title = "New task") => {
       const workspaceId = wsId();
@@ -156,6 +178,7 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
         workspaceId,
         title: title.trim() || "New task",
         completed: false,
+        showOnWorkspace: false,
         sortOrder: maxOrder + 1000,
         createdAt: now,
         updatedAt: now,
@@ -191,6 +214,13 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
             : t,
         ),
       }));
+      get().broadcastLiveNotebookTaskToggle?.(id, completed, completed ? now : null);
+      if (completed) {
+        triggerHaptic("success");
+        get().triggerCelebration?.();
+      } else {
+        triggerHaptic("light");
+      }
       if (shouldPersist(task.workspaceId)) {
         void updateTaskDb(id, task.workspaceId, {
           completed,
@@ -199,7 +229,10 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       }
     },
 
-    updateNotebookTask: async (id: string, updates: Partial<Pick<NotebookTask, "title">>) => {
+    updateNotebookTask: async (
+      id: string,
+      updates: Partial<Pick<NotebookTask, "title" | "showOnWorkspace">>,
+    ) => {
       const task = get().notebookTasks.find((t) => t.id === id);
       if (!task) return;
       const now = new Date().toISOString();
@@ -210,6 +243,20 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       }));
       if (shouldPersist(task.workspaceId)) {
         void updateTaskDb(id, task.workspaceId, updates);
+      }
+    },
+
+    setNotebookTaskShowOnWorkspace: async (id: string, showOnWorkspace: boolean) => {
+      const task = get().notebookTasks.find((t) => t.id === id);
+      if (!task || task.showOnWorkspace === showOnWorkspace) return;
+      const now = new Date().toISOString();
+      set((state) => ({
+        notebookTasks: state.notebookTasks.map((t) =>
+          t.id === id ? { ...t, showOnWorkspace, updatedAt: now } : t,
+        ),
+      }));
+      if (shouldPersist(task.workspaceId)) {
+        void updateTaskDb(id, task.workspaceId, { showOnWorkspace });
       }
     },
 
@@ -289,6 +336,7 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
         notebookId,
         workspaceId,
         title: title.trim() || "New investment",
+        completed: false,
         sortOrder: maxOrder + 1000,
         createdAt: now,
         updatedAt: now,
@@ -309,7 +357,7 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
 
     updateNotebookInvestment: async (
       id: string,
-      updates: Partial<Pick<NotebookInvestment, "title" | "sortOrder">>,
+      updates: Partial<Pick<NotebookInvestment, "title" | "sortOrder" | "completed" | "completedAt">>,
     ) => {
       const item = get().notebookInvestments.find((i) => i.id === id);
       if (!item) return;
@@ -321,6 +369,37 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       }));
       if (shouldPersist(item.workspaceId)) {
         void updateInvestmentDb(id, item.workspaceId, updates);
+      }
+    },
+
+    toggleNotebookInvestment: async (id: string) => {
+      const item = get().notebookInvestments.find((i) => i.id === id);
+      if (!item) return;
+      const completed = !item.completed;
+      const now = new Date().toISOString();
+      set((state) => ({
+        notebookInvestments: state.notebookInvestments.map((i) =>
+          i.id === id
+            ? {
+                ...i,
+                completed,
+                completedAt: completed ? now : null,
+                updatedAt: now,
+              }
+            : i,
+        ),
+      }));
+      if (completed) {
+        triggerHaptic("success");
+        get().triggerCelebration?.();
+      } else {
+        triggerHaptic("light");
+      }
+      if (shouldPersist(item.workspaceId)) {
+        void updateInvestmentDb(id, item.workspaceId, {
+          completed,
+          completedAt: completed ? now : null,
+        });
       }
     },
 

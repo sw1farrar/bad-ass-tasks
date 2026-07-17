@@ -95,12 +95,19 @@
 }
 
 .meeting-summary-doc__title {
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.5rem;
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.15;
   color: var(--text-primary, #09090b);
+}
+
+.meeting-summary-doc__description {
+  margin: 0 0 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--text-secondary, #52525b);
 }
 
 .meeting-summary-doc__facts {
@@ -262,11 +269,6 @@
   color: var(--text-muted, #71717a);
 }
 
-.meeting-summary-doc__owner::before {
-  content: "· ";
-  opacity: 0.5;
-}
-
 .meeting-summary-doc__topic-context {
   margin: 0 0 0.65rem;
   font-size: 0.875rem;
@@ -385,6 +387,12 @@
   margin: 0 0 2px;
   font-size: 14pt;
   font-weight: 700;
+  color: #000000;
+}
+
+.meeting-agenda-doc__description {
+  margin: 0 0 4px;
+  font-size: 10pt;
   color: #000000;
 }
 

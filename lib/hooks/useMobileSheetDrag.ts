@@ -270,10 +270,8 @@ export function useMobileSheetDrag(options: {
         return;
       }
 
-      if (config.armAtScrollTop && captureEl) {
-        captureEl.setPointerCapture?.(e.pointerId);
-        if (e.cancelable) e.preventDefault();
-      }
+      // Arm-only: do not capture yet — capturing + preventDefault at scrollTop 0
+      // blocks native list scrolling and item taps. Capture starts when drag begins.
     },
     [enabled, stopSheetAnimations, sheetY],
   );
@@ -289,9 +287,20 @@ export function useMobileSheetDrag(options: {
 
       if (!state.dragging) {
         if (state.armed) {
-          if (fingerDy <= 0) return;
+          if (fingerDy <= 0) {
+            // Upward scroll intent — release capture so the list can pan.
+            releaseCapture(state, e.pointerId);
+            pointerRef.current = null;
+            return;
+          }
           const liveScrollTop = readScrollTop(state.getScrollEl, state.scrollTop);
           if (liveScrollTop > SCROLL_TOP_EPSILON) {
+            releaseCapture(state, e.pointerId);
+            pointerRef.current = null;
+            return;
+          }
+          // Dominant horizontal move — don't steal the gesture.
+          if (Math.abs(dx) > Math.abs(fingerDy) && Math.abs(dx) > DRAG_SLOP_PX) {
             releaseCapture(state, e.pointerId);
             pointerRef.current = null;
             return;
@@ -300,6 +309,7 @@ export function useMobileSheetDrag(options: {
           state.dragging = true;
           stopSheetAnimations();
           setIsDragging(true);
+          state.captureEl?.setPointerCapture?.(e.pointerId);
         } else {
           if (Math.abs(fingerDy) <= DRAG_SLOP_PX && Math.abs(dx) <= DRAG_SLOP_PX) return;
           if (Math.abs(fingerDy) < Math.abs(dx)) {

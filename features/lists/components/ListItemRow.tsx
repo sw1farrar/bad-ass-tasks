@@ -111,7 +111,7 @@ export function ListItemRow({
   const showTitleAsLabel =
     useTitleDisplayMode &&
     !titleEditMode &&
-    (item.text.trim().length > 0 || (isMobile && showEditPencil));
+    item.text.trim().length > 0;
   const isRowFocused =
     !readOnly &&
     (isRowActive ||
@@ -154,10 +154,10 @@ export function ListItemRow({
   }, [localText, item.text, isEditingText]);
 
   useLayoutEffect(() => {
-    if (useTitleDisplayMode && !item.text.trim() && !(isMobile && showEditPencil)) {
+    if (useTitleDisplayMode && !item.text.trim()) {
       setTitleEditMode(true);
     }
-  }, [useTitleDisplayMode, item.id, item.text, isMobile, showEditPencil]);
+  }, [useTitleDisplayMode, item.id, item.text]);
 
   const applySelectAll = useCallback(() => {
     const input = textareaRef.current;
@@ -317,7 +317,7 @@ export function ListItemRow({
       }
 
       if (!trimmed) {
-        if (!isMobile) onDelete(item.id);
+        onDelete(item.id);
       } else if (trimmed !== item.text) {
         onTextChange(item.id, trimmed);
       }

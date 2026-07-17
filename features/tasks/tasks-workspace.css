@@ -1,4 +1,4 @@
-/* Tasks workspace — full width on mobile; capped readable column on desktop */
+/* Tasks workspace — full width on mobile and desktop */
 
 .tasks-root {
   width: 100%;
@@ -99,7 +99,7 @@
 
   .tasks-root .task-recurring-filters__track {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 5.75rem));
+    grid-template-columns: repeat(3, minmax(0, 6.75rem));
     width: auto;
     flex: none;
     align-items: stretch;
@@ -246,10 +246,8 @@
     display: flex;
     flex-direction: column;
     padding: 1.5rem 1.5rem 1.25rem;
-    margin-left: auto;
-    margin-right: auto;
     width: 100%;
-    max-width: 60rem;
+    max-width: none;
     gap: 0;
   }
 
@@ -349,25 +347,67 @@
 
   .tasks-root .tasks-desktop-table__grid {
     table-layout: fixed;
+    width: 100%;
+  }
+
+  .tasks-root .tasks-desktop-table__icon-col {
+    width: 2.5rem;
   }
 
   .tasks-root .tasks-desktop-table__title-col,
   .tasks-root .tasks-desktop-table__title-cell {
-    width: 100%;
-    min-width: 12rem;
-    overflow: visible;
+    width: auto;
+    min-width: 0;
+    overflow: hidden;
     white-space: normal;
   }
 
   .tasks-root .tasks-desktop-table__title {
     display: block;
     white-space: normal;
-    overflow: visible;
+    overflow: hidden;
     overflow-wrap: anywhere;
     word-break: break-word;
     hyphens: auto;
     text-overflow: clip;
     max-height: none;
+  }
+
+  .tasks-root .tasks-desktop-table__folder-col,
+  .tasks-root .tasks-desktop-table__folder-cell {
+    width: 8rem;
+  }
+
+  .tasks-root .tasks-desktop-table__notebook-col,
+  .tasks-root .tasks-desktop-table__notebook-cell {
+    width: 8rem;
+  }
+
+  .tasks-root .tasks-desktop-table__workspace-col,
+  .tasks-root .tasks-desktop-table__workspace-cell {
+    width: 7rem;
+  }
+
+  .tasks-root .tasks-desktop-table__due-col,
+  .tasks-root .tasks-desktop-table__due-cell {
+    width: 6.5rem;
+  }
+
+  .tasks-root .tasks-desktop-table__repeat-col,
+  .tasks-root .tasks-desktop-table__repeat-cell {
+    width: 7.5rem;
+  }
+
+  .tasks-root .tasks-desktop-table__assignee-col,
+  .tasks-root .tasks-desktop-table__assignee-cell {
+    width: 8rem;
+  }
+
+  .tasks-root .tasks-desktop-table__notes-col,
+  .tasks-root .tasks-desktop-table__notes-cell,
+  .tasks-root .tasks-desktop-table__comments-col,
+  .tasks-root .tasks-desktop-table__comments-cell {
+    width: 2.75rem;
   }
 
   .tasks-root .tasks-desktop-table__row {
@@ -383,9 +423,7 @@
   .tasks-root .tasks-workspace {
     padding-left: 2rem;
     padding-right: 2rem;
-    max-width: 64rem;
   }
-
 }
 
 /* Desktop table — compact metadata chips */
@@ -395,17 +433,31 @@
 
 .tasks-root .tasks-desktop-table__repeat-col,
 .tasks-root .tasks-desktop-table__repeat-cell {
-  width: 9rem;
-  min-width: 9rem;
-  max-width: 9rem;
-  overflow: visible;
+  overflow: hidden;
   white-space: normal;
+}
+
+.tasks-root .tasks-desktop-table__notes-col,
+.tasks-root .tasks-desktop-table__notes-cell,
+.tasks-root .tasks-desktop-table__comments-col,
+.tasks-root .tasks-desktop-table__comments-cell {
+  text-align: center;
+  vertical-align: middle;
 }
 
 .tasks-root .tasks-desktop-table__folder-col,
 .tasks-root .tasks-desktop-table__folder-cell {
-  overflow: visible;
+  overflow: hidden;
   white-space: normal;
+}
+
+.tasks-root .tasks-desktop-table__notebook-col,
+.tasks-root .tasks-desktop-table__notebook-cell {
+  overflow: hidden;
+}
+
+.tasks-root .tasks-desktop-table__assignee-cell .tasks-assignee-inline-trigger {
+  max-width: 100%;
 }
 
 .tasks-root .tasks-desktop-table__row:has([aria-expanded="true"]) {
@@ -710,6 +762,39 @@
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28) !important;
 }
 
+[data-theme="dark"] .tasks-export-modal .task-recurring-filters__track {
+  background: #25252b !important;
+  border-color: #2f2f38 !important;
+  box-shadow: var(--tasks-card-shadow) !important;
+}
+
+[data-theme="dark"] .tasks-export-modal .task-recurring-filter-pill {
+  color: #b0b0b8 !important;
+}
+
+[data-theme="dark"] .tasks-export-modal .task-recurring-filter-pill:hover:not(.is-active) {
+  color: #f4f4f8 !important;
+  background: #2a1f4a !important;
+}
+
+[data-theme="dark"] .tasks-export-modal .task-recurring-filter-pill.is-active {
+  background: #7c3aed !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28) !important;
+}
+
+[data-theme="dark"] .tasks-export-modal .tasks-folder-chip:not(.is-active) {
+  background: #25252b !important;
+  border-color: #2f2f38 !important;
+  color: #b0b0b8 !important;
+}
+
+[data-theme="dark"] .tasks-export-modal .tasks-folder-chip:not(.is-active):hover {
+  color: #f4f4f8 !important;
+  border-color: color-mix(in srgb, #7c3aed 40%, #2f2f38) !important;
+  background: #2a1f4a !important;
+}
+
 /* Mobile task tiles */
 [data-theme="dark"] .tasks-root .task-row {
   background: #1a1a1f !important;
@@ -816,6 +901,50 @@
 
 .tasks-folder-chip.is-active {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--neon-purple) 24%, transparent 76%);
+}
+
+/* Export modal — portaled outside .tasks-root, so mirror segmented pill styles here */
+.tasks-export-modal .task-recurring-filters,
+.tasks-export-modal .tasks-export-modal__segment {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+.tasks-export-modal .task-recurring-filters__track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  align-items: stretch;
+  gap: 0.125rem;
+  padding: 0.25rem;
+}
+
+.tasks-export-modal .task-recurring-filter-pill {
+  min-height: 2.25rem !important;
+  height: 2.25rem;
+  width: 100%;
+  flex: none;
+  min-width: 0;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+  border: none;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.tasks-export-modal .task-recurring-filter-pill.is-active {
+  font-weight: 700;
+}
+
+.tasks-export-modal .tasks-folder-chip {
+  min-height: 2rem !important;
+  height: 2rem;
+  padding-inline: 0.75rem;
+  line-height: 1;
 }
 
 .task-star-btn:focus-visible {

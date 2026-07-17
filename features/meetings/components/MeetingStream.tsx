@@ -2,7 +2,7 @@
 
 import React from "react";
 import { format, parseISO } from "date-fns";
-import { Calendar, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Calendar, Copy, Trash2 } from "lucide-react";
 import { hasMeetingBeenCarriedForward } from "@/lib/meetings/carryOver";
 import { cn } from "@/lib/utils";
 import type { Meeting, MeetingAgendaItem } from "@/types";
@@ -18,6 +18,10 @@ interface MeetingStreamProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onCopy?: (id: string) => void;
+  onArchive?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
+  isArchivedView?: boolean;
   emptyMessage?: string;
 }
 
@@ -27,6 +31,10 @@ export function MeetingStream({
   selectedId,
   onSelect,
   onDelete,
+  onCopy,
+  onArchive,
+  onUnarchive,
+  isArchivedView = false,
   emptyMessage = "No meetings yet. Schedule one to get started.",
 }: MeetingStreamProps) {
   const groups = groupMeetingsByStatus(meetings);
@@ -43,7 +51,7 @@ export function MeetingStream({
     <div
       className="files-list-scroll flex-1 min-w-0 overflow-y-auto overflow-x-hidden"
       role="listbox"
-      aria-label="Meetings"
+      aria-label={isArchivedView ? "Archived meetings" : "Meetings"}
     >
       {groups.map((group) => (
         <div key={group.label} className="mb-2">
@@ -80,6 +88,11 @@ export function MeetingStream({
                     <div className="font-medium text-sm truncate text-text-primary">
                       {meeting.title}
                     </div>
+                    {meeting.description?.trim() && (
+                      <div className="mt-0.5 text-xs text-text-muted truncate">
+                        {meeting.description.trim()}
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-1 text-xs text-text-muted">
                       <Calendar className="h-3 w-3 shrink-0" />
                       <span>{dateLabel}</span>
@@ -91,17 +104,61 @@ export function MeetingStream({
                       )}
                     </div>
                   </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(meeting.id);
-                    }}
-                    className="p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
-                    aria-label={`Delete ${meeting.title}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                    {onCopy && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCopy(meeting.id);
+                        }}
+                        className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                        aria-label={`Copy ${meeting.title}`}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {isArchivedView ? (
+                      onUnarchive && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUnarchive(meeting.id);
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                          aria-label={`Restore ${meeting.title}`}
+                        >
+                          <ArchiveRestore className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    ) : (
+                      onArchive && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onArchive(meeting.id);
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-neon-purple hover:bg-surface-hover"
+                          aria-label={`Archive ${meeting.title}`}
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(meeting.id);
+                      }}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover"
+                      aria-label={`Delete ${meeting.title}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );

@@ -118,6 +118,8 @@ interface TipTapEditorProps {
    *  Plain text fallback works automatically via helpers for previews/cards.
    */
   onChange?: (content: string) => void;
+  /** Fired once when the editor document is ready (load / remount) — not a user edit. */
+  onInitialContent?: (content: string) => void;
   placeholder?: string;
   className?: string;
   /** Minimum height for the editable area */
@@ -210,6 +212,7 @@ interface TipTapEditorProps {
 export function TipTapEditor({
   content = "",
   onChange,
+  onInitialContent,
   placeholder = "Start writing your note...",
   className,
   minHeight = "240px",
@@ -307,6 +310,8 @@ export function TipTapEditor({
     async () => false
   );
   const onAttachFilesRef = useRef(onAttachFiles);
+  const onInitialContentRef = useRef(onInitialContent);
+  onInitialContentRef.current = onInitialContent;
 
   // Image preview (world-class lightbox for any image in the editor)
   const [previewImage, setPreviewImage] = useState<{ src: string; alt?: string } | null>(null);
@@ -441,7 +446,9 @@ export function TipTapEditor({
     editable: !readOnly,
     content: prepareInitialContent(content),
     onCreate: ({ editor: createdEditor }) => {
-      lastEmittedContentRef.current = JSON.stringify(createdEditor.getJSON());
+      const initial = JSON.stringify(createdEditor.getJSON());
+      lastEmittedContentRef.current = initial;
+      onInitialContentRef.current?.(initial);
     },
     onUpdate: ({ editor }) => {
       if (readOnly) return;
@@ -647,7 +654,10 @@ export function TipTapEditor({
           // Do not emit onUpdate: applying store content must not look like a user edit
           // (otherwise notebooks re-sort by updatedAt when merely opening a note).
           editor.commands.setContent(prepareInitialContent(incoming), { emitUpdate: false });
-          lastEmittedContentRef.current = JSON.stringify(editor.getJSON());
+          const applied = JSON.stringify(editor.getJSON());
+          lastEmittedContentRef.current = applied;
+          // Keep any onInitialContent-based baselines (older callers) in sync too.
+          onInitialContentRef.current?.(applied);
         }
       });
     }

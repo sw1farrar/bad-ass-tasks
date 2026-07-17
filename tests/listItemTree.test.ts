@@ -396,12 +396,13 @@ describe("computeFlatListNudge", () => {
     expect(flattenListItems(next).map((row) => row.id)).toEqual(["b", "a", "c"]);
   });
 
-  it("moves a top-level item up one row", () => {
+  it("moves a top-level parent and its children above the previous family", () => {
     const items = [
       item("a", 0),
       item("b", 0, "a"),
       item("c", 0, "b"),
       item("d", 1000),
+      item("e", 0, "d"),
     ];
 
     const targets = getFlatListNudgeTargets(items, "a");
@@ -421,7 +422,27 @@ describe("computeFlatListNudge", () => {
       };
     });
 
-    expect(flattenListItems(next).map((row) => row.id)).toEqual(["a", "b", "d", "c"]);
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["d", "e", "a", "b", "c"]);
+    expect(next.find((row) => row.id === "e")?.parentItemId).toBe("d");
+    expect(next.find((row) => row.id === "b")?.parentItemId).toBe("a");
+  });
+
+  it("moves a top-level parent and its children below the next family", () => {
+    const items = [
+      item("a", 0),
+      item("b", 0, "a"),
+      item("c", 1000),
+      item("d", 0, "c"),
+      item("e", 2000),
+    ];
+
+    const result = computeFlatListNudge(items, "a", "down");
+    expect(result).not.toBeNull();
+
+    const next = applyUpdates(items, result!.updates);
+    expect(flattenListItems(next).map((row) => row.id)).toEqual(["c", "d", "a", "b", "e"]);
+    expect(next.find((row) => row.id === "b")?.parentItemId).toBe("a");
+    expect(next.find((row) => row.id === "d")?.parentItemId).toBe("c");
   });
 
   it("respects a visible-item subset when nudging", () => {

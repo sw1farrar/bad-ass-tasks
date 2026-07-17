@@ -254,7 +254,7 @@ body {
 .profile-popover-panel {
   display: flex;
   flex-direction: column;
-  max-height: min(36rem, calc(100dvh - 5rem));
+  max-height: min(40rem, calc(100dvh - 4.5rem));
   overflow: hidden;
 }
 

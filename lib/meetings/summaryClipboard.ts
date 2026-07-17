@@ -23,19 +23,6 @@ export type MeetingSummaryDocumentInput = {
   currentUserId?: string;
 };
 
-function topicOutcomeLabel(status: MeetingAgendaItem["status"]): string {
-  switch (status) {
-    case "completed":
-      return "Done";
-    case "continued":
-      return "Deferred";
-    case "in_progress":
-      return "In progress";
-    default:
-      return "Open";
-  }
-}
-
 function appendSummaryTopicClipboardHtml(
   html: string[],
   item: MeetingAgendaItem,
@@ -45,12 +32,11 @@ function appendSummaryTopicClipboardHtml(
 ): void {
   const itemEntries = entries.filter((e) => e.agendaItemId === item.id);
   const owner = getAgendaItemOwnerLabel(item, members, currentUserId);
-  const meta = [topicOutcomeLabel(item.status), owner].filter(Boolean).join(" · ");
 
   html.push(`<div style="margin: 0 0 8px; padding: 8px 10px; border: 1px solid #cccccc;">`);
   html.push(`<p style="margin: 0 0 2px; font-size: 11pt; font-weight: 700; color: #000000;">${escapeHtml(item.title)}</p>`);
-  if (meta) {
-    html.push(`<p style="margin: 0 0 4px; font-size: 9pt; color: #000000;">${escapeHtml(meta)}</p>`);
+  if (owner) {
+    html.push(`<p style="margin: 0 0 4px; font-size: 9pt; color: #000000;">${escapeHtml(owner)}</p>`);
   }
   if (item.description?.trim()) {
     html.push(`<p style="margin: 0 0 4px; font-size: 10pt; color: #000000;">${escapeHtml(item.description.trim())}</p>`);
@@ -71,8 +57,7 @@ function appendSummaryTopicPlainText(
   currentUserId?: string,
 ): void {
   const owner = getAgendaItemOwnerLabel(item, members, currentUserId);
-  const suffix = owner ? ` · ${owner}` : "";
-  lines.push(`${item.title} (${topicOutcomeLabel(item.status)}${suffix})`);
+  lines.push(owner ? `${item.title} (${owner})` : item.title);
   if (item.description?.trim()) lines.push(item.description.trim());
   const itemEntries = entries.filter((e) => e.agendaItemId === item.id);
   if (itemEntries.length > 0) {
@@ -93,7 +78,10 @@ export function buildMeetingSummaryClipboardHtml(input: MeetingSummaryDocumentIn
 
   let html = `<div style="font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.35;">`;
   html += `<p style="margin: 0 0 4px; font-size: 9pt; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #000000;">Meeting summary</p>`;
-  html += `<p style="margin: 0 0 8px; font-size: 14pt; font-weight: 700; color: #000000;">${escapeHtml(meeting.title)}</p>`;
+  html += `<p style="margin: 0 0 4px; font-size: 14pt; font-weight: 700; color: #000000;">${escapeHtml(meeting.title)}</p>`;
+  if (meeting.description?.trim()) {
+    html += `<p style="margin: 0 0 8px; font-size: 10pt; color: #000000;">${escapeHtml(meeting.description.trim())}</p>`;
+  }
 
   const facts: string[] = [];
   if (meeting.scheduledAt) {
@@ -151,6 +139,10 @@ export function buildMeetingSummaryPlainText(input: MeetingSummaryDocumentInput)
   const followUps = sorted.filter((i) => i.status === "continued");
 
   const lines: string[] = [meeting.title, "", "MEETING SUMMARY", ""];
+
+  if (meeting.description?.trim()) {
+    lines.push(meeting.description.trim(), "");
+  }
 
   if (meeting.scheduledAt) {
     lines.push(`When: ${format(new Date(meeting.scheduledAt), "EEEE, MMMM d, yyyy")}`);

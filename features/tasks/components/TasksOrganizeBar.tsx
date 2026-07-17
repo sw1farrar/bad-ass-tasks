@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { FolderPlus, Star } from "lucide-react";
+import { Download, FolderPlus, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
 import type { TasksFolderFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
 import { TaskFoldersManageModal } from "./TaskFoldersManageModal";
+import { TasksExportModal } from "./TasksExportModal";
 import { TasksStatusFilter, type TasksStatusFilterMode } from "./TasksStatusFilter";
 
 interface TasksOrganizeBarProps {
@@ -38,6 +39,7 @@ export function TasksOrganizeBar({
   showStatusFilter = false,
 }: TasksOrganizeBarProps) {
   const [manageOpen, setManageOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const folderChipClass = (active: boolean) =>
     cn(
@@ -112,16 +114,28 @@ export function TasksOrganizeBar({
           ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setManageOpen(true)}
-            className="tasks-folder-manage-btn inline-flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border-glass px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple hover:bg-neon-purple/8"
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-            Manage
-          </button>
+          <div className="tasks-organize-bar__actions flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setExportOpen(true)}
+              className="tasks-export-btn inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border-glass px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple hover:bg-neon-purple/8"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={() => setManageOpen(true)}
+              className="tasks-folder-manage-btn inline-flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border-glass px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple hover:bg-neon-purple/8"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+              Manage
+            </button>
+          </div>
         </div>
       </div>
+
+      <TasksExportModal open={exportOpen} onOpenChange={setExportOpen} />
 
       <TaskFoldersManageModal
         open={manageOpen}

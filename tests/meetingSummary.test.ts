@@ -67,6 +67,7 @@ describe("summaryBuilder", () => {
     expect(html).toContain("meeting-summary-doc__note-date-heading");
     expect(html).toContain("June 23, 2026");
     expect(html).not.toContain("meeting-summary-doc__note-meta");
+    expect(html).not.toContain("meeting-summary-doc__description");
     const topicStart = html.indexOf('class="meeting-summary-doc__topic"');
     expect(html.indexOf("Follow up with design", topicStart)).toBeLessThan(
       html.indexOf("Ship v2 Friday", topicStart),
@@ -111,6 +112,36 @@ describe("summaryBuilder", () => {
     expect(html).not.toContain("assigned");
     expect(html).not.toContain("Unassigned");
     expect(html).not.toContain("meeting-agenda-doc__comments");
+    expect(html).not.toContain("meeting-agenda-doc__description");
+  });
+
+  it("includes meeting description under the title on summary and agenda", () => {
+    const withDescription = {
+      ...meeting,
+      description: "Q3 planning alignment",
+    };
+    const summaryHtml = buildMeetingSummaryHtml({
+      meeting: withDescription,
+      items,
+      entries: [],
+      members: [],
+    });
+    expect(summaryHtml).toContain("meeting-summary-doc__description");
+    expect(summaryHtml).toContain("Q3 planning alignment");
+    expect(summaryHtml.indexOf("Sprint Review")).toBeLessThan(
+      summaryHtml.indexOf("Q3 planning alignment"),
+    );
+
+    const agendaHtml = buildMeetingAgendaHtml({
+      meeting: withDescription,
+      items,
+      members: [],
+    });
+    expect(agendaHtml).toContain("meeting-agenda-doc__description");
+    expect(agendaHtml).toContain("Q3 planning alignment");
+    expect(agendaHtml.indexOf("Sprint Review")).toBeLessThan(
+      agendaHtml.indexOf("Q3 planning alignment"),
+    );
   });
 
   it("includes comment timeline below agenda items when requested", () => {
@@ -158,6 +189,9 @@ describe("summaryBuilder", () => {
     expect(html).toContain("Need more stakeholder input");
     expect(html).toContain("meeting-summary-doc__note-body");
     expect(html).toContain('data-outcome="deferred"');
+    expect(html).not.toContain(">Deferred<");
+    expect(html).not.toContain(">Done<");
+    expect(html).not.toContain("meeting-summary-doc__badge");
   });
 
   it("omits owner from summary when topic has no assignee", () => {

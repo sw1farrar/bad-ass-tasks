@@ -25,6 +25,12 @@ export const MEETING_AGENDA_PRINT_CSS = `
     line-height: 1.2;
     color: #000000;
   }
+  .meeting-agenda-doc__description {
+    margin: 0 0 4px;
+    font-size: 10pt;
+    font-weight: 400;
+    color: #000000;
+  }
   .meeting-agenda-doc__date {
     margin: 0 0 10px;
     font-size: 10pt;

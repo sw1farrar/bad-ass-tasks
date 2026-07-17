@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Check, FolderOpen, Loader2, Repeat } from "lucide-react";
+import { Check, FolderOpen, Loader2, Notebook, Repeat } from "lucide-react";
 import { cn, getRecurringLabel } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
@@ -162,12 +162,16 @@ export function TaskRow({
         style={{ touchAction: "pan-y" }}
       >
         {showOrganize ? (
-          <TaskStarButton
-            size="sm"
-            starred={!!task.starred}
-            disabled={isOpLoading}
-            onToggle={() => void toggleTaskStarred(task.id)}
-          />
+          task.notebookId ? (
+            <span className="w-8 shrink-0" aria-hidden />
+          ) : (
+            <TaskStarButton
+              size="sm"
+              starred={!!task.starred}
+              disabled={isOpLoading}
+              onToggle={() => void toggleTaskStarred(task.id)}
+            />
+          )
         ) : null}
         <button
           onClick={(e) => {
@@ -225,11 +229,20 @@ export function TaskRow({
             )}
           </div>
           {(workspaceName ||
+            task.notebookName ||
             (showOrganize && folderName) ||
             (showAssignee && task.assignee) ||
             due) && (
             <div className="flex items-center justify-between gap-2 w-full min-w-0 text-[11px] leading-none">
-              {showOrganize && folderName ? (
+              {task.notebookName ? (
+                <span
+                  className="inline-flex min-w-0 max-w-[55%] items-center gap-1 rounded-md border border-neon-purple/25 bg-neon-purple/8 px-1.5 py-0.5 text-[10px] font-medium text-neon-purple-tint truncate"
+                  title={task.notebookName}
+                >
+                  <Notebook className="h-2.5 w-2.5 shrink-0" aria-hidden />
+                  {task.notebookName}
+                </span>
+              ) : showOrganize && folderName ? (
                 <span className="tasks-table-folder inline-flex min-w-0 max-w-[45%] items-center gap-1 rounded-md border border-border-glass bg-surface-inset px-1.5 py-0.5 text-[10px] font-medium text-text-secondary truncate">
                   <FolderOpen className="h-2.5 w-2.5 shrink-0 text-neon-purple/80" aria-hidden />
                   {folderName}

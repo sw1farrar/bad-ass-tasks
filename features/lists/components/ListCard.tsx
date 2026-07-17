@@ -322,6 +322,30 @@ export function ListCardBody({
     setActiveRowId(null);
   }, [list.id]);
 
+  const didAutoShowBucketsRef = useRef(false);
+  useEffect(() => {
+    didAutoShowBucketsRef.current = false;
+  }, [list.id]);
+
+  // If a list has no open items, auto-show pending or completed so opening
+  // doesn't look empty when the board still showed counts/hints.
+  useEffect(() => {
+    if (!isDetail || didAutoShowBucketsRef.current) return;
+    if (openCount > 0) {
+      didAutoShowBucketsRef.current = true;
+      return;
+    }
+    if (pendingCount === 0 && completedCount === 0) return;
+    didAutoShowBucketsRef.current = true;
+    if (pendingCount > 0) {
+      setShowPending(true);
+      setShowCompleted(false);
+    } else {
+      setShowCompleted(true);
+      setShowPending(false);
+    }
+  }, [isDetail, list.id, openCount, pendingCount, completedCount]);
+
   useEffect(() => {
     if (!focusAddItemOnOpen || !isDetail) return;
     const frame = requestAnimationFrame(() => {
@@ -427,7 +451,7 @@ export function ListCardBody({
         }
       }}
       onBlur={() => {
-        if (!mobileDetail && newItemText.trim()) void handleAddItem();
+        if (newItemText.trim()) void handleAddItem();
       }}
       placeholder="New item"
       enterKeyHint="next"
@@ -971,7 +995,7 @@ export function ListCardBody({
                         </span>
                       </button>
                     ) : null}
-                    {onArchiveList && !list.archived ? (
+                    {onArchiveList && !list.archived && !list.isShared ? (
                       <button
                         type="button"
                         role="menuitem"

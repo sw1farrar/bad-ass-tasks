@@ -12,7 +12,11 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { generateId } from "@/lib/utils";
 import type { WorkspaceMember, WorkspaceMessage, MessageReaction } from "@/types";
-import { hasUnreadChatActivity, setChatLastReadAt } from "@/lib/chatReadState";
+import {
+  computeChatReadWatermark,
+  hasUnreadChatActivity,
+  setChatLastReadAt,
+} from "@/lib/chatReadState";
 import { groupMessageReactions } from "../lib/reactions";
 
 const DEMO_CAP = 100;
@@ -51,6 +55,7 @@ export function useWorkspaceChat({
   const [hasUnread, setHasUnread] = useState(false);
   const seenIds = useRef(new Set<string>());
   const reactionIds = useRef(new Set<string>());
+  const wasOpenRef = useRef(false);
 
   const enrich = useCallback(
     (msg: WorkspaceMessage): WorkspaceMessage => ({
@@ -239,22 +244,37 @@ export function useWorkspaceChat({
     [reactionSummariesByMessage]
   );
 
+  const messagesRef = useRef(messages);
+  const reactionsRef = useRef(reactions);
+  messagesRef.current = messages;
+  reactionsRef.current = reactions;
+
   const markRead = useCallback(() => {
     if (!userId || !workspaceId) return;
-    setChatLastReadAt(userId, workspaceId, new Date().toISOString());
+    const watermark = computeChatReadWatermark(
+      messagesRef.current,
+      reactionsRef.current,
+    );
+    setChatLastReadAt(userId, workspaceId, watermark);
     setHasUnread(false);
   }, [userId, workspaceId]);
 
   useEffect(() => {
     if (!userId || !workspaceId) {
       setHasUnread(false);
+      wasOpenRef.current = false;
       return;
     }
-    if (isOpen) {
+
+    const justClosed = wasOpenRef.current && !isOpen;
+    wasOpenRef.current = isOpen;
+
+    if (isOpen || justClosed) {
       markRead();
-    } else {
-      setHasUnread(hasUnreadChatActivity(userId, workspaceId, messages, reactions));
+      return;
     }
+
+    setHasUnread(hasUnreadChatActivity(userId, workspaceId, messages, reactions));
   }, [isOpen, userId, workspaceId, messages, reactions, markRead]);
 
   return {
