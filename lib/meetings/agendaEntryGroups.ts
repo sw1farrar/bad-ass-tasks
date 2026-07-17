@@ -85,7 +85,7 @@ export function buildAgendaEntryGroupsClipboardHtml(
       const isLast = i === group.entries.length - 1;
       const divider = isLast ? "" : "border-bottom: 1px solid #eeeeee;";
       html += `<li style="margin: 0; padding: 0 0 6px; ${divider}">`;
-      html += `<span style="display: block; font-size: 10pt; color: #000000;">${agendaEntryBodyToClipboardHtml(entry.body, escapeHtml)}</span>`;
+      html += `<div style="display: block; font-size: 10pt; color: #000000; line-height: 1.4;">${agendaEntryBodyToClipboardHtml(entry.body, escapeHtml)}</div>`;
       html += `</li>`;
     }
     html += `</ul></section>`;

@@ -110,4 +110,50 @@ describe("agendaClipboard", () => {
     expect(plain).toContain("   Waiting on finance");
     expect(plain).toContain("   Focus on hiring plan");
   });
+
+  it("keeps TipTap formatting in Word/clipboard HTML", () => {
+    const richEntries: MeetingAgendaEntry[] = [
+      {
+        id: "e-rich",
+        agendaItemId: "a1",
+        body: JSON.stringify({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", marks: [{ type: "bold" }], text: "Owner update" },
+              ],
+            },
+            {
+              type: "bulletList",
+              content: [
+                {
+                  type: "listItem",
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [{ type: "text", text: "Call finance" }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        createdAt: "2026-06-23T15:00:00Z",
+      },
+    ];
+    const html = buildMeetingAgendaClipboardHtml({
+      meeting,
+      items,
+      entries: richEntries,
+      members: [],
+      includeComments: true,
+    });
+    expect(html).toContain("<strong style=");
+    expect(html).toContain("Owner update");
+    expect(html).toContain("list-style-type:disc");
+    expect(html).toContain("Call finance");
+  });
 });

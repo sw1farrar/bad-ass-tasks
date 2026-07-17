@@ -45,7 +45,6 @@ export function MeetingEntryComposer({ disabled, onSubmit }: MeetingEntryCompose
           editorKey={editorKey}
           className="flex-1 min-w-0 rounded-xl border border-border-glass overflow-hidden"
           minHeight="112px"
-          compactToolbar
           onModEnter={() => void handleSubmit()}
         />
         <button

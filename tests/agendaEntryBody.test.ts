@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_AGENDA_DOC,
+  agendaEntryBodyToClipboardHtml,
   agendaEntryBodyToHtml,
   agendaEntryHasDecisionTag,
   agendaEntryPlainText,
@@ -94,6 +95,14 @@ describe("agendaEntryBody", () => {
 
     const plainHtml = agendaEntryBodyToHtml("Line one\n\nLine two");
     expect(plainHtml).toContain("Line one<br /><br />Line two");
+  });
+
+  it("emits inline styles for Word/clipboard paste", () => {
+    const html = agendaEntryBodyToClipboardHtml(richDoc, (s) => s);
+    expect(html).toContain("<strong style=");
+    expect(html).toContain("font-weight:700");
+    expect(html).toContain("<ul style=");
+    expect(html).toContain("list-style-type:disc");
   });
 
   it("strips unsafe URLs from exported HTML", () => {

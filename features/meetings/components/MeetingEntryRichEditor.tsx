@@ -18,8 +18,6 @@ interface MeetingEntryRichEditorProps {
   className?: string;
   /** Collapsed composer height. */
   minHeight?: string;
-  /** Compact toolbar for the docked composer. */
-  compactToolbar?: boolean;
   onModEnter?: () => void;
 }
 
@@ -31,7 +29,6 @@ export function MeetingEntryRichEditor({
   editorKey,
   className,
   minHeight = "120px",
-  compactToolbar = false,
   onModEnter,
 }: MeetingEntryRichEditorProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -46,20 +43,6 @@ export function MeetingEntryRichEditor({
   useEffect(() => {
     if (disabled) setIsExpanded(false);
   }, [disabled]);
-
-  const editor = (
-    <TipTapEditor
-      key={editorKey}
-      content={content || EMPTY_AGENDA_DOC}
-      onChange={onChange}
-      placeholder={placeholder}
-      minHeight={isExpanded ? "100%" : minHeight}
-      className={cn("flex-1 min-h-0", disabled && "pointer-events-none opacity-60")}
-      variant="notebook"
-      stickyToolbar
-      compactToolbar={compactToolbar && !isExpanded}
-    />
-  );
 
   return (
     <>
@@ -94,20 +77,28 @@ export function MeetingEntryRichEditor({
           }
         }}
       >
-        <div className="flex items-center justify-end gap-1 px-2 py-1.5 border-b border-border-glass shrink-0 bg-bg">
-          <button
-            type="button"
-            onClick={() => setIsExpanded((open) => !open)}
-            disabled={disabled}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover shrink-0 disabled:opacity-40"
-            aria-label={isExpanded ? "Minimize note" : "Expand note"}
-            title={isExpanded ? "Minimize note" : "Expand note"}
-          >
-            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setIsExpanded((open) => !open)}
+          disabled={disabled}
+          className="meeting-entry-rich-editor__expand p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-40"
+          aria-label={isExpanded ? "Minimize note" : "Expand note"}
+          title={isExpanded ? "Minimize note" : "Expand note"}
+        >
+          {isExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </button>
         <div className="notebooks-note-editor__body meeting-entry-rich-editor__body flex-1 min-h-0 overflow-hidden flex flex-col">
-          {editor}
+          <TipTapEditor
+            key={editorKey}
+            content={content || EMPTY_AGENDA_DOC}
+            onChange={onChange}
+            placeholder={placeholder}
+            minHeight={isExpanded ? "100%" : minHeight}
+            className={cn("flex-1 min-h-0", disabled && "pointer-events-none opacity-60")}
+            variant="notebook"
+            stickyToolbar
+            compactToolbar
+          />
         </div>
       </div>
     </>

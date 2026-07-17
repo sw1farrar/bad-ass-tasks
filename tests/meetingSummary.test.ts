@@ -159,6 +159,51 @@ describe("summaryBuilder", () => {
     expect(html.indexOf("Follow up with design")).toBeLessThan(html.indexOf("Ship v2 Friday"));
   });
 
+  it("preserves TipTap formatting tags in agenda comment HTML", () => {
+    const richEntry: MeetingAgendaEntry = {
+      id: "e-rich",
+      agendaItemId: "a1",
+      body: JSON.stringify({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", marks: [{ type: "bold" }], text: "Bold lead" },
+              { type: "text", text: " and detail" },
+            ],
+          },
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "First action" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      createdAt: "2026-06-23T14:45:00Z",
+    };
+    const html = buildMeetingAgendaHtml({
+      meeting,
+      items,
+      entries: [richEntry],
+      members: [],
+      includeComments: true,
+    });
+    expect(html).toContain("<strong>Bold lead</strong>");
+    expect(html).toContain("<ul>");
+    expect(html).toContain("First action");
+    expect(html).not.toContain('"type":"doc"');
+  });
+
   it("includes full notes for carryover topics", () => {
     const continuedItem: MeetingAgendaItem = {
       id: "a2",

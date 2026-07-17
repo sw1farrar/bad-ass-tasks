@@ -5,6 +5,7 @@ import {
   MEETING_PRINT_LAYOUT_CSS,
   wrapMeetingPrintPage,
 } from "@/lib/meetings/agendaPrintDocument";
+import { richEntryBodyPrintCss } from "@/lib/meetings/richEntryBodyStyles";
 
 export { LETTER_PAGE_HEIGHT_PT, LETTER_PAGE_WIDTH_PT, MEETING_AGENDA_PRINT_WIDTH_PX };
 
@@ -173,12 +174,7 @@ export const MEETING_SUMMARY_PRINT_CSS = `
     padding-bottom: 0;
     border-bottom: none;
   }
-  .meeting-summary-doc__note-body {
-    margin: 0;
-    font-size: 9pt;
-    color: #000000;
-    white-space: pre-wrap;
-  }
+${richEntryBodyPrintCss(".meeting-summary-doc__note-body")}
   .meeting-summary-doc__topic-empty {
     margin: 4px 0 0;
     font-size: 9pt;

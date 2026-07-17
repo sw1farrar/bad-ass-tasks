@@ -1,3 +1,5 @@
+import { richEntryBodyPrintCss } from "@/lib/meetings/richEntryBodyStyles";
+
 /** Compact black-and-white print/PDF styles for the meeting agenda. */
 export const MEETING_AGENDA_PRINT_CSS = `
   * { box-sizing: border-box; }
@@ -110,12 +112,7 @@ export const MEETING_AGENDA_PRINT_CSS = `
     padding-bottom: 0;
     border-bottom: none;
   }
-  .meeting-agenda-doc__comment-body {
-    margin: 0;
-    font-size: 9pt;
-    color: #000000;
-    white-space: pre-wrap;
-  }
+${richEntryBodyPrintCss(".meeting-agenda-doc__comment-body")}
 `;
 
 /** US Letter width in PDF points (8.5in × 72). */

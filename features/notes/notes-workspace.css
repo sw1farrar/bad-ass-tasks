@@ -179,8 +179,14 @@
 
 .notes-editor-toolbar--compact .notes-editor-toolbar__row--primary,
 .notes-editor-toolbar--compact .notes-editor-toolbar__row--secondary {
-  justify-content: space-between;
+  justify-content: flex-start;
   column-gap: 1px;
+}
+
+/* Phone notes drawer: spread icons evenly across the narrow width */
+.notes-drawer-body .notes-editor-toolbar--compact .notes-editor-toolbar__row--primary,
+.notes-drawer-body .notes-editor-toolbar--compact .notes-editor-toolbar__row--secondary {
+  justify-content: space-between;
 }
 
 .notes-drawer-body .notes-editor-toolbar--compact button {

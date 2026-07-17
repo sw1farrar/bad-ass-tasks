@@ -30,4 +30,16 @@ describe("agendaPrintDocument", () => {
       buildMeetingAgendaPrintDocument(html, "Weekly Sync"),
     );
   });
+
+  it("includes rich note-body styles for PDF preview and download", () => {
+    const doc = buildMeetingAgendaPrintDocument(
+      '<article class="meeting-agenda-doc"><div class="meeting-agenda-doc__comment-body"><strong>Bold</strong><ul><li>Item</li></ul></div></article>',
+      "Weekly Sync",
+    );
+    expect(doc).toContain(".meeting-agenda-doc__comment-body strong");
+    expect(doc).toContain("list-style-type: disc");
+    expect(doc).toContain(".meeting-agenda-doc__comment-body ul");
+    expect(doc).toContain(".meeting-agenda-doc__comment-body table");
+    expect(doc).toContain(".meeting-agenda-doc__comment-body {\n    margin: 0;\n    font-size: 9pt;\n    color: #000000;\n    white-space: normal;");
+  });
 });

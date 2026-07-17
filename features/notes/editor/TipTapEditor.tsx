@@ -1734,7 +1734,7 @@ export function TipTapEditor({
         )}
         aria-hidden={toolbarDisabled || undefined}
       >
-        <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--primary justify-between gap-0")}>
+        <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--primary justify-start gap-px")}>
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             isActive={editor.isActive("bold")}
@@ -1779,7 +1779,7 @@ export function TipTapEditor({
             <Heading3 className={toolbarIconClass} />
           </ToolbarButton>
         </div>
-        <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--secondary justify-between gap-0")}>
+        <div className={cn(compactToolbarRowClass, "notes-editor-toolbar__row--secondary justify-start gap-px")}>
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             isActive={editor.isActive("bulletList")}
