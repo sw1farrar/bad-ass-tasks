@@ -406,6 +406,11 @@ export function useNoteOperations({
   };
 
   const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
+    // Recurring advance lives in completeTask (store also guards updateTask→done).
+    if (updates.status === "done") {
+      await completeTask(taskId);
+      return;
+    }
     await updateTask(taskId, updates);
   };
 

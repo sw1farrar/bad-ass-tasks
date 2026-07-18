@@ -1,6 +1,17 @@
-import { toDueDateStorage } from "@/lib/datetime";
-import { applyTaskUpdateSideEffects } from "@/lib/utils";
+import { parseLocalDate, toDueDateStorage } from "@/lib/datetime";
+import {
+  applyTaskUpdateSideEffects,
+  generateRecurringRule,
+  getNextRecurringDue,
+  isDueDatePast,
+  normalizeExceptionKey,
+  parseRecurringRule,
+  resolveRecurrenceSeriesAnchor,
+  toLocalDateString,
+} from "@/lib/utils";
 import type { Task } from "@/types";
+
+export type RecurringDueDateScope = "occurrence" | "series";
 
 export function buildDueDateUpdates(dateStr: string | null | undefined): Partial<Task> {
   if (!dateStr) {
@@ -9,6 +20,122 @@ export function buildDueDateUpdates(dateStr: string | null | undefined): Partial
   const [y, m, d] = dateStr.split("-").map(Number);
   const localDate = new Date(y, m - 1, d);
   return { dueDate: toDueDateStorage(localDate) };
+}
+
+/**
+ * Apply a due-date change for a recurring task.
+ * - series: move the whole cadence (re-anchor + clear exceptions)
+ * - occurrence: one-off move (exception old date, keep series anchor)
+ */
+export function buildRecurringDueDateChange(
+  task: Task,
+  newDateStr: string | null | undefined,
+  scope: RecurringDueDateScope = "series",
+): Partial<Task> {
+  const base = buildDueDateUpdates(newDateStr);
+  if (!newDateStr || !task.recurringRule) return base;
+
+  const pattern = parseRecurringRule(task.recurringRule);
+  if (!pattern) return base;
+
+  const oldKey = task.dueDate ? normalizeExceptionKey(task.dueDate) : null;
+  const newKey = normalizeExceptionKey(base.dueDate as string);
+
+  if (scope === "series") {
+    const nextPattern = { ...pattern, seriesAnchor: newKey };
+    return {
+      dueDate: base.dueDate,
+      recurringRule: generateRecurringRule(nextPattern),
+      exceptionDates: undefined,
+    };
+  }
+
+  // This occurrence only — keep series seed; exclude the old occurrence date.
+  const seriesAnchor =
+    pattern.seriesAnchor || (oldKey ? oldKey : undefined) || newKey;
+  const nextPattern = { ...pattern, seriesAnchor };
+  const currentEx = (task.exceptionDates || []).map((ex) => normalizeExceptionKey(ex));
+  const nextEx =
+    oldKey && oldKey !== newKey
+      ? Array.from(new Set([...currentEx.filter((ex) => ex !== oldKey && ex !== newKey), oldKey]))
+      : currentEx.filter((ex) => ex !== newKey);
+
+  return {
+    dueDate: base.dueDate,
+    recurringRule: generateRecurringRule(nextPattern),
+    exceptionDates: nextEx.length ? nextEx : undefined,
+  };
+}
+
+/** Skip current (if overdue) or next occurrence; advance due when the visible date was skipped. */
+export function buildSkipOccurrenceUpdates(task: Task): {
+  updates: Partial<Task>;
+  skippedKey: string;
+  isOverdue: boolean;
+} | null {
+  if (!task.recurringRule || !task.dueDate) return null;
+
+  const rule = task.recurringRule;
+  const seriesSeed = resolveRecurrenceSeriesAnchor(rule, task.dueDate) ?? task.dueDate;
+  const isOverdue = isDueDatePast(task.dueDate);
+  const skipTarget = isOverdue
+    ? parseLocalDate(task.dueDate)
+    : getNextRecurringDue(rule, new Date(), seriesSeed, task.exceptionDates);
+  if (!skipTarget) return null;
+
+  const skippedKey = normalizeExceptionKey(skipTarget);
+  const currentEx = (task.exceptionDates || []).map((ex) => normalizeExceptionKey(ex));
+  if (currentEx.includes(skippedKey)) return null;
+
+  const nextEx = [...currentEx, skippedKey];
+  const updates: Partial<Task> = { exceptionDates: nextEx };
+  const dueMatchesSkip = normalizeExceptionKey(task.dueDate) === skippedKey;
+
+  // Advance the list date whenever the skipped day is what's currently shown (or overdue).
+  if (isOverdue || dueMatchesSkip) {
+    let cursor: string | Date = skipTarget;
+    let nextDue = getNextRecurringDue(rule, cursor, seriesSeed, nextEx);
+    const todayKey = toLocalDateString(new Date());
+    let guard = 0;
+    while (nextDue && normalizeExceptionKey(nextDue) < todayKey && guard < 48) {
+      cursor = nextDue;
+      nextDue = getNextRecurringDue(rule, cursor, seriesSeed, nextEx);
+      guard++;
+    }
+    if (nextDue) {
+      updates.dueDate = toDueDateStorage(nextDue);
+    }
+  }
+
+  return { updates, skippedKey, isOverdue };
+}
+
+/** Diff draft vs original for deferred save from the recurrence picker modal. */
+export function buildRecurrenceCommitPatch(original: Task, draft: Task): Partial<Task> {
+  const patch: Partial<Task> = {};
+  const originalDue = original.dueDate ?? undefined;
+  const draftDue = draft.dueDate ?? undefined;
+
+  if (originalDue !== draftDue) {
+    if (!draftDue) {
+      return { dueDate: undefined, recurringRule: null, exceptionDates: undefined };
+    }
+    patch.dueDate = draftDue;
+  }
+
+  const originalRule = original.recurringRule ?? null;
+  const draftRule = draft.recurringRule ?? null;
+  if (originalRule !== draftRule) {
+    patch.recurringRule = draftRule;
+  }
+
+  const originalExceptions = JSON.stringify(original.exceptionDates ?? null);
+  const draftExceptions = JSON.stringify(draft.exceptionDates ?? null);
+  if (originalExceptions !== draftExceptions) {
+    patch.exceptionDates = draft.exceptionDates;
+  }
+
+  return patch;
 }
 
 export function mergeRecurrenceTaskState(current: Task, updates: Partial<Task>): Task {

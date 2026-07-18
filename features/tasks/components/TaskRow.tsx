@@ -9,9 +9,7 @@ import { TaskAssigneeBadge } from "@/components/TaskAssigneeBadge";
 import { TaskCommentIndicator } from "./TaskCommentIndicator";
 import { TaskLinkedFileIndicator } from "./TaskLinkedFileIndicator";
 import { taskHasLinkedFiles } from "@/features/tasks/lib/taskLinkedFiles";
-import { TaskFolderPicker } from "./TaskFolderPicker";
 import { TaskStarButton } from "./TaskStarButton";
-import { TaskRecurrenceSelectModal } from "./TaskRecurrenceSelectModal";
 import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
 import { useTaskStore } from "@/store/useTaskStore";
 
@@ -59,14 +57,11 @@ export function TaskRow({
   const {
     getTaskFolders,
     toggleTaskStarred,
-    setTaskFolder,
-    updateTask,
     taskCommentSummaries,
     taskCommentsReadAt,
     currentWorkspace,
     user,
   } = useTaskStore();
-  const [recurrenceOpen, setRecurrenceOpen] = useState(false);
   const folders = showOrganize ? getTaskFolders() : [];
   const folderName = folders.find((f) => f.id === task.folderId)?.name;
   const swipeThreshold = 120;
@@ -154,7 +149,7 @@ export function TaskRow({
         )}
         role="button"
         tabIndex={0}
-        aria-label={`Task: ${task.title}${isDone ? " (completed)" : ""}${due ? `, due ${due.label}` : ""}. Swipe left to complete.`}
+        aria-label={`Task: ${task.title}${isDone ? " (completed)" : ""}${due ? `, due ${due.label}` : ""}. Open task; use Mark complete button to complete.`}
         onClick={() => {
           if (!didSwipeDragRef.current) onOpen(task);
         }}
@@ -181,7 +176,10 @@ export function TaskRow({
             }
           }}
           disabled={isOpLoading}
-          className={cn("task-complete-btn", isDone && "is-done")}
+          className={cn(
+            "task-complete-btn relative after:absolute after:inset-[-10px] after:content-[''] md:after:hidden",
+            isDone && "is-done",
+          )}
           aria-label={
             isDone
               ? "Reopen task"
@@ -275,45 +273,13 @@ export function TaskRow({
               )}
             </div>
           )}
-          {showOrganize ? (
-            <button
-              type="button"
-              disabled={isOpLoading}
-              className={cn(
-                "md:hidden text-[10px] flex items-center gap-1 min-w-0 leading-none min-h-[28px] rounded-md px-1 -mx-1 transition disabled:opacity-50 disabled:pointer-events-none",
-                task.recurringRule
-                  ? "text-neon-purple hover:bg-neon-purple/10"
-                  : "text-text-muted hover:text-text-secondary hover:bg-surface-hover",
-              )}
-              title={task.recurringRule ? getRecurringLabel(task.recurringRule) : "Set repeat schedule"}
-              aria-label={task.recurringRule ? `Repeat: ${getRecurringLabel(task.recurringRule)}` : "Set repeat schedule"}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isOpLoading) setRecurrenceOpen(true);
-              }}
-            >
-              <Repeat className="h-2.5 w-2.5 shrink-0" aria-hidden />
-              <span className="truncate">{task.recurringRule ? getRecurringLabel(task.recurringRule) : "Repeat"}</span>
-            </button>
-          ) : task.recurringRule ? (
+          {task.recurringRule ? (
             <div
               className="text-[10px] text-neon-purple flex items-center gap-1 min-w-0 leading-none"
               title={getRecurringLabel(task.recurringRule)}
             >
               <Repeat className="h-2.5 w-2.5 shrink-0" aria-hidden />
               <span className="truncate">{getRecurringLabel(task.recurringRule)}</span>
-            </div>
-          ) : null}
-          {showOrganize && folders.length > 0 ? (
-            <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
-              <TaskFolderPicker
-                compact
-                folders={folders}
-                value={task.folderId}
-                disabled={isOpLoading}
-                className="max-w-[12rem]"
-                onChange={(folderId) => void setTaskFolder(task.id, folderId)}
-              />
             </div>
           ) : null}
         </div>
@@ -378,15 +344,6 @@ export function TaskRow({
         </div>
       </motion.div>
 
-      {showOrganize ? (
-        <TaskRecurrenceSelectModal
-          open={recurrenceOpen}
-          onOpenChange={setRecurrenceOpen}
-          task={task}
-          disabled={isOpLoading}
-          onSave={(updates) => void updateTask(task.id, updates)}
-        />
-      ) : null}
     </div>
   );
 }

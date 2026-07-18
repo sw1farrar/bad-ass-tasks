@@ -3,10 +3,32 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Check, Plus, Command, Users, Settings,
-  ChevronDown, Clock, Star, ListChecks, Shield,
-  Loader2, User, LogOut, X, Bell, Home, MessageCircle, Zap, Repeat, FolderOpen, Notebook,
-  Trash2, Search, Download, KeyRound, Lock,
+  Check,
+  Plus,
+  Command,
+  Users,
+  Settings,
+  ChevronDown,
+  Clock,
+  Star,
+  ListChecks,
+  Shield,
+  Loader2,
+  User,
+  LogOut,
+  X,
+  Bell,
+  Home,
+  MessageCircle,
+  Zap,
+  Repeat,
+  FolderOpen,
+  Notebook,
+  Trash2,
+  Search,
+  Download,
+  KeyRound,
+  Lock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -114,6 +136,7 @@ import {
   type TasksRecurrenceFilterMode,
 } from "@/features/tasks/components/TasksRecurrenceFilter";
 import { TasksOrganizeBar } from "@/features/tasks/components/TasksOrganizeBar";
+import { TasksMobileOrganizeDisclosure } from "@/features/tasks/components/TasksMobileOrganizeDisclosure";
 import "@/features/tasks/tasks-workspace.css";
 import "@/features/teams/teams-workspace.css";
 
@@ -122,7 +145,7 @@ function workspaceAccessLabel(
   role: string | undefined,
   statsMemberCount: number | undefined,
   currentWorkspaceId: string,
-  currentMembersCount: number,
+  currentMembersCount: number
 ): string {
   const count =
     workspaceId === currentWorkspaceId
@@ -349,10 +372,7 @@ export default function BadAssTasks() {
     upsertHealthProfile,
   } = useTaskStore();
 
-  const bottomNavViews = useMemo(
-    () => getBottomNavViews(currentWorkspace),
-    [currentWorkspace],
-  );
+  const bottomNavViews = useMemo(() => getBottomNavViews(currentWorkspace), [currentWorkspace]);
 
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
   // This replaces the previous fragile direct-query + undefined-supabase pattern. Since fetchNotifications
@@ -361,12 +381,12 @@ export default function BadAssTasks() {
   // (once the notifications INSERT RLS policy allows pre-membership targets).
   const pendingReceivedInvites = useMemo(
     () => getPendingInviteNotifications(notifications || []),
-    [notifications],
+    [notifications]
   );
 
   const pendingReceivedListShares = useMemo(
     () => getPendingListShareNotifications(notifications || []),
-    [notifications],
+    [notifications]
   );
 
   // Role/permission flags — hoisted early so they are available before any useEffect
@@ -377,9 +397,9 @@ export default function BadAssTasks() {
   const canManage = ["owner", "admin"].includes(myRole);
   const isLiveWorkspace = isSupabaseConfigured() && !["w1", "w2"].includes(currentWorkspace.id);
   const isDemoWs = ["w1", "w2"].includes(currentWorkspace.id);
-  const isSingleOwnerWorkspace = myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs;
+  const isSingleOwnerWorkspace =
+    myRole === "owner" && members.length <= 1 && isLiveWorkspace && !isDemoWs;
   const showWorkspaceChat = isSharedWorkspace(members);
-
 
   const [chatOpen, setChatOpen] = useState(false);
   const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
@@ -475,9 +495,18 @@ export default function BadAssTasks() {
 
   // Modern confirmation modals state
   const [pendingDeleteNote, setPendingDeleteNote] = useState<string | null>(null);
-  const [pendingRemoveMember, setPendingRemoveMember] = useState<{ userId: string; label: string } | null>(null);
-  const [pendingRevokeInvite, setPendingRevokeInvite] = useState<{ inviteId: string; label: string } | null>(null);
-  const [pendingResendInvite, setPendingResendInvite] = useState<{ inviteId: string; label: string } | null>(null);
+  const [pendingRemoveMember, setPendingRemoveMember] = useState<{
+    userId: string;
+    label: string;
+  } | null>(null);
+  const [pendingRevokeInvite, setPendingRevokeInvite] = useState<{
+    inviteId: string;
+    label: string;
+  } | null>(null);
+  const [pendingResendInvite, setPendingResendInvite] = useState<{
+    inviteId: string;
+    label: string;
+  } | null>(null);
   const [pendingLeaveWorkspace, setPendingLeaveWorkspace] = useState(false);
   const [pendingClearNotifications, setPendingClearNotifications] = useState(false);
   const [pendingSignOut, setPendingSignOut] = useState(false);
@@ -489,8 +518,7 @@ export default function BadAssTasks() {
     ? isFiledNote(pendingDeleteNoteRecord)
     : false;
   const pendingDeleteNoteTitle =
-    pendingDeleteNoteRecord?.title ||
-    (pendingDeleteIsFile ? "Untitled file" : "Untitled Note");
+    pendingDeleteNoteRecord?.title || (pendingDeleteIsFile ? "Untitled file" : "Untitled Note");
 
   const handleConfirmRemoveMember = async () => {
     if (!pendingRemoveMember) return;
@@ -528,7 +556,7 @@ export default function BadAssTasks() {
 
   const bellPanelNotifications = useMemo(
     () => getBellPanelNotifications(notifications || [], 20),
-    [notifications],
+    [notifications]
   );
 
   const handleConfirmClearNotifications = async () => {
@@ -720,7 +748,7 @@ export default function BadAssTasks() {
   // from all hook call sites + deps arrays. This eliminates TDZ risk (declaration at 379 now only
   // referenced in late render code inside renderTeamsView if at 2216) for RSC/client + source order.
   useEffect(() => {
-    const isEmpty = myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs;
+    const isEmpty = myRole === "owner" && members.length <= 1 && isLiveWorkspace && !isDemoWs;
     if (!isEmpty) {
       hasFetchedInvitesForEmptyState.current = false;
     }
@@ -728,7 +756,7 @@ export default function BadAssTasks() {
 
   // One-time fetch of pending *sent* invites when entering the special empty-owner invite view.
   useEffect(() => {
-    const isEmpty = myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs;
+    const isEmpty = myRole === "owner" && members.length <= 1 && isLiveWorkspace && !isDemoWs;
     if (isEmpty && !hasFetchedInvitesForEmptyState.current) {
       hasFetchedInvitesForEmptyState.current = true;
       fetchInvites();
@@ -745,8 +773,6 @@ export default function BadAssTasks() {
   const [profileLocation, setProfileLocation] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-
-
   // PWA foundation: install prompt + service worker registration (mobile-first, demo safe)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
@@ -755,7 +781,7 @@ export default function BadAssTasks() {
   // Note: getFilteredTasks is stable from Zustand but computation is non-trivial.
   const filteredTasks = useMemo(
     () => getFilteredTasks(),
-    [getFilteredTasks, tasks, notebookTasks, notebooks, taskFilter, currentWorkspace.id],
+    [getFilteredTasks, tasks, notebookTasks, notebooks, taskFilter, currentWorkspace.id]
   );
 
   const currentWorkspaceTaskCounts = useMemo(
@@ -776,12 +802,12 @@ export default function BadAssTasks() {
       globalWorkspaceStats,
       isInitializing,
       isAuthLoading,
-    ],
+    ]
   );
 
   const pendingReviewCount = useMemo(
     () => getWorkspacePendingReviewCount(notes, currentWorkspace.id),
-    [notes, currentWorkspace.id],
+    [notes, currentWorkspace.id]
   );
 
   const selectedTask = useMemo(() => {
@@ -818,13 +844,11 @@ export default function BadAssTasks() {
     const store = useTaskStore.getState();
     await store.ensureUserHasWorkspace();
     await store.initializeFromSupabase();
-    await Promise.all([
-      store.fetchSiteAdminStatus(),
-      store.fetchMyProfile(),
-    ]);
+    await Promise.all([store.fetchSiteAdminStatus(), store.fetchMyProfile()]);
     if (user?.id && isSupabaseConfigured()) {
-      (store as { _setupUserNotificationsRealtime?: (id: string) => void })
-        ._setupUserNotificationsRealtime?.(user.id);
+      (
+        store as { _setupUserNotificationsRealtime?: (id: string) => void }
+      )._setupUserNotificationsRealtime?.(user.id);
     }
     await store.fetchNotifications?.(false).catch(() => undefined);
   }, [user?.id]);
@@ -991,7 +1015,10 @@ export default function BadAssTasks() {
 
     (async () => {
       await switchWorkspace(workspaceId);
-      await useTaskStore.getState().fetchUserWorkspaces?.().catch(() => {});
+      await useTaskStore
+        .getState()
+        .fetchUserWorkspaces?.()
+        .catch(() => {});
       const url = new URL(window.location.href);
       url.searchParams.delete("workspace");
       window.history.replaceState({}, "", url.toString());
@@ -1024,7 +1051,11 @@ export default function BadAssTasks() {
           ? "notes"
           : rawView;
     const validViews = getBottomNavViews(currentWorkspace).map((v) => v.id);
-    if (urlView && validViews.includes(urlView as (typeof validViews)[number]) && urlView !== currentView) {
+    if (
+      urlView &&
+      validViews.includes(urlView as (typeof validViews)[number]) &&
+      urlView !== currentView
+    ) {
       setView(urlView as typeof currentView);
     }
   }, []); // one-time init on mount
@@ -1083,10 +1114,7 @@ export default function BadAssTasks() {
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user && dualAuthVerified;
 
-  const captureWorkspaceTags = useMemo(
-    () => collectWorkspaceTags(notes || []),
-    [notes],
-  );
+  const captureWorkspaceTags = useMemo(() => collectWorkspaceTags(notes || []), [notes]);
 
   const handleCreateCaptureDraft = useCallback(async () => {
     const emptyDoc = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
@@ -1100,7 +1128,7 @@ export default function BadAssTasks() {
     async (noteId: string) => {
       await deleteNote(noteId);
     },
-    [deleteNote],
+    [deleteNote]
   );
 
   const isMarketingCapture =
@@ -1109,8 +1137,7 @@ export default function BadAssTasks() {
 
   const showSessionGate =
     isConfigured && (isAuthLoading || isSigningOut || (!!user && !dualAuthChecked));
-  const showLandingGate =
-    isConfigured && !user && !isSigningOut && !isMarketingCapture;
+  const showLandingGate = isConfigured && !user && !isSigningOut && !isMarketingCapture;
   const showDualAuthGate =
     isConfigured &&
     !!user &&
@@ -1144,7 +1171,9 @@ export default function BadAssTasks() {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === "accepted") {
-        toast.success("Thanks for installing!", { description: "Badazz Tasks is now on your home screen." });
+        toast.success("Thanks for installing!", {
+          description: "Badazz Tasks is now on your home screen.",
+        });
       }
       setDeferredPrompt(null);
       setShowInstallPrompt(false);
@@ -1168,7 +1197,7 @@ export default function BadAssTasks() {
 
   const handleComplete = async (
     id: string,
-    undoContext?: { task: Task; workspaceId: string; workspaceName: string },
+    undoContext?: { task: Task; workspaceId: string; workspaceName: string }
   ) => {
     const notebookTask = notebookTasks.find((t) => t.id === id);
     if (notebookTask) {
@@ -1195,7 +1224,7 @@ export default function BadAssTasks() {
       undoContext ??
       buildTaskCompletionUndoContext(
         task,
-        workspaces.find((w) => w.id === task.workspaceId)?.name ?? "Workspace",
+        workspaces.find((w) => w.id === task.workspaceId)?.name ?? "Workspace"
       );
 
     const result = await completeTask(id);
@@ -1203,6 +1232,7 @@ export default function BadAssTasks() {
       showTaskCompletionFeedback("advanced", task, {
         undoTaskCompletion,
         undoFallback,
+        triggerCelebration,
         advancedTask: resolveTaskById(id),
       });
       return;
@@ -1258,7 +1288,7 @@ export default function BadAssTasks() {
     if (!listDetailTarget) return null;
     return (
       workspaceLists.find(
-        (l) => l.id === listDetailTarget.listId && l.workspaceId === listDetailTarget.workspaceId,
+        (l) => l.id === listDetailTarget.listId && l.workspaceId === listDetailTarget.workspaceId
       ) ?? null
     );
   }, [listDetailTarget, workspaceLists]);
@@ -1299,7 +1329,7 @@ export default function BadAssTasks() {
         },
       });
     },
-    [listItems, toggleListItem],
+    [listItems, toggleListItem]
   );
 
   const handleCompleteListItemFamily = useCallback(
@@ -1308,7 +1338,7 @@ export default function BadAssTasks() {
       if (!item) return;
 
       const listScopedItems = listItems.filter(
-        (i) => i.listId === item.listId && i.workspaceId === item.workspaceId,
+        (i) => i.listId === item.listId && i.workspaceId === item.workspaceId
       );
       const completedSnapshot = getIncompleteSubtreeItems(id, listScopedItems);
       const ok = await completeListItemFamily(id);
@@ -1327,7 +1357,7 @@ export default function BadAssTasks() {
         },
       });
     },
-    [completeListItemFamily, listItems, toggleListItem],
+    [completeListItemFamily, listItems, toggleListItem]
   );
 
   const handleSetListItemPending = useCallback(
@@ -1347,15 +1377,11 @@ export default function BadAssTasks() {
         },
       });
     },
-    [listItems, setListItemPending],
+    [listItems, setListItemPending]
   );
 
   const openListDetail = useCallback(
-    (
-      listId: string,
-      workspaceId: string,
-      options?: { discardIfEmpty?: boolean },
-    ) => {
+    (listId: string, workspaceId: string, options?: { discardIfEmpty?: boolean }) => {
       void hydrateWorkspaceListData(workspaceId);
       setListDetailTarget({
         listId,
@@ -1363,13 +1389,13 @@ export default function BadAssTasks() {
         discardIfEmpty: options?.discardIfEmpty,
       });
     },
-    [hydrateWorkspaceListData],
+    [hydrateWorkspaceListData]
   );
 
   const openWorkspaceReview = useCallback(
     (workspaceId: string) => {
       const pending = sortFiledNotes(
-        filterPendingReview((notes || []).filter((n) => n.workspaceId === workspaceId)),
+        filterPendingReview((notes || []).filter((n) => n.workspaceId === workspaceId))
       );
       const first = pending[0];
       if (!first) {
@@ -1383,7 +1409,7 @@ export default function BadAssTasks() {
       setFilesOpenReviewNoteId(first.id);
       setView("notes");
     },
-    [notes, setFilesOpenReview, setFilesOpenReviewNoteId, setView],
+    [notes, setFilesOpenReview, setFilesOpenReviewNoteId, setView]
   );
 
   const handleHomeOpenWorkspaceReview = useCallback(
@@ -1397,7 +1423,7 @@ export default function BadAssTasks() {
       }
       openWorkspaceReview(workspaceId);
     },
-    [currentWorkspace.id, switchWorkspace, openWorkspaceReview, setFilesOpenReview, setView],
+    [currentWorkspace.id, switchWorkspace, openWorkspaceReview, setFilesOpenReview, setView]
   );
 
   const handleHomeOpenList = (listId: string, workspaceId: string) => {
@@ -1411,7 +1437,7 @@ export default function BadAssTasks() {
         switchWorkspace(workspaceId);
       }
     },
-    [currentWorkspace.id, setView, switchWorkspace],
+    [currentWorkspace.id, setView, switchWorkspace]
   );
 
   const handleHomeNavigateLists = useCallback(
@@ -1430,13 +1456,7 @@ export default function BadAssTasks() {
         void hydrateWorkspaceListData(workspaceId).then(() => setHighlightListId(listId));
       }
     },
-    [
-      globalListHighlights,
-      currentWorkspace.id,
-      setView,
-      switchWorkspace,
-      hydrateWorkspaceListData,
-    ],
+    [globalListHighlights, currentWorkspace.id, setView, switchWorkspace, hydrateWorkspaceListData]
   );
 
   const handleHomeNavigateReview = useCallback(
@@ -1450,7 +1470,7 @@ export default function BadAssTasks() {
       }
       openWorkspaceReview(workspaceId);
     },
-    [currentWorkspace.id, openWorkspaceReview, setFilesOpenReview, setView, switchWorkspace],
+    [currentWorkspace.id, openWorkspaceReview, setFilesOpenReview, setView, switchWorkspace]
   );
 
   const handleHomeCompleteFocusTask = async (item: HomeFocusItem) => {
@@ -1472,12 +1492,8 @@ export default function BadAssTasks() {
             ...state.globalWorkspaceStats,
             [item.workspaceId]: {
               ...stats,
-              openCount: wasDone
-                ? stats.openCount + 1
-                : Math.max(0, stats.openCount - 1),
-              doneCount: wasDone
-                ? Math.max(0, stats.doneCount - 1)
-                : stats.doneCount + 1,
+              openCount: wasDone ? stats.openCount + 1 : Math.max(0, stats.openCount - 1),
+              doneCount: wasDone ? Math.max(0, stats.doneCount - 1) : stats.doneCount + 1,
             },
           },
         });
@@ -1496,7 +1512,10 @@ export default function BadAssTasks() {
       }
       await Promise.all([
         fetchNotifications?.().catch(() => {}),
-        useTaskStore.getState().fetchUserWorkspaces?.().catch(() => {}),
+        useTaskStore
+          .getState()
+          .fetchUserWorkspaces?.()
+          .catch(() => {}),
         fetchGlobalHomeAggregates(),
       ]);
     }
@@ -1524,7 +1543,8 @@ export default function BadAssTasks() {
     const resolvedShareId = resolveListShareId(shareId, link);
     if (!resolvedShareId) {
       toast.error("Could not open shared list", {
-        description: "This notification is missing a valid share link. Ask the sender to share again.",
+        description:
+          "This notification is missing a valid share link. Ask the sender to share again.",
       });
       return;
     }
@@ -1718,7 +1738,9 @@ export default function BadAssTasks() {
           </button>
         </div>
         {!isLiveWorkspace && (
-          <p className="text-[10px] text-neon-purple text-center -mt-1">Live connection required to save</p>
+          <p className="text-[10px] text-neon-purple text-center -mt-1">
+            Live connection required to save
+          </p>
         )}
         {isSiteAdmin && (
           <div className="border-t border-border-glass pt-2 md:hidden">
@@ -1732,7 +1754,7 @@ export default function BadAssTasks() {
                 "w-full min-h-[36px] flex items-center justify-center gap-2 rounded-lg transition text-sm font-medium",
                 currentView === "admin"
                   ? "text-neon-purple bg-neon-purple/10"
-                  : "text-text-primary hover:bg-surface-hover",
+                  : "text-text-primary hover:bg-surface-hover"
               )}
             >
               <Shield className="h-4 w-4 text-neon-purple" />
@@ -1771,6 +1793,13 @@ export default function BadAssTasks() {
         : "all")) as TasksRecurrenceFilterMode;
   const taskStarredFilterMode = taskFilter.starred ?? "all";
   const taskFolderFilterMode = taskFilter.folderFilter ?? "all";
+  const hasActiveTaskFilters = Boolean(
+    taskFilter.search ||
+    taskStatusFilterMode !== "incomplete" ||
+    taskRecurrenceFilterMode !== "all" ||
+    taskStarredFilterMode !== "all" ||
+    taskFolderFilterMode !== "all"
+  );
   const taskFolders = getTaskFolders();
   const renderTasksView = () => (
     <div className="tasks-root flex flex-col flex-1 min-h-0">
@@ -1785,23 +1814,25 @@ export default function BadAssTasks() {
           className="tasks-desktop-page-header mb-1"
         />
 
-        {/* Mobile — search + filters (unchanged flow) */}
-        <div className="tasks-toolbar-mobile flex flex-col sm:flex-row sm:items-center gap-2 mb-1 md:hidden">
+        {/* Mobile — search → view filters → organize */}
+        <div className="tasks-toolbar-mobile flex flex-col gap-2 mb-1 md:hidden">
           <input
             value={taskFilter.search || ""}
             onChange={(e) => setTaskFilter({ search: e.target.value })}
             placeholder="Search tasks"
             className="tasks-page-search input px-3 py-2.5 text-sm w-full"
           />
-          <TasksStatusFilter
-            value={taskStatusFilterMode}
-            onChange={(mode) => setTaskFilter({ statusMode: mode })}
-          />
-          <TasksRecurrenceFilter
-            value={taskRecurrenceFilterMode}
-            onChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
-          />
-          <TasksOrganizeBar
+          <div className="flex flex-col gap-2">
+            <TasksStatusFilter
+              value={taskStatusFilterMode}
+              onChange={(mode) => setTaskFilter({ statusMode: mode })}
+            />
+            <TasksRecurrenceFilter
+              value={taskRecurrenceFilterMode}
+              onChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
+            />
+          </div>
+          <TasksMobileOrganizeDisclosure
             folders={taskFolders}
             starredFilter={taskStarredFilterMode}
             folderFilter={taskFolderFilterMode}
@@ -1816,18 +1847,14 @@ export default function BadAssTasks() {
           />
         </div>
 
-        <div className="hidden md:flex items-center gap-2 mb-1 flex-wrap">
-          <TasksRecurrenceFilter
-            value={taskRecurrenceFilterMode}
-            onChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
-          />
-        </div>
-
         <TasksOrganizeBar
           className="tasks-organize-bar--desktop hidden md:block"
           showStatusFilter
           statusFilter={taskStatusFilterMode}
           onStatusFilterChange={(mode) => setTaskFilter({ statusMode: mode })}
+          showRecurrenceFilter
+          recurrenceFilter={taskRecurrenceFilterMode}
+          onRecurrenceFilterChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
           folders={taskFolders}
           starredFilter={taskStarredFilterMode}
           folderFilter={taskFolderFilterMode}
@@ -1853,6 +1880,17 @@ export default function BadAssTasks() {
           searchValue={taskFilter.search || ""}
           onSearchChange={(search) => setTaskFilter({ search })}
           resultCount={filteredTasks.length}
+          isLoading={isInitializing}
+          hasActiveFilters={hasActiveTaskFilters}
+          onClearFilters={() =>
+            setTaskFilter({
+              search: "",
+              statusMode: "incomplete",
+              recurrenceMode: "all",
+              starred: "all",
+              folderFilter: "all",
+            })
+          }
         />
       </div>
     </div>
@@ -1937,12 +1975,33 @@ export default function BadAssTasks() {
         return;
       }
 
-      if (!typing && !paletteOpen && !showFullTaskModal && !listDetailTarget && !isKeyboardCheatsheetOpen) {
-        if (e.key === "1") { setView("tasks"); return; }
-        if (e.key === "2") { setView("notes"); return; }
-        if (e.key === "3") { setView("lists"); return; }
-        if (e.key === "4") { setView("teams"); return; }
-        if (e.key === "5") { setView("settings"); return; }
+      if (
+        !typing &&
+        !paletteOpen &&
+        !showFullTaskModal &&
+        !listDetailTarget &&
+        !isKeyboardCheatsheetOpen
+      ) {
+        if (e.key === "1") {
+          setView("tasks");
+          return;
+        }
+        if (e.key === "2") {
+          setView("notes");
+          return;
+        }
+        if (e.key === "3") {
+          setView("lists");
+          return;
+        }
+        if (e.key === "4") {
+          setView("teams");
+          return;
+        }
+        if (e.key === "5") {
+          setView("settings");
+          return;
+        }
       }
 
       if (e.key === "Escape") {
@@ -2022,7 +2081,12 @@ export default function BadAssTasks() {
       refreshHomeNoteAggregatesFromStore();
       fetchNotifications?.(false).catch(() => {});
     }
-  }, [currentView, fetchGlobalHomeAggregates, refreshHomeNoteAggregatesFromStore, fetchNotifications]);
+  }, [
+    currentView,
+    fetchGlobalHomeAggregates,
+    refreshHomeNoteAggregatesFromStore,
+    fetchNotifications,
+  ]);
 
   useEffect(() => {
     if (workspaceChat.hasUnread) {
@@ -2081,14 +2145,15 @@ export default function BadAssTasks() {
     const workspacePulse = (workspaces || []).map((ws) => {
       const wsFocus = (globalTodayFocus || []).filter((f) => f.workspaceId === ws.id);
       const stats = globalWorkspaceStats?.[ws.id];
-      const overdue = stats?.overdueCount ?? wsFocus.filter((f) => {
-        if (!f.task.dueDate) return false;
-        return isDueDatePast(f.task.dueDate);
-      }).length;
+      const overdue =
+        stats?.overdueCount ??
+        wsFocus.filter((f) => {
+          if (!f.task.dueDate) return false;
+          return isDueDatePast(f.task.dueDate);
+        }).length;
 
       const assignedToYou = wsFocus.filter(
-        (f) =>
-          f.task.assigneeIds?.[0] === user?.id || f.task.assignee === "You"
+        (f) => f.task.assigneeIds?.[0] === user?.id || f.task.assignee === "You"
       ).length;
 
       return {
@@ -2109,8 +2174,7 @@ export default function BadAssTasks() {
         noteCount: stats?.noteCount ?? 0,
         pendingReviewCount: stats?.pendingReviewCount ?? 0,
         taskCount:
-          stats?.totalTaskCount ??
-          (tasks || []).filter((t) => t.workspaceId === ws.id).length,
+          stats?.totalTaskCount ?? (tasks || []).filter((t) => t.workspaceId === ws.id).length,
         memberCount: stats?.memberCount,
       };
     });
@@ -2145,14 +2209,14 @@ export default function BadAssTasks() {
         onOpenNotification={handleHomeOpenNotification}
         pendingReviewTotal={Object.values(globalWorkspaceStats || {}).reduce(
           (sum, s) => sum + (s.pendingReviewCount ?? 0),
-          0,
+          0
         )}
         onOpenWorkspaceReview={handleHomeOpenWorkspaceReview}
         onNavigateDue={handleHomeNavigateDue}
         onNavigateLists={handleHomeNavigateLists}
         onNavigateReview={handleHomeNavigateReview}
         showTaskAssignee={workspaces.some(
-          (ws) => (globalWorkspaceStats?.[ws.id]?.memberCount ?? 1) > 1,
+          (ws) => (globalWorkspaceStats?.[ws.id]?.memberCount ?? 1) > 1
         )}
         members={members}
         currentUserId={user?.id}
@@ -2183,8 +2247,7 @@ export default function BadAssTasks() {
   const handleCaptureFile = useCallback(
     async (input: CaptureFileInput, mode: CaptureFileSubmitMode, draftNoteId?: string) => {
       const reviewStatus = mode === "review" ? ("pending_review" as const) : ("filed" as const);
-      const tags =
-        input.tags.length > 0 ? input.tags : mode === "file" ? ["uncategorized"] : [];
+      const tags = input.tags.length > 0 ? input.tags : mode === "file" ? ["uncategorized"] : [];
 
       let noteId = draftNoteId ?? null;
 
@@ -2241,7 +2304,7 @@ export default function BadAssTasks() {
       user?.id,
       setView,
       setFilesOpenReview,
-    ],
+    ]
   );
 
   const renderListsView = () => {
@@ -2249,42 +2312,66 @@ export default function BadAssTasks() {
     const archivedLists = getArchivedWorkspaceLists();
     return (
       <div className="lists-root flex flex-col min-h-0 flex-1">
-      <ListsView
-        workspaceName={currentWorkspace.name}
-        lists={lists}
-        archivedLists={archivedLists}
-        getItemsForList={getListItemsForList}
-        onAddList={(title) => addList(title)}
-        onUpdateList={(id, updates) => { void updateList(id, updates); }}
-        onDeleteList={(id) => { void deleteList(id); }}
-        onTogglePinned={(id) => { void toggleListPinned(id); }}
-        onArchiveList={(id) => {
-          void updateList(id, { archived: true, pinned: false });
-          if (listDetailTarget?.listId === id) closeListDetail();
-        }}
-        onUnarchiveList={(id) => {
-          void updateList(id, { archived: false });
-        }}
-        onAddItem={(listId, text, options) =>
-          addListItem(listId, text, options).then((item) => item?.id ?? null)
-        }
-        onToggleItem={(id) => { void handleToggleListItem(id); }}
-        onCompleteItemFamily={(id) => { void handleCompleteListItemFamily(id); }}
-        onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
-        onDeleteItem={(id) => { void deleteListItem(id); }}
-        onNudgeList={nudgeList}
-        onIndentItem={(id) => { void indentListItem(id); }}
-        onOutdentItem={(id) => { void outdentListItem(id); }}
-        onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
-        onSetListItemPending={(id, pending) => { void handleSetListItemPending(id, pending); }}
-        onRestorePending={(listId) => { void restorePendingListItems(listId); }}
-        onClearPending={(listId) => { void clearPendingListItems(listId); }}
-        highlightListId={highlightListId}
-        onOpenDetail={(listId, options) =>
-          openListDetail(listId, currentWorkspace.id, options)
-        }
-        canShareList={canManage && isTrulyLive && !["w1", "w2"].includes(currentWorkspace.id)}
-      />
+        <ListsView
+          workspaceName={currentWorkspace.name}
+          lists={lists}
+          archivedLists={archivedLists}
+          getItemsForList={getListItemsForList}
+          onAddList={(title) => addList(title)}
+          onUpdateList={(id, updates) => {
+            void updateList(id, updates);
+          }}
+          onDeleteList={(id) => {
+            void deleteList(id);
+          }}
+          onTogglePinned={(id) => {
+            void toggleListPinned(id);
+          }}
+          onArchiveList={(id) => {
+            void updateList(id, { archived: true, pinned: false });
+            if (listDetailTarget?.listId === id) closeListDetail();
+          }}
+          onUnarchiveList={(id) => {
+            void updateList(id, { archived: false });
+          }}
+          onAddItem={(listId, text, options) =>
+            addListItem(listId, text, options).then((item) => item?.id ?? null)
+          }
+          onToggleItem={(id) => {
+            void handleToggleListItem(id);
+          }}
+          onCompleteItemFamily={(id) => {
+            void handleCompleteListItemFamily(id);
+          }}
+          onUpdateItem={(id, text) => {
+            void updateListItem(id, { text });
+          }}
+          onDeleteItem={(id) => {
+            void deleteListItem(id);
+          }}
+          onNudgeList={nudgeList}
+          onIndentItem={(id) => {
+            void indentListItem(id);
+          }}
+          onOutdentItem={(id) => {
+            void outdentListItem(id);
+          }}
+          onClearCompleted={(listId) => {
+            void clearCompletedListItems(listId);
+          }}
+          onSetListItemPending={(id, pending) => {
+            void handleSetListItemPending(id, pending);
+          }}
+          onRestorePending={(listId) => {
+            void restorePendingListItems(listId);
+          }}
+          onClearPending={(listId) => {
+            void clearPendingListItems(listId);
+          }}
+          highlightListId={highlightListId}
+          onOpenDetail={(listId, options) => openListDetail(listId, currentWorkspace.id, options)}
+          canShareList={canManage && isTrulyLive && !["w1", "w2"].includes(currentWorkspace.id)}
+        />
       </div>
     );
   };
@@ -2348,7 +2435,6 @@ export default function BadAssTasks() {
             // filed locally even if server clear fails
           }
         }}
-
         openReviewOnMount={filesOpenReview}
         onOpenReviewConsumed={() => setFilesOpenReview(false)}
         openReviewNoteIdOnMount={filesOpenReviewNoteId}
@@ -2406,7 +2492,9 @@ export default function BadAssTasks() {
               await navigator.clipboard.writeText(link);
               setCopiedInviteId(inviteId);
               setTimeout(() => setCopiedInviteId(null), 2500);
-              toast.success("Invite sent & link copied!", { description: "They can join via the link." });
+              toast.success("Invite sent & link copied!", {
+                description: "They can join via the link.",
+              });
             } catch {
               toast.success("Invite created", { description: link });
             }
@@ -2445,7 +2533,10 @@ export default function BadAssTasks() {
         {isMobileViewport ? (
           <div className="team-invite-sheet p-5 space-y-4">
             <div>
-              <label htmlFor="team-invite-email" className="text-xs text-text-secondary block mb-1.5">
+              <label
+                htmlFor="team-invite-email"
+                className="text-xs text-text-secondary block mb-1.5"
+              >
                 Email address
               </label>
               <input
@@ -2564,461 +2655,507 @@ export default function BadAssTasks() {
     // === Special modern empty state for owners with no other members yet ===
     // Inlined predicate (using early-declared myRole/members/etc.) completely removes the
     // 'isEmptyOwnerState' identifier from executable code. This eliminates all TDZ risk.
-    if (myRole === 'owner' && members.length <= 1 && isLiveWorkspace && !isDemoWs) {
+    if (myRole === "owner" && members.length <= 1 && isLiveWorkspace && !isDemoWs) {
       return (
         <div className="teams-root">
-        <div className="teams-workspace teams-workspace--empty max-w-2xl mx-auto pt-4 md:pt-12 pb-8 md:pb-20">
-          <div className="team-empty-hero text-center mb-6 md:mb-10">
-            <div className="mx-auto mb-4 md:mb-6 h-14 w-14 md:h-20 md:w-20 rounded-2xl md:rounded-3xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
-              <Users className="h-7 w-7 md:h-10 md:w-10 text-accent-on" />
-            </div>
-            <div className="text-2xl md:text-4xl font-semibold tracking-tighter mb-2">Team</div>
-            <div className="hidden md:inline-flex max-w-full items-center rounded-lg border border-neon-purple/25 bg-neon-purple/8 px-3 py-1 text-sm font-semibold tracking-tight text-neon-purple-tint mb-3 truncate">
-              {currentWorkspace.name}
-            </div>
-            <p className="team-empty-private-notice text-sm text-text-secondary max-w-md mx-auto leading-relaxed px-3 md:px-0">
-              You&apos;re in a private workspace and don&apos;t have teammates yet. Search below to find
-              people and invite them.
-            </p>
-
-            {/* Recipient context — only show for non-owners of this workspace */}
-            {currentWorkspace.role && currentWorkspace.role !== 'owner' && (
-              <div className="mt-4 mb-2 text-sm text-neon-purple bg-neon-purple/10 border border-neon-purple/20 rounded-xl px-4 py-2 inline-block">
-                You were invited to this workspace.
+          <div className="teams-workspace teams-workspace--empty max-w-2xl mx-auto pt-4 md:pt-12 pb-8 md:pb-20">
+            <div className="team-empty-hero text-center mb-6 md:mb-10">
+              <div className="mx-auto mb-4 md:mb-6 h-14 w-14 md:h-20 md:w-20 rounded-2xl md:rounded-3xl bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center">
+                <Users className="h-7 w-7 md:h-10 md:w-10 text-accent-on" />
               </div>
-            )}
-          </div>
+              <div className="text-2xl md:text-4xl font-semibold tracking-tighter mb-2">Team</div>
+              <div className="hidden md:inline-flex max-w-full items-center rounded-lg border border-neon-purple/25 bg-neon-purple/8 px-3 py-1 text-sm font-semibold tracking-tight text-neon-purple-tint mb-3 truncate">
+                {currentWorkspace.name}
+              </div>
+              <p className="team-empty-private-notice text-sm text-text-secondary max-w-md mx-auto leading-relaxed px-3 md:px-0">
+                You&apos;re in a private workspace and don&apos;t have teammates yet. Search below
+                to find people and invite them.
+              </p>
 
-          {/* === "Invites sent" — primary focus once any exist (world-class simple feedback) === */}
-          {invites.length > 0 && (
-            <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-border-glass mb-4 md:mb-8">
-              <div className="flex items-center justify-between mb-4 md:mb-6">
-                <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                  <div className="font-semibold text-base md:text-xl tracking-tight">Invites sent</div>
-                  <div className="px-3 py-0.5 rounded-full bg-neon-purple/20 text-sm font-mono text-neon-purple border border-neon-purple/30">
-                    {invites.length}
-                  </div>
+              {/* Recipient context — only show for non-owners of this workspace */}
+              {currentWorkspace.role && currentWorkspace.role !== "owner" && (
+                <div className="mt-4 mb-2 text-sm text-neon-purple bg-neon-purple/10 border border-neon-purple/20 rounded-xl px-4 py-2 inline-block">
+                  You were invited to this workspace.
                 </div>
-                <div className="text-xs text-text-muted font-mono">Pending</div>
-              </div>
-
-              <div className="space-y-2 md:space-y-3">
-                {invites.map((inv, index) => (
-                  <div key={inv.id} className="team-invite-sent-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition group">
-                    <div className="min-w-0">
-                      {/* Privacy: never show the recipient's email in the sender's "Invites sent" list.
-                          Prefer name + @username (populated when invite came via search). */}
-                      <div className="font-medium truncate">
-                        {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Pending teammate")}
-                      </div>
-                      <div className="text-xs text-text-muted font-mono mt-0.5">
-                        {inv.role} • {new Date(inv.createdAt).toLocaleDateString()}
-                      </div>
-                    </div>
-
-                    <div className="team-invite-sent-row__actions flex items-center gap-2 opacity-80 group-hover:opacity-100 transition">
-                      <button
-                        onClick={() => copyInviteLink(inv.id)}
-                        className="btn btn-secondary text-xs px-3 py-1.5"
-                      >
-                        {copiedInviteId === inv.id ? "Copied!" : "Copy link"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
-                          handleResendInvite(inv.id, label);
-                        }}
-                        className="btn btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
-                        disabled={!isLive}
-                      >
-                        <Repeat className="h-3 w-3" /> Resend
-                      </button>
-                      <button
-                        onClick={() => {
-                          const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
-                          handleRevokeInvite(inv.id, label);
-                        }}
-                        className="p-2 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition"
-                        aria-label="Revoke invite"
-                        disabled={!isLive}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Prominent user search (Facebook-style "find friends") */}
-          <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-border-glass mb-4 md:mb-8">
-            <div className="font-semibold text-base md:text-lg mb-3 md:mb-4 flex items-center gap-2">
-              <Search className="h-5 w-5 text-neon-purple shrink-0" /> Find people
-            </div>
-
-            <div className="relative">
-              <input
-                type="text"
-                value={teamSearchQuery}
-                onChange={(e) => {
-                  const q = e.target.value;
-                  setTeamSearchQuery(q);
-                  setIsSearchingTeam(true);
-                  setTeamSearchResults([]);
-                  if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-                  if (!q.trim()) {
-                    setIsSearchingTeam(false);
-                    return;
-                  }
-                  searchDebounceRef.current = setTimeout(async () => {
-                    try {
-                      const results = await searchPotentialTeammates(q.trim(), currentWorkspace.id);
-                      setTeamSearchResults(results);
-                    } catch {
-                      setTeamSearchResults([]);
-                    } finally {
-                      setIsSearchingTeam(false);
-                    }
-                  }, 350);
-                }}
-                placeholder="Name, @username, or city"
-                className="team-empty-search-input input w-full px-4 md:px-5 py-3 md:py-4 text-sm md:text-lg rounded-xl md:rounded-2xl mb-3 md:mb-4 pr-11"
-              />
-              {teamSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTeamSearchQuery("");
-                    setTeamSearchResults([]);
-                    setIsSearchingTeam(false);
-                    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-                  }}
-                  className="team-empty-search-clear absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                  aria-label="Clear search"
-                >
-                  <X className="h-4 w-4" />
-                </button>
               )}
             </div>
 
-            {isSearchingTeam && (
-              <div className="flex items-center gap-2 text-sm text-text-secondary mb-3 px-1">
-                <Loader2 className="h-4 w-4 animate-spin" /> Searching directory...
-              </div>
-            )}
+            {/* === "Invites sent" — primary focus once any exist (world-class simple feedback) === */}
+            {invites.length > 0 && (
+              <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-border-glass mb-4 md:mb-8">
+                <div className="flex items-center justify-between mb-4 md:mb-6">
+                  <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                    <div className="font-semibold text-base md:text-xl tracking-tight">
+                      Invites sent
+                    </div>
+                    <div className="px-3 py-0.5 rounded-full bg-neon-purple/20 text-sm font-mono text-neon-purple border border-neon-purple/30">
+                      {invites.length}
+                    </div>
+                  </div>
+                  <div className="text-xs text-text-muted font-mono">Pending</div>
+                </div>
 
-            {!isSearchingTeam && teamSearchResults.length > 0 && (
-              <div className="space-y-2 mb-4">
-                {teamSearchResults.map((result, idx) => {
-                  const initial = (result.fullName || result.username || result.email || "?").toString()[0].toUpperCase();
-                  const displayName = getSearchResultDisplayName(result);
-                  return (
-                    <div key={result.id || idx} className="team-invite-result-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {result.avatarUrl ? (
-                          <img src={result.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-border-glass" />
-                        ) : (
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-neon-purple/80 to-neon-purple-dark/80 flex items-center justify-center text-accent-on font-bold flex-shrink-0">
-                            {initial}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{displayName}</div>
-                          {result.username && <div className="text-xs text-neon-purple font-mono">@{result.username}</div>}
-                          {result.location && <div className="text-xs text-text-muted truncate">≡ƒôì {result.location}</div>}
+                <div className="space-y-2 md:space-y-3">
+                  {invites.map((inv, index) => (
+                    <div
+                      key={inv.id}
+                      className="team-invite-sent-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition group"
+                    >
+                      <div className="min-w-0">
+                        {/* Privacy: never show the recipient's email in the sender's "Invites sent" list.
+                          Prefer name + @username (populated when invite came via search). */}
+                        <div className="font-medium truncate">
+                          {inv.invitedFullName ||
+                            (inv.invitedUsername ? `@${inv.invitedUsername}` : "Pending teammate")}
+                        </div>
+                        <div className="text-xs text-text-muted font-mono mt-0.5">
+                          {inv.role} • {new Date(inv.createdAt).toLocaleDateString()}
                         </div>
                       </div>
-                      <button
-                        onClick={async () => {
-                          // Clear search UI immediately for clean experience
-                          setTeamSearchQuery("");
-                          setTeamSearchResults([]);
-                          setIsSearchingTeam(false);
 
-                          if (!result.email) {
-                            openEmailInviteSheet();
-                            return;
-                          }
-
-                          // Automatically send the invite using the email from the search result
-                          // (email is never shown to the sender for privacy)
-                          const inviteId = await sendInvite(result.email, "member", result.id);
-
-                          if (inviteId) {
-                            toast.success("Invite sent!", {
-                              description: "They will receive an email notification."
-                            });
-                            await fetchInvites();
-
-                            // Optimistic enrichment for the sender's "Invites sent" list
-                            // (search result already has the nice name/username; avoids RLS/profile visibility issues
-                            // until we add a more permissive profiles policy or the DB hydration succeeds).
-                            const store = useTaskStore.getState();
-                            const patchedInvites = (store.invites || []).map((inv: any) =>
-                              inv.id === inviteId
-                                ? {
-                                    ...inv,
-                                    invitedFullName: result.fullName || inv.invitedFullName,
-                                    invitedUsername: result.username || inv.invitedUsername,
-                                  }
-                                : inv
-                            );
-                            useTaskStore.setState({ invites: patchedInvites });
-
-                            // The "Invites sent" section should now appear above with the real name
-                          } else {
-                            toast.error("Failed to send invite");
-                          }
-                        }}
-                        className="btn btn-primary px-5 py-2 text-sm flex-shrink-0"
-                      >
-                        Invite
-                      </button>
+                      <div className="team-invite-sent-row__actions flex items-center gap-2 opacity-80 group-hover:opacity-100 transition">
+                        <button
+                          onClick={() => copyInviteLink(inv.id)}
+                          className="btn btn-secondary text-xs px-3 py-1.5"
+                        >
+                          {copiedInviteId === inv.id ? "Copied!" : "Copy link"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            const label =
+                              inv.invitedFullName ||
+                              (inv.invitedUsername
+                                ? `@${inv.invitedUsername}`
+                                : inv.email || "link-only");
+                            handleResendInvite(inv.id, label);
+                          }}
+                          className="btn btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
+                          disabled={!isLive}
+                        >
+                          <Repeat className="h-3 w-3" /> Resend
+                        </button>
+                        <button
+                          onClick={() => {
+                            const label =
+                              inv.invitedFullName ||
+                              (inv.invitedUsername
+                                ? `@${inv.invitedUsername}`
+                                : inv.email || "link-only");
+                            handleRevokeInvite(inv.id, label);
+                          }}
+                          className="p-2 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition"
+                          aria-label="Revoke invite"
+                          disabled={!isLive}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
             )}
 
-            {!isSearchingTeam && teamSearchQuery.trim() && teamSearchResults.length === 0 && (
-              isMobileViewport ? (
-                <div className="team-search-not-found rounded-2xl border border-border-glass bg-surface-overlay px-4 py-6 text-center mb-2">
-                  <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-neon-purple/10 border border-neon-purple/30 flex items-center justify-center">
-                    <User className="h-5 w-5 text-neon-purple" />
-                  </div>
-                  <p className="text-base font-semibold tracking-tight text-text-primary mb-5">
-                    User not found
-                  </p>
+            {/* Prominent user search (Facebook-style "find friends") */}
+            <div className="team-empty-card glass rounded-2xl md:rounded-3xl p-4 md:p-8 border border-border-glass mb-4 md:mb-8">
+              <div className="font-semibold text-base md:text-lg mb-3 md:mb-4 flex items-center gap-2">
+                <Search className="h-5 w-5 text-neon-purple shrink-0" /> Find people
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  value={teamSearchQuery}
+                  onChange={(e) => {
+                    const q = e.target.value;
+                    setTeamSearchQuery(q);
+                    setIsSearchingTeam(true);
+                    setTeamSearchResults([]);
+                    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                    if (!q.trim()) {
+                      setIsSearchingTeam(false);
+                      return;
+                    }
+                    searchDebounceRef.current = setTimeout(async () => {
+                      try {
+                        const results = await searchPotentialTeammates(
+                          q.trim(),
+                          currentWorkspace.id
+                        );
+                        setTeamSearchResults(results);
+                      } catch {
+                        setTeamSearchResults([]);
+                      } finally {
+                        setIsSearchingTeam(false);
+                      }
+                    }, 350);
+                  }}
+                  placeholder="Name, @username, or city"
+                  className="team-empty-search-input input w-full px-4 md:px-5 py-3 md:py-4 text-sm md:text-lg rounded-xl md:rounded-2xl mb-3 md:mb-4 pr-11"
+                />
+                {teamSearchQuery && (
                   <button
                     type="button"
-                    onClick={openEmailInviteSheet}
-                    className="w-full btn btn-primary min-h-[48px] text-sm font-semibold"
+                    onClick={() => {
+                      setTeamSearchQuery("");
+                      setTeamSearchResults([]);
+                      setIsSearchingTeam(false);
+                      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                    }}
+                    className="team-empty-search-clear absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                    aria-label="Clear search"
                   >
-                    Invite
+                    <X className="h-4 w-4" />
                   </button>
+                )}
+              </div>
+
+              {isSearchingTeam && (
+                <div className="flex items-center gap-2 text-sm text-text-secondary mb-3 px-1">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Searching directory...
                 </div>
-              ) : (
-                <div className="text-sm text-text-muted mb-4 px-1">
-                  No matches in the directory.
+              )}
+
+              {!isSearchingTeam && teamSearchResults.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  {teamSearchResults.map((result, idx) => {
+                    const initial = (result.fullName || result.username || result.email || "?")
+                      .toString()[0]
+                      .toUpperCase();
+                    const displayName = getSearchResultDisplayName(result);
+                    return (
+                      <div
+                        key={result.id || idx}
+                        className="team-invite-result-row flex items-center justify-between p-3 md:p-4 rounded-xl md:rounded-2xl bg-surface-hover border border-border-glass hover:bg-surface-hover transition"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {result.avatarUrl ? (
+                            <img
+                              src={result.avatarUrl}
+                              alt=""
+                              className="h-10 w-10 rounded-full object-cover border border-border-glass"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-neon-purple/80 to-neon-purple-dark/80 flex items-center justify-center text-accent-on font-bold flex-shrink-0">
+                              {initial}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{displayName}</div>
+                            {result.username && (
+                              <div className="text-xs text-neon-purple font-mono">
+                                @{result.username}
+                              </div>
+                            )}
+                            {result.location && (
+                              <div className="text-xs text-text-muted truncate">
+                                ≡ƒôì {result.location}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            // Clear search UI immediately for clean experience
+                            setTeamSearchQuery("");
+                            setTeamSearchResults([]);
+                            setIsSearchingTeam(false);
+
+                            if (!result.email) {
+                              openEmailInviteSheet();
+                              return;
+                            }
+
+                            // Automatically send the invite using the email from the search result
+                            // (email is never shown to the sender for privacy)
+                            const inviteId = await sendInvite(result.email, "member", result.id);
+
+                            if (inviteId) {
+                              toast.success("Invite sent!", {
+                                description: "They will receive an email notification.",
+                              });
+                              await fetchInvites();
+
+                              // Optimistic enrichment for the sender's "Invites sent" list
+                              // (search result already has the nice name/username; avoids RLS/profile visibility issues
+                              // until we add a more permissive profiles policy or the DB hydration succeeds).
+                              const store = useTaskStore.getState();
+                              const patchedInvites = (store.invites || []).map((inv: any) =>
+                                inv.id === inviteId
+                                  ? {
+                                      ...inv,
+                                      invitedFullName: result.fullName || inv.invitedFullName,
+                                      invitedUsername: result.username || inv.invitedUsername,
+                                    }
+                                  : inv
+                              );
+                              useTaskStore.setState({ invites: patchedInvites });
+
+                              // The "Invites sent" section should now appear above with the real name
+                            } else {
+                              toast.error("Failed to send invite");
+                            }
+                          }}
+                          className="btn btn-primary px-5 py-2 text-sm flex-shrink-0"
+                        >
+                          Invite
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
-              )
-            )}
+              )}
+
+              {!isSearchingTeam &&
+                teamSearchQuery.trim() &&
+                teamSearchResults.length === 0 &&
+                (isMobileViewport ? (
+                  <div className="team-search-not-found rounded-2xl border border-border-glass bg-surface-overlay px-4 py-6 text-center mb-2">
+                    <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-neon-purple/10 border border-neon-purple/30 flex items-center justify-center">
+                      <User className="h-5 w-5 text-neon-purple" />
+                    </div>
+                    <p className="text-base font-semibold tracking-tight text-text-primary mb-5">
+                      User not found
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openEmailInviteSheet}
+                      className="w-full btn btn-primary min-h-[48px] text-sm font-semibold"
+                    >
+                      Invite
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-sm text-text-muted mb-4 px-1">
+                    No matches in the directory.
+                  </div>
+                ))}
+            </div>
+
+            {/* "While you wait" tip — only show if profile is incomplete */}
+            {(() => {
+              const selfMember = members.find((m) => m.userId === user?.id);
+              // Profile completion prompt removed — editing now lives exclusively in the avatar menu.
+              return null;
+            })()}
+
+            {renderTeamInviteSheet()}
           </div>
-
-
-
-
-
-          {/* "While you wait" tip — only show if profile is incomplete */}
-          {(() => {
-            const selfMember = members.find((m) => m.userId === user?.id);
-            // Profile completion prompt removed — editing now lives exclusively in the avatar menu.
-            return null;
-          })()}
-
-          {renderTeamInviteSheet()}
-        </div>
         </div>
       );
     }
 
     const teamOnlineUserIds = new Set(
-      (onlineUsers || [])
-        .map((u) => u.userId)
-        .filter((id): id is string => !!id)
+      (onlineUsers || []).map((u) => u.userId).filter((id): id is string => !!id)
     );
 
     return (
       <div className="teams-root">
-      <div className="teams-workspace flex flex-col gap-3 md:gap-8 pb-8 md:pb-12">
-        <div className="teams-workspace-header">
-          <WorkspaceViewHeader
-            variant="inline"
-            title="Team"
-            workspaceName={currentWorkspace.name}
-            icon={<Users className="h-6 w-6" />}
-            meta={`${members.length} member${members.length === 1 ? "" : "s"}${onlineUsers.length > 0 ? ` · ${onlineUsers.length} online` : ""}`}
-            hideWorkspaceLabelOnMobile
-            hideWorkspaceNameOnMobile
-            hideMetaOnMobile
-            className="mb-0"
-            actions={
-              canManage && isLive && !isDemoWs ? (
-                <button
-                  onClick={() => setShowInviteDialog(true)}
-                  className="teams-invite-btn btn btn-primary text-sm flex items-center gap-2 min-h-[40px] md:min-h-[44px]"
-                >
-                  <Plus className="h-4 w-4" /> Invite
-                </button>
-              ) : undefined
-            }
-          />
-        </div>
-
-        <TeamMemberDirectory
-          members={members}
-          tasks={tasks}
-          onlineUserIds={teamOnlineUserIds}
-          currentUserId={user?.id}
-          isLoading={isLoadingMembers}
-          renderMemberActions={(m, isSelf) => {
-            const canActOnThis = canManage && !isSelf;
-            if (canActOnThis) {
-              return (
-                <div className="flex items-center gap-2">
-                  <select
-                    value={m.role}
-                    onChange={(e) => handleRoleChange(m.userId, e.target.value as WorkspaceRole)}
-                    className="bg-bg-secondary border border-border-glass rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-neon-purple"
-                    disabled={!isLive}
-                  >
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                    <option value="owner">Owner</option>
-                  </select>
+        <div className="teams-workspace flex flex-col gap-3 md:gap-8 pb-8 md:pb-12">
+          <div className="teams-workspace-header">
+            <WorkspaceViewHeader
+              variant="inline"
+              title="Team"
+              workspaceName={currentWorkspace.name}
+              icon={<Users className="h-6 w-6" />}
+              meta={`${members.length} member${members.length === 1 ? "" : "s"}${onlineUsers.length > 0 ? ` · ${onlineUsers.length} online` : ""}`}
+              hideWorkspaceLabelOnMobile
+              hideWorkspaceNameOnMobile
+              hideMetaOnMobile
+              className="mb-0"
+              actions={
+                canManage && isLive && !isDemoWs ? (
                   <button
-                    onClick={() => {
-                      const display = m.fullName || (m.username ? `@${m.username}` : "this teammate");
-                      handleRemove(m.userId, display);
-                    }}
-                    className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
-                    aria-label="Remove member"
-                    title="Remove member"
-                    disabled={!isLive}
+                    onClick={() => setShowInviteDialog(true)}
+                    className="teams-invite-btn btn btn-primary text-sm flex items-center gap-2 min-h-[40px] md:min-h-[44px]"
                   >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    <Plus className="h-4 w-4" /> Invite
                   </button>
-                </div>
-              );
-            }
-            if (isSelf) {
-              if (myRole === "owner") {
+                ) : undefined
+              }
+            />
+          </div>
+
+          <TeamMemberDirectory
+            members={members}
+            tasks={tasks}
+            onlineUserIds={teamOnlineUserIds}
+            currentUserId={user?.id}
+            isLoading={isLoadingMembers}
+            renderMemberActions={(m, isSelf) => {
+              const canActOnThis = canManage && !isSelf;
+              if (canActOnThis) {
                 return (
-                  <TransferOwnershipControl
-                    members={members}
-                    currentUserId={user?.id}
-                    disabled={!isLive}
-                    variant="compact"
-                  />
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={m.role}
+                      onChange={(e) => handleRoleChange(m.userId, e.target.value as WorkspaceRole)}
+                      className="bg-bg-secondary border border-border-glass rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-neon-purple"
+                      disabled={!isLive}
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      <option value="owner">Owner</option>
+                    </select>
+                    <button
+                      onClick={() => {
+                        const display =
+                          m.fullName || (m.username ? `@${m.username}` : "this teammate");
+                        handleRemove(m.userId, display);
+                      }}
+                      className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
+                      aria-label="Remove member"
+                      title="Remove member"
+                      disabled={!isLive}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 );
               }
-              return (
-                <button
-                  onClick={() => {
-                    const wsId = currentWorkspace?.id;
-                    if (!wsId) return;
-                    if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
-                      toast.info("Leave workspace is a live Supabase feature");
-                      return;
-                    }
-                    setPendingLeaveWorkspace(true);
-                  }}
-                  className="px-3 py-1 text-xs rounded-xl border border-border-glass hover:bg-surface-hover text-text-secondary disabled:opacity-50"
-                  disabled={!isLive}
-                  title="Leave this workspace (self-service exit)"
-                >
-                  Leave team
-                </button>
-              );
-            }
-            return null;
-          }}
-        />
+              if (isSelf) {
+                if (myRole === "owner") {
+                  return (
+                    <TransferOwnershipControl
+                      members={members}
+                      currentUserId={user?.id}
+                      disabled={!isLive}
+                      variant="compact"
+                    />
+                  );
+                }
+                return (
+                  <button
+                    onClick={() => {
+                      const wsId = currentWorkspace?.id;
+                      if (!wsId) return;
+                      if (!isSupabaseConfigured() || ["w1", "w2"].includes(wsId)) {
+                        toast.info("Leave workspace is a live Supabase feature");
+                        return;
+                      }
+                      setPendingLeaveWorkspace(true);
+                    }}
+                    className="px-3 py-1 text-xs rounded-xl border border-border-glass hover:bg-surface-hover text-text-secondary disabled:opacity-50"
+                    disabled={!isLive}
+                    title="Leave this workspace (self-service exit)"
+                  >
+                    Leave team
+                  </button>
+                );
+              }
+              return null;
+            }}
+          />
 
-        <TeamCollaborationPanel
-          tasks={tasks}
-          members={members}
-          recentActivity={recentActivity}
-          currentUserId={user?.id}
-          onlineCount={onlineUsers.length}
-          onOpenTasks={() => setView("tasks")}
-          onOpenHome={() => setView("home")}
-          onOpenChat={() => setChatOpen(true)}
-        />
-
-        {/* Pending Invites (owner/admin only) */}
-        {canManage && isLive && !isDemoWs && (
-          <div className="team-pending-panel glass rounded-2xl border border-border-glass overflow-hidden">
-            <div className="team-pending-header px-5 py-3 border-b border-border-glass flex items-center justify-between bg-surface-hover">
-              <div className="font-medium text-sm md:text-base">Pending invites ({invites.length})</div>
-            </div>
-            {invites.length === 0 ? (
-              <div className="p-4 md:p-6 text-sm text-text-muted">None</div>
-            ) : (
-              <div className="divide-y divide-border-glass text-sm">
-                {invites.map((inv) => (
-                  <div key={inv.id} className="team-pending-row flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">
-                        {inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
-                      </div>
-                      <div className="text-[11px] text-text-muted font-mono">{formatRoleLabel(inv.role)}</div>
-                    </div>
-                    <div className="team-pending-row__actions flex items-center gap-2">
-                      <button
-                        onClick={() => copyInviteLink(inv.id)}
-                        className="btn btn-secondary text-xs px-3 py-1 flex items-center gap-1"
-                      >
-                        {copiedInviteId === inv.id ? "Copied!" : "Copy"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
-                          handleResendInvite(inv.id, label);
-                        }}
-                        className="btn btn-secondary text-xs px-2 py-1 flex items-center gap-1"
-                        title="Resend fresh invite (new expiry, revokes old)"
-                        disabled={!isLive}
-                      >
-                        <Repeat className="h-3.5 w-3.5" /> Resend
-                      </button>
-                      <button
-                        onClick={() => {
-                          const label = inv.invitedFullName || (inv.invitedUsername ? `@${inv.invitedUsername}` : inv.email || "link-only");
-                          handleRevokeInvite(inv.id, label);
-                        }}
-                        className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
-                        aria-label="Revoke invite"
-                        title="Revoke invite"
-                        disabled={!isLive}
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {canManage && (
-          <TeamsAdminDashboard
-            currentWorkspace={currentWorkspace}
-            myRole={myRole}
-            isSingleOwnerWorkspace={isSingleOwnerWorkspace}
-            isLiveWorkspace={isLiveWorkspace}
+          <TeamCollaborationPanel
             tasks={tasks}
-            notes={notes}
             members={members}
             recentActivity={recentActivity}
-            onOpenWorkspaceSettings={() => setView("settings")}
-            canEditWorkspaceDetails={isWorkspaceOwner}
+            currentUserId={user?.id}
+            onlineCount={onlineUsers.length}
+            onOpenTasks={() => setView("tasks")}
+            onOpenHome={() => setView("home")}
+            onOpenChat={() => setChatOpen(true)}
           />
-        )}
 
-        {renderTeamInviteSheet()}
-      </div>
+          {/* Pending Invites (owner/admin only) */}
+          {canManage && isLive && !isDemoWs && (
+            <div className="team-pending-panel glass rounded-2xl border border-border-glass overflow-hidden">
+              <div className="team-pending-header px-5 py-3 border-b border-border-glass flex items-center justify-between bg-surface-hover">
+                <div className="font-medium text-sm md:text-base">
+                  Pending invites ({invites.length})
+                </div>
+              </div>
+              {invites.length === 0 ? (
+                <div className="p-4 md:p-6 text-sm text-text-muted">None</div>
+              ) : (
+                <div className="divide-y divide-border-glass text-sm">
+                  {invites.map((inv) => (
+                    <div key={inv.id} className="team-pending-row flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">
+                          {inv.invitedFullName ||
+                            (inv.invitedUsername ? `@${inv.invitedUsername}` : "Link-only invite")}
+                        </div>
+                        <div className="text-[11px] text-text-muted font-mono">
+                          {formatRoleLabel(inv.role)}
+                        </div>
+                      </div>
+                      <div className="team-pending-row__actions flex items-center gap-2">
+                        <button
+                          onClick={() => copyInviteLink(inv.id)}
+                          className="btn btn-secondary text-xs px-3 py-1 flex items-center gap-1"
+                        >
+                          {copiedInviteId === inv.id ? "Copied!" : "Copy"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            const label =
+                              inv.invitedFullName ||
+                              (inv.invitedUsername
+                                ? `@${inv.invitedUsername}`
+                                : inv.email || "link-only");
+                            handleResendInvite(inv.id, label);
+                          }}
+                          className="btn btn-secondary text-xs px-2 py-1 flex items-center gap-1"
+                          title="Resend fresh invite (new expiry, revokes old)"
+                          disabled={!isLive}
+                        >
+                          <Repeat className="h-3.5 w-3.5" /> Resend
+                        </button>
+                        <button
+                          onClick={() => {
+                            const label =
+                              inv.invitedFullName ||
+                              (inv.invitedUsername
+                                ? `@${inv.invitedUsername}`
+                                : inv.email || "link-only");
+                            handleRevokeInvite(inv.id, label);
+                          }}
+                          className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-500/10 rounded transition"
+                          aria-label="Revoke invite"
+                          title="Revoke invite"
+                          disabled={!isLive}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {canManage && (
+            <TeamsAdminDashboard
+              currentWorkspace={currentWorkspace}
+              myRole={myRole}
+              isSingleOwnerWorkspace={isSingleOwnerWorkspace}
+              isLiveWorkspace={isLiveWorkspace}
+              tasks={tasks}
+              notes={notes}
+              members={members}
+              recentActivity={recentActivity}
+              onOpenWorkspaceSettings={() => setView("settings")}
+              canEditWorkspaceDetails={isWorkspaceOwner}
+            />
+          )}
+
+          {renderTeamInviteSheet()}
+        </div>
       </div>
     );
   };
 
   const currentViewComponent = () => {
     switch (currentView) {
-      case "home": return renderHomeView();
-      case "tasks": return renderTasksView();
-      case "notes": return renderNotesView();
+      case "home":
+        return renderHomeView();
+      case "tasks":
+        return renderTasksView();
+      case "notes":
+        return renderNotesView();
       case "notebooks":
         return (
           <NotebooksView
@@ -3029,20 +3166,20 @@ export default function BadAssTasks() {
             notes={getNotebookNotes(selectedNotebookId)}
             notebookTasks={getNotebookTasks(selectedNotebookId)}
             notebookTaskProgress={notebookTaskProgress.filter((p) =>
-              getNotebookTasks(selectedNotebookId).some((t) => t.id === p.taskId),
+              getNotebookTasks(selectedNotebookId).some((t) => t.id === p.taskId)
             )}
             notebookInvestments={getNotebookInvestments(selectedNotebookId)}
             notebookInvestmentNotes={notebookInvestmentNotes.filter((n) =>
-              getNotebookInvestments(selectedNotebookId).some((i) => i.id === n.investmentId),
+              getNotebookInvestments(selectedNotebookId).some((i) => i.id === n.investmentId)
             )}
             notebookCustomers={getNotebookCustomers(selectedNotebookId)}
             notebookCustomerNotes={notebookCustomerNotes.filter((n) =>
-              getNotebookCustomers(selectedNotebookId).some((c) => c.id === n.customerId),
+              getNotebookCustomers(selectedNotebookId).some((c) => c.id === n.customerId)
             )}
             notebookCompetitors={getNotebookCompetitors(selectedNotebookId)}
             workspaceCompetitors={notebookCompetitors}
             notebookCompetitorNotes={notebookCompetitorNotes.filter((n) =>
-              getNotebookCompetitors(selectedNotebookId).some((c) => c.id === n.competitorId),
+              getNotebookCompetitors(selectedNotebookId).some((c) => c.id === n.competitorId)
             )}
             workspaceCompetitorNotes={notebookCompetitorNotes}
             meetings={getMeetings()}
@@ -3124,9 +3261,7 @@ export default function BadAssTasks() {
             onUpdateNotebookInvestmentNote={updateNotebookInvestmentNote}
             onDeleteNotebookInvestmentNote={deleteNotebookInvestmentNote}
             onAddNotebookCustomer={(accountName) =>
-              selectedNotebookId
-                ? addNotebookCustomer(selectedNotebookId, accountName)
-                : undefined
+              selectedNotebookId ? addNotebookCustomer(selectedNotebookId, accountName) : undefined
             }
             onUpdateNotebookCustomer={(id, accountName) =>
               updateNotebookCustomer(id, { accountName })
@@ -3163,15 +3298,15 @@ export default function BadAssTasks() {
                 taskProgressCount: notebookTaskProgress.filter((p) => taskIds.has(p.taskId)).length,
                 investmentCount: investments.length,
                 investmentNoteCount: notebookInvestmentNotes.filter((n) =>
-                  investmentIds.has(n.investmentId),
+                  investmentIds.has(n.investmentId)
                 ).length,
                 customerCount: customers.length,
                 customerNoteCount: notebookCustomerNotes.filter((n) =>
-                  customerIds.has(n.customerId),
+                  customerIds.has(n.customerId)
                 ).length,
                 competitorCount: competitors.length,
                 competitorNoteCount: notebookCompetitorNotes.filter((n) =>
-                  competitorIds.has(n.competitorId),
+                  competitorIds.has(n.competitorId)
                 ).length,
               };
             }}
@@ -3211,7 +3346,8 @@ export default function BadAssTasks() {
             }}
           />
         );
-      case "lists": return renderListsView();
+      case "lists":
+        return renderListsView();
       case "health":
         return (
           <HealthView
@@ -3230,10 +3366,14 @@ export default function BadAssTasks() {
             onUpdateProfile={upsertHealthProfile}
           />
         );
-      case "teams": return renderTeamsView();
-      case "settings": return <WorkspaceSettingsView />;
-      case "admin": return isSiteAdmin ? <SiteAdminView /> : renderHomeView();
-      default: return renderHomeView();
+      case "teams":
+        return renderTeamsView();
+      case "settings":
+        return <WorkspaceSettingsView />;
+      case "admin":
+        return isSiteAdmin ? <SiteAdminView /> : renderHomeView();
+      default:
+        return renderHomeView();
     }
   };
 
@@ -3300,525 +3440,584 @@ export default function BadAssTasks() {
               <BrandLogo size="sm" className="md:hidden" priority />
               <BrandLogo size="md" className="hidden md:block" priority />
               <div className="min-w-0 flex-1">
-                <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none truncate">Badazz Tasks</div>
+                <div className="font-semibold tracking-[-0.3px] text-sm md:text-[17px] leading-none truncate">
+                  Badazz Tasks
+                </div>
               </div>
             </div>
 
             {/* Workspace Switcher — full-bleed second row on mobile; greeting sits to its right on home desktop */}
             <div className="top-bar-workspace-row max-md:contents md:flex md:items-center md:gap-5 md:min-w-0 md:flex-1">
-            <div ref={workspaceMenuRef} className="top-bar-workspace relative min-w-0 md:shrink-0">
-            <button 
-              onClick={() => {
-                const nextOpen = !showWorkspaceMenu;
-                setShowWorkspaceMenu(nextOpen);
-                if (!nextOpen) {
-                  // Reset creation flow when closing menu (keeps state clean)
-                  setIsCreatingWorkspace(false);
-                  setNewWorkspaceName("");
-                }
-              }}
-              className="group relative flex items-center gap-2 text-base px-4 py-3 md:px-4 md:py-2 rounded-none md:rounded-xl hover:bg-surface-hover border-0 border-t md:border border-border-glass workspace-switcher w-full md:w-[28rem] max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
-              aria-expanded={showWorkspaceMenu}
-            >
-              <WorkspaceSwitchEffects
-                workspaceId={currentWorkspace.id}
-                variant="mobile"
-                className="md:hidden z-0"
-              />
-              <span
-                className={cn(
-                  "workspace-chevron relative z-[1] flex shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ease-out",
-                  "max-md:col-start-1",
-                  showWorkspaceMenu
-                    ? "bg-neon-purple/15 border-neon-purple/40 text-neon-purple shadow-[0_0_14px_rgba(192,132,252,0.22)]"
-                    : "bg-surface-hover border-border-glass text-text-muted group-hover:bg-neon-purple/10 group-hover:border-neon-purple/25 group-hover:text-neon-purple"
-                )}
-                aria-hidden
+              <div
+                ref={workspaceMenuRef}
+                className="top-bar-workspace relative min-w-0 md:shrink-0"
               >
-                <ChevronDown
-                  className={cn(
-                    "transition-transform duration-200 ease-out",
-                    showWorkspaceMenu && "rotate-180"
-                  )}
-                  strokeWidth={2.25}
-                />
-              </span>
-              <span className="relative z-[1] flex items-center justify-center md:justify-start gap-1.5 workspace-name min-w-0 md:flex-1 max-md:col-start-2 max-md:overflow-hidden max-md:pr-2 md:truncate">
-                <span className="md:hidden block w-full min-w-0">
-                  <AnimatedWorkspaceName
-                    ref={workspaceNameRef}
+                <button
+                  onClick={() => {
+                    const nextOpen = !showWorkspaceMenu;
+                    setShowWorkspaceMenu(nextOpen);
+                    if (!nextOpen) {
+                      // Reset creation flow when closing menu (keeps state clean)
+                      setIsCreatingWorkspace(false);
+                      setNewWorkspaceName("");
+                    }
+                  }}
+                  className="group relative flex items-center gap-2 text-base px-4 py-3 md:px-4 md:py-2 rounded-none md:rounded-xl hover:bg-surface-hover border-0 border-t md:border border-border-glass workspace-switcher w-full md:w-[28rem] max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)] max-md:items-center md:justify-between max-md:pl-3 max-md:pr-0 max-md:overflow-hidden"
+                  aria-expanded={showWorkspaceMenu}
+                >
+                  <WorkspaceSwitchEffects
                     workspaceId={currentWorkspace.id}
-                    name={currentWorkspace.name}
-                    onAnimationComplete={scheduleFitWorkspaceName}
-                    className="workspace-name-label workspace-header-name block w-full whitespace-nowrap text-center leading-tight"
+                    variant="mobile"
+                    className="md:hidden z-0"
                   />
-                </span>
-                <span className="workspace-header-name hidden md:block truncate text-left leading-tight">
-                  {currentWorkspace.name}
-                </span>
-                {!isSingleOwnerWorkspace && (
-                  <span className="hidden md:inline text-[9px] px-1 py-px rounded bg-surface-hover text-text-secondary font-mono tracking-widest shrink-0">{formatRoleLabel(currentWorkspace.role)}</span>
-                )}
-              </span>
-            </button>
-
-            <AnimatePresence>
-              {showWorkspaceMenu && (
-                <div className="workspace-menu-panel absolute top-full left-0 right-0 md:right-auto mt-2 top-bar-menu-panel glass rounded-2xl py-2 w-full md:w-[28rem] shadow-xl z-50 border border-border-glass">
-                  {workspaces.map((ws) => {
-                    const accessLabel = workspaceAccessLabel(
-                      ws.id,
-                      ws.role,
-                      globalWorkspaceStats?.[ws.id]?.memberCount,
-                      currentWorkspace.id,
-                      members.length,
-                    );
-                    return (
-                    <button 
-                      key={ws.id}
-                      onClick={() => { switchWorkspace(ws.id); setShowWorkspaceMenu(false); }}
+                  <span
+                    className={cn(
+                      "workspace-chevron relative z-[1] flex shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ease-out",
+                      "max-md:col-start-1",
+                      showWorkspaceMenu
+                        ? "bg-neon-purple/15 border-neon-purple/40 text-neon-purple shadow-[0_0_14px_rgba(192,132,252,0.22)]"
+                        : "bg-surface-hover border-border-glass text-text-muted group-hover:bg-neon-purple/10 group-hover:border-neon-purple/25 group-hover:text-neon-purple"
+                    )}
+                    aria-hidden
+                  >
+                    <ChevronDown
                       className={cn(
-                        "workspace-menu-item w-full text-left px-4 py-3 md:py-2 hover:bg-surface-hover flex justify-between items-center gap-3",
-                        ws.id === currentWorkspace.id && "workspace-menu-item--active text-neon-purple",
+                        "transition-transform duration-200 ease-out",
+                        showWorkspaceMenu && "rotate-180"
                       )}
-                    >
-                      <span className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="workspace-menu-item__name truncate">{ws.name}</span>
-                        <span
-                          className={cn(
-                            "md:hidden text-[9px] px-1.5 py-px rounded shrink-0 font-semibold uppercase tracking-wide",
-                            accessLabel === "Private"
-                              ? "bg-surface-hover text-text-muted"
-                              : "bg-surface-hover text-text-secondary",
-                          )}
-                        >
-                          {accessLabel}
-                        </span>
-                        <span className="hidden md:inline text-[10px] px-1.5 py-px rounded bg-surface-hover text-text-muted font-mono tracking-widest shrink-0">
-                          {accessLabel}
-                        </span>
-                      </span>
-                      {ws.id === currentWorkspace.id && (
-                        <Check className="h-4 w-4 shrink-0" aria-hidden />
-                      )}
-                    </button>
-                    );
-                  })}
-                  <div className="border-t border-border-glass my-1" />
-                  
-                  {/* Production workspace creation (real DB via RPC when LIVE; role=owner on create). Inline for zero-friction multi-ws. */}
-                  {!isCreatingWorkspace ? (
-                    <button
-                      onClick={() => {
-                        setIsCreatingWorkspace(true);
-                        setNewWorkspaceName("");
-                      }}
-                      className="w-full text-left px-4 py-2 text-xs text-neon-purple hover:bg-surface-hover flex items-center gap-2"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Create new workspace
-                    </button>
-                  ) : (
-                    <div className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={newWorkspaceName}
-                        onChange={(e) => setNewWorkspaceName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !isCreatingLoading) {
-                            handleCreateWorkspace();
-                          }
-                          if (e.key === "Escape") {
-                            setIsCreatingWorkspace(false);
-                            setNewWorkspaceName("");
-                          }
-                        }}
-                        placeholder="Workspace name (e.g. Client X)"
-                        className="w-full bg-bg border border-border-glass rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-neon-purple/60 mb-2"
-                        autoFocus
-                        disabled={isCreatingLoading}
+                      strokeWidth={2.25}
+                    />
+                  </span>
+                  <span className="relative z-[1] flex items-center justify-center md:justify-start gap-1.5 workspace-name min-w-0 md:flex-1 max-md:col-start-2 max-md:overflow-hidden max-md:pr-2 md:truncate">
+                    <span className="md:hidden block w-full min-w-0">
+                      <AnimatedWorkspaceName
+                        ref={workspaceNameRef}
+                        workspaceId={currentWorkspace.id}
+                        name={currentWorkspace.name}
+                        onAnimationComplete={scheduleFitWorkspaceName}
+                        className="workspace-name-label workspace-header-name block w-full whitespace-nowrap text-center leading-tight"
                       />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleCreateWorkspace}
-                          disabled={isCreatingLoading || !newWorkspaceName.trim()}
-                          className="flex-1 btn btn-primary text-xs py-1.5 disabled:opacity-50"
-                        >
-                          {isCreatingLoading ? "Creating..." : "Create"}
-                        </button>
+                    </span>
+                    <span className="workspace-header-name hidden md:block truncate text-left leading-tight">
+                      {currentWorkspace.name}
+                    </span>
+                    {!isSingleOwnerWorkspace && (
+                      <span className="hidden md:inline text-[9px] px-1 py-px rounded bg-surface-hover text-text-secondary font-mono tracking-widest shrink-0">
+                        {formatRoleLabel(currentWorkspace.role)}
+                      </span>
+                    )}
+                  </span>
+                </button>
+
+                <AnimatePresence>
+                  {showWorkspaceMenu && (
+                    <div className="workspace-menu-panel absolute top-full left-0 right-0 md:right-auto mt-2 top-bar-menu-panel glass rounded-2xl py-2 w-full md:w-[28rem] shadow-xl z-50 border border-border-glass">
+                      {workspaces.map((ws) => {
+                        const accessLabel = workspaceAccessLabel(
+                          ws.id,
+                          ws.role,
+                          globalWorkspaceStats?.[ws.id]?.memberCount,
+                          currentWorkspace.id,
+                          members.length
+                        );
+                        return (
+                          <button
+                            key={ws.id}
+                            onClick={() => {
+                              switchWorkspace(ws.id);
+                              setShowWorkspaceMenu(false);
+                            }}
+                            className={cn(
+                              "workspace-menu-item w-full text-left px-4 py-3 md:py-2 hover:bg-surface-hover flex justify-between items-center gap-3",
+                              ws.id === currentWorkspace.id &&
+                                "workspace-menu-item--active text-neon-purple"
+                            )}
+                          >
+                            <span className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="workspace-menu-item__name truncate">{ws.name}</span>
+                              <span
+                                className={cn(
+                                  "md:hidden text-[9px] px-1.5 py-px rounded shrink-0 font-semibold uppercase tracking-wide",
+                                  accessLabel === "Private"
+                                    ? "bg-surface-hover text-text-muted"
+                                    : "bg-surface-hover text-text-secondary"
+                                )}
+                              >
+                                {accessLabel}
+                              </span>
+                              <span className="hidden md:inline text-[10px] px-1.5 py-px rounded bg-surface-hover text-text-muted font-mono tracking-widest shrink-0">
+                                {accessLabel}
+                              </span>
+                            </span>
+                            {ws.id === currentWorkspace.id && (
+                              <Check className="h-4 w-4 shrink-0" aria-hidden />
+                            )}
+                          </button>
+                        );
+                      })}
+                      <div className="border-t border-border-glass my-1" />
+
+                      {/* Production workspace creation (real DB via RPC when LIVE; role=owner on create). Inline for zero-friction multi-ws. */}
+                      {!isCreatingWorkspace ? (
                         <button
                           onClick={() => {
-                            setIsCreatingWorkspace(false);
+                            setIsCreatingWorkspace(true);
                             setNewWorkspaceName("");
                           }}
-                          disabled={isCreatingLoading}
-                          className="flex-1 text-xs py-1.5 rounded-lg border border-border-glass hover:bg-surface-hover"
+                          className="w-full text-left px-4 py-2 text-xs text-neon-purple hover:bg-surface-hover flex items-center gap-2"
                         >
-                          Cancel
+                          <Plus className="h-3.5 w-3.5" /> Create new workspace
                         </button>
-                      </div>
-                      <div className="text-[10px] text-text-muted mt-1.5 px-1">
-                        {isSupabaseConfigured() ? "Saved to your Supabase account" : "Demo only (local)"}
-                      </div>
+                      ) : (
+                        <div className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={newWorkspaceName}
+                            onChange={(e) => setNewWorkspaceName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !isCreatingLoading) {
+                                handleCreateWorkspace();
+                              }
+                              if (e.key === "Escape") {
+                                setIsCreatingWorkspace(false);
+                                setNewWorkspaceName("");
+                              }
+                            }}
+                            placeholder="Workspace name (e.g. Client X)"
+                            className="w-full bg-bg border border-border-glass rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-neon-purple/60 mb-2"
+                            autoFocus
+                            disabled={isCreatingLoading}
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleCreateWorkspace}
+                              disabled={isCreatingLoading || !newWorkspaceName.trim()}
+                              className="flex-1 btn btn-primary text-xs py-1.5 disabled:opacity-50"
+                            >
+                              {isCreatingLoading ? "Creating..." : "Create"}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setIsCreatingWorkspace(false);
+                                setNewWorkspaceName("");
+                              }}
+                              disabled={isCreatingLoading}
+                              className="flex-1 text-xs py-1.5 rounded-lg border border-border-glass hover:bg-surface-hover"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          <div className="text-[10px] text-text-muted mt-1.5 px-1">
+                            {isSupabaseConfigured()
+                              ? "Saved to your Supabase account"
+                              : "Demo only (local)"}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
+                </AnimatePresence>
+              </div>
 
+              {currentView === "home" && user && (
+                <div className="top-bar-greeting hidden md:flex items-center min-w-0 flex-1 justify-end">
+                  <span className="text-lg lg:text-xl font-semibold tracking-tight truncate text-text-primary">
+                    {getGreeting()}
+                    {homeUserDisplayName ? `, ${homeUserDisplayName}` : ""}
+                  </span>
                 </div>
               )}
-            </AnimatePresence>
-            </div>
-
-            {currentView === "home" && user && (
-              <div className="top-bar-greeting hidden md:flex items-center min-w-0 flex-1 justify-end">
-                <span className="text-lg lg:text-xl font-semibold tracking-tight truncate text-text-primary">
-                  {getGreeting()}
-                  {homeUserDisplayName ? `, ${homeUserDisplayName}` : ""}
-                </span>
-              </div>
-            )}
             </div>
           </div>
 
-        <div className="top-bar-actions flex items-center gap-1.5 md:gap-3 text-sm shrink-0 flex-nowrap">
-          {/* Agent 31: Notification bell (non-intrusive, timely badge + dropdown) */}
-          <div ref={notificationsRef} className="relative">
-            <button
-              onClick={() => {
-                const next = !showNotifications;
-                setShowNotifications(next);
-                if (next) {
-                  fetchNotifications?.(false).catch(() => {});
-                }
-              }}
-              className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-surface-hover border border-border-glass relative transition"
-              title="Notifications"
-              aria-label="Notifications"
-            >
-              <Bell className="h-4 w-4" />
-              {unreadNotifCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--priority-p0)] text-[10px] font-mono text-accent-on flex items-center justify-center ring-1 ring-bg">
-                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                </span>
-              )}
-            </button>
-            <AnimatePresence>
-              {showNotifications && (
-                <>
-                <motion.div
-                  key="notifications-backdrop"
-                  className="fixed inset-0 z-[255] overlay-scrim md:bg-surface-elevated"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  onClick={() => setShowNotifications(false)}
-                  aria-hidden
-                />
-                <motion.div
-                  key="notifications-panel"
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="notifications-panel md:!absolute md:!right-0 md:!top-12 md:!left-auto md:!w-80 md:max-w-[min(20rem,calc(100vw-2rem))] md:glass-strong md:rounded-2xl md:border md:border-border-glass md:shadow-2xl z-[260] overflow-hidden bg-bg-secondary"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="notifications-panel__header px-4 py-3 border-b border-border-glass flex items-center justify-between bg-bg">
-                    <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
-                      <Bell className="h-4 w-4" /> Notifications
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {unreadNotifCount > 0 && (
-                        <button
-                          onClick={() => markAllNotifsRead?.()}
-                          className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-neon-purple"
-                        >
-                          Mark all read
-                        </button>
-                      )}
-                      {notifications.length > 0 && (
-                        <button
-                          onClick={() => setPendingClearNotifications(true)}
-                          className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-red-400 hover:text-red-500"
-                        >
-                          Clear all
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowNotifications(false)}
-                        className="text-xs font-semibold px-2.5 py-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition shrink-0"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                  <div className="notifications-panel__list max-h-[320px] overflow-auto p-1 text-sm">
-                    {isLoadingNotifications ? (
-                      <div className="p-4 text-center text-text-muted text-xs">LoadingΓÇª</div>
-                    ) : notifications.length === 0 ? (
-                      <div className="p-6 text-center text-text-muted text-xs">All clear. No notifications yet.<br />@mentions, comments &amp; invites will appear here.</div>
-                    ) : (
-                      bellPanelNotifications.map((n: Notification) => (
-                        <div
-                          key={n.id}
-                          onClick={() => {
-                            if (isBellUnread(n)) markNotifRead?.(n.id);
-                            setSelectedNotification(n);
-                            setShowNotifications(false);
-                          }}
-                          className={cn(
-                            "px-3 py-2.5 rounded-xl m-1 cursor-pointer border border-border-glass bg-bg-panel hover:bg-bg-tertiary flex gap-2 transition-colors",
-                            isBellUnread(n) && "bg-neon-purple/10 border-neon-purple/30"
-                          )}
-                        >
-                          <div className="mt-0.5 text-neon-purple/80 shrink-0">
-                            {n.type === 'mention' && <Zap className="h-3.5 w-3.5" />}
-                            {n.type === 'comment' && <Star className="h-3.5 w-3.5" />}
-                            {n.type === 'invite' && <Users className="h-3.5 w-3.5" />}
-                            {n.type === 'list_share' && <ListChecks className="h-3.5 w-3.5" />}
-                            {n.type === 'task_assigned' && <Check className="h-3.5 w-3.5" />}
-                            {n.type === 'deadline' && <Clock className="h-3.5 w-3.5" />}
-                            {n.type === 'activity' && <Zap className="h-3.5 w-3.5" />}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-xs truncate">{n.title}</div>
-                            <div className="text-[11px] text-text-secondary line-clamp-2">{n.message}</div>
-                            {n.type === "list_share" && !n.readAt && (
-                              <div className="flex gap-1.5 mt-2">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const shareId = n.metadata?.list_share_id as string | undefined;
-                                    if (shareId) handleHomeAcceptListShare(shareId, n.link);
-                                  }}
-                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-neon-purple/20 text-neon-purple hover:bg-neon-purple/30"
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const shareId = n.metadata?.list_share_id as string | undefined;
-                                    if (shareId) void handleHomeDeclineListShare(shareId);
-                                  }}
-                                  className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-border-glass text-text-secondary hover:bg-surface-hover"
-                                >
-                                  Decline
-                                </button>
-                              </div>
-                            )}
-                            <div className="text-[9px] text-text-muted mt-0.5">{new Date(n.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                          </div>
-                          {isBellUnread(n) && (
-                            <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />
-                          )}
-                          {n.type !== "invite" && n.type !== "list_share" && (
+          <div className="top-bar-actions flex items-center gap-1.5 md:gap-3 text-sm shrink-0 flex-nowrap">
+            {/* Agent 31: Notification bell (non-intrusive, timely badge + dropdown) */}
+            <div ref={notificationsRef} className="relative">
+              <button
+                onClick={() => {
+                  const next = !showNotifications;
+                  setShowNotifications(next);
+                  if (next) {
+                    fetchNotifications?.(false).catch(() => {});
+                  }
+                }}
+                className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-surface-hover border border-border-glass relative transition"
+                title="Notifications"
+                aria-label="Notifications"
+              >
+                <Bell className="h-4 w-4" />
+                {unreadNotifCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--priority-p0)] text-[10px] font-mono text-accent-on flex items-center justify-center ring-1 ring-bg">
+                    {unreadNotifCount > 9 ? "9+" : unreadNotifCount}
+                  </span>
+                )}
+              </button>
+              <AnimatePresence>
+                {showNotifications && (
+                  <>
+                    <motion.div
+                      key="notifications-backdrop"
+                      className="fixed inset-0 z-[255] overlay-scrim md:bg-surface-elevated"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                      onClick={() => setShowNotifications(false)}
+                      aria-hidden
+                    />
+                    <motion.div
+                      key="notifications-panel"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      className="notifications-panel md:!absolute md:!right-0 md:!top-12 md:!left-auto md:!w-80 md:max-w-[min(20rem,calc(100vw-2rem))] md:glass-strong md:rounded-2xl md:border md:border-border-glass md:shadow-2xl z-[260] overflow-hidden bg-bg-secondary"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="notifications-panel__header px-4 py-3 border-b border-border-glass flex items-center justify-between bg-bg">
+                        <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
+                          <Bell className="h-4 w-4" /> Notifications
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {unreadNotifCount > 0 && (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleDismissNotification(n.id);
-                              }}
-                              className="ml-1 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover"
-                              aria-label="Remove notification"
+                              onClick={() => markAllNotifsRead?.()}
+                              className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-neon-purple"
                             >
-                              <X className="h-3 w-3" />
+                              Mark all read
                             </button>
                           )}
+                          {notifications.length > 0 && (
+                            <button
+                              onClick={() => setPendingClearNotifications(true)}
+                              className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-red-400 hover:text-red-500"
+                            >
+                              Clear all
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setShowNotifications(false)}
+                            className="text-xs font-semibold px-2.5 py-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition shrink-0"
+                          >
+                            Close
+                          </button>
                         </div>
-                      ))
-                    )}
-                  </div>
-                  <div className="notifications-panel__footer p-2 border-t border-border-glass bg-bg text-[10px] text-center text-text-muted">
-                    {bellUnreadOverflow > 0
-                      ? `+${bellUnreadOverflow} more unread not shown`
-                      : "Timely • Non-intrusive • Powered by activity logs"}
-                  </div>
-                </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {showWorkspaceChat && (
-            <button
-              type="button"
-              onClick={() => {
-                setShowNotifications(false);
-                setShowProfilePopover(false);
-                toggleChat();
-              }}
-              className={cn(
-                "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-full md:rounded-xl border transition",
-                chatOpen
-                  ? "border-neon-purple/50 bg-neon-purple/10 text-neon-purple"
-                  : "border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 hover:bg-surface-hover"
-              )}
-              title="Messages"
-              aria-label={chatOpen ? "Collapse messages" : "Open messages"}
-              aria-expanded={chatOpen}
-            >
-              <MessageCircle className="h-4 w-4" />
-              {workspaceChat.hasUnread && !chatOpen && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--priority-p0)] ring-2 ring-bg"
-                  aria-label="Unread messages"
-                />
-              )}
-            </button>
-          )}
-
-          {/* Polished Auth + User Area (Phase 1 UX track) */}
-          <div ref={profilePopoverRef} className="relative">
-          {isAuthLoading ? (
-            <div className="flex items-center gap-2 rounded-full bg-surface-hover border border-border-glass px-3 py-1.5 text-xs text-text-muted">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-neon-purple" />
-              <span className="hidden md:inline">AuthenticatingΓÇª</span>
+                      </div>
+                      <div className="notifications-panel__list max-h-[320px] overflow-auto p-1 text-sm">
+                        {isLoadingNotifications ? (
+                          <div className="p-4 text-center text-text-muted text-xs">LoadingΓÇª</div>
+                        ) : notifications.length === 0 ? (
+                          <div className="p-6 text-center text-text-muted text-xs">
+                            All clear. No notifications yet.
+                            <br />
+                            @mentions, comments &amp; invites will appear here.
+                          </div>
+                        ) : (
+                          bellPanelNotifications.map((n: Notification) => (
+                            <div
+                              key={n.id}
+                              onClick={() => {
+                                if (isBellUnread(n)) markNotifRead?.(n.id);
+                                setSelectedNotification(n);
+                                setShowNotifications(false);
+                              }}
+                              className={cn(
+                                "px-3 py-2.5 rounded-xl m-1 cursor-pointer border border-border-glass bg-bg-panel hover:bg-bg-tertiary flex gap-2 transition-colors",
+                                isBellUnread(n) && "bg-neon-purple/10 border-neon-purple/30"
+                              )}
+                            >
+                              <div className="mt-0.5 text-neon-purple/80 shrink-0">
+                                {n.type === "mention" && <Zap className="h-3.5 w-3.5" />}
+                                {n.type === "comment" && <Star className="h-3.5 w-3.5" />}
+                                {n.type === "invite" && <Users className="h-3.5 w-3.5" />}
+                                {n.type === "list_share" && <ListChecks className="h-3.5 w-3.5" />}
+                                {n.type === "task_assigned" && <Check className="h-3.5 w-3.5" />}
+                                {n.type === "deadline" && <Clock className="h-3.5 w-3.5" />}
+                                {n.type === "activity" && <Zap className="h-3.5 w-3.5" />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-xs truncate">{n.title}</div>
+                                <div className="text-[11px] text-text-secondary line-clamp-2">
+                                  {n.message}
+                                </div>
+                                {n.type === "list_share" && !n.readAt && (
+                                  <div className="flex gap-1.5 mt-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const shareId = n.metadata?.list_share_id as
+                                          | string
+                                          | undefined;
+                                        if (shareId) handleHomeAcceptListShare(shareId, n.link);
+                                      }}
+                                      className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-neon-purple/20 text-neon-purple hover:bg-neon-purple/30"
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const shareId = n.metadata?.list_share_id as
+                                          | string
+                                          | undefined;
+                                        if (shareId) void handleHomeDeclineListShare(shareId);
+                                      }}
+                                      className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-border-glass text-text-secondary hover:bg-surface-hover"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                )}
+                                <div className="text-[9px] text-text-muted mt-0.5">
+                                  {new Date(n.createdAt).toLocaleTimeString([], {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </div>
+                              </div>
+                              {isBellUnread(n) && (
+                                <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />
+                              )}
+                              {n.type !== "invite" && n.type !== "list_share" && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleDismissNotification(n.id);
+                                  }}
+                                  className="ml-1 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover"
+                                  aria-label="Remove notification"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="notifications-panel__footer p-2 border-t border-border-glass bg-bg text-[10px] text-center text-text-muted">
+                        {bellUnreadOverflow > 0
+                          ? `+${bellUnreadOverflow} more unread not shown`
+                          : "Timely • Non-intrusive • Powered by activity logs"}
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
-          ) : user ? (
-            <>
-            <div className="flex items-center gap-1.5">
-              {/* User avatar + identity pill — clickable to edit profile (name, username, location) */}
-              <div
+
+            {showWorkspaceChat && (
+              <button
+                type="button"
                 onClick={() => {
-                  setShowWorkspaceMenu(false);
                   setShowNotifications(false);
-                  setShowProfilePopover((open) => !open);
+                  setShowProfilePopover(false);
+                  toggleChat();
                 }}
                 className={cn(
-                  "profile-avatar-trigger group flex items-center justify-center min-h-[44px] min-w-[44px] cursor-pointer active:scale-[0.985] transition-all",
-                  "p-0 rounded-full max-md:bg-transparent max-md:border-0",
-                  "md:bg-surface-hover md:border md:p-1",
-                  showProfilePopover
-                    ? "md:border-neon-purple/40 md:bg-neon-purple/10 max-md:ring-2 max-md:ring-neon-purple/40"
-                    : "md:border-border-glass md:hover:border-neon-purple/40"
+                  "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-full md:rounded-xl border transition",
+                  chatOpen
+                    ? "border-neon-purple/50 bg-neon-purple/10 text-neon-purple"
+                    : "border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 hover:bg-surface-hover"
                 )}
-                title="Click to edit your profile (name, username, location)"
-                role="button"
-                tabIndex={0}
-                aria-expanded={showProfilePopover}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setShowWorkspaceMenu(false);
-                    setShowNotifications(false);
-                    setShowProfilePopover((open) => !open);
-                  }
-                  if (e.key === "Escape") setShowProfilePopover(false);
-                }}
+                title="Messages"
+                aria-label={chatOpen ? "Collapse messages" : "Open messages"}
+                aria-expanded={chatOpen}
               >
-                <div className="profile-avatar-badge h-9 w-9 flex-shrink-0 rounded-full bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center text-xs font-bold text-[var(--on-accent)] ring-1 ring-inset ring-white/30 shadow-sm">
-                  {avatarInitials || <User className="h-4 w-4" />}
+                <MessageCircle className="h-4 w-4" />
+                {workspaceChat.hasUnread && !chatOpen && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--priority-p0)] ring-2 ring-bg"
+                    aria-label="Unread messages"
+                  />
+                )}
+              </button>
+            )}
+
+            {/* Polished Auth + User Area (Phase 1 UX track) */}
+            <div ref={profilePopoverRef} className="relative">
+              {isAuthLoading ? (
+                <div className="flex items-center gap-2 rounded-full bg-surface-hover border border-border-glass px-3 py-1.5 text-xs text-text-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-neon-purple" />
+                  <span className="hidden md:inline">AuthenticatingΓÇª</span>
                 </div>
-              </div>
+              ) : user ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    {/* User avatar + identity pill — clickable to edit profile (name, username, location) */}
+                    <div
+                      onClick={() => {
+                        setShowWorkspaceMenu(false);
+                        setShowNotifications(false);
+                        setShowProfilePopover((open) => !open);
+                      }}
+                      className={cn(
+                        "profile-avatar-trigger group flex items-center justify-center min-h-[44px] min-w-[44px] cursor-pointer active:scale-[0.985] transition-all",
+                        "p-0 rounded-full max-md:bg-transparent max-md:border-0",
+                        "md:bg-surface-hover md:border md:p-1",
+                        showProfilePopover
+                          ? "md:border-neon-purple/40 md:bg-neon-purple/10 max-md:ring-2 max-md:ring-neon-purple/40"
+                          : "md:border-border-glass md:hover:border-neon-purple/40"
+                      )}
+                      title="Click to edit your profile (name, username, location)"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={showProfilePopover}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setShowWorkspaceMenu(false);
+                          setShowNotifications(false);
+                          setShowProfilePopover((open) => !open);
+                        }
+                        if (e.key === "Escape") setShowProfilePopover(false);
+                      }}
+                    >
+                      <div className="profile-avatar-badge h-9 w-9 flex-shrink-0 rounded-full bg-gradient-to-br from-neon-purple to-neon-purple-dark flex items-center justify-center text-xs font-bold text-[var(--on-accent)] ring-1 ring-inset ring-white/30 shadow-sm">
+                        {avatarInitials || <User className="h-4 w-4" />}
+                      </div>
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {showProfilePopover && user && !isMobileViewport && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                        transition={{ duration: 0.15, ease: "easeOut" }}
+                        className="profile-popover-panel absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-border-glass shadow-2xl overflow-hidden flex flex-col"
+                        role="dialog"
+                        aria-label="Your profile"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="profile-popover-panel__header shrink-0 px-3 py-2 border-b border-border-glass flex items-center justify-between gap-2">
+                          <h2 className="font-semibold text-sm tracking-tight text-text-primary">
+                            Your profile
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={() => setShowProfilePopover(false)}
+                            className="shrink-0 p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition"
+                            aria-label="Close profile editor"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        {renderProfileEditorContent()}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => router.push("/login")}
+                    className="btn btn-secondary text-xs px-4 py-2 hidden md:flex items-center gap-1.5 min-h-[44px]"
+                  >
+                    <User className="h-3.5 w-3.5" /> Sign in
+                  </button>
+                  <button
+                    onClick={() => router.push("/login")}
+                    className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 transition"
+                    aria-label="Sign in"
+                  >
+                    <User className="h-4 w-4" />
+                  </button>
+                </>
+              )}
             </div>
 
-            <AnimatePresence>
-              {showProfilePopover && user && !isMobileViewport && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                  transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="profile-popover-panel absolute right-0 top-full mt-2 z-[260] w-[min(20rem,calc(100vw-1.5rem))] top-bar-menu-panel glass rounded-2xl border border-border-glass shadow-2xl overflow-hidden flex flex-col"
-                  role="dialog"
-                  aria-label="Your profile"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="profile-popover-panel__header shrink-0 px-3 py-2 border-b border-border-glass flex items-center justify-between gap-2">
-                    <h2 className="font-semibold text-sm tracking-tight text-text-primary">Your profile</h2>
-                    <button
-                      type="button"
-                      onClick={() => setShowProfilePopover(false)}
-                      className="shrink-0 p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition"
-                      aria-label="Close profile editor"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  {renderProfileEditorContent()}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => router.push("/login")}
-                className="btn btn-secondary text-xs px-4 py-2 hidden md:flex items-center gap-1.5 min-h-[44px]"
-              >
-                <User className="h-3.5 w-3.5" /> Sign in
-              </button>
-              <button
-                onClick={() => router.push("/login")}
-                className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 transition"
-                aria-label="Sign in"
-              >
-                <User className="h-4 w-4" />
-              </button>
-            </>
-          )}
-
-          </div>
-
-          {/* PWA Install Prompt (polished Agent 27) — visible on phones/tablets when eligible (beforeinstallprompt).
+            {/* PWA Install Prompt (polished Agent 27) — visible on phones/tablets when eligible (beforeinstallprompt).
               On desktop rarely fires so hidden naturally. Persistent hint added to Command Palette.
               Tap triggers native + haptic. Now correctly shows on narrow viewports.
           */}
-          {showInstallPrompt && (
-            <button
-              onClick={() => {
-                triggerHaptic('light');
-                handleInstallApp();
-              }}
-              className="btn btn-secondary text-xs px-3 py-1.5 hidden md:flex items-center gap-1.5 active:scale-95"
-              title="Install Badazz Tasks for offline + home screen access"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Install</span>
-            </button>
-          )}
+            {showInstallPrompt && (
+              <button
+                onClick={() => {
+                  triggerHaptic("light");
+                  handleInstallApp();
+                }}
+                className="btn btn-secondary text-xs px-3 py-1.5 hidden md:flex items-center gap-1.5 active:scale-95"
+                title="Install Badazz Tasks for offline + home screen access"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">Install</span>
+              </button>
+            )}
 
-          {/* Mobile-first advanced offline UX: sync status + tap-to-force-sync (uses existing store flags + queue).
+            {/* Mobile-first advanced offline UX: sync status + tap-to-force-sync (uses existing store flags + queue).
               Glass pill, safe-area friendly, visible on mobile or when pending/offline. */}
-          {(syncDisplay.pendingSyncCount > 0 || !syncDisplay.isOnline || syncDisplay.isSyncing) && (
-            <button
-              onClick={async () => {
-                triggerHaptic('light');
-                if (syncPendingWrites) {
-                  await syncPendingWrites();
-                } else if (refreshOfflineStatus) {
-                  refreshOfflineStatus();
+            {(syncDisplay.pendingSyncCount > 0 ||
+              !syncDisplay.isOnline ||
+              syncDisplay.isSyncing) && (
+              <button
+                onClick={async () => {
+                  triggerHaptic("light");
+                  if (syncPendingWrites) {
+                    await syncPendingWrites();
+                  } else if (refreshOfflineStatus) {
+                    refreshOfflineStatus();
+                  }
+                  toast(
+                    syncDisplay.isOnline
+                      ? syncDisplay.pendingSyncCount > 0
+                        ? "Syncing pending writes..."
+                        : "Already in sync"
+                      : "Offline — changes will queue",
+                    {
+                      description:
+                        syncDisplay.pendingSyncCount > 0
+                          ? `${syncDisplay.pendingSyncCount} operation${syncDisplay.pendingSyncCount === 1 ? "" : "s"} pending`
+                          : undefined,
+                    }
+                  );
+                }}
+                className={cn(
+                  "sync-indicator top-bar-sync-mobile text-[10px] px-2.5 py-1 active:scale-95 max-md:hidden md:hidden",
+                  !syncDisplay.isOnline
+                    ? "offline"
+                    : syncDisplay.isSyncing
+                      ? "syncing"
+                      : syncDisplay.pendingSyncCount > 0
+                        ? "offline"
+                        : "online"
+                )}
+                title={
+                  syncDisplay.isOnline ? `${syncDisplay.pendingSyncCount} pending` : "Offline mode"
                 }
-                toast(syncDisplay.isOnline ? (syncDisplay.pendingSyncCount > 0 ? "Syncing pending writes..." : "Already in sync") : "Offline — changes will queue", {
-                  description: syncDisplay.pendingSyncCount > 0 ? `${syncDisplay.pendingSyncCount} operation${syncDisplay.pendingSyncCount === 1 ? '' : 's'} pending` : undefined,
-                });
-              }}
-              className={cn(
-                "sync-indicator top-bar-sync-mobile text-[10px] px-2.5 py-1 active:scale-95 max-md:hidden md:hidden",
-                !syncDisplay.isOnline ? "offline" : syncDisplay.isSyncing ? "syncing" : syncDisplay.pendingSyncCount > 0 ? "offline" : "online"
-              )}
-              title={syncDisplay.isOnline ? `${syncDisplay.pendingSyncCount} pending` : "Offline mode"}
-            >
-              {!syncDisplay.isOnline ? (
-                <>≡ƒôí Offline</>
-              ) : syncDisplay.isSyncing ? (
-                <>Γƒ│ Syncing</>
-              ) : syncDisplay.pendingSyncCount > 0 ? (
-                <>Γåæ {syncDisplay.pendingSyncCount} sync</>
-              ) : (
-                <>Γ£ô Synced</>
-              )}
-            </button>
-          )}
-        </div>
+              >
+                {!syncDisplay.isOnline ? (
+                  <>≡ƒôí Offline</>
+                ) : syncDisplay.isSyncing ? (
+                  <>Γƒ│ Syncing</>
+                ) : syncDisplay.pendingSyncCount > 0 ? (
+                  <>Γåæ {syncDisplay.pendingSyncCount} sync</>
+                ) : (
+                  <>Γ£ô Synced</>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <CollapsibleSidebar
-          currentView={currentView as "home" | "tasks" | "notes" | "notebooks" | "lists" | "health" | "teams" | "settings" | "admin"}
+          currentView={
+            currentView as
+              | "home"
+              | "tasks"
+              | "notes"
+              | "notebooks"
+              | "lists"
+              | "health"
+              | "teams"
+              | "settings"
+              | "admin"
+          }
           onNavigate={(view) => setView(view as typeof currentView)}
           workspace={currentWorkspace}
           openTaskCount={currentWorkspaceTaskCounts.openCount}
@@ -3831,7 +4030,7 @@ export default function BadAssTasks() {
         <main
           className={cn(
             "main-content relative flex-1 overflow-auto p-6 lg:p-8",
-            pwaStandalone && isMobileViewport && "main-content--pwa-standalone",
+            pwaStandalone && isMobileViewport && "main-content--pwa-standalone"
           )}
         >
           {(pullDistance > 4 || isPullRefreshing) && (
@@ -3839,9 +4038,11 @@ export default function BadAssTasks() {
               className={cn(
                 "pull-to-refresh-indicator",
                 (pullDistance > 4 || isPullRefreshing) && "visible",
-                isPullRefreshing && "refreshing",
+                isPullRefreshing && "refreshing"
               )}
-              style={{ transform: `translateX(-50%) translateY(${Math.min(pullDistance * 0.6, 18)}px)` }}
+              style={{
+                transform: `translateX(-50%) translateY(${Math.min(pullDistance * 0.6, 18)}px)`,
+              }}
               aria-live="polite"
             >
               {isPullRefreshing ? (
@@ -3920,24 +4121,29 @@ export default function BadAssTasks() {
           {user && pendingReceivedInvites.length > 0 && (
             <div className="home-global-invite-banner mb-6 border border-neon-purple/50 bg-neon-purple/10 rounded-2xl p-5 flex flex-col gap-4">
               <div className="text-sm font-medium text-neon-purple">
-                You have pending workspace invitation{pendingReceivedInvites.length > 1 ? 's' : ''}.
+                You have pending workspace invitation{pendingReceivedInvites.length > 1 ? "s" : ""}.
               </div>
 
               <div className="space-y-3">
                 {pendingReceivedInvites.slice(0, 2).map((n: any) => {
                   const meta = n.metadata || {};
-                  const fullName = meta.invited_by_full_name || meta.invited_by_name || 'Someone';
-                  const username = meta.invited_by_username ? ` (@${meta.invited_by_username})` : '';
-                  const wsName = meta.workspace_name || 'a workspace';
+                  const fullName = meta.invited_by_full_name || meta.invited_by_name || "Someone";
+                  const username = meta.invited_by_username
+                    ? ` (@${meta.invited_by_username})`
+                    : "";
+                  const wsName = meta.workspace_name || "a workspace";
                   return (
                     <div key={n.id} className="text-sm text-text-soft">
-                      <span className="font-medium">{fullName}</span>{username} invited you to join{' '}
+                      <span className="font-medium">{fullName}</span>
+                      {username} invited you to join{" "}
                       <span className="font-semibold">"{wsName}"</span>.
                     </div>
                   );
                 })}
                 {pendingReceivedInvites.length > 2 && (
-                  <div className="text-xs text-text-secondary">+{pendingReceivedInvites.length - 2} more</div>
+                  <div className="text-xs text-text-secondary">
+                    +{pendingReceivedInvites.length - 2} more
+                  </div>
                 )}
               </div>
 
@@ -4000,7 +4206,12 @@ export default function BadAssTasks() {
               <div className="flex-1 text-text-secondary">
                 Demo mode — all data lives in your browser for now.
               </div>
-              <button onClick={() => window.open("docs/MILESTONE-1-SUPABASE-ACTIVATION.md", "_blank")} className="text-xs underline text-neon-purple whitespace-nowrap">Connect Supabase</button>
+              <button
+                onClick={() => window.open("docs/MILESTONE-1-SUPABASE-ACTIVATION.md", "_blank")}
+                className="text-xs underline text-neon-purple whitespace-nowrap"
+              >
+                Connect Supabase
+              </button>
             </div>
           )}
 
@@ -4038,11 +4249,11 @@ export default function BadAssTasks() {
       {/* Mobile Bottom Navigation — native iOS/Android style, only <md via CSS + md:hidden
           Reuses existing VIEWS + setView from store. No desktop impact. Touch-optimized via globals.css
       */}
-      <nav className="bottom-nav md:hidden border-t border-border-glass" aria-label="Primary navigation">
-        <WorkspaceSwitchEffects
-          workspaceId={currentWorkspace.id}
-          variant="bottom-nav"
-        />
+      <nav
+        className="bottom-nav md:hidden border-t border-border-glass"
+        aria-label="Primary navigation"
+      >
+        <WorkspaceSwitchEffects workspaceId={currentWorkspace.id} variant="bottom-nav" />
         {bottomNavViews.map((v, navIndex) => {
           const navMeta =
             v.id === "settings"
@@ -4058,13 +4269,13 @@ export default function BadAssTasks() {
               tabIndex={0}
               aria-current={isActive ? "page" : undefined}
               onClick={() => {
-                triggerHaptic('light');
+                triggerHaptic("light");
                 setView(v.id as any);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  triggerHaptic('light');
+                  triggerHaptic("light");
                   setView(v.id as any);
                 }
               }}
@@ -4072,7 +4283,7 @@ export default function BadAssTasks() {
                 "bottom-nav-item relative z-[1]",
                 v.id === "home" && "bottom-nav-item--home",
                 v.id === "lists" && "bottom-nav-item--lists",
-                isActive && "active",
+                isActive && "active"
               )}
             >
               <AnimatedBottomNavItemContent
@@ -4113,9 +4324,13 @@ export default function BadAssTasks() {
       )}
 
       {/* Command Palette */}
-      <CommandPalette 
-        open={isCommandPaletteOpen} 
-        onOpenChange={(o) => toggleCommandPalette(o)} 
+      <CommandPalette
+        open={isCommandPaletteOpen}
+        onOpenChange={(o) => toggleCommandPalette(o)}
+        onOpenTask={(task) => {
+          const full = tasks.find((t) => t.id === task.id);
+          if (full) openTask(full);
+        }}
       />
 
       <CaptureFileModal
@@ -4141,9 +4356,9 @@ export default function BadAssTasks() {
       <SupabaseSetupBanner />
 
       {selectedTask && (
-        <TaskModal 
-          task={selectedTask} 
-          isOpen={showFullTaskModal} 
+        <TaskModal
+          task={selectedTask}
+          isOpen={showFullTaskModal}
           onClose={closeTaskModal}
           workspaceDeepLink={
             homeTaskModalContext && homeTaskModalContext.taskId === selectedTask.id
@@ -4152,7 +4367,7 @@ export default function BadAssTasks() {
                   onNavigate: () =>
                     navigateToTaskInWorkspace(
                       homeTaskModalContext.workspaceId,
-                      homeTaskModalContext.taskId,
+                      homeTaskModalContext.taskId
                     ),
                 }
               : undefined
@@ -4166,29 +4381,53 @@ export default function BadAssTasks() {
         isOpen={!!listDetailTarget && !!listDetailList}
         focusAddItemOnOpen={!!listDetailTarget?.discardIfEmpty}
         onClose={closeListDetail}
-        onUpdateList={(id, updates) => { void updateList(id, updates); }}
+        onUpdateList={(id, updates) => {
+          void updateList(id, updates);
+        }}
         onDeleteList={(id) => {
           void deleteList(id);
           closeListDetail();
         }}
-        onTogglePinned={(id) => { void toggleListPinned(id); }}
+        onTogglePinned={(id) => {
+          void toggleListPinned(id);
+        }}
         onAddItem={(listId, text, options) =>
           addListItem(listId, text, options).then((item) => item?.id ?? null)
         }
-        onToggleItem={(id) => { void handleToggleListItem(id); }}
-        onCompleteItemFamily={(id) => { void handleCompleteListItemFamily(id); }}
-        onUpdateItem={(id, text) => { void updateListItem(id, { text }); }}
-        onDeleteItem={(id) => { void deleteListItem(id); }}
-        onIndentItem={(id) => { void indentListItem(id); }}
-        onOutdentItem={(id) => { void outdentListItem(id); }}
+        onToggleItem={(id) => {
+          void handleToggleListItem(id);
+        }}
+        onCompleteItemFamily={(id) => {
+          void handleCompleteListItemFamily(id);
+        }}
+        onUpdateItem={(id, text) => {
+          void updateListItem(id, { text });
+        }}
+        onDeleteItem={(id) => {
+          void deleteListItem(id);
+        }}
+        onIndentItem={(id) => {
+          void indentListItem(id);
+        }}
+        onOutdentItem={(id) => {
+          void outdentListItem(id);
+        }}
         onNudgeListItem={nudgeListItem}
         onMoveItemToList={(itemId, targetListId) => {
           void moveListItemToList(itemId, targetListId);
         }}
-        onClearCompleted={(listId) => { void clearCompletedListItems(listId); }}
-        onSetListItemPending={(id, pending) => { void handleSetListItemPending(id, pending); }}
-        onRestorePending={(listId) => { void restorePendingListItems(listId); }}
-        onClearPending={(listId) => { void clearPendingListItems(listId); }}
+        onClearCompleted={(listId) => {
+          void clearCompletedListItems(listId);
+        }}
+        onSetListItemPending={(id, pending) => {
+          void handleSetListItemPending(id, pending);
+        }}
+        onRestorePending={(listId) => {
+          void restorePendingListItems(listId);
+        }}
+        onClearPending={(listId) => {
+          void clearPendingListItems(listId);
+        }}
       />
 
       {/* Note: rich detail is now inline inside renderNotesView() using TipTapEditor (legacy modal removed) */}
@@ -4222,73 +4461,104 @@ export default function BadAssTasks() {
         panelClassName="glass-strong modal-panel shadow-2xl"
         ariaLabel="Keyboard shortcuts"
       >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border-glass shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="text-neon-purple"><Command className="h-5 w-5" /></div>
-                <div>
-                  <div className="font-semibold tracking-tighter text-xl">Keyboard Shortcuts</div>
-                  <div className="text-xs text-text-muted">Master these. Move at the speed of thought.</div>
-                </div>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border-glass shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="text-neon-purple">
+              <Command className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="font-semibold tracking-tighter text-xl">Keyboard Shortcuts</div>
+              <div className="text-xs text-text-muted">
+                Master these. Move at the speed of thought.
               </div>
-              <button 
-                onClick={() => toggleKeyboardCheatsheet(false)}
-                className="text-text-muted hover:text-text-primary px-3 py-1 text-xs font-mono rounded bg-surface-hover hover:bg-surface-hover"
-              >
-                ESC
-              </button>
             </div>
+          </div>
+          <button
+            onClick={() => toggleKeyboardCheatsheet(false)}
+            className="text-text-muted hover:text-text-primary px-3 py-1 text-xs font-mono rounded bg-surface-hover hover:bg-surface-hover"
+          >
+            ESC
+          </button>
+        </div>
 
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-sm">
-              {[
-                { cat: "Global Power", items: [
-                  { key: "⌘K / Ctrl+K", desc: "Open / close Command Palette (your command center)" },
-                  { key: "?", desc: "Open this keyboard cheatsheet from anywhere" },
-                  { key: "⌘N / Ctrl+N", desc: "Focus task quick-add" },
-                  { key: "⌘⇧N / Ctrl+Shift+N", desc: "Open Capture file modal" },
-                  { key: "ESC", desc: "Close any modal, sheet, or selection" },
-                ]},
-                { cat: "Files", items: [
-                  { key: "⌘⇧N", desc: "Capture file (tags, notes, attachments)" },
-                  { key: "⌘K → Capture file", desc: "Same from command palette" },
-                  { key: "⌘K → Open Files Review", desc: "Jump to Review queue" },
-                ]},
-                { cat: "Navigation", items: [
-                  { key: "1", desc: "Go to All Tasks view" },
-                  { key: "2", desc: "Go to Files view" },
-                  { key: "3", desc: "Go to Lists view" },
-                  { key: "4", desc: "Go to Team" },
-                  { key: "5", desc: "Go to Workspace Settings" },
-                ]},
-                { cat: "Tasks & Action", items: [
-                  { key: "Space", desc: "Complete currently selected task (in list)" },
-                  { key: "Click row", desc: "Open full task detail modal" },
-                  { key: "ΓîÿN in palette", desc: "Create task directly from command palette" },
-                ]},
-                { cat: "Command Palette", items: [
-                  { key: "Γåæ Γåô", desc: "Navigate results inside palette" },
-                  { key: "Enter", desc: "Execute selected command or jump" },
-                  { key: "Type anything", desc: "Fuzzy search commands, workspaces, tasks, notes" },
-                  { key: "ESC", desc: "Close palette (or ? inside for this sheet)" },
-                ]},
-              ].map((section) => (
-                <div key={section.cat}>
-                  <div className="uppercase tracking-[2px] text-[10px] font-semibold text-neon-purple mb-2.5">{section.cat}</div>
-                  <div className="space-y-1.5">
-                    {section.items.map((it, idx) => (
-                      <div key={idx} className="flex justify-between items-baseline gap-4 py-0.5 text-text-soft">
-                        <div className="font-mono text-xs bg-surface-hover px-2 py-px rounded text-neon-purple whitespace-nowrap">{it.key}</div>
-                        <div className="text-right text-text-secondary text-[13px] leading-tight">{it.desc}</div>
-                      </div>
-                    ))}
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-sm">
+          {[
+            {
+              cat: "Global Power",
+              items: [
+                { key: "⌘K / Ctrl+K", desc: "Open / close Command Palette (your command center)" },
+                { key: "?", desc: "Open this keyboard cheatsheet from anywhere" },
+                { key: "⌘N / Ctrl+N", desc: "Focus task quick-add" },
+                { key: "⌘⇧N / Ctrl+Shift+N", desc: "Open Capture file modal" },
+                { key: "ESC", desc: "Close any modal, sheet, or selection" },
+              ],
+            },
+            {
+              cat: "Files",
+              items: [
+                { key: "⌘⇧N", desc: "Capture file (tags, notes, attachments)" },
+                { key: "⌘K → Capture file", desc: "Same from command palette" },
+                { key: "⌘K → Open Files Review", desc: "Jump to Review queue" },
+              ],
+            },
+            {
+              cat: "Navigation",
+              items: [
+                { key: "1", desc: "Go to All Tasks view" },
+                { key: "2", desc: "Go to Files view" },
+                { key: "3", desc: "Go to Lists view" },
+                { key: "4", desc: "Go to Team" },
+                { key: "5", desc: "Go to Workspace Settings" },
+              ],
+            },
+            {
+              cat: "Tasks & Action",
+              items: [
+                { key: "Space", desc: "Complete currently selected task (in list)" },
+                { key: "Click row", desc: "Open full task detail modal" },
+                { key: "ΓîÿN in palette", desc: "Create task directly from command palette" },
+              ],
+            },
+            {
+              cat: "Command Palette",
+              items: [
+                { key: "Γåæ Γåô", desc: "Navigate results inside palette" },
+                { key: "Enter", desc: "Execute selected command or jump" },
+                { key: "Type anything", desc: "Fuzzy search commands, workspaces, tasks, notes" },
+                { key: "ESC", desc: "Close palette (or ? inside for this sheet)" },
+              ],
+            },
+          ].map((section) => (
+            <div key={section.cat}>
+              <div className="uppercase tracking-[2px] text-[10px] font-semibold text-neon-purple mb-2.5">
+                {section.cat}
+              </div>
+              <div className="space-y-1.5">
+                {section.items.map((it, idx) => (
+                  <div
+                    key={idx}
+                    className="flex justify-between items-baseline gap-4 py-0.5 text-text-soft"
+                  >
+                    <div className="font-mono text-xs bg-surface-hover px-2 py-px rounded text-neon-purple whitespace-nowrap">
+                      {it.key}
+                    </div>
+                    <div className="text-right text-text-secondary text-[13px] leading-tight">
+                      {it.desc}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
+          ))}
+        </div>
 
-            <div className="px-6 py-3.5 bg-black/30 text-[11px] text-text-muted border-t border-border-glass flex items-center justify-between shrink-0">
-              <div>Pro tip: Open palette with ⌘K and type ΓÇ£workspaceΓÇ¥, ΓÇ£noteΓÇ¥, or a task name to jump instantly.</div>
-              <div className="font-mono text-neon-purple">Badazz Tasks</div>
-            </div>
+        <div className="px-6 py-3.5 bg-black/30 text-[11px] text-text-muted border-t border-border-glass flex items-center justify-between shrink-0">
+          <div>
+            Pro tip: Open palette with ⌘K and type ΓÇ£workspaceΓÇ¥, ΓÇ£noteΓÇ¥, or a task name to
+            jump instantly.
+          </div>
+          <div className="font-mono text-neon-purple">Badazz Tasks</div>
+        </div>
       </BottomSheet>
 
       <ListShareAcceptModal
@@ -4406,8 +4676,6 @@ export default function BadAssTasks() {
         enabled={isTrulyLive}
         user={user}
       />
-
     </div>
   );
 }
-

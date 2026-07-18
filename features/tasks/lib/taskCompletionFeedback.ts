@@ -43,6 +43,9 @@ export function showTaskCompletionFeedback(
     },
   };
 
+  // Same confetti for one-time completes and recurring advances
+  opts.triggerCelebration?.();
+
   if (result === "advanced") {
     const nextLabel = opts.advancedTask?.dueDate
       ? formatLocalDateShort(opts.advancedTask.dueDate)
@@ -55,7 +58,6 @@ export function showTaskCompletionFeedback(
     return;
   }
 
-  opts.triggerCelebration?.();
   toast.success("Task completed", {
     description: taskBeforeComplete.title,
     duration: 10000,

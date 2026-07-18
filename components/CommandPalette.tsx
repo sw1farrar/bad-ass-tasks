@@ -22,9 +22,11 @@ import { useScrollLock } from "@/lib/hooks/useScrollLock";
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Open the task detail modal (same as clicking a table row). */
+  onOpenTask?: (task: { id: string; title: string; notebookId?: string | null }) => void;
 }
 
-export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, onOpenTask }: CommandPaletteProps) {
   const { 
     setView, 
     addTask, 
@@ -34,6 +36,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     notes,
     completeTask,
     undoTaskCompletion,
+    triggerCelebration,
     currentView,
     currentWorkspace,
     workspaces,
@@ -165,12 +168,14 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       showTaskCompletionFeedback("advanced", random, {
         undoTaskCompletion,
         undoFallback,
+        triggerCelebration,
         advancedTask: useTaskStore.getState().tasks.find((t) => t.id === random.id) ?? random,
       });
     } else if (result === "completed") {
       showTaskCompletionFeedback("completed", random, {
         undoTaskCompletion,
         undoFallback,
+        triggerCelebration,
       });
     } else {
       toast.info("Could not complete task", {
@@ -429,8 +434,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     key={task.id}
                     onSelect={() => runCommand(() => {
                       setView("tasks");
-                      selectTask(task.id);
-                      toast.info("Task selected", { description: task.title });
+                      if (onOpenTask) {
+                        onOpenTask(task);
+                      } else {
+                        selectTask(task.id);
+                        toast.info("Task selected", { description: task.title });
+                      }
                     })}
                     className="cmdk-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer data-[selected=true]:bg-surface-hover"
                     value={`task ${task.title} ${task.status} ${task.assignee || ""}`}
@@ -440,7 +449,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     <div className="text-[10px] text-text-muted font-mono shrink-0 capitalize">{task.status}</div>
                   </Command.Item>
                 ))}
-                <div className="px-3 py-1 text-[9px] text-text-secondary">Type to filter live across open tasks • Enter to jump + select</div>
+                <div className="px-3 py-1 text-[9px] text-text-secondary">Type to filter live across open tasks • Enter to open</div>
               </Command.Group>
             )}
 

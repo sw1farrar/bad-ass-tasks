@@ -205,6 +205,26 @@ export interface RecurrencePattern {
   byDay?: WeekDay[];          // only meaningful for WEEKLY (and some monthly extensions)
   until?: string;             // optional series end (UNTIL); always normalized to 'YYYY-MM-DD'
   count?: number;             // optional: ends after N total occurrences (RRULE COUNT; mutually exclusive with until in strict RRULE)
+  /** When true, next due advances from completion day (rolling); default false = fixed from due date. */
+  fromCompletion?: boolean;
+  /**
+   * Stable series seed (YYYY-MM-DD). Keeps monthly day-of-month + COUNT correct across advances.
+   * Stored as X-SERIES-ANCHOR=… on the RRULE string.
+   */
+  seriesAnchor?: string;
+}
+
+/** Normalize a date-ish token from RRULE extensions to YYYY-MM-DD. */
+function normalizeRuleDateToken(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const compact = raw.trim().replace(/[-T: Z]/g, "").slice(0, 8);
+  if (compact.length === 8 && /^\d{8}$/.test(compact)) {
+    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw.trim())) {
+    return raw.trim().slice(0, 10);
+  }
+  return undefined;
 }
 
 /** Normalize UNTIL/COUNT date strings for HTML date inputs (YYYY-MM-DD). */
@@ -228,6 +248,8 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
   let byDay: WeekDay[] = [];
   let until: string | undefined;
   let count: number | undefined;
+  let fromCompletion = false;
+  let seriesAnchor: string | undefined;
 
   let sawInterval = false;
   let sawCount = false;
@@ -258,15 +280,21 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
     }
     if (part.startsWith("UNTIL=")) {
       // Robust parse: YYYYMMDD, YYYY-MM-DD, full ISO -> normalize to YYYY-MM-DD
-      const u = part.slice(6).trim().replace(/[-T: Z]/g, "").slice(0, 8);
-      if (u.length === 8) {
-        until = `${u.slice(0,4)}-${u.slice(4,6)}-${u.slice(6,8)}`;
-      }
+      until = normalizeRuleDateToken(part.slice(6));
     }
     if (part.startsWith("COUNT=")) {
       sawCount = true;
       const n = parseInt(part.slice(6), 10);
       if (!isNaN(n) && n > 0) count = n;
+    }
+    // Custom extension: rolling schedule anchored to completion date
+    if (part.startsWith("FROMCOMPLETION=") || part.startsWith("X-FROM-COMPLETION=")) {
+      const v = part.split("=")[1]?.trim();
+      fromCompletion = v === "TRUE" || v === "1" || v === "YES";
+    }
+    // Custom extension: stable series seed (monthly DOM + COUNT across advances)
+    if (part.startsWith("X-SERIES-ANCHOR=") || part.startsWith("SERIESANCHOR=")) {
+      seriesAnchor = normalizeRuleDateToken(part.split("=")[1]);
     }
   }
 
@@ -278,6 +306,8 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
   const pat: RecurrencePattern = { freq, interval, byDay: byDay.length ? byDay : undefined };
   if (until) pat.until = until;
   if (count) pat.count = count;
+  if (fromCompletion) pat.fromCompletion = true;
+  if (seriesAnchor) pat.seriesAnchor = seriesAnchor;
   return pat;
 }
 
@@ -294,7 +324,29 @@ export function generateRecurringRule(pattern: RecurrencePattern): string {
   } else if (pattern.count && pattern.count > 0) {
     rule += `;COUNT=${pattern.count}`;
   }
+  if (pattern.fromCompletion) {
+    rule += `;FROMCOMPLETION=TRUE`;
+  }
+  if (pattern.seriesAnchor) {
+    rule += `;X-SERIES-ANCHOR=${normalizeCalendarDateKey(pattern.seriesAnchor)}`;
+  }
   return rule;
+}
+
+/** Series seed for fixed schedules: explicit X-SERIES-ANCHOR, else current due date. */
+export function resolveRecurrenceSeriesAnchor(
+  rule: string | null | undefined,
+  dueDate?: string | null,
+): string | undefined {
+  const pattern = parseRecurringRule(rule);
+  if (pattern?.seriesAnchor) return pattern.seriesAnchor;
+  if (dueDate) return normalizeCalendarDateKey(dueDate);
+  return undefined;
+}
+
+/** True when the rule advances from completion date (rolling) instead of the due date (fixed). */
+export function isRecurrenceFromCompletion(rule?: string | null): boolean {
+  return !!parseRecurringRule(rule)?.fromCompletion;
 }
 
 export function getRecurringLabel(rule?: string | null): string {
@@ -322,6 +374,9 @@ export function getRecurringLabel(rule?: string | null): string {
   } else if (p.count) {
     base += ` (${p.count}×)`;
   }
+  if (p.fromCompletion) {
+    base += " · from completion";
+  }
   return base;
 }
 
@@ -341,7 +396,7 @@ export function filterExceptions(dates: Date[], exceptionDates?: string[] | null
 }
 
 /** Returns next due date (Date) strictly after `from`, or null when the series has ended.
- *  Anchor is the series seed (task dueDate). For completion, pass the current dueDate as `from`.
+ *  Anchor is the series seed (task dueDate). For fixed-schedule completion, pass the current dueDate as `from`.
  *  Delegates to getOccurrencesInRange for COUNT, UNTIL, BYDAY, INTERVAL, and exception parity.
  */
 export function getNextRecurringDue(
@@ -369,6 +424,92 @@ export function getNextRecurringDue(
   const maxOcc = pattern.count && pattern.count > 0 ? pattern.count + 2 : 120;
   const occ = getOccurrencesInRange(anchorIso, rule, anchor, rangeEnd, maxOcc, exceptionDates);
   return occ.find((d) => normalizeCalendarDateKey(d) > fromKey) ?? null;
+}
+
+/**
+ * Next due after completing a recurring task.
+ * - Fixed (default): expands from a stable series anchor; late completes jump to the
+ *   first occurrence on/after the completion day (no leftover overdue dues).
+ * - Rolling (`FROMCOMPLETION=TRUE`): re-anchors to the completion day.
+ *   When completing early, still advances past the current due (avoids BYDAY no-ops).
+ */
+export function getNextRecurringDueAfterComplete(
+  rule: string | null,
+  dueDate: string | null | undefined,
+  completedOn: Date | string = startOfLocalToday(),
+  exceptionDates?: string[] | null,
+): Date | null {
+  if (!rule) return null;
+  const completionDay =
+    typeof completedOn === "string"
+      ? (parseLocalDate(completedOn) ?? startOfLocalToday())
+      : startOfDay(completedOn);
+  const completionKey = toLocalDateString(completionDay);
+  const dueKey = dueDate ? normalizeCalendarDateKey(dueDate) : null;
+
+  if (isRecurrenceFromCompletion(rule)) {
+    // Always move past the occurrence being completed (early complete + BYDAY)
+    const fromKey = dueKey && dueKey > completionKey ? dueKey : completionKey;
+    return getNextRecurringDue(rule, fromKey, completionKey, exceptionDates);
+  }
+
+  // Fixed: stable series seed + from = max(due, completion) so late completes catch up
+  const seriesAnchor = resolveRecurrenceSeriesAnchor(rule, dueDate) ?? completionKey;
+  const fromKey = !dueKey || completionKey >= dueKey ? completionKey : dueKey;
+  return getNextRecurringDue(rule, fromKey, seriesAnchor, exceptionDates);
+}
+
+export type RecurrenceAdvanceUpdates = Partial<{
+  dueDate: string;
+  recurringRule: string;
+  exceptionDates: undefined;
+}>;
+
+/**
+ * Plan the task fields to apply after a successful recurring advance.
+ * - Fixed: bake/preserve X-SERIES-ANCHOR so monthly DOM + COUNT stay correct.
+ * - Rolling: re-seed series anchor, decrement COUNT (series restarts each complete), clear exceptions.
+ */
+export function buildRecurrenceAdvanceUpdates(
+  rule: string,
+  nextDue: Date,
+  options?: { previousDueDate?: string | null; completedOn?: string | null },
+): RecurrenceAdvanceUpdates {
+  const pattern = parseRecurringRule(rule);
+  const updates: RecurrenceAdvanceUpdates = {
+    dueDate: toDueDateStorage(nextDue),
+  };
+  if (!pattern) return updates;
+
+  const nextPattern: RecurrencePattern = { ...pattern };
+  let ruleChanged = false;
+
+  if (pattern.fromCompletion) {
+    const rollingAnchor = options?.completedOn
+      ? normalizeCalendarDateKey(options.completedOn)
+      : toLocalDateString(nextDue);
+    if (nextPattern.seriesAnchor !== rollingAnchor) {
+      nextPattern.seriesAnchor = rollingAnchor;
+      ruleChanged = true;
+    }
+    // Rolling re-seeds the series each complete — COUNT must count down or it never ends
+    if (pattern.count && pattern.count > 1) {
+      nextPattern.count = pattern.count - 1;
+      ruleChanged = true;
+    }
+    updates.exceptionDates = undefined;
+  } else {
+    // Fixed: lock series seed on first advance (legacy rules without X-SERIES-ANCHOR)
+    if (!pattern.seriesAnchor && options?.previousDueDate) {
+      nextPattern.seriesAnchor = normalizeCalendarDateKey(options.previousDueDate);
+      ruleChanged = true;
+    }
+  }
+
+  if (ruleChanged) {
+    updates.recurringRule = generateRecurringRule(nextPattern);
+  }
+  return updates;
 }
 
 /** Generate all (approximate) occurrence dates for a recurring task within [rangeStart, rangeEnd].
@@ -491,9 +632,10 @@ export function getUpcomingRecurrencesPreview(
   exceptionDates?: string[] | null
 ): string[] {
   if (!anchorDue || !rule) return [];
+  const seriesAnchor = resolveRecurrenceSeriesAnchor(rule, anchorDue) ?? anchorDue;
   const now = new Date();
   const end = addMonths(now, 18); // generous window
-  const dates = getOccurrencesInRange(anchorDue, rule, now, end, count + 2, exceptionDates);
+  const dates = getOccurrencesInRange(seriesAnchor, rule, now, end, count + 2, exceptionDates);
   return dates.slice(0, count).map((d) => {
     if (!isValid(d)) return "—";
     if (isToday(d)) return "Today";
@@ -508,8 +650,10 @@ export function getUpcomingRecurrencesPreview(
 export function getRecurrenceEndDescription(rule?: string | null): string {
   const p = parseRecurringRule(rule);
   if (!p) return "No end";
-  if (p.until) return `Ends ${p.until}`;
-  if (p.count) return `Ends after ${p.count} occurrence${p.count > 1 ? "s" : ""}`;
+  if (p.until) return `Ends on ${p.until}`;
+  if (p.count) {
+    return `Ends after ${p.count} completion${p.count > 1 ? "s" : ""} (skips don’t count)`;
+  }
   return "Ends never (open series)";
 }
 
@@ -533,7 +677,15 @@ export function generateRecurringInstances(
   maxPerTask = 50
 ): RecurringInstanceInfo[] {
   if (!task.recurringRule || !task.dueDate) return [];
-  const dates = getOccurrencesInRange(task.dueDate, task.recurringRule, rangeStart, rangeEnd, maxPerTask, task.exceptionDates);
+  const seriesAnchor = resolveRecurrenceSeriesAnchor(task.recurringRule, task.dueDate) ?? task.dueDate;
+  const dates = getOccurrencesInRange(
+    seriesAnchor,
+    task.recurringRule,
+    rangeStart,
+    rangeEnd,
+    maxPerTask,
+    task.exceptionDates,
+  );
   const label = getRecurringLabel(task.recurringRule);
   return dates.map((d) => ({
     taskId: task.id,

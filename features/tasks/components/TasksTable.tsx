@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Loader2, MessageSquare, Notebook, Search, StickyNote } from "lucide-react";
 import { cn, formatDueDate, triggerHaptic } from "@/lib/utils";
 import type { Task } from "@/types";
@@ -38,6 +39,58 @@ export interface TasksTableProps {
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   resultCount?: number;
+  hasActiveFilters?: boolean;
+  onClearFilters?: () => void;
+  isLoading?: boolean;
+}
+
+/** Column header with a fixed tooltip below the cell (never under the cursor). */
+function ColumnHeader({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const cellRef = useRef<HTMLTableCellElement>(null);
+  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
+
+  const showTip = () => {
+    const rect = cellRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTip({ top: rect.bottom + 8, left: rect.left + rect.width / 2 });
+  };
+
+  const hideTip = () => setTip(null);
+
+  return (
+    <th
+      ref={cellRef}
+      className={className}
+      scope="col"
+      aria-label={label}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTip}
+      onFocus={showTip}
+      onBlur={hideTip}
+    >
+      {children}
+      {tip && typeof document !== "undefined"
+        ? createPortal(
+            <span
+              role="tooltip"
+              className="pointer-events-none fixed z-[4000] -translate-x-1/2 whitespace-nowrap rounded-md border border-border-glass bg-bg-tertiary px-2 py-1 text-[11px] font-medium text-text-primary shadow-lg"
+              style={{ top: tip.top, left: tip.left }}
+            >
+              {label}
+            </span>,
+            document.body
+          )
+        : null}
+    </th>
+  );
 }
 
 export function TasksTable({
@@ -56,6 +109,9 @@ export function TasksTable({
   searchValue = "",
   onSearchChange,
   resultCount,
+  hasActiveFilters = false,
+  onClearFilters,
+  isLoading = false,
 }: TasksTableProps) {
   const [quickTitle, setQuickTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -100,10 +156,7 @@ export function TasksTable({
   }, [isAdding]);
 
   const tableColSpan =
-    8 +
-    (showWorkspaceColumn ? 1 : 0) +
-    (showNotebookColumn ? 1 : 0) +
-    (showAssignee ? 1 : 0);
+    8 + (showWorkspaceColumn ? 1 : 0) + (showNotebookColumn ? 1 : 0) + (showAssignee ? 1 : 0);
 
   const submitQuickAdd = async () => {
     const title = quickTitle.trim();
@@ -158,77 +211,108 @@ export function TasksTable({
   return (
     <div className={cn("tasks-table-root flex flex-col gap-3 md:gap-0 min-h-0", className)}>
       {showQuickAdd && onAddTask ? (
-      <div
-        className={cn(
-          "tasks-quick-add flex flex-col sm:flex-row gap-2 md:px-4 md:py-3.5 md:gap-3",
-          showDesktopToolbar && "tasks-table-toolbar md:flex-row md:items-center md:gap-3",
-        )}
-      >
-        {showDesktopToolbar ? (
-          <div className="tasks-table-toolbar__search-group hidden md:flex min-w-0 items-center gap-2">
-            <div className="tasks-table-toolbar__search flex flex-1 min-w-0 items-center">
-              <Search
-                className="tasks-table-toolbar__search-icon h-4 w-4 shrink-0"
-                strokeWidth={2}
-                aria-hidden
-              />
-              <input
-                value={searchValue}
-                onChange={(e) => onSearchChange?.(e.target.value)}
-                placeholder="Search tasks…"
-                className="tasks-table-toolbar__search-input text-sm w-full min-h-[2.5rem]"
-                aria-label="Search tasks"
-              />
-            </div>
-            {resultCount !== undefined ? (
-              <span
-                className="tasks-table-toolbar__count shrink-0 tabular-nums"
-                aria-label={`${resultCount} tasks shown`}
-              >
-                {resultCount} shown
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-        <form
-          onSubmit={handleQuickAdd}
+        <div
           className={cn(
-            "flex min-w-0 flex-1 flex-col gap-2 sm:flex-row md:gap-3",
-            showDesktopToolbar && "tasks-table-toolbar__quick-add-form",
-            !showDesktopToolbar && "w-full",
+            "tasks-quick-add flex flex-col sm:flex-row gap-2 md:px-4 md:py-3.5 md:gap-3",
+            showDesktopToolbar && "tasks-table-toolbar md:flex-row md:items-center md:gap-3"
           )}
         >
-          <input
-            ref={quickAddInputRef}
-            id="task-quick-add"
-            value={quickTitle}
-            onChange={(e) => setQuickTitle(e.target.value)}
-            onKeyDown={handleQuickAddKeyDown}
-            placeholder="Add a task…"
-            disabled={isAdding}
-            className={cn(
-              "input w-full flex-1 px-3 py-2.5 text-sm min-h-[44px] md:px-4",
-              showDesktopToolbar && "tasks-table-toolbar__quick-add",
-            )}
-            aria-label="Quick add task"
-          />
-          {showQuickAddButton ? (
-            <button
-              type="submit"
-              disabled={isAdding || !quickTitle.trim()}
-              className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
-            >
-              {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
-            </button>
+          {showDesktopToolbar ? (
+            <div className="tasks-table-toolbar__search-group hidden md:flex min-w-0 items-center gap-2">
+              <div className="tasks-table-toolbar__search flex flex-1 min-w-0 items-center">
+                <Search
+                  className="tasks-table-toolbar__search-icon h-4 w-4 shrink-0"
+                  strokeWidth={2}
+                  aria-hidden
+                />
+                <input
+                  value={searchValue}
+                  onChange={(e) => onSearchChange?.(e.target.value)}
+                  placeholder="Search tasks…"
+                  className="tasks-table-toolbar__search-input text-sm w-full min-h-[2.5rem]"
+                  aria-label="Search tasks"
+                />
+              </div>
+              {resultCount !== undefined ? (
+                <span
+                  className="tasks-table-toolbar__count shrink-0 tabular-nums"
+                  aria-label={`${resultCount} tasks shown`}
+                >
+                  {resultCount} shown
+                </span>
+              ) : null}
+            </div>
           ) : null}
-        </form>
-      </div>
+          <form
+            onSubmit={handleQuickAdd}
+            className={cn(
+              "flex min-w-0 flex-1 flex-col gap-2 sm:flex-row md:gap-3",
+              showDesktopToolbar && "tasks-table-toolbar__quick-add-form",
+              !showDesktopToolbar && "w-full"
+            )}
+          >
+            <input
+              ref={quickAddInputRef}
+              id="task-quick-add"
+              value={quickTitle}
+              onChange={(e) => setQuickTitle(e.target.value)}
+              onKeyDown={handleQuickAddKeyDown}
+              placeholder="Add a task…"
+              disabled={isAdding}
+              className={cn(
+                "input w-full flex-1 px-3 py-2.5 text-sm min-h-[44px] md:px-4",
+                showDesktopToolbar && "tasks-table-toolbar__quick-add"
+              )}
+              aria-label="Quick add task"
+            />
+            {showQuickAddButton ? (
+              <button
+                type="submit"
+                disabled={isAdding || !quickTitle.trim()}
+                className="btn btn-primary px-4 py-2.5 rounded-xl text-sm shrink-0 disabled:opacity-50 min-h-[44px] sm:w-auto w-full"
+              >
+                {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+              </button>
+            ) : null}
+          </form>
+        </div>
       ) : null}
 
       <div className="md:hidden space-y-1">
         {tasks.length === 0 ? (
           <div className="tasks-empty-state p-6 md:p-8 text-center text-text-muted text-sm rounded-2xl border border-border-glass bg-surface-hover/50 tasks-empty-card">
-            {emptyMessage}
+            {isLoading ? (
+              <div className="space-y-3" aria-label="Loading tasks">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="animate-pulse space-y-2 rounded-xl bg-surface-overlay p-3"
+                  >
+                    <div className="h-3 w-3/4 rounded bg-border-glass" />
+                    <div className="h-2.5 w-1/3 rounded bg-border-glass" />
+                  </div>
+                ))}
+              </div>
+            ) : hasActiveFilters ? (
+              <div className="space-y-3">
+                <p>No tasks match these filters.</p>
+                <button
+                  type="button"
+                  className="btn btn-secondary text-sm"
+                  onClick={onClearFilters}
+                >
+                  Clear filters
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p>{emptyMessage}</p>
+                <p className="text-xs">Add your first task above.</p>
+                <button type="button" className="btn btn-primary text-sm" onClick={focusQuickAdd}>
+                  Add your first task
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           tasks.map((task) => {
@@ -260,53 +344,119 @@ export function TasksTable({
 
       <div className="tasks-desktop-table hidden md:flex md:flex-col md:flex-1 md:min-h-0 overflow-hidden">
         <div className="tasks-desktop-table__scroll overflow-x-hidden overflow-y-auto min-h-0 flex-1">
-          <table className="tasks-desktop-table__grid w-full table-fixed text-sm border-collapse">
+          <table className="tasks-desktop-table__grid w-full text-sm border-collapse">
             <thead>
               <tr className="tasks-desktop-table__head-row text-left text-[10px] uppercase tracking-wide text-text-muted border-b border-border-glass bg-surface-overlay">
-                <th className="tasks-desktop-table__icon-col p-2 font-medium" scope="col" aria-label="Important" />
-                <th className="tasks-desktop-table__icon-col p-2 font-medium" scope="col" aria-label="Complete" />
-                <th className="tasks-desktop-table__title-col p-2 font-medium" scope="col">
+                <ColumnHeader
+                  label="Important"
+                  className="tasks-desktop-table__icon-col p-2 font-medium"
+                />
+                <ColumnHeader
+                  label="Complete"
+                  className="tasks-desktop-table__icon-col p-2 font-medium"
+                />
+                <ColumnHeader
+                  label="Title"
+                  className="tasks-desktop-table__title-col p-2 font-medium"
+                >
                   Title
-                </th>
+                </ColumnHeader>
                 {showNotebookColumn ? (
-                  <th className="tasks-desktop-table__notebook-col p-2 font-medium hidden md:table-cell" scope="col">
+                  <ColumnHeader
+                    label="Notebook"
+                    className="tasks-desktop-table__notebook-col p-2 font-medium hidden md:table-cell"
+                  >
                     Notebook
-                  </th>
+                  </ColumnHeader>
                 ) : null}
-                <th className="tasks-desktop-table__folder-col p-2 font-medium hidden lg:table-cell" scope="col">
+                <ColumnHeader
+                  label="Folder"
+                  className="tasks-desktop-table__folder-col p-2 font-medium hidden lg:table-cell"
+                >
                   Folder
-                </th>
+                </ColumnHeader>
                 {showWorkspaceColumn ? (
-                  <th className="tasks-desktop-table__workspace-col p-2 font-medium hidden md:table-cell" scope="col">
+                  <ColumnHeader
+                    label="Workspace"
+                    className="tasks-desktop-table__workspace-col p-2 font-medium hidden md:table-cell"
+                  >
                     Workspace
-                  </th>
+                  </ColumnHeader>
                 ) : null}
-                <th className="tasks-desktop-table__due-col p-2 font-medium hidden lg:table-cell" scope="col">
+                <ColumnHeader
+                  label="Due"
+                  className="tasks-desktop-table__due-col p-2 font-medium hidden md:table-cell"
+                >
                   Due
-                </th>
-                <th className="tasks-desktop-table__repeat-col p-2 font-medium hidden md:table-cell" scope="col">
+                </ColumnHeader>
+                <ColumnHeader
+                  label="Repeat"
+                  className="tasks-desktop-table__repeat-col p-2 font-medium hidden md:table-cell"
+                >
                   Repeat
-                </th>
-                <th className="tasks-desktop-table__notes-col p-2 font-medium" scope="col" aria-label="Notes">
+                </ColumnHeader>
+                <ColumnHeader
+                  label="Notes"
+                  className="tasks-desktop-table__notes-col p-2 font-medium"
+                >
                   <StickyNote className="mx-auto h-3.5 w-3.5" aria-hidden />
-                </th>
-                <th className="tasks-desktop-table__comments-col p-2 font-medium" scope="col" aria-label="Comments">
+                </ColumnHeader>
+                <ColumnHeader
+                  label="Comments"
+                  className="tasks-desktop-table__comments-col p-2 font-medium"
+                >
                   <MessageSquare className="mx-auto h-3.5 w-3.5" aria-hidden />
-                </th>
+                </ColumnHeader>
                 {showAssignee ? (
-                  <th className="tasks-desktop-table__assignee-col p-2 font-medium hidden md:table-cell" scope="col">
+                  <ColumnHeader
+                    label="Assignee"
+                    className="tasks-desktop-table__assignee-col p-2 font-medium hidden md:table-cell"
+                  >
                     Assignee
-                  </th>
+                  </ColumnHeader>
                 ) : null}
               </tr>
             </thead>
             <tbody>
               {tasks.length === 0 ? (
-                <tr>
-                  <td colSpan={tableColSpan} className="p-8 text-center text-text-muted text-sm">
-                    {emptyMessage}
-                  </td>
-                </tr>
+                isLoading ? (
+                  Array.from({ length: 4 }).map((_, index) => (
+                    <tr key={index} className="animate-pulse border-b border-border-glass/60">
+                      <td colSpan={tableColSpan} className="p-3">
+                        <div className="h-5 w-3/4 rounded bg-surface-hover" />
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={tableColSpan} className="p-8 text-center text-text-muted text-sm">
+                      {hasActiveFilters ? (
+                        <div className="space-y-3">
+                          <p>No tasks match these filters.</p>
+                          <button
+                            type="button"
+                            className="btn btn-secondary text-sm"
+                            onClick={onClearFilters}
+                          >
+                            Clear filters
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <p>{emptyMessage}</p>
+                          <p className="text-xs">Add your first task above.</p>
+                          <button
+                            type="button"
+                            className="btn btn-primary text-sm"
+                            onClick={focusQuickAdd}
+                          >
+                            Add your first task
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
               ) : (
                 tasks.map((task) => {
                   const isDone = task.status === "done";
@@ -317,7 +467,7 @@ export function TasksTable({
                     taskCommentSummaries,
                     taskCommentsReadAt,
                     task.workspaceId,
-                    user?.id,
+                    user?.id
                   );
                   const workspaceName = getWorkspaceName?.(task);
 
@@ -329,7 +479,7 @@ export function TasksTable({
                         "tasks-desktop-table__row border-b border-border-glass/60 cursor-pointer transition-colors",
                         "hover:bg-surface-hover",
                         isDone && "opacity-60",
-                        task.starred && "tasks-desktop-table__row--starred",
+                        task.starred && "tasks-desktop-table__row--starred"
                       )}
                     >
                       <td className="p-2 align-middle" onClick={(e) => e.stopPropagation()}>
@@ -359,8 +509,8 @@ export function TasksTable({
                           ) : null}
                         </button>
                       </td>
-                      <td className="tasks-desktop-table__title-cell px-3 py-2 align-top">
-                        <div className="flex items-start gap-2 w-full min-w-0">
+                      <td className="tasks-desktop-table__title-cell px-3 py-2 align-middle">
+                        <div className="flex items-center gap-2 w-full min-w-0">
                           <div
                             className={cn(
                               "tasks-desktop-table__title flex-1 min-w-0 font-medium leading-snug",
@@ -396,7 +546,7 @@ export function TasksTable({
                         </td>
                       ) : null}
                       <td
-                        className="tasks-desktop-table__folder-cell p-2 align-middle hidden lg:table-cell"
+                        className="tasks-desktop-table__folder-cell tasks-editable-field p-2 align-middle hidden lg:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {isNotebookTask ? (
@@ -425,7 +575,7 @@ export function TasksTable({
                         </td>
                       ) : null}
                       <td
-                        className="tasks-desktop-table__due-cell p-2 align-middle hidden lg:table-cell"
+                        className="tasks-desktop-table__due-cell p-2 align-middle hidden md:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {isNotebookTask ? (
@@ -439,7 +589,7 @@ export function TasksTable({
                         )}
                       </td>
                       <td
-                        className="tasks-desktop-table__repeat-cell p-2 align-top hidden md:table-cell"
+                        className="tasks-desktop-table__repeat-cell tasks-editable-field p-2 align-middle hidden md:table-cell"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {isNotebookTask ? (
@@ -468,7 +618,7 @@ export function TasksTable({
                       </td>
                       {showAssignee ? (
                         <td
-                          className="tasks-desktop-table__assignee-cell p-2 align-middle hidden md:table-cell min-w-0"
+                          className="tasks-desktop-table__assignee-cell tasks-editable-field p-2 align-middle hidden md:table-cell min-w-0"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {isNotebookTask ? (

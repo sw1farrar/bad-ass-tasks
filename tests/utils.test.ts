@@ -8,6 +8,10 @@ import {
   generateRecurringRule,
   getRecurringLabel,
   getNextRecurringDue,
+  getNextRecurringDueAfterComplete,
+  buildRecurrenceAdvanceUpdates,
+  isRecurrenceFromCompletion,
+  resolveRecurrenceSeriesAnchor,
   getOccurrencesInRange,
   normalizeExceptionKey,
   toLocalDateString,
@@ -186,6 +190,131 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
         anchor
       );
       expect(next).toBeNull();
+    });
+  });
+
+  describe('FROMCOMPLETION recurrence anchor', () => {
+    it('round-trips fromCompletion via parse/generate', () => {
+      const rule = generateRecurringRule({
+        freq: 'WEEKLY',
+        interval: 1,
+        fromCompletion: true,
+      });
+      expect(rule).toContain('FROMCOMPLETION=TRUE');
+      const parsed = parseRecurringRule(rule);
+      expect(parsed?.fromCompletion).toBe(true);
+      expect(isRecurrenceFromCompletion(rule)).toBe(true);
+      expect(isRecurrenceFromCompletion('FREQ=WEEKLY')).toBe(false);
+    });
+
+    it('fixed schedule advances from due date (default)', () => {
+      // Due Tue Jul 14; completed Sat Jul 18 → next still Tue Jul 21
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY',
+        '2026-07-14',
+        '2026-07-18',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-07-21');
+    });
+
+    it('late fixed daily jumps to first due on/after completion (no leftover overdue)', () => {
+      // Due Jul 14; completed Jul 18 → next Jul 19 (not Jul 15)
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=DAILY',
+        '2026-07-14',
+        '2026-07-18',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-07-19');
+    });
+
+    it('rolling schedule advances from completion date', () => {
+      // Due Tue Jul 14; completed Sat Jul 18 → next Sat Jul 25
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;FROMCOMPLETION=TRUE',
+        '2026-07-14',
+        '2026-07-18',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-07-25');
+    });
+
+    it('rolling + BYDAY early complete advances past current due', () => {
+      // Due Mon Jul 20; completed Fri Jul 17 → must not stay on Jul 20
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;BYDAY=MO;FROMCOMPLETION=TRUE',
+        '2026-07-20',
+        '2026-07-17',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-07-27');
+    });
+
+    it('getRecurringLabel surfaces rolling mode', () => {
+      expect(getRecurringLabel('FREQ=WEEKLY;BYDAY=MO;FROMCOMPLETION=TRUE')).toContain(
+        'from completion',
+      );
+    });
+
+    it('fixed COUNT ends with stable series anchor (no decrement needed)', () => {
+      const rule = 'FREQ=DAILY;COUNT=3';
+      const next1 = getNextRecurringDueAfterComplete(rule, '2026-01-01', '2026-01-01');
+      expect(next1 ? toLocalDateString(next1) : '').toBe('2026-01-02');
+      const after1 = buildRecurrenceAdvanceUpdates(rule, next1!, {
+        previousDueDate: '2026-01-01',
+      });
+      expect(after1.recurringRule).toContain('X-SERIES-ANCHOR=2026-01-01');
+      expect(after1.recurringRule).toContain('COUNT=3');
+
+      const next2 = getNextRecurringDueAfterComplete(
+        after1.recurringRule!,
+        after1.dueDate,
+        '2026-01-02',
+      );
+      expect(next2 ? toLocalDateString(next2) : '').toBe('2026-01-03');
+      const after2 = buildRecurrenceAdvanceUpdates(after1.recurringRule!, next2!, {
+        previousDueDate: after1.dueDate,
+      });
+
+      const next3 = getNextRecurringDueAfterComplete(
+        after2.recurringRule ?? after1.recurringRule!,
+        after2.dueDate,
+        '2026-01-03',
+      );
+      expect(next3).toBeNull();
+    });
+
+    it('monthly DOM preserved across short months with series anchor', () => {
+      const rule = 'FREQ=MONTHLY;X-SERIES-ANCHOR=2026-01-31';
+      // After completing Jan 31 → Feb 28
+      const next1 = getNextRecurringDueAfterComplete(rule, '2026-01-31', '2026-01-31');
+      expect(next1 ? toLocalDateString(next1) : '').toBe('2026-02-28');
+      // Completing Feb 28 must return to Mar 31 (not Mar 28)
+      const next2 = getNextRecurringDueAfterComplete(rule, '2026-02-28', '2026-02-28');
+      expect(next2 ? toLocalDateString(next2) : '').toBe('2026-03-31');
+    });
+
+    it('round-trips seriesAnchor via parse/generate', () => {
+      const rule = generateRecurringRule({
+        freq: 'MONTHLY',
+        interval: 1,
+        seriesAnchor: '2026-01-31',
+      });
+      expect(rule).toContain('X-SERIES-ANCHOR=2026-01-31');
+      expect(parseRecurringRule(rule)?.seriesAnchor).toBe('2026-01-31');
+      expect(resolveRecurrenceSeriesAnchor(rule, '2026-02-28')).toBe('2026-01-31');
+    });
+
+    it('rolling advance clears exception dates in advance payload', () => {
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;FROMCOMPLETION=TRUE',
+        '2026-07-14',
+        '2026-07-18',
+      )!;
+      const updates = buildRecurrenceAdvanceUpdates(
+        'FREQ=WEEKLY;FROMCOMPLETION=TRUE',
+        next,
+        { completedOn: '2026-07-18' },
+      );
+      expect(updates).toHaveProperty('exceptionDates', undefined);
+      expect(updates.recurringRule).toContain('X-SERIES-ANCHOR=2026-07-18');
     });
   });
 

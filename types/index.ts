@@ -27,6 +27,9 @@ export interface Task {
   workspaceId: string;
   // Recurring engine (Agent 8 foundation) + production exceptions (Agent 13)
   // recurringRule: RRULE-ish string e.g. "FREQ=WEEKLY;BYDAY=MO;INTERVAL=1"
+  // Optional extensions on recurringRule:
+  //   FROMCOMPLETION=TRUE = rolling schedule from completion date (default fixed from due)
+  //   X-SERIES-ANCHOR=YYYY-MM-DD = stable series seed (monthly day-of-month + COUNT across advances)
   // exceptionDates: ISO/ YYYY-MM-DD strings for skipped occurrences (enables "skip one" per series)
   // Non-breaking addition. "Change one instance" and advanced overrides future (e.g. via JSON overrides).
   recurringRule?: string | null;

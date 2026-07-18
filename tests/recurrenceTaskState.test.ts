@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildDueDateUpdates, mergeRecurrenceTaskState } from '@/features/tasks/lib/recurrenceTaskState';
+import {
+  buildDueDateUpdates,
+  buildRecurringDueDateChange,
+  buildSkipOccurrenceUpdates,
+  mergeRecurrenceTaskState,
+} from '@/features/tasks/lib/recurrenceTaskState';
+import { normalizeExceptionKey, parseRecurringRule } from '@/lib/utils';
 import type { Task } from '@/types';
 
 describe('recurrenceTaskState', () => {
@@ -14,7 +20,7 @@ describe('recurrenceTaskState', () => {
     linkedNoteIds: [],
     createdAt: '2026-01-01T00:00:00.000Z',
     dueDate: '2026-06-10T00:00:00.000Z',
-    recurringRule: 'FREQ=WEEKLY;BYDAY=MO',
+    recurringRule: 'FREQ=WEEKLY;BYDAY=MO;X-SERIES-ANCHOR=20260610',
     exceptionDates: ['2026-06-17'],
   };
 
@@ -32,6 +38,34 @@ describe('recurrenceTaskState', () => {
     expect(updates).not.toHaveProperty('recurringRule');
   });
 
+  it('buildRecurringDueDateChange series re-anchors and clears exceptions', () => {
+    const updates = buildRecurringDueDateChange(baseTask, '2026-07-01', 'series');
+    const pattern = parseRecurringRule(updates.recurringRule as string);
+    expect(pattern?.seriesAnchor).toBe('2026-07-01');
+    expect(updates.exceptionDates).toBeUndefined();
+  });
+
+  it('buildRecurringDueDateChange occurrence keeps series anchor and exceptions old due', () => {
+    const updates = buildRecurringDueDateChange(baseTask, '2026-06-12', 'occurrence');
+    const pattern = parseRecurringRule(updates.recurringRule as string);
+    expect(pattern?.seriesAnchor).toBe('2026-06-10');
+    const oldKey = normalizeExceptionKey(baseTask.dueDate!);
+    expect(updates.exceptionDates).toContain(oldKey);
+  });
+
+  it('buildSkipOccurrenceUpdates advances due when skipping the visible due date', () => {
+    const overdue: Task = {
+      ...baseTask,
+      dueDate: '2020-01-06T00:00:00.000Z',
+      recurringRule: 'FREQ=WEEKLY;BYDAY=MO;X-SERIES-ANCHOR=20200106',
+      exceptionDates: undefined,
+    };
+    const result = buildSkipOccurrenceUpdates(overdue);
+    expect(result).toBeTruthy();
+    expect(result?.updates.exceptionDates?.length).toBe(1);
+    expect(result?.updates.dueDate).toBeTruthy();
+  });
+
   it('mergeRecurrenceTaskState clears recurrence fields together', () => {
     const merged = mergeRecurrenceTaskState(baseTask, { recurringRule: null });
     expect(merged.recurringRule).toBeUndefined();
@@ -43,6 +77,6 @@ describe('recurrenceTaskState', () => {
       exceptionDates: ['2026-06-24'],
     });
     expect(merged.exceptionDates).toEqual(['2026-06-24']);
-    expect(merged.recurringRule).toBe('FREQ=WEEKLY;BYDAY=MO');
+    expect(merged.recurringRule).toBe('FREQ=WEEKLY;BYDAY=MO;X-SERIES-ANCHOR=20260610');
   });
 });

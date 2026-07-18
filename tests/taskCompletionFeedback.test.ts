@@ -65,4 +65,31 @@ describe("taskCompletionFeedback", () => {
       }),
     );
   });
+
+  it("fires confetti when a recurring task advances", () => {
+    const undoTaskCompletion = vi.fn().mockResolvedValue(true);
+    const undoFallback = buildTaskCompletionUndoContext(baseTask, "Acme");
+    const triggerCelebration = vi.fn();
+    const advancedTask: Task = {
+      ...baseTask,
+      dueDate: "2026-07-25",
+      recurringRule: "FREQ=WEEKLY",
+    };
+
+    showTaskCompletionFeedback("advanced", baseTask, {
+      undoTaskCompletion,
+      undoFallback,
+      triggerCelebration,
+      advancedTask,
+    });
+
+    expect(triggerCelebration).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith(
+      "Recurrence advanced",
+      expect.objectContaining({
+        duration: 10000,
+        action: expect.objectContaining({ label: "Undo" }),
+      }),
+    );
+  });
 });

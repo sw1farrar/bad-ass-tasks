@@ -8,6 +8,10 @@ import type { TasksFolderFilterMode, TasksStarredFilterMode } from "@/store/useT
 import { TaskFoldersManageModal } from "./TaskFoldersManageModal";
 import { TasksExportModal } from "./TasksExportModal";
 import { TasksStatusFilter, type TasksStatusFilterMode } from "./TasksStatusFilter";
+import {
+  TasksRecurrenceFilter,
+  type TasksRecurrenceFilterMode,
+} from "./TasksRecurrenceFilter";
 
 interface TasksOrganizeBarProps {
   folders: TaskFolder[];
@@ -22,6 +26,9 @@ interface TasksOrganizeBarProps {
   statusFilter?: TasksStatusFilterMode;
   onStatusFilterChange?: (mode: TasksStatusFilterMode) => void;
   showStatusFilter?: boolean;
+  recurrenceFilter?: TasksRecurrenceFilterMode;
+  onRecurrenceFilterChange?: (mode: TasksRecurrenceFilterMode) => void;
+  showRecurrenceFilter?: boolean;
 }
 
 export function TasksOrganizeBar({
@@ -37,6 +44,9 @@ export function TasksOrganizeBar({
   statusFilter,
   onStatusFilterChange,
   showStatusFilter = false,
+  recurrenceFilter,
+  onRecurrenceFilterChange,
+  showRecurrenceFilter = false,
 }: TasksOrganizeBarProps) {
   const [manageOpen, setManageOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -60,6 +70,13 @@ export function TasksOrganizeBar({
               onChange={onStatusFilterChange}
               className="tasks-organize-bar__status shrink-0"
               trackClassName="tasks-organize-bar__status-track"
+            />
+          ) : null}
+          {showRecurrenceFilter && recurrenceFilter && onRecurrenceFilterChange ? (
+            <TasksRecurrenceFilter
+              value={recurrenceFilter}
+              onChange={onRecurrenceFilterChange}
+              className="tasks-organize-bar__recurrence shrink-0"
             />
           ) : null}
           <button

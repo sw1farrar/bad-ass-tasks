@@ -2,16 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Trash2, Loader2, Repeat, ChevronDown, Pencil, Check } from "lucide-react";
+import { MessageSquare, Trash2, Loader2, Pencil, Check } from "lucide-react";
 import { WorkspaceItemDeepLink } from "./WorkspaceItemDeepLink";
-import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import {
   getMemberDisplayName,
   getMemberMentionHandle,
   memberMatchesMentionQuery,
-  resolveAssigneeLabel,
 } from "@/lib/assignee";
-import { DateTimePicker } from "./DateTimePicker";
+import { CollapsibleSection } from "./CollapsibleSection";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { SheetDragHandle } from "./SheetDragHandle";
 import { toast } from "sonner";
@@ -20,9 +18,7 @@ import { motion, AnimatePresence, PanInfo, useDragControls } from "framer-motion
 import { useTaskStore } from "@/store/useTaskStore";
 import type { Comment, Task, WorkspaceMember } from "@/types";
 import { getCommentAuthorLabel } from "@/features/tasks/lib/taskCommentIndicators";
-import { TaskOrganizeFields } from "@/features/tasks/components/TaskOrganizeFields";
-import { TaskRecurrenceEditor } from "@/features/tasks/components/TaskRecurrenceEditor";
-import { buildDueDateUpdates } from "@/features/tasks/lib/recurrenceTaskState";
+import { TaskModalScheduleFields } from "@/features/tasks/components/TaskModalScheduleFields";
 import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
 
 import { triggerHaptic } from "@/lib/utils";
@@ -31,8 +27,6 @@ import {
   cn,
   applyTaskUpdateSideEffects,
   defaultTaskDueDate,
-  getRecurringLabel,
-  toDueDateStorage,
 } from "@/lib/utils";
 
 interface TaskModalProps {
@@ -69,6 +63,7 @@ function taskRevertPatch(original: Task): Partial<Task> {
     assignee: original.assignee,
     recurringRule: original.recurringRule ?? null,
     exceptionDates: original.exceptionDates,
+    linkedNoteIds: [...(original.linkedNoteIds || [])],
     starred: !!original.starred,
     folderId: original.folderId ?? null,
   };
@@ -85,6 +80,9 @@ function taskHasUnsavedChanges(current: Task, original: Task | null): boolean {
     return true;
   }
   if (JSON.stringify(current.exceptionDates ?? []) !== JSON.stringify(original.exceptionDates ?? [])) {
+    return true;
+  }
+  if (JSON.stringify(current.linkedNoteIds ?? []) !== JSON.stringify(original.linkedNoteIds ?? [])) {
     return true;
   }
   if (!!current.starred !== !!original.starred) return true;
@@ -294,55 +292,13 @@ function TaskCommentCard({
   );
 }
 
-function CollapsibleSection({
-  title,
-  icon: Icon,
-  badge,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  badge?: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  useEffect(() => {
-    setOpen(defaultOpen);
-  }, [defaultOpen]);
-
-  return (
-    <div className="rounded-xl border border-border-glass overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover active:bg-bg-tertiary transition min-h-[44px]"
-        aria-expanded={open}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon className="h-4 w-4 shrink-0" />}
-          <span className="font-medium">{title}</span>
-          {badge && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-hover text-text-muted truncate max-w-[140px]">
-              {badge}
-            </span>
-          )}
-        </div>
-        <ChevronDown className={cn("h-4 w-4 shrink-0 text-text-muted transition-transform", open && "rotate-180")} />
-      </button>
-      {open && <div className="px-3 pb-3 pt-1 border-t border-border-glass">{children}</div>}
-    </div>
-  );
-}
-
 export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModalProps) {
   const { 
     updateTask, deleteTask, taskLoadingStates, 
     comments, isLoadingComments, fetchComments, addComment, updateComment, deleteComment, markTaskCommentsRead, addTask,
     activeConflicts, resolveConflict, members,
     liveEditing, broadcastLiveTaskEdit, user,
+    setView, setFilesSelectNoteId,
   } = useTaskStore();
   const [localTask, setLocalTask] = useState(task);
   const [newComment, setNewComment] = useState("");
@@ -376,6 +332,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
   // State for the modern delete confirmation modal (house-cleaning item)
   const [pendingDeleteTask, setPendingDeleteTask] = useState(false);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
+  const [recurrenceEndIncomplete, setRecurrenceEndIncomplete] = useState(false);
 
   // Debounced live broadcast helper (250ms feels very live without spamming)
   const scheduleLiveBroadcast = (updates: { title?: string; description?: string }) => {
@@ -426,6 +383,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
       setCommentActionId(null);
       setPendingDeleteCommentId(null);
       setShowUnsavedConfirm(false);
+      setRecurrenceEndIncomplete(false);
     }
   }, [isOpen]);
 
@@ -558,8 +516,9 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
       delete (newTask as Task).folderId;
     }
     setLocalTask(newTask);
-    await updateTask(task.id, normalized);
-    openedTaskSnapshotRef.current = cloneTaskSnapshot(newTask);
+    // Silent: avoid taskLoadingStates flicker on Save/Cancel while tuning recurrence, due, etc.
+    // Keep openedTaskSnapshotRef at session-open values so Cancel / discard can revert.
+    await updateTask(task.id, normalized, { silent: true });
 
     // Live collab: title/description only (due date etc. persist via DB + postgres_changes)
     if ("title" in updates || "description" in updates) {
@@ -586,9 +545,21 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     lastBroadcastRef.current = {};
   }, []);
 
-  // Mobile: keep edits and close
+  const blockCloseForIncompleteEnd = useCallback(() => {
+    triggerHaptic("error");
+    toast.info("Choose an end date", {
+      description:
+        "Until date needs a last day before you can close. Or pick Forever / After times.",
+    });
+  }, []);
+
+  // Keep edits (already autosaved) and close
   const handleSheetClose = useCallback(() => {
-    triggerHaptic('light');
+    if (recurrenceEndIncomplete) {
+      blockCloseForIncompleteEnd();
+      return;
+    }
+    triggerHaptic("light");
     if (liveBroadcastTimeoutRef.current) {
       clearTimeout(liveBroadcastTimeoutRef.current);
       liveBroadcastTimeoutRef.current = null;
@@ -597,38 +568,30 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
       }
     }
     lastBroadcastRef.current = {};
+    setShowUnsavedConfirm(false);
     onClose();
-  }, [onClose, broadcastLiveTaskEdit, task.id]);
+  }, [
+    blockCloseForIncompleteEnd,
+    broadcastLiveTaskEdit,
+    onClose,
+    recurrenceEndIncomplete,
+    task.id,
+  ]);
 
   // Revert all edits made this session and close
   const handleCancel = useCallback(async () => {
-    triggerHaptic('light');
+    triggerHaptic("light");
     clearPendingLiveBroadcast();
     setShowUnsavedConfirm(false);
+    setRecurrenceEndIncomplete(false);
 
     const original = openedTaskSnapshotRef.current;
     if (original) {
       setLocalTask(original);
-      await updateTask(task.id, taskRevertPatch(original));
+      await updateTask(task.id, taskRevertPatch(original), { silent: true });
     }
     onClose();
   }, [clearPendingLiveBroadcast, onClose, task.id, updateTask]);
-
-  const handleDismissWithoutChanges = useCallback(() => {
-    triggerHaptic("light");
-    clearPendingLiveBroadcast();
-    setShowUnsavedConfirm(false);
-    onClose();
-  }, [clearPendingLiveBroadcast, onClose]);
-
-  const requestDismiss = useCallback(() => {
-    if (taskHasUnsavedChanges(localTask, openedTaskSnapshotRef.current)) {
-      triggerHaptic("light");
-      setShowUnsavedConfirm(true);
-      return;
-    }
-    handleDismissWithoutChanges();
-  }, [handleDismissWithoutChanges, localTask]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -639,16 +602,16 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
         setShowUnsavedConfirm(false);
         return;
       }
-      requestDismiss();
+      handleSheetClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, requestDismiss, showUnsavedConfirm]);
+  }, [handleSheetClose, isOpen, showUnsavedConfirm]);
 
   const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (info.offset.y > 120 || info.velocity.y > 600) {
       setDragY(0);
-      requestDismiss();
+      handleSheetClose();
     } else {
       setDragY(0);
     }
@@ -677,7 +640,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.22, ease: "easeOut" }}
-          onClick={() => requestDismiss()}
+          onClick={handleSheetClose}
           aria-hidden="true"
         />
         <motion.div
@@ -686,7 +649,8 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             "task-detail-modal glass modal-panel w-full overflow-hidden flex flex-col",
             isMobile
               ? "task-drawer-sheet mobile-bottom-sheet relative flex flex-col h-[100dvh] max-h-[100dvh] rounded-t-3xl max-w-none"
-              : "relative max-w-3xl max-h-[min(88vh,760px)] rounded-2xl"
+              : // Fixed desktop size so expanding Repeat / comments doesn't resize the shell
+                "relative w-full max-w-5xl h-[min(92vh,880px)] rounded-2xl"
           )}
           onClick={e => e.stopPropagation()}
           drag={isMobile ? "y" : false}
@@ -706,7 +670,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
         >
           {isMobile && <SheetDragHandle onPointerDown={startSheetDrag} />}
 
-          {/* Header — Cancel reverts; Save and Close keeps edits */}
+          {/* Header — Revert restores the opening snapshot; Done keeps autosaved edits */}
           <div
             className={cn(
               "shrink-0 flex items-center border-b border-border-glass w-full",
@@ -714,26 +678,27 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             )}
           >
             <div className="flex items-center justify-between gap-3 w-full">
-              <button
-                type="button"
-                onClick={() => requestDismiss()}
-                disabled={!!taskLoadingStates?.[task.id]}
-                className="text-sm font-medium text-text-secondary hover:text-text-primary min-h-[44px] px-1 disabled:opacity-50 active:scale-[0.98] transition"
-                aria-label="Cancel changes"
-              >
-                Cancel
-              </button>
+              {taskHasUnsavedChanges(localTask, openedTaskSnapshotRef.current) ? (
+                <button
+                  type="button"
+                  onClick={() => setShowUnsavedConfirm(true)}
+                  className="text-sm font-medium text-text-secondary hover:text-text-primary min-h-[44px] px-1 active:scale-[0.98] transition"
+                  aria-label="Revert changes"
+                >
+                  Revert
+                </button>
+              ) : (
+                <div aria-hidden="true" />
+              )}
               <div className="flex items-center gap-1.5">
                 <TaskStarButton
                   starred={!!localTask.starred}
-                  disabled={!!taskLoadingStates?.[task.id]}
                   onToggle={() => save({ starred: !localTask.starred })}
                 />
                 <button
                   type="button"
                   onClick={handleDelete}
-                  disabled={!!taskLoadingStates?.[task.id]}
-                  className="task-modal-delete-icon-btn inline-flex shrink-0 items-center justify-center h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9 rounded-lg border transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
+                  className="task-modal-delete-icon-btn inline-flex shrink-0 items-center justify-center h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9 rounded-lg border transition active:scale-[0.98]"
                   aria-label="Delete task"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden />
@@ -741,20 +706,21 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 <button
                   type="button"
                   onClick={handleSheetClose}
-                  disabled={!!taskLoadingStates?.[task.id]}
-                  className="btn btn-primary text-sm px-4 py-2 min-h-[44px] disabled:opacity-60 flex items-center gap-1.5 active:scale-[0.98]"
-                  aria-label="Save and close task"
+                  className="btn btn-primary text-sm px-4 py-2 min-h-[44px] flex items-center gap-1.5 active:scale-[0.98]"
+                  aria-label="Done"
                 >
-                  {taskLoadingStates?.[task.id] ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : null}
-                  Save and Close
+                  Done
                 </button>
               </div>
             </div>
           </div>
 
-        <div className="task-sheet-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        <div
+          className={cn(
+            "task-sheet-scroll flex-1 min-h-0 overscroll-contain",
+            isMobile ? "overflow-y-auto" : "overflow-hidden flex flex-col",
+          )}
+        >
         {isMobile ? (
         <div className="task-sheet-body p-4 space-y-4">
           {workspaceDeepLink && (
@@ -806,41 +772,18 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           />
 
           <div className="grid grid-cols-1 gap-3">
-            <DateTimePicker
-              label="Due date"
-              value={localTask.dueDate}
-              onChange={(dateStr) => save(buildDueDateUpdates(dateStr))}
-              className="w-full"
-            />
-            {localTask.dueDate && (
-              <CollapsibleSection
-                title="Recurrence"
-                icon={Repeat}
-                badge={getRecurringLabel(localTask.recurringRule) || "None"}
-                defaultOpen={!!localTask.recurringRule}
-              >
-                <TaskRecurrenceEditor localTask={localTask} save={save} compact />
-              </CollapsibleSection>
-            )}
-            <TaskAssigneePicker
+            <TaskModalScheduleFields
+              localTask={localTask}
+              save={save}
               members={members || []}
               currentUserId={user?.id}
-              value={localTask.assigneeIds?.[0] ?? null}
-              onChange={(userId) => {
-                const assigneeIds = userId ? [userId] : [];
-                const assignee = resolveAssigneeLabel(assigneeIds, members || [], user?.id);
-                save({ assigneeIds, assignee });
-              }}
-              compact
-            />
-            <TaskOrganizeFields
-              layout="modal-row"
-              starred={!!localTask.starred}
-              folderId={localTask.folderId}
               disabled={!!taskLoadingStates?.[task.id]}
-              compact
-              onStarredChange={(next) => save({ starred: next })}
-              onFolderChange={(folderId) => save({ folderId })}
+              onEndIncompleteChange={setRecurrenceEndIncomplete}
+              onOpenLinkedNote={(noteId) => {
+                onClose();
+                setFilesSelectNoteId(noteId);
+                setView("notes");
+              }}
             />
           </div>
 
@@ -929,9 +872,9 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
 
         </div>
         ) : (
-        <div className="p-5 flex flex-col gap-5 min-h-0">
-          <div className="flex flex-col lg:flex-row gap-5 min-h-0">
-          <div className="flex-1 min-w-0 space-y-4">
+        <div className="p-5 flex flex-col gap-5 min-h-0 h-full">
+          <div className="flex flex-col lg:flex-row gap-5 min-h-0 flex-1 overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0 overflow-y-auto space-y-4 pr-0.5">
             <input
               value={localTask.title}
               onChange={(e) => save({ title: e.target.value })}
@@ -1040,7 +983,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             </div>
           </div>
 
-          <div className="lg:w-52 shrink-0 space-y-3 text-sm lg:border-l lg:border-border-glass lg:pl-5">
+          <div className="task-detail-schedule-col lg:w-80 xl:w-[22rem] shrink-0 space-y-2.5 text-sm lg:border-l lg:border-border-glass lg:pl-5 min-w-0 min-h-0 overflow-y-auto">
             {workspaceDeepLink && (
               <WorkspaceItemDeepLink
                 workspaceName={workspaceDeepLink.workspaceName}
@@ -1050,43 +993,18 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               />
             )}
 
-            <DateTimePicker
-              label="Due date"
-              value={localTask.dueDate}
-              onChange={(dateStr) => save(buildDueDateUpdates(dateStr))}
-              className="w-full"
-            />
-
-            {localTask.dueDate && (
-              <CollapsibleSection
-                title="Repeat"
-                icon={Repeat}
-                badge={getRecurringLabel(localTask.recurringRule) || "None"}
-                defaultOpen={false}
-              >
-                <TaskRecurrenceEditor localTask={localTask} save={save} compact />
-              </CollapsibleSection>
-            )}
-
-            <TaskAssigneePicker
+            <TaskModalScheduleFields
+              localTask={localTask}
+              save={save}
               members={members || []}
               currentUserId={user?.id}
-              value={localTask.assigneeIds?.[0] ?? null}
-              onChange={(userId) => {
-                const assigneeIds = userId ? [userId] : [];
-                const assignee = resolveAssigneeLabel(assigneeIds, members || [], user?.id);
-                save({ assigneeIds, assignee });
-              }}
-              compact
-            />
-
-            <TaskOrganizeFields
-              starred={!!localTask.starred}
-              folderId={localTask.folderId}
               disabled={!!taskLoadingStates?.[task.id]}
-              compact
-              onStarredChange={(next) => save({ starred: next })}
-              onFolderChange={(folderId) => save({ folderId })}
+              onEndIncompleteChange={setRecurrenceEndIncomplete}
+              onOpenLinkedNote={(noteId) => {
+                onClose();
+                setFilesSelectNoteId(noteId);
+                setView("notes");
+              }}
             />
 
             <div className="pt-3 border-t border-border-glass text-[11px] text-text-muted leading-relaxed">
@@ -1132,14 +1050,14 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           </div>
           <div className="p-5 pb-4">
             <h3 id="task-unsaved-title" className="text-lg font-semibold text-text-primary tracking-tight">
-              Save changes?
+              Revert changes?
             </h3>
             <div id="task-unsaved-desc" className="mt-2 space-y-1.5">
               <p className="text-sm font-medium text-text-primary truncate">
                 &ldquo;{localTask.title}&rdquo;
               </p>
               <p className="text-sm text-text-secondary leading-relaxed">
-                You have unsaved changes. Save them before closing, or discard your edits.
+                This restores the task to how it was when you opened it. Edits made in this session will be undone.
               </p>
             </div>
           </div>
@@ -1151,27 +1069,14 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             >
               Keep editing
             </button>
-            <div className="flex flex-col-reverse md:flex-row gap-2.5">
-              <button
-                type="button"
-                onClick={() => void handleCancel()}
-                disabled={!!taskLoadingStates?.[task.id]}
-                className="confirmation-modal__discard flex-1 min-h-[44px] rounded-xl border border-[var(--priority-p0)]/35 px-4 py-2.5 text-sm font-semibold text-[var(--priority-p0)]/70 hover:bg-[var(--priority-p0)]/15 disabled:opacity-50 transition"
-              >
-                Discard changes
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowUnsavedConfirm(false);
-                  handleSheetClose();
-                }}
-                disabled={!!taskLoadingStates?.[task.id]}
-                className="confirmation-modal__save btn btn-primary flex-1 min-h-[44px] px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
-              >
-                Save and close
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => void handleCancel()}
+              disabled={!!taskLoadingStates?.[task.id]}
+              className="confirmation-modal__discard w-full min-h-[44px] rounded-xl border border-[var(--priority-p0)]/35 px-4 py-2.5 text-sm font-semibold text-[var(--priority-p0)]/70 hover:bg-[var(--priority-p0)]/15 disabled:opacity-50 transition"
+            >
+              Revert
+            </button>
           </div>
         </div>
       </div>

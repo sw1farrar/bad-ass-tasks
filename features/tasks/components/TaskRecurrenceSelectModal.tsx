@@ -38,7 +38,9 @@ export function TaskRecurrenceSelectModal({
   useEffect(() => {
     if (!open || isMobile) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      close();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -70,7 +72,7 @@ export function TaskRecurrenceSelectModal({
         dragMode="handle"
         ariaLabel="Repeat schedule"
       >
-        {body}
+        <div className="flex max-h-[min(85dvh,640px)] flex-col overflow-hidden">{body}</div>
       </BottomSheet>
     );
   }
@@ -87,7 +89,9 @@ export function TaskRecurrenceSelectModal({
         aria-modal="true"
         aria-label="Repeat schedule"
         className={cn(
-          "task-recurrence-select-modal relative w-full md:max-w-lg bg-bg-panel border border-border-glass modal-panel shadow-2xl rounded-2xl max-h-[min(90dvh,720px)] overflow-y-auto",
+          // Fixed shell so expanding recurrence options doesn't resize the modal.
+          "task-recurrence-select-modal relative flex w-full max-w-lg flex-col overflow-hidden",
+          "h-[min(90dvh,640px)] bg-bg-panel border border-border-glass modal-panel shadow-2xl rounded-2xl",
           "animate-in fade-in zoom-in-95 duration-200",
         )}
         onClick={(e) => e.stopPropagation()}

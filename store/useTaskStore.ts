@@ -81,7 +81,14 @@ import { deliverNotification, recipientAllowsNotificationChannel } from "@/lib/n
 import { mapRealtimeNoteRow, mergeRealtimeNoteUpdate } from "@/lib/notes/mapRealtimeNoteRow";
 import { isNoteBodyHydrated, mergeHydratedNote } from "@/lib/files/noteListProjection";
 import { noteUpdatesAreNoOp } from "@/lib/notes/noteUpdates";
-import { generateId, parseNaturalLanguage, getNextRecurringDue, toDueDateStorage, applyTaskUpdateSideEffects } from "@/lib/utils";
+import {
+  generateId,
+  parseNaturalLanguage,
+  getNextRecurringDueAfterComplete,
+  buildRecurrenceAdvanceUpdates,
+  toDueDateStorage,
+  applyTaskUpdateSideEffects,
+} from "@/lib/utils";
 import { defaultTaskDueDate, startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, normalizeCalendarDateKey, parseLocalDate, toLocalDateString } from "@/lib/datetime";
 
 function mapRealtimeExceptionDates(
@@ -583,7 +590,11 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
 
   // Actions - Tasks
   addTask: (input: string) => Promise<Task | null>;
-  updateTask: (id: string, updates: Partial<Task>) => Promise<boolean | null>;
+  updateTask: (
+    id: string,
+    updates: Partial<Task>,
+    options?: { silent?: boolean },
+  ) => Promise<boolean | null>;
   deleteTask: (id: string) => Promise<boolean | null>;
   completeTask: (id: string) => Promise<"advanced" | "completed" | null>;
   /** Reopen a recently completed task (toast undo); restores Home focus slices when needed. */
@@ -911,6 +922,21 @@ const SAMPLE_TASKS: Task[] = [
     createdAt: new Date(Date.now() - 1000 * 3600 * 100).toISOString(),
     recurringRule: "FREQ=MONTHLY",
     exceptionDates: [toLocalDateString(new Date(Date.now() + 1000 * 3600 * 24 * 10))], // example skipped
+    linkedNoteIds: [],
+    workspaceId: "w1",
+  },
+  {
+    id: "t10",
+    title: "Rolling inbox zero (from completion)",
+    description: "Demo rolling schedule — next due is 3 days after you complete it.",
+    status: "todo",
+    priority: "P2",
+    dueDate: toLocalDateString(new Date()),
+    assignee: "You",
+    tags: ["recurring", "inbox"],
+    createdAt: new Date(Date.now() - 1000 * 3600 * 20).toISOString(),
+    recurringRule: "FREQ=DAILY;INTERVAL=3;FROMCOMPLETION=TRUE",
+    exceptionDates: [],
     linkedNoteIds: [],
     workspaceId: "w1",
   },
@@ -2842,11 +2868,28 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
-      updateTask: async (id, updates) => {
+      updateTask: async (id, updates, options) => {
         const prevTask = resolveTaskInStore(get(), id);
         if (!prevTask) return null;
+        const silent = !!options?.silent;
 
         const normalizedUpdates = applyTaskUpdateSideEffects(updates);
+
+        // Recurring tasks must advance via completeTask — never mark done while a rule remains.
+        // (Notes DB kanban and other callers often use updateTask({ status: "done" }).)
+        const clearingRecurringRule =
+          Object.prototype.hasOwnProperty.call(normalizedUpdates, "recurringRule") &&
+          (normalizedUpdates.recurringRule === null ||
+            normalizedUpdates.recurringRule === undefined);
+        if (
+          normalizedUpdates.status === "done" &&
+          prevTask.recurringRule &&
+          !clearingRecurringRule
+        ) {
+          const result = await get().completeTask(id);
+          return result !== null;
+        }
+
         if (normalizedUpdates.assigneeIds !== undefined) {
           normalizedUpdates.assignee = resolveAssigneeLabel(
             normalizedUpdates.assigneeIds,
@@ -2855,7 +2898,7 @@ export const useTaskStore = create<TaskState>()(
           );
         }
 
-        // OPTIMISTIC first for snappy UX + loading indicator (workspace tasks + Home focus slice)
+        // OPTIMISTIC first. Silent = field autosave (recurrence, title, etc.) — no loading flicker.
         set((state) =>
           withTaskSliceNavStats(
             state,
@@ -2897,7 +2940,7 @@ export const useTaskStore = create<TaskState>()(
               }
               return merged;
             }),
-            { taskLoadingStates: { ...state.taskLoadingStates, [id]: true } },
+            silent ? undefined : { taskLoadingStates: { ...state.taskLoadingStates, [id]: true } },
           ),
         );
 
@@ -2930,8 +2973,15 @@ export const useTaskStore = create<TaskState>()(
             } as any);
             if (!ok) throw new Error("Supabase update failed");
 
-            // Success: keep optimistic, clear loading + refresh pending (in case it queued inside hybrid)
+            // Success: keep optimistic; clear loading only if we set it
             set((state) => {
+              if (silent) {
+                return {
+                  pendingSyncCount: getPendingCount(),
+                  isOnline: getIsOnline(),
+                  lastSyncAt: new Date().toISOString(),
+                };
+              }
               const next = { ...state.taskLoadingStates };
               delete next[id];
               return {
@@ -2946,6 +2996,12 @@ export const useTaskStore = create<TaskState>()(
             // Hybrid queued the change on failure. KEEP optimistic (don't revert) so user sees their edit.
             // This + new persist strategy = true offline edit survival.
             set((state) => {
+              if (silent) {
+                return {
+                  pendingSyncCount: getPendingCount(),
+                  isOnline: getIsOnline(),
+                };
+              }
               const next = { ...state.taskLoadingStates };
               delete next[id];
               return {
@@ -2962,11 +3018,13 @@ export const useTaskStore = create<TaskState>()(
           }
         } else {
           // Demo: clear loading (change already applied)
-          set((state) => {
-            const next = { ...state.taskLoadingStates };
-            delete next[id];
-            return { taskLoadingStates: next };
-          });
+          if (!silent) {
+            set((state) => {
+              const next = { ...state.taskLoadingStates };
+              delete next[id];
+              return { taskLoadingStates: next };
+            });
+          }
           return true;
         }
       },
@@ -3038,17 +3096,22 @@ export const useTaskStore = create<TaskState>()(
         if (!prevTask || prevTask.status === "done" || get().taskLoadingStates[id]) return null;
 
         // Recurring: advance due date instead of marking done (unless series has ended)
+        // Fixed (default): next from original/current due date. Rolling (FROMCOMPLETION): from completion day.
         if (prevTask.recurringRule) {
-          const advanceFrom = prevTask.dueDate ?? toDueDateStorage(startOfLocalToday());
-          const next = getNextRecurringDue(
+          const next = getNextRecurringDueAfterComplete(
             prevTask.recurringRule,
-            advanceFrom,
-            prevTask.dueDate ?? undefined,
-            prevTask.exceptionDates
+            prevTask.dueDate,
+            startOfLocalToday(),
+            prevTask.exceptionDates,
           );
           if (next) {
+            const completedOn = toLocalDateString(startOfLocalToday());
+            const advanceUpdates = buildRecurrenceAdvanceUpdates(prevTask.recurringRule, next, {
+              previousDueDate: prevTask.dueDate,
+              completedOn,
+            });
             const ok = await get().updateTask(id, {
-              dueDate: toDueDateStorage(next),
+              ...advanceUpdates,
               status: "todo",
               completedAt: undefined,
             });
