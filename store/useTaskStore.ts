@@ -103,8 +103,10 @@ import {
 } from "@/lib/workspaceGuards";
 import {
   getLastWorkspaceId,
+  getPreferredWorkspaceRefFromUrl,
   resolveCurrentWorkspace,
   saveLastWorkspaceId,
+  sortWorkspacesDeterministic,
 } from "@/lib/workspacePersistence";
 import { toast } from "sonner";
 import {
@@ -645,7 +647,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   setTheme: (mode: ThemeMode, options?: { persist?: boolean }) => void;
 
   // Workspace (demo in !live mode)
-  switchWorkspace: (id: string) => void;
+  switchWorkspace: (id: string) => Promise<void>;
 
   // Phase 1 real workspace support (ensure for post-login)
   ensureUserHasWorkspace: () => Promise<void>;
@@ -1378,56 +1380,58 @@ export const useTaskStore = create<TaskState>()(
         set({ theme: next });
       },
 
-      switchWorkspace: (id) => {
+      switchWorkspace: async (id) => {
         const ws = get().workspaces.find((w) => w.id === id);
-        if (ws) {
-          // Teardown prior realtime before switching context
-          get().teardownWorkspaceRealtime();
+        if (!ws) return;
 
-          const onTasksView = get().currentView === "tasks";
-          set({
-            currentWorkspace: ws,
-            members: [],
-            invites: [],
-            onlineUsers: [],
-            tasks: [],
-            notes: [],
-            // Keep lists/items across switch so board/detail stay instant when
-            // home aggregates (or prior visits) already hold this workspace's data.
-            // initializeFromSupabase replaces with the authoritative bundle.
-            comments: [],
-            selectedTaskId: null,
-            selectedNoteId: null,
-            selectedNotebookId: null,
-            selectedNotebookNoteId: null,
-            selectedNotebookTaskId: null,
-            selectedNotebookInvestmentId: null,
-            selectedNotebookCustomerId: null,
-            selectedNotebookCompetitorId: null,
-            selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
-            notesPageMode: "notes",
-            selectedMeetingId: null,
-            selectedAgendaItemId: null,
-            isInitializing: true,
-            ...(onTasksView
-              ? { taskFilter: { ...get().taskFilter, statusMode: "incomplete" } }
-              : {}),
-          });
-          saveLastWorkspaceId(get().user?.id, id);
-          // Re-initialize data when switching workspaces (important when using Supabase)
-          get().initializeFromSupabase();
-          // Per Phase 1 mission: fetch real workspaces list on switch (keeps switcher fresh for multi-ws scenarios)
-          // Fire-and-forget is fine; UI already switched instantly.
-          get().fetchUserWorkspaces();
+        // Teardown prior realtime before switching context
+        get().teardownWorkspaceRealtime();
 
-          // Phase 2: load collab data + wire realtime for the new workspace
-          if (isSupabaseLive() && !["w1", "w2"].includes(id)) {
-            get().fetchMembers();
-            get().fetchInvites();
-            get().fetchNotifications?.().catch(() => {});
-            // Setup realtime + presence *immediately* for real-time "Online in this workspace" (no artificial delay)
-            get().setupWorkspaceRealtime();
-          }
+        const onTasksView = get().currentView === "tasks";
+        const prevFilter = get().taskFilter;
+        set({
+          currentWorkspace: ws,
+          members: [],
+          invites: [],
+          onlineUsers: [],
+          tasks: [],
+          notes: [],
+          // Keep lists/items across switch so board/detail stay instant when
+          // home aggregates (or prior visits) already hold this workspace's data.
+          // initializeFromSupabase replaces with the authoritative bundle.
+          comments: [],
+          selectedTaskId: null,
+          selectedNoteId: null,
+          selectedNotebookId: null,
+          selectedNotebookNoteId: null,
+          selectedNotebookTaskId: null,
+          selectedNotebookInvestmentId: null,
+          selectedNotebookCustomerId: null,
+          selectedNotebookCompetitorId: null,
+          selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
+          notesPageMode: "notes",
+          selectedMeetingId: null,
+          selectedAgendaItemId: null,
+          isInitializing: true,
+          // Folder ids are workspace-scoped — never carry a stale folder filter across workspaces.
+          taskFilter: {
+            ...prevFilter,
+            folderFilter: "all",
+            ...(onTasksView ? { statusMode: "incomplete" as const } : {}),
+          },
+        });
+        saveLastWorkspaceId(get().user?.id, id);
+        // Await so deep links / PWA bookmarks don't strip context before tasks land.
+        await get().initializeFromSupabase();
+        // Keep switcher fresh for multi-ws scenarios (fire-and-forget).
+        void get().fetchUserWorkspaces();
+
+        // Phase 2: load collab data + wire realtime for the new workspace
+        if (isSupabaseLive() && !["w1", "w2"].includes(id)) {
+          get().fetchMembers();
+          get().fetchInvites();
+          get().fetchNotifications?.().catch(() => {});
+          get().setupWorkspaceRealtime();
         }
       },
 
@@ -2239,34 +2243,56 @@ export const useTaskStore = create<TaskState>()(
             return;
           }
 
-          const realWorkspaces: Workspace[] = (data ?? [])
-            .map((m: any) => {
-              const ws = m.workspaces;
-              if (!ws?.id) return null;
-              return {
-                id: ws.id,
-                name: ws.name,
-                slug: ws.slug,
-                role: fromDbRole(m.role),
-                owner_id: ws.owner_id ?? null,
-                createdAt: ws.created_at ?? undefined,
-                settings: parseWorkspaceSettings(ws.settings),
-              } as Workspace;
-            })
-            .filter((w): w is Workspace => w !== null);
+          const realWorkspaces: Workspace[] = sortWorkspacesDeterministic(
+            (data ?? [])
+              .map((m: any) => {
+                const ws = m.workspaces;
+                if (!ws?.id) return null;
+                return {
+                  id: ws.id,
+                  name: ws.name,
+                  slug: ws.slug,
+                  role: fromDbRole(m.role),
+                  owner_id: ws.owner_id ?? null,
+                  createdAt: ws.created_at ?? undefined,
+                  settings: parseWorkspaceSettings(ws.settings),
+                } as Workspace;
+              })
+              .filter((w): w is Workspace => w !== null),
+          );
 
           if (realWorkspaces.length > 0) {
+            const prevId = get().currentWorkspace.id;
             set({ workspaces: realWorkspaces });
 
             const { currentWorkspace: curr } = get();
             const target = resolveCurrentWorkspace(realWorkspaces, {
               currentId: curr.id,
               lastSavedId: getLastWorkspaceId(currentUser.id),
+              // PWA / home-screen bookmarks: honor ?workspace=id|slug|name
+              preferredRef: getPreferredWorkspaceRefFromUrl(),
             });
 
             if (target) {
-              set({ currentWorkspace: target });
+              const changed = target.id !== prevId;
+              set({
+                currentWorkspace: target,
+                ...(changed
+                  ? {
+                      taskFilter: {
+                        ...get().taskFilter,
+                        folderFilter: "all" as const,
+                      },
+                    }
+                  : {}),
+              });
               saveLastWorkspaceId(currentUser.id, target.id);
+
+              // fetchUserWorkspaces can change selection without going through switchWorkspace
+              // (e.g. URL preferred workspace after auth wipe). Always load that workspace's data.
+              if (changed && target.id && !["", "w1", "w2"].includes(target.id)) {
+                await get().initializeFromSupabase();
+              }
             }
           } else if (!preserveExistingOnFetchFailure("empty result")) {
             set({ workspaces: [], currentWorkspace: noWorkspacePlaceholder() });

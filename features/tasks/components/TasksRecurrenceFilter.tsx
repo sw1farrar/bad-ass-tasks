@@ -12,11 +12,19 @@ const LABELS: Record<TasksRecurrenceFilterMode, string> = {
   none: "One-time",
 };
 
+const COMPACT_LABELS: Record<TasksRecurrenceFilterMode, string> = {
+  all: "All",
+  only: "Repeat",
+  none: "Once",
+};
+
 interface TasksRecurrenceFilterProps {
   value: TasksRecurrenceFilterMode;
   onChange: (mode: TasksRecurrenceFilterMode) => void;
   className?: string;
   trackClassName?: string;
+  /** Shorter labels for tight mobile panels */
+  compact?: boolean;
 }
 
 export function TasksRecurrenceFilter({
@@ -24,7 +32,9 @@ export function TasksRecurrenceFilter({
   onChange,
   className,
   trackClassName,
+  compact = false,
 }: TasksRecurrenceFilterProps) {
+  const labels = compact ? COMPACT_LABELS : LABELS;
   return (
     <div
       className={cn(
@@ -55,7 +65,7 @@ export function TasksRecurrenceFilter({
                   : "text-text-secondary hover:text-text-primary hover:bg-surface-hover",
               )}
             >
-              {LABELS[mode]}
+              {labels[mode]}
             </button>
           );
         })}

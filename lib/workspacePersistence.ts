@@ -32,24 +32,89 @@ export function getLastWorkspaceId(
   }
 }
 
-/** Pick workspace: keep current if still valid, else last saved, else first in list. */
+/** Read `?workspace=` from the current URL (id, slug, or name). */
+export function getPreferredWorkspaceRefFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = new URLSearchParams(window.location.search).get("workspace");
+    const trimmed = value?.trim();
+    return trimmed || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Match a workspace by id, slug, or name (case-insensitive for slug/name). */
+export function findWorkspaceByRef(
+  workspaces: Workspace[],
+  ref: string | null | undefined
+): Workspace | null {
+  if (!ref || !workspaces.length) return null;
+  const exact = workspaces.find((w) => w.id === ref);
+  if (exact) return exact;
+
+  const normalized = ref.trim().toLowerCase();
+  if (!normalized) return null;
+
+  return (
+    workspaces.find((w) => w.slug?.toLowerCase() === normalized) ||
+    workspaces.find((w) => w.name?.trim().toLowerCase() === normalized) ||
+    null
+  );
+}
+
+/** Stable ordering so fallback selection is deterministic across devices. */
+export function sortWorkspacesDeterministic(workspaces: Workspace[]): Workspace[] {
+  return [...workspaces].sort((a, b) => {
+    const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.POSITIVE_INFINITY;
+    const bTime = b.createdAt ? Date.parse(b.createdAt) : Number.POSITIVE_INFINITY;
+    if (aTime !== bTime) return aTime - bTime;
+    return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" });
+  });
+}
+
+/**
+ * Pick workspace priority:
+ * 1) current id if still valid (active switch wins over a stale URL)
+ * 2) URL / preferred ref when current is empty (PWA bookmarks, invite links)
+ * 3) last saved id
+ * 4) oldest owned workspace, else oldest membership
+ */
 export function resolveCurrentWorkspace(
   workspaces: Workspace[],
-  options: { currentId?: string; lastSavedId?: string | null }
+  options: {
+    currentId?: string;
+    lastSavedId?: string | null;
+    preferredRef?: string | null;
+  }
 ): Workspace | null {
   if (!workspaces.length) return null;
 
-  const { currentId, lastSavedId } = options;
+  const ordered = sortWorkspacesDeterministic(workspaces);
+  const { currentId, lastSavedId, preferredRef } = options;
 
+  // Keep an active selection (including demo w1/w2). Empty loading placeholder is not valid.
   if (currentId) {
-    const still = workspaces.find((w) => w.id === currentId);
+    const still = ordered.find((w) => w.id === currentId);
     if (still) return still;
   }
 
+  if (preferredRef) {
+    const preferred = findWorkspaceByRef(ordered, preferredRef);
+    if (preferred) return preferred;
+  }
+
   if (lastSavedId) {
-    const saved = workspaces.find((w) => w.id === lastSavedId);
+    const saved = ordered.find((w) => w.id === lastSavedId);
     if (saved) return saved;
   }
 
-  return workspaces[0];
+  const owned = ordered.find((w) => w.role === "owner");
+  return owned ?? ordered[0];
+}
+
+/** Canonical URL value for a workspace — prefer slug for readable bookmarks. */
+export function workspaceUrlRef(workspace: Pick<Workspace, "id" | "slug">): string {
+  const slug = workspace.slug?.trim();
+  return slug || workspace.id;
 }

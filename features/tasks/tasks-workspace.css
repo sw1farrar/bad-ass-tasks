@@ -90,6 +90,50 @@
   .tasks-root .task-recurring-filter-pill.is-active {
     font-weight: 700;
   }
+
+  /* Compact mobile filter sheet — shorter pills, less chrome */
+  .tasks-root .tasks-mobile-organize__panel .task-recurring-filters {
+    padding-bottom: 0;
+  }
+
+  .tasks-root .tasks-mobile-organize__segment-track {
+    padding: 0.2rem !important;
+  }
+
+  .tasks-root .tasks-mobile-organize__panel .task-recurring-filter-pill {
+    min-height: 30px !important;
+    height: 30px;
+    font-size: 11px;
+  }
+
+  .tasks-root .tasks-mobile-organize__bar .tasks-organize-bar__track {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .tasks-root .tasks-mobile-organize__bar .tasks-organize-bar__chips {
+    flex-wrap: nowrap;
+  }
+
+  .tasks-root .tasks-mobile-organize__bar .tasks-folder-chip,
+  .tasks-root .tasks-mobile-organize__bar .tasks-export-btn,
+  .tasks-root .tasks-mobile-organize__bar .tasks-folder-manage-btn {
+    min-height: 30px;
+    padding: 0.25rem 0.625rem;
+    font-size: 11px;
+  }
+
+  .tasks-root .tasks-mobile-organize__bar .tasks-organize-bar__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .tasks-root .tasks-mobile-organize__bar .tasks-export-btn,
+  .tasks-root .tasks-mobile-organize__bar .tasks-folder-manage-btn {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 @media (min-width: 768px) {

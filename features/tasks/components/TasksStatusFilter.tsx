@@ -12,11 +12,19 @@ const LABELS: Record<TasksStatusFilterMode, string> = {
   completed: "Complete",
 };
 
+const COMPACT_LABELS: Record<TasksStatusFilterMode, string> = {
+  all: "All",
+  incomplete: "Open",
+  completed: "Done",
+};
+
 interface TasksStatusFilterProps {
   value: TasksStatusFilterMode;
   onChange: (mode: TasksStatusFilterMode) => void;
   className?: string;
   trackClassName?: string;
+  /** Shorter labels for tight mobile panels */
+  compact?: boolean;
 }
 
 export function TasksStatusFilter({
@@ -24,7 +32,9 @@ export function TasksStatusFilter({
   onChange,
   className,
   trackClassName,
+  compact = false,
 }: TasksStatusFilterProps) {
+  const labels = compact ? COMPACT_LABELS : LABELS;
   return (
     <div
       className={cn(
@@ -55,7 +65,7 @@ export function TasksStatusFilter({
                   : "text-text-secondary hover:text-text-primary hover:bg-surface-hover",
               )}
             >
-              {LABELS[mode]}
+              {labels[mode]}
             </button>
           );
         })}

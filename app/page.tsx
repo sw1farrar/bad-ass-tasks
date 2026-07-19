@@ -128,15 +128,18 @@ import { BottomSheet } from "@/components/BottomSheet";
 import { NotificationDetailModal } from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
 import {
-  TasksStatusFilter,
   type TasksStatusFilterMode,
 } from "@/features/tasks/components/TasksStatusFilter";
 import {
-  TasksRecurrenceFilter,
   type TasksRecurrenceFilterMode,
 } from "@/features/tasks/components/TasksRecurrenceFilter";
 import { TasksOrganizeBar } from "@/features/tasks/components/TasksOrganizeBar";
 import { TasksMobileOrganizeDisclosure } from "@/features/tasks/components/TasksMobileOrganizeDisclosure";
+import {
+  findWorkspaceByRef,
+  getPreferredWorkspaceRefFromUrl,
+  workspaceUrlRef,
+} from "@/lib/workspacePersistence";
 import "@/features/tasks/tasks-workspace.css";
 import "@/features/teams/teams-workspace.css";
 
@@ -1006,24 +1009,29 @@ export default function BadAssTasks() {
     }
   }, []);
 
-  // After invite acceptance, switch into the joined workspace
+  // Honor ?workspace=id|slug|name after workspaces load (PWA bookmarks, invite links).
+  // Keep the param in the URL so iOS home-screen icons reopen the same workspace.
+  const appliedWorkspaceUrlRef = useRef<string | null>(null);
   useEffect(() => {
-    if (typeof window === "undefined" || !user) return;
-    const params = new URLSearchParams(window.location.search);
-    const workspaceId = params.get("workspace");
-    if (!workspaceId) return;
+    if (!user || !liveBootstrapFinished || workspaces.length === 0) return;
+    const ref = getPreferredWorkspaceRefFromUrl();
+    if (!ref) return;
+    if (appliedWorkspaceUrlRef.current === ref) return;
 
-    (async () => {
-      await switchWorkspace(workspaceId);
-      await useTaskStore
-        .getState()
-        .fetchUserWorkspaces?.()
-        .catch(() => {});
-      const url = new URL(window.location.href);
-      url.searchParams.delete("workspace");
-      window.history.replaceState({}, "", url.toString());
-    })();
-  }, [user, switchWorkspace]);
+    const match = findWorkspaceByRef(workspaces, ref);
+    if (!match) return;
+
+    appliedWorkspaceUrlRef.current = ref;
+    if (match.id !== currentWorkspace.id) {
+      void switchWorkspace(match.id);
+    }
+  }, [
+    user,
+    liveBootstrapFinished,
+    workspaces,
+    currentWorkspace.id,
+    switchWorkspace,
+  ]);
 
   // Legacy ?signin=1 links → bookmarkable /login page
   useEffect(() => {
@@ -1060,16 +1068,42 @@ export default function BadAssTasks() {
     }
   }, []); // one-time init on mount
 
-  // Keep URL in sync when view changes (replaceState, no history spam, works for PWA)
+  // Keep URL in sync when view / workspace changes (replaceState — bookmarkable for PWA)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
+    let changed = false;
+
     if (url.searchParams.get("view") !== currentView) {
       url.searchParams.set("view", currentView);
-      // Keep other params like source=pwa or invite if present
+      changed = true;
+    }
+
+    const realWorkspace =
+      !!currentWorkspace.id &&
+      currentWorkspace.id !== "" &&
+      !["w1", "w2"].includes(currentWorkspace.id) &&
+      liveBootstrapFinished;
+
+    if (realWorkspace) {
+      const value = workspaceUrlRef(currentWorkspace);
+      const existing = url.searchParams.get("workspace");
+      if (existing !== value && existing !== currentWorkspace.id) {
+        url.searchParams.set("workspace", value);
+        appliedWorkspaceUrlRef.current = value;
+        changed = true;
+      }
+    }
+
+    if (changed) {
       window.history.replaceState({}, "", url.toString());
     }
-  }, [currentView]);
+  }, [
+    currentView,
+    currentWorkspace.id,
+    currentWorkspace.slug,
+    liveBootstrapFinished,
+  ]);
 
   useEffect(() => {
     listDetailOpenRef.current = !!listDetailTarget;
@@ -1793,13 +1827,19 @@ export default function BadAssTasks() {
         : "all")) as TasksRecurrenceFilterMode;
   const taskStarredFilterMode = taskFilter.starred ?? "all";
   const taskFolderFilterMode = taskFilter.folderFilter ?? "all";
-  const hasActiveTaskFilters = Boolean(
-    taskFilter.search ||
-    taskStatusFilterMode !== "incomplete" ||
-    taskRecurrenceFilterMode !== "all" ||
-    taskStarredFilterMode !== "all" ||
-    taskFolderFilterMode !== "all"
-  );
+  const workspaceTaskCount = tasks.filter(
+    (t) => t.workspaceId === currentWorkspace.id
+  ).length;
+  const hasActiveTaskFilters =
+    Boolean(
+      taskFilter.search ||
+        taskStatusFilterMode !== "incomplete" ||
+        taskRecurrenceFilterMode !== "all" ||
+        taskStarredFilterMode !== "all" ||
+        taskFolderFilterMode !== "all"
+    ) ||
+    // Incomplete (default) can hide every row when all tasks are done — don't lie with "No tasks yet."
+    (filteredTasks.length === 0 && workspaceTaskCount > 0);
   const taskFolders = getTaskFolders();
   const renderTasksView = () => (
     <div className="tasks-root flex flex-col flex-1 min-h-0">
@@ -1814,24 +1854,14 @@ export default function BadAssTasks() {
           className="tasks-desktop-page-header mb-1"
         />
 
-        {/* Mobile — search → view filters → organize */}
-        <div className="tasks-toolbar-mobile flex flex-col gap-2 mb-1 md:hidden">
+        {/* Mobile — search + compact filter trigger (status/type/folders open on demand) */}
+        <div className="tasks-toolbar-mobile grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 mb-1 md:hidden">
           <input
             value={taskFilter.search || ""}
             onChange={(e) => setTaskFilter({ search: e.target.value })}
             placeholder="Search tasks"
-            className="tasks-page-search input px-3 py-2.5 text-sm w-full"
+            className="tasks-page-search input col-start-1 row-start-1 px-3 py-2.5 text-sm w-full min-h-[40px]"
           />
-          <div className="flex flex-col gap-2">
-            <TasksStatusFilter
-              value={taskStatusFilterMode}
-              onChange={(mode) => setTaskFilter({ statusMode: mode })}
-            />
-            <TasksRecurrenceFilter
-              value={taskRecurrenceFilterMode}
-              onChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
-            />
-          </div>
           <TasksMobileOrganizeDisclosure
             folders={taskFolders}
             starredFilter={taskStarredFilterMode}
@@ -1844,6 +1874,10 @@ export default function BadAssTasks() {
               await deleteTaskFolder(id);
               if (taskFolderFilterMode === id) setTaskFilter({ folderFilter: "all" });
             }}
+            statusFilter={taskStatusFilterMode}
+            onStatusFilterChange={(mode) => setTaskFilter({ statusMode: mode })}
+            recurrenceFilter={taskRecurrenceFilterMode}
+            onRecurrenceFilterChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
           />
         </div>
 
