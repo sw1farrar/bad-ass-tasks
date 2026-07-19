@@ -392,8 +392,10 @@ export async function createNotebookTask(input: {
   sortOrder?: number;
   showOnWorkspace?: boolean;
 }): Promise<boolean> {
-  if (!(await persistOrSkip(input.workspaceId))) return true;
-  if (!isOnline()) return true;
+  // Demo / local-only workspaces: nothing to persist.
+  if (!isLiveWorkspace(input.workspaceId)) return true;
+  if (!(await ensureNotebookSectionPersistenceReady())) return false;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const now = new Date().toISOString();
@@ -429,8 +431,9 @@ export async function updateNotebookTask(
     Pick<NotebookTask, "title" | "completed" | "sortOrder" | "completedAt" | "showOnWorkspace">
   >,
 ): Promise<boolean> {
+  // Demo / tables not provisioned: treat as local-only success.
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -441,21 +444,29 @@ export async function updateNotebookTask(
   if (updates.showOnWorkspace !== undefined) payload.show_on_workspace = updates.showOnWorkspace;
   if (Object.keys(payload).length === 1) return true;
   try {
-    const { error } = await (supabase.from("notebook_tasks") as any)
+    const { data, error } = await (supabase.from("notebook_tasks") as any)
       .update(payload)
       .eq("id", id)
-      .eq("workspace_id", workspaceId);
-    if (error) logStoreError("updateNotebookTask", error);
+      .eq("workspace_id", workspaceId)
+      .select("id");
+    if (error) {
+      logStoreError("updateNotebookTask", error);
+      return false;
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      logStoreError("updateNotebookTask", new Error(`No notebook_tasks row updated for ${id}`));
+      return false;
+    }
     return true;
   } catch (err) {
     logStoreError("updateNotebookTask", err);
-    return true;
+    return false;
   }
 }
 
 export async function deleteNotebookTask(id: string, workspaceId: string): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -477,7 +488,7 @@ export async function createNotebookTaskProgress(input: {
   body: string;
   authorId?: string | null;
 }): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload = {
@@ -502,7 +513,7 @@ export async function createNotebookTaskProgress(input: {
 }
 
 export async function updateNotebookTaskProgress(id: string, body: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -518,7 +529,7 @@ export async function updateNotebookTaskProgress(id: string, body: string): Prom
 }
 
 export async function deleteNotebookTaskProgress(id: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -539,7 +550,7 @@ export async function createNotebookInvestment(input: {
   sortOrder?: number;
 }): Promise<boolean> {
   if (!(await persistOrSkip(input.workspaceId))) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const now = new Date().toISOString();
@@ -575,7 +586,7 @@ export async function updateNotebookInvestment(
   >,
 ): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -585,21 +596,29 @@ export async function updateNotebookInvestment(
   if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
   if (Object.keys(payload).length === 1) return true;
   try {
-    const { error } = await (supabase.from("notebook_investments") as any)
+    const { data, error } = await (supabase.from("notebook_investments") as any)
       .update(payload)
       .eq("id", id)
-      .eq("workspace_id", workspaceId);
-    if (error) logStoreError("updateNotebookInvestment", error);
+      .eq("workspace_id", workspaceId)
+      .select("id");
+    if (error) {
+      logStoreError("updateNotebookInvestment", error);
+      return false;
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      logStoreError("updateNotebookInvestment", new Error(`No notebook_investments row updated for ${id}`));
+      return false;
+    }
     return true;
   } catch (err) {
     logStoreError("updateNotebookInvestment", err);
-    return true;
+    return false;
   }
 }
 
 export async function deleteNotebookInvestment(id: string, workspaceId: string): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -622,7 +641,7 @@ export async function createNotebookCustomer(input: {
   accountName: string;
 }): Promise<boolean> {
   if (!(await persistOrSkip(input.workspaceId))) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const now = new Date().toISOString();
@@ -655,7 +674,7 @@ export async function updateNotebookCustomer(
   updates: Partial<Pick<NotebookCustomer, "accountName">>,
 ): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -676,7 +695,7 @@ export async function updateNotebookCustomer(
 
 export async function deleteNotebookCustomer(id: string, workspaceId: string): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -698,7 +717,7 @@ export async function createNotebookInvestmentNote(input: {
   body: string;
   authorId?: string | null;
 }): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload = {
@@ -723,7 +742,7 @@ export async function createNotebookInvestmentNote(input: {
 }
 
 export async function updateNotebookInvestmentNote(id: string, body: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -739,7 +758,7 @@ export async function updateNotebookInvestmentNote(id: string, body: string): Pr
 }
 
 export async function deleteNotebookInvestmentNote(id: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -758,7 +777,7 @@ export async function createNotebookCustomerNote(input: {
   body: string;
   authorId?: string | null;
 }): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload = {
@@ -783,7 +802,7 @@ export async function createNotebookCustomerNote(input: {
 }
 
 export async function updateNotebookCustomerNote(id: string, body: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -799,7 +818,7 @@ export async function updateNotebookCustomerNote(id: string, body: string): Prom
 }
 
 export async function deleteNotebookCustomerNote(id: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -818,7 +837,7 @@ export async function createNotebookCompetitorNote(input: {
   body: string;
   authorId?: string | null;
 }): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload = {
@@ -843,7 +862,7 @@ export async function createNotebookCompetitorNote(input: {
 }
 
 export async function updateNotebookCompetitorNote(id: string, body: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -859,7 +878,7 @@ export async function updateNotebookCompetitorNote(id: string, body: string): Pr
 }
 
 export async function deleteNotebookCompetitorNote(id: string): Promise<boolean> {
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -881,7 +900,7 @@ export async function createNotebookCompetitor(input: {
   sortOrder?: number;
 }): Promise<boolean> {
   if (!(await persistOrSkip(input.workspaceId))) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const now = new Date().toISOString();
@@ -916,7 +935,7 @@ export async function updateNotebookCompetitor(
   updates: Partial<Pick<NotebookCompetitor, "name" | "salesPotential" | "sortOrder">>,
 ): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -939,7 +958,7 @@ export async function updateNotebookCompetitor(
 
 export async function deleteNotebookCompetitor(id: string, workspaceId: string): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId) || !isNotebookSectionPersistenceEnabled()) return true;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {
@@ -961,7 +980,7 @@ export async function updateNotebookOurSales(
   ourSales: number,
 ): Promise<boolean> {
   if (!isLiveWorkspace(workspaceId)) return false;
-  if (!isOnline()) return true;
+  if (!isOnline()) return false;
   const supabase = getClient();
   if (!supabase) return false;
   try {

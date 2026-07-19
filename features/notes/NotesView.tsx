@@ -53,7 +53,7 @@ interface NotesViewProps {
   selectedNoteId: string | null;
   onSelectNote: (id: string | null) => void;
   onCreateNote: (title?: string) => Promise<string | null>;
-  onUpdateNote: (id: string, updates: Partial<Note>) => Promise<void>;
+  onUpdateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null | void>;
   onDeleteNote: (id: string) => Promise<void>;
   onLinkTaskToNote: (noteId: string, taskId: string) => Promise<void>;
   onUnlinkTaskFromNote: (noteId: string, taskId: string) => Promise<void>;
@@ -843,27 +843,23 @@ export function NotesView({
     setMobileDraft({ title: snapshot.title, content: snapshot.content });
   }, [isMobile, selectedNoteId, notes]);
 
-  const handleDrawerCancel = useCallback(async () => {
-    const snapshot = openedNoteSnapshotRef.current;
-    if (snapshot) {
-      await onUpdateNote(snapshot.noteId, {
-        title: snapshot.title,
-        content: snapshot.content,
-      });
-    }
+  const handleDrawerCancel = useCallback(() => {
+    // Discard local draft only — never re-persist the open-time snapshot
+    // (that stomped newer remote/desktop edits when Cancel was tapped).
     openedNoteSnapshotRef.current = null;
     setMobileDraft(null);
     onSelectNote(null);
-  }, [onUpdateNote, onSelectNote]);
+  }, [onSelectNote]);
 
   const handleDrawerSave = useCallback(async () => {
     if (!selectedNoteId || !mobileDraft) return;
     setIsSavingMobileNote(true);
     try {
-      await onUpdateNote(selectedNoteId, {
+      const result = await onUpdateNote(selectedNoteId, {
         title: mobileDraft.title,
         content: mobileDraft.content,
       });
+      if (result === false) return;
       openedNoteSnapshotRef.current = null;
       setMobileDraft(null);
       onSelectNote(null);

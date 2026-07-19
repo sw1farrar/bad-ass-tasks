@@ -168,6 +168,9 @@ import {
   processPendingOperations,
   getIsOnline,
   getPendingOperations,
+  getPendingEntityTargetIds,
+  getWorkspaceSyncCursor,
+  advanceWorkspaceSyncCursor,
   clearPendingOperations,
   generateClientId,
   // Phase 2 collaboration foundations
@@ -599,7 +602,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
     options?: { silent?: boolean },
   ) => Promise<boolean | null>;
   deleteTask: (id: string) => Promise<boolean | null>;
-  completeTask: (id: string) => Promise<"advanced" | "completed" | null>;
+  completeTask: (id: string) => Promise<"advanced" | "completed" | "queued" | null>;
   /** Reopen a recently completed task (toast undo); restores Home focus slices when needed. */
   undoTaskCompletion: (
     id: string,
@@ -1748,7 +1751,38 @@ export const useTaskStore = create<TaskState>()(
               !serverTaskIds.has(t.id) &&
               (loadingStates[t.id] || pendingTaskIds.has(t.id)),
           );
-          const mergedTasks = [...localOnlyTasks, ...realTasks];
+          // Overlay queued task updates (completes/status) so restore can't un-check before flush.
+          const pendingTaskUpdates = new Map<string, Record<string, unknown>>();
+          for (const op of getPendingOperations()) {
+            if (op.entityType !== "task" || op.type !== "update") continue;
+            if (op.workspaceId && op.workspaceId !== workspaceId) continue;
+            pendingTaskUpdates.set(op.targetId, {
+              ...(pendingTaskUpdates.get(op.targetId) || {}),
+              ...(op.payload as Record<string, unknown>),
+            });
+          }
+          const applyPendingTaskUpdate = (task: Task): Task => {
+            const payload = pendingTaskUpdates.get(task.id);
+            if (!payload) return task;
+            const next: Task = { ...task };
+            if (payload.status !== undefined) next.status = payload.status as TaskStatus;
+            if (Object.prototype.hasOwnProperty.call(payload, "completed_at")) {
+              const completedAt = payload.completed_at as string | null;
+              if (completedAt) next.completedAt = completedAt;
+              else delete next.completedAt;
+            }
+            if (payload.title !== undefined) next.title = String(payload.title);
+            if (payload.description !== undefined) next.description = String(payload.description ?? "");
+            if (payload.priority !== undefined) next.priority = payload.priority as Priority;
+            if (Object.prototype.hasOwnProperty.call(payload, "due_date")) {
+              next.dueDate = (payload.due_date as string | null) || undefined;
+            }
+            return next;
+          };
+          const mergedTasks = [
+            ...localOnlyTasks.map(applyPendingTaskUpdate),
+            ...realTasks.map(applyPendingTaskUpdate),
+          ];
 
           const pendingOps = getPendingOperations();
           const serverListIds = new Set(nextLists.map((l) => l.id));
@@ -1785,7 +1819,42 @@ export const useTaskStore = create<TaskState>()(
             return queued || localOnlyListIds.has(i.listId);
           });
           nextLists = [...localOnlyLists, ...nextLists];
-          nextItems = [...localOnlyItems, ...nextItems];
+          // Prefer local checklist fields when newer / in-flight, but do not resurrect server-deleted rows.
+          // Also overlay durable outbox checklist payloads (survives auth wipe / empty liveItems).
+          const pendingListItemUpdates = new Map<string, Record<string, unknown>>();
+          for (const op of pendingOps) {
+            if (op.entityType !== "list_item" || op.type !== "update") continue;
+            const key = normalizeListEntityId(op.targetId);
+            pendingListItemUpdates.set(key, {
+              ...(pendingListItemUpdates.get(key) || {}),
+              ...(op.payload as Record<string, unknown>),
+            });
+          }
+          const applyPendingListItemUpdate = (item: ListItem): ListItem => {
+            const payload = pendingListItemUpdates.get(normalizeListEntityId(item.id));
+            if (!payload) return item;
+            const next = { ...item };
+            if (payload.completed !== undefined) next.completed = !!payload.completed;
+            if (Object.prototype.hasOwnProperty.call(payload, "completed_at")) {
+              const completedAt = payload.completed_at as string | null;
+              next.completedAt = completedAt || undefined;
+            }
+            if (payload.pending !== undefined) next.pending = !!payload.pending;
+            if (payload.text !== undefined) next.text = String(payload.text);
+            return next;
+          };
+          nextItems = [
+            ...localOnlyItems.map(applyPendingListItemUpdate),
+            ...nextItems.map((serverItem) => {
+              const local = liveItems.find(
+                (i) =>
+                  i.id === serverItem.id ||
+                  normalizeListEntityId(i.id) === normalizeListEntityId(serverItem.id),
+              );
+              const merged = local ? mergeRemoteListItemUpdate(local, serverItem) : serverItem;
+              return applyPendingListItemUpdate(merged);
+            }),
+          ];
 
           if (get().currentWorkspace.id !== requestWorkspaceId) {
             return;
@@ -1921,6 +1990,11 @@ export const useTaskStore = create<TaskState>()(
             pendingSyncCount: getPendingCount(),
             lastSyncAt: new Date().toISOString(),
           });
+          advanceWorkspaceSyncCursor(workspaceId, [
+            ...mergedTasks,
+            ...realNotes,
+            ...nextItems,
+          ]);
           get().refreshHomeNoteAggregatesFromStore();
 
           void get().fetchTaskCommentSummaries();
@@ -2000,18 +2074,28 @@ export const useTaskStore = create<TaskState>()(
             if (prevWsId && !["", "w1", "w2"].includes(prevWsId)) {
               saveLastWorkspaceId(session.user.id, prevWsId);
             }
+            // Purge demo residue only — keep persisted live optimistic rows so queued
+            // check-offs survive reopen until outbox flush + hydrate merge.
+            const isDemoWs = (id?: string) => !id || ["w1", "w2"].includes(id);
+            const liveTasks = get().tasks.filter((t) => !isDemoWs(t.workspaceId));
+            const liveNotes = get().notes.filter((n) => !isDemoWs(n.workspaceId));
+            const liveLists = get().workspaceLists.filter((l) => !isDemoWs(l.workspaceId));
+            const liveItems = get().listItems.filter((i) => !isDemoWs(i.workspaceId));
+            const keepWs =
+              prevWsId && !isDemoWs(prevWsId)
+                ? get().currentWorkspace
+                : ({ id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace);
             set({
-              tasks: [],
-              notes: [],
-              meetings: [],
-              meetingAgendaItems: [],
-              meetingAgendaEntries: [],
-              workspaceLists: [],
-              listItems: [],
+              tasks: liveTasks,
+              notes: liveNotes,
+              meetings: get().meetings.filter((m) => !isDemoWs(m.workspaceId)),
+              meetingAgendaItems: get().meetingAgendaItems,
+              meetingAgendaEntries: get().meetingAgendaEntries,
+              workspaceLists: liveLists,
+              listItems: liveItems,
               recentActivity: [],
-              workspaces: [],
-              currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
-              taskLoadingStates: {},
+              workspaces: get().workspaces.filter((w) => !isDemoWs(w.id)),
+              currentWorkspace: keepWs,
               selectedMeetingId: null,
               selectedAgendaItemId: null,
             });
@@ -2025,14 +2109,15 @@ export const useTaskStore = create<TaskState>()(
           }
         } catch (e) {
           console.warn("[auth] getSession failed (network?)", e);
-          // Still allow UI to render; user can retry via sign in
-          set({ user: null, session: null });
+          // Do NOT clear an existing session on a transient failure — cookies may still
+          // be valid and forcing user:null shows the login wall until the next open.
+          // Leave prior user/session untouched; onAuthStateChange will correct if needed.
         }
 
         // Listen for auth changes (login, logout, token refresh)
         if (!authStateListenerAttached) {
           authStateListenerAttached = true;
-          supabase.auth.onAuthStateChange((_event, newSession) => {
+          supabase.auth.onAuthStateChange((event, newSession) => {
           const previousUser = get().user;
           const newUser = newSession?.user ?? null;
 
@@ -2041,19 +2126,21 @@ export const useTaskStore = create<TaskState>()(
             user: newUser,
           });
 
-          // Fresh sign-in: wipe demo residue; live bootstrap waits for dual-auth in app/page.tsx.
+          // Fresh sign-in: purge demo residue only; keep live persisted optimistic/outbox rows.
           if (!previousUser && newUser) {
             if (isSupabaseLive()) {
+              const isDemoWs = (id?: string) => !id || ["w1", "w2"].includes(id);
               set({
-                tasks: [],
-                notes: [],
-                meetings: [],
-                meetingAgendaItems: [],
-                meetingAgendaEntries: [],
+                tasks: get().tasks.filter((t) => !isDemoWs(t.workspaceId)),
+                notes: get().notes.filter((n) => !isDemoWs(n.workspaceId)),
+                workspaceLists: get().workspaceLists.filter((l) => !isDemoWs(l.workspaceId)),
+                listItems: get().listItems.filter((i) => !isDemoWs(i.workspaceId)),
+                meetings: get().meetings.filter((m) => !isDemoWs(m.workspaceId)),
                 recentActivity: [],
-                workspaces: [],
-                currentWorkspace: { id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace,
-                taskLoadingStates: {},
+                workspaces: get().workspaces.filter((w) => !isDemoWs(w.id)),
+                currentWorkspace: isDemoWs(get().currentWorkspace?.id)
+                  ? ({ id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace)
+                  : get().currentWorkspace,
                 selectedMeetingId: null,
                 selectedAgendaItemId: null,
               });
@@ -2062,40 +2149,52 @@ export const useTaskStore = create<TaskState>()(
           }
 
           // Sign-out: demo mode restores samples; live mode clears authenticated session data.
+          // Multi-tab refresh-token rotation can emit a false null session — verify before wiping.
           if (previousUser && !newUser) {
-            set({
-              isSiteAdmin: false,
-              myProfile: null,
-              currentView: get().currentView === "admin" ? "home" : get().currentView,
-            });
-            if (!isSupabaseLive()) {
+            void (async () => {
+              try {
+                const { data } = await supabase.auth.getSession();
+                if (data.session?.user) {
+                  set({ session: data.session, user: data.session.user });
+                  return;
+                }
+              } catch {
+                // fall through to clear
+              }
+              // TOKEN_REFRESHED / INITIAL_SESSION should never wipe; only clear after verification.
+              if (event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+                return;
+              }
               set({
-                tasks: SAMPLE_TASKS,
-                notes: SAMPLE_NOTES,
-                workspaceLists: SAMPLE_WORKSPACE_LISTS,
-                listItems: SAMPLE_LIST_ITEMS,
-      taskFolders: SAMPLE_TASK_FOLDERS,
-                currentWorkspace: DEFAULT_WORKSPACE,
-                workspaces: [
-                  DEFAULT_WORKSPACE,
-                  { id: "w2", name: "Personal", slug: "personal", role: "owner" },
-                ],
-                taskLoadingStates: {},
+                isSiteAdmin: false,
+                myProfile: null,
+                currentView: get().currentView === "admin" ? "home" : get().currentView,
               });
-            } else {
-              set(clearedLiveSessionState());
-            }
-          }
-
-          // Teardown notifications realtime channel on signout
-          if (previousUser && !newUser) {
-            invalidateNotificationsFetches();
-            const supabase = getSupabaseClient();
-            const ch = (get() as any)._notificationsChannel;
-            if (supabase && ch) {
-              supabase.removeChannel(ch).catch(() => {});
-              (get() as any)._notificationsChannel = null;
-            }
+              if (!isSupabaseLive()) {
+                set({
+                  tasks: SAMPLE_TASKS,
+                  notes: SAMPLE_NOTES,
+                  workspaceLists: SAMPLE_WORKSPACE_LISTS,
+                  listItems: SAMPLE_LIST_ITEMS,
+                  taskFolders: SAMPLE_TASK_FOLDERS,
+                  currentWorkspace: DEFAULT_WORKSPACE,
+                  workspaces: [
+                    DEFAULT_WORKSPACE,
+                    { id: "w2", name: "Personal", slug: "personal", role: "owner" },
+                  ],
+                  taskLoadingStates: {},
+                });
+              } else {
+                set(clearedLiveSessionState());
+              }
+              invalidateNotificationsFetches();
+              const client = getSupabaseClient();
+              const ch = (get() as any)._notificationsChannel;
+              if (client && ch) {
+                client.removeChannel(ch).catch(() => {});
+                (get() as any)._notificationsChannel = null;
+              }
+            })();
           }
         });
         }
@@ -2140,6 +2239,21 @@ export const useTaskStore = create<TaskState>()(
             const onVisibility = () => {
               if (document.visibilityState === "visible") {
                 refreshPresenceMeta();
+                // Resume: flush outbox + rebuild realtime so peers' updates arrive after sleep.
+                get().syncPendingWrites().catch(() => {});
+                const ws = get().currentWorkspace;
+                if (ws?.id && !["w1", "w2"].includes(ws.id)) {
+                  get().setupWorkspaceRealtime();
+                  void get().hydrateWorkspaceListData(ws.id);
+                }
+              }
+            };
+            const onResumeSync = () => {
+              get().syncPendingWrites().catch(() => {});
+              const ws = get().currentWorkspace;
+              if (ws?.id && isSupabaseLive() && !["w1", "w2"].includes(ws.id)) {
+                get().setupWorkspaceRealtime();
+                void get().hydrateWorkspaceListData(ws.id);
               }
             };
             const onUnload = () => {
@@ -2152,9 +2266,15 @@ export const useTaskStore = create<TaskState>()(
             };
             document.addEventListener("visibilitychange", onVisibility);
             window.addEventListener("focus", refreshPresenceMeta);
+            window.addEventListener("bat:resume-sync", onResumeSync as EventListener);
             window.addEventListener("beforeunload", onUnload, { once: true });
             window.addEventListener("pagehide", onUnload, { once: true });
-            (window as any).__bat_presence_handlers = { onVisibility, refreshPresenceMeta, onUnload };
+            (window as any).__bat_presence_handlers = {
+              onVisibility,
+              refreshPresenceMeta,
+              onUnload,
+              onResumeSync,
+            };
           }
         }
       },
@@ -2820,16 +2940,185 @@ export const useTaskStore = create<TaskState>()(
         if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return;
 
         try {
-          const bundle = await getWorkspaceListsBundle(workspaceId).catch(() => ({
-            lists: [] as WorkspaceList[],
-            items: [] as ListItem[],
-          }));
+          const syncCursor = getWorkspaceSyncCursor(workspaceId);
+          const deltaOpts = syncCursor ? { updatedSince: syncCursor } : undefined;
+          const [bundle, remoteTasks, remoteNotes, members] = await Promise.all([
+            getWorkspaceListsBundle(workspaceId, deltaOpts).catch(() => ({
+              lists: [] as WorkspaceList[],
+              items: [] as ListItem[],
+            })),
+            getTasks(workspaceId, deltaOpts).catch(() => [] as Task[]),
+            getNotes(workspaceId, deltaOpts).catch(() => [] as Note[]),
+            getWorkspaceMembers(workspaceId).catch(() => [] as WorkspaceMember[]),
+          ]);
           const lists = bundle.lists;
           const items = bundle.items;
-          set((state) => ({
-            workspaceLists: mergeWorkspaceLists(state.workspaceLists, lists),
-            listItems: mergeListItems(state.listItems, items),
-          }));
+          const userId = get().user?.id;
+          const isDelta = !!syncCursor;
+
+          // Overlay queued task/note updates so resume hydrate cannot clobber before flush.
+          const pendingTaskUpdates = new Map<string, Record<string, unknown>>();
+          const pendingNoteUpdates = new Map<string, Record<string, unknown>>();
+          for (const op of getPendingOperations()) {
+            if (op.type !== "update") continue;
+            if (op.workspaceId && op.workspaceId !== workspaceId) continue;
+            if (op.entityType === "task") {
+              pendingTaskUpdates.set(op.targetId, {
+                ...(pendingTaskUpdates.get(op.targetId) || {}),
+                ...(op.payload as Record<string, unknown>),
+              });
+            } else if (op.entityType === "note") {
+              pendingNoteUpdates.set(op.targetId, {
+                ...(pendingNoteUpdates.get(op.targetId) || {}),
+                ...(op.payload as Record<string, unknown>),
+              });
+            }
+          }
+          const applyPendingTaskUpdate = (task: Task): Task => {
+            const payload = pendingTaskUpdates.get(task.id);
+            if (!payload) return task;
+            const next: Task = { ...task };
+            if (payload.status !== undefined) next.status = payload.status as TaskStatus;
+            if (Object.prototype.hasOwnProperty.call(payload, "completed_at")) {
+              const completedAt = payload.completed_at as string | null;
+              if (completedAt) next.completedAt = completedAt;
+              else delete next.completedAt;
+            }
+            if (payload.title !== undefined) next.title = String(payload.title);
+            return next;
+          };
+          const applyPendingNoteUpdate = (note: Note): Note => {
+            const payload = pendingNoteUpdates.get(note.id);
+            if (!payload) return note;
+            const next: Note = { ...note };
+            if (payload.title !== undefined) next.title = String(payload.title);
+            if (payload.content !== undefined) {
+              // Outbox may store TipTap JSON; keep string content when present.
+              next.content =
+                typeof payload.content === "string"
+                  ? payload.content
+                  : note.content;
+            }
+            if (Array.isArray(payload.tags)) next.tags = payload.tags as string[];
+            return next;
+          };
+
+          const pendingListItemUpdates = new Map<string, Record<string, unknown>>();
+          for (const op of getPendingOperations()) {
+            if (op.entityType !== "list_item" || op.type !== "update") continue;
+            const key = normalizeListEntityId(op.targetId);
+            pendingListItemUpdates.set(key, {
+              ...(pendingListItemUpdates.get(key) || {}),
+              ...(op.payload as Record<string, unknown>),
+            });
+          }
+          const applyPendingListItemUpdate = (item: ListItem): ListItem => {
+            const payload = pendingListItemUpdates.get(normalizeListEntityId(item.id));
+            if (!payload) return item;
+            const next = { ...item };
+            if (payload.completed !== undefined) next.completed = !!payload.completed;
+            if (Object.prototype.hasOwnProperty.call(payload, "completed_at")) {
+              next.completedAt = (payload.completed_at as string | null) || undefined;
+            }
+            if (payload.pending !== undefined) next.pending = !!payload.pending;
+            if (payload.text !== undefined) next.text = String(payload.text);
+            return next;
+          };
+
+          const enrichedRemote = enrichTasksWithAssignees(
+            remoteTasks.map(applyPendingTaskUpdate),
+            members,
+            userId,
+          );
+          const remoteTaskIds = new Set(enrichedRemote.map((t) => t.id));
+          const pendingOpsNow = getPendingOperations();
+          const pendingTaskIds = new Set(
+            pendingOpsNow
+              .filter((op) => op.entityType === "task" && op.workspaceId === workspaceId)
+              .map((op) => op.targetId),
+          );
+          const pendingNoteCreateIds = new Set(
+            pendingOpsNow
+              .filter((op) => op.entityType === "note" && op.type === "create")
+              .map((op) => op.targetId),
+          );
+          const recentlyCreated = (iso?: string) => {
+            if (!iso) return false;
+            const ms = new Date(iso).getTime();
+            return Number.isFinite(ms) && Date.now() - ms < 120_000;
+          };
+
+          set((state) => {
+            const otherWsTasks = state.tasks.filter((t) => t.workspaceId !== workspaceId);
+            const otherWsNotes = state.notes.filter((n) => n.workspaceId !== workspaceId);
+            const patchedNotes = remoteNotes.map(applyPendingNoteUpdate);
+
+            if (isDelta) {
+              // Resume catch-up: merge changed rows into existing workspace state.
+              const taskById = new Map(
+                state.tasks
+                  .filter((t) => t.workspaceId === workspaceId)
+                  .map((t) => [t.id, applyPendingTaskUpdate(t)]),
+              );
+              for (const t of enrichedRemote) taskById.set(t.id, t);
+              const noteById = new Map(
+                state.notes
+                  .filter((n) => n.workspaceId === workspaceId)
+                  .map((n) => [n.id, applyPendingNoteUpdate(n)]),
+              );
+              for (const n of patchedNotes) noteById.set(n.id, n);
+              return {
+                workspaceLists: mergeWorkspaceLists(state.workspaceLists, lists),
+                listItems: mergeListItems(
+                  state.listItems,
+                  items.map(applyPendingListItemUpdate),
+                ),
+                tasks: [...otherWsTasks, ...taskById.values()],
+                notes: [...otherWsNotes, ...noteById.values()],
+                pendingSyncCount: getPendingCount(),
+              };
+            }
+
+            const localOnlyTasks = state.tasks.filter(
+              (t) =>
+                t.workspaceId === workspaceId &&
+                !remoteTaskIds.has(t.id) &&
+                (state.taskLoadingStates[t.id] ||
+                  pendingTaskIds.has(t.id) ||
+                  recentlyCreated(t.createdAt)),
+            );
+            const remoteNoteIds = new Set(remoteNotes.map((n) => n.id));
+            const localOnlyNotes = state.notes.filter(
+              (n) =>
+                n.workspaceId === workspaceId &&
+                !remoteNoteIds.has(n.id) &&
+                (pendingNoteCreateIds.has(n.id) || recentlyCreated(n.createdAt)),
+            );
+            return {
+              workspaceLists: mergeWorkspaceLists(state.workspaceLists, lists),
+              listItems: mergeListItems(
+                state.listItems,
+                items.map(applyPendingListItemUpdate),
+              ),
+              tasks: [
+                ...otherWsTasks,
+                ...localOnlyTasks.map(applyPendingTaskUpdate),
+                ...enrichedRemote,
+              ],
+              notes: [
+                ...otherWsNotes,
+                ...localOnlyNotes.map(applyPendingNoteUpdate),
+                ...patchedNotes,
+              ],
+              pendingSyncCount: getPendingCount(),
+            };
+          });
+
+          advanceWorkspaceSyncCursor(workspaceId, [
+            ...enrichedRemote,
+            ...remoteNotes,
+            ...items,
+          ]);
         } catch (err) {
           console.error("[useTaskStore] hydrateWorkspaceListData error:", err);
         }
@@ -3058,17 +3347,20 @@ export const useTaskStore = create<TaskState>()(
                 taskFolderSnapshot = folder;
               }
             }
-            const ok = await updateTaskSupabase(id, {
+            const persistResult = await updateTaskSupabase(id, {
               ...normalizedUpdates,
               workspaceId: prevTask.workspaceId,
               actorUserId,
               actorName,
               previousAssigneeIds: prevTask.assigneeIds ?? [],
               ...(taskFolderSnapshot ? { taskFolderSnapshot } : {}),
+              ...(normalizedUpdates.status !== undefined
+                ? { priorStatus: prevTask.status }
+                : {}),
             } as any);
-            if (!ok) throw new Error("Supabase update failed");
+            if (persistResult === false) throw new Error("Supabase update failed");
 
-            // Success: keep optimistic; clear loading only if we set it
+            // Success (persisted or queued): keep optimistic; clear loading only if we set it
             set((state) => {
               if (silent) {
                 return {
@@ -3086,28 +3378,40 @@ export const useTaskStore = create<TaskState>()(
                 lastSyncAt: new Date().toISOString(),
               };
             });
+            if (persistResult === "queued") {
+              toast.info("Update kept locally", {
+                description: "Queued for sync when connection returns.",
+                duration: 3000,
+              });
+              return null;
+            }
             return true;
           } catch (err) {
-            // Hybrid queued the change on failure. KEEP optimistic (don't revert) so user sees their edit.
-            // This + new persist strategy = true offline edit survival.
-            set((state) => {
-              if (silent) {
-                return {
-                  pendingSyncCount: getPendingCount(),
-                  isOnline: getIsOnline(),
-                };
-              }
-              const next = { ...state.taskLoadingStates };
-              delete next[id];
-              return {
-                taskLoadingStates: next,
-                pendingSyncCount: getPendingCount(),
-                isOnline: getIsOnline(),
-              };
-            });
-            toast.info("Update kept locally", {
-              description: "Queued for sync when connection returns.",
-              duration: 3000,
+            // Hard failure (not queued): revert optimistic fields we just applied.
+            set((state) =>
+              withTaskSliceNavStats(
+                state,
+                prevTask.workspaceId,
+                patchTaskInSlices(state, id, () => prevTask),
+                silent
+                  ? {
+                      pendingSyncCount: getPendingCount(),
+                      isOnline: getIsOnline(),
+                    }
+                  : {
+                      taskLoadingStates: (() => {
+                        const next = { ...state.taskLoadingStates };
+                        delete next[id];
+                        return next;
+                      })(),
+                      pendingSyncCount: getPendingCount(),
+                      isOnline: getIsOnline(),
+                    },
+              ),
+            );
+            toast.error("Couldn't save task change", {
+              description: "Check your connection and try again.",
+              duration: 4000,
             });
             return null;
           }
@@ -3252,10 +3556,14 @@ export const useTaskStore = create<TaskState>()(
 
         if (isSupabaseLive()) {
           try {
-            const ok = await updateTaskSupabase(id, { status: "done", completedAt: now, workspaceId: prevTask.workspaceId });
-            if (!ok) throw new Error("Supabase complete failed");
+            const persistResult = await updateTaskSupabase(id, {
+              status: "done",
+              completedAt: now,
+              workspaceId: prevTask.workspaceId,
+              priorStatus: prevTask.status,
+            } as Parameters<typeof updateTaskSupabase>[1]);
+            if (persistResult === false) throw new Error("Supabase complete failed");
 
-            // Success: keep optimistic change (consistent with updateTask), update sync state
             set((state) => {
               const next = { ...state.taskLoadingStates };
               delete next[id];
@@ -3267,7 +3575,14 @@ export const useTaskStore = create<TaskState>()(
               };
             });
 
-            // Log on successful remote complete
+            if (persistResult === "queued") {
+              toast.info("Complete kept locally", {
+                description: "Queued for sync when connection returns.",
+                duration: 3000,
+              });
+              return "queued";
+            }
+
             logActivity({
               workspaceId: prevTask.workspaceId,
               userId: get().user?.id,
@@ -3278,20 +3593,30 @@ export const useTaskStore = create<TaskState>()(
             });
             return "completed";
           } catch (err) {
-            // On transient failure (hybrid queues): KEEP optimistic (no revert) for instant feel + offline resilience.
-            // Matches policy in updateTask / addTask / deleteTask / kanban paths. Error recovery via queue + LWW on reconnect.
-            set((state) => {
-              const next = { ...state.taskLoadingStates };
-              delete next[id];
-              return {
-                taskLoadingStates: next,
-                pendingSyncCount: getPendingCount(),
-                isOnline: getIsOnline(),
-              };
-            });
-            toast.info("Complete kept locally", {
-              description: "Queued for sync when connection returns.",
-              duration: 3000,
+            // Hard failure (not queued): roll UI back to match the database.
+            set((state) =>
+              withTaskSliceNavStats(
+                state,
+                prevTask.workspaceId,
+                patchTaskInSlices(state, id, {
+                  status: prevTask.status,
+                  completedAt: prevTask.completedAt,
+                }),
+                {
+                  taskLoadingStates: (() => {
+                    const next = { ...state.taskLoadingStates };
+                    delete next[id];
+                    return next;
+                  })(),
+                  pendingSyncCount: getPendingCount(),
+                  isOnline: getIsOnline(),
+                },
+              ),
+            );
+            get().refreshHomeTaskFocusFromStore();
+            toast.error("Couldn't save completion", {
+              description: "Check your connection and try again.",
+              duration: 4000,
             });
             return null;
           }
@@ -3529,6 +3854,8 @@ export const useTaskStore = create<TaskState>()(
           return true;
         }
 
+        const previous = existing ? { ...existing } : null;
+
         set((state) => {
           if ((updates as { isArchived?: boolean }).isArchived) {
             const notes = state.notes.filter((n) => n.id !== id);
@@ -3548,14 +3875,33 @@ export const useTaskStore = create<TaskState>()(
         });
 
         if (isSupabaseLive()) {
-          try {
-            await updateNoteSupabase(id, updates);
-          } catch {
-            toast.warning("Update kept locally", {
+          const persistResult = await updateNoteSupabase(id, {
+            ...updates,
+            workspaceId,
+          } as Partial<import("@/types").Note> & { workspaceId?: string });
+
+          if (persistResult === false) {
+            if (previous) {
+              set((state) => {
+                const notes = state.notes.map((n) => (n.id === id ? previous : n));
+                return withNotesNavStats(state, workspaceId, notes);
+              });
+            }
+            toast.error("Couldn't save note change", {
+              description: "Check your connection and try again.",
+              duration: 4000,
+            });
+            return false;
+          }
+
+          if (persistResult === "queued") {
+            toast.info("Update kept locally", {
               description: "Queued for sync when connection returns.",
               duration: 3000,
             });
           }
+
+          set({ pendingSyncCount: getPendingCount(), isOnline: getIsOnline() });
         }
 
         return true;

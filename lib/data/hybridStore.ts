@@ -84,16 +84,20 @@ function logHybridError(operation: string, error: unknown) {
 function isSchemaTableMissing(error: unknown): boolean {
   const e = error as { code?: string; message?: string; status?: number; statusCode?: number };
   const status = e?.status ?? e?.statusCode;
+  const message = typeof e?.message === "string" ? e.message : "";
+  // Keep this narrow — bare "does not exist" also matches missing *columns* and would
+  // incorrectly disable all list persistence for the session.
   return (
     status === 404 ||
     e?.code === "PGRST205" ||
     e?.code === "42P01" ||
-    (typeof e?.message === "string" &&
-      (e.message.includes("Could not find the table") ||
-        e.message.includes("does not exist") ||
-        e.message.includes("404")))
+    message.includes("Could not find the table") ||
+    (message.includes("relation") && message.includes("does not exist"))
   );
 }
+
+/** Shared durable-write result used by list items, tasks, and notes. */
+export type PersistResult = "persisted" | "queued" | false;
 
 /** null = not probed yet; false = migration not applied; true = tables exist */
 let workspaceListTablesAvailable: boolean | null = null;
@@ -215,17 +219,24 @@ async function probeListItemNesting(force = false): Promise<void> {
     return;
   }
 
-  const { error } = await supabase.from("list_items").select("parent_item_id").limit(1);
-  if (error && isListItemNestingColumnMissing(error)) {
-    markListItemNestingMissing();
-  } else if (error && isSchemaTableMissing(error)) {
-    markWorkspaceListTablesMissing();
-    listItemNestingAvailable = false;
-  } else if (error) {
-    logHybridError("probeListItemNesting", error);
-    listItemNestingAvailable = true;
-  } else {
-    markListItemNestingAvailable();
+  try {
+    const { error } = await supabase.from("list_items").select("parent_item_id").limit(1);
+    if (error && isListItemNestingColumnMissing(error)) {
+      markListItemNestingMissing();
+    } else if (error && isSchemaTableMissing(error)) {
+      markWorkspaceListTablesMissing();
+      listItemNestingAvailable = false;
+    } else if (error) {
+      logHybridError("probeListItemNesting", error);
+      // Transient probe errors must not strand callers — assume nesting until proven missing.
+      listItemNestingAvailable = true;
+    } else {
+      markListItemNestingAvailable();
+    }
+  } catch (err) {
+    // Mobile kill / Failed to fetch — never throw into updateListItem callers.
+    logHybridError("probeListItemNesting", err);
+    listItemNestingAvailable = listItemNestingAvailable === false ? false : true;
   }
 }
 
@@ -1023,23 +1034,95 @@ function savePendingQueue(queue: PendingOperation[]): void {
   if (!isSupabaseLive() || typeof window === "undefined") return;
   try {
     localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-  } catch {
-    // Quota or private mode — non-fatal for basic offline
+  } catch (err) {
+    // Quota / private mode — surface loudly; callers may still believe the write was durable.
+    console.error(
+      "[hybridStore] Failed to persist offline outbox to localStorage — writes may be lost on kill",
+      err,
+    );
   }
 }
 
 let inMemoryQueue: PendingOperation[] = []; // lazy-hydrated via loadPendingQueue() on first access (prevents TDZ during module init)
 
+const BAT_PRIOR_PREFIX = "_bat_prior_";
+const OUTBOX_LOCK_NAME = "bat-outbox-flush";
+const OUTBOX_BC_NAME = "bat-outbox";
+const SYNC_CURSOR_KEY = "bat-sync-cursor-v1";
+
+let outboxBroadcast: BroadcastChannel | null = null;
+
+function getOutboxBroadcast(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === "undefined") return null;
+  if (!outboxBroadcast) {
+    try {
+      outboxBroadcast = new BroadcastChannel(OUTBOX_BC_NAME);
+      outboxBroadcast.onmessage = (event) => {
+        if (event?.data?.type === "outbox-changed") {
+          mergeInMemoryQueueFromStorage();
+        }
+      };
+    } catch {
+      outboxBroadcast = null;
+    }
+  }
+  return outboxBroadcast;
+}
+
+function notifyOutboxPeers(): void {
+  try {
+    getOutboxBroadcast()?.postMessage({ type: "outbox-changed", at: Date.now() });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Merge disk queue with in-memory so a sibling tab's writes are not clobbered. */
+function mergeInMemoryQueueFromStorage(): void {
+  const disk = loadPendingQueue().filter((queued) => {
+    const ws = String(queued?.workspaceId ?? "");
+    return !["w1", "w2"].includes(ws) && isSafeId(ws);
+  });
+  if (inMemoryQueue.length === 0) {
+    inMemoryQueue = disk;
+    return;
+  }
+  const byId = new Map<string, PendingOperation>();
+  for (const op of disk) byId.set(op.opId, op);
+  for (const op of inMemoryQueue) {
+    const prev = byId.get(op.opId);
+    if (!prev || new Date(op.timestamp).getTime() >= new Date(prev.timestamp).getTime()) {
+      byId.set(op.opId, op);
+    }
+  }
+  inMemoryQueue = [...byId.values()];
+}
+
+async function withOutboxLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== "undefined" ? (navigator as Navigator & {
+    locks?: { request: (name: string, cb: () => Promise<T>) => Promise<T> };
+  }).locks : undefined;
+  if (locks?.request) {
+    return locks.request(OUTBOX_LOCK_NAME, fn);
+  }
+  return fn();
+}
+
+function stripBatMetaFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (key.startsWith(BAT_PRIOR_PREFIX)) continue;
+    next[key] = value;
+  }
+  return next;
+}
+
 /** Enqueue a write operation (create/update/delete) for later sync. */
 function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"> & { timestamp?: string }): void {
   if (!isSupabaseLive()) return;
 
-  if (inMemoryQueue.length === 0) {
-    inMemoryQueue = loadPendingQueue().filter((queued) => {
-      const ws = String(queued?.workspaceId ?? "");
-      return !["w1", "w2"].includes(ws) && isSafeId(ws);
-    });
-  }
+  // Always merge from storage first — multi-tab safety.
+  mergeInMemoryQueueFromStorage();
 
   // ID hygiene: enforce String() coercion + bad-UUID purge for BOTH targetId (task/note) and workspaceId.
   // Prevents enqueue of ops with bad IDs that would later cause uuid syntax errors or demo data in live sync.
@@ -1078,13 +1161,22 @@ function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"
     );
     if (existingIdx >= 0) {
       const existing = inMemoryQueue[existingIdx];
+      const existingPayload = (existing.payload || {}) as Record<string, unknown>;
+      const nextPayload = { ...existingPayload, ...(fullOp.payload as Record<string, unknown>) };
+      // Keep the earliest prior-* so a later coalesce cannot erase the original base state.
+      for (const key of Object.keys(existingPayload)) {
+        if (key.startsWith(BAT_PRIOR_PREFIX) && existingPayload[key] !== undefined) {
+          nextPayload[key] = existingPayload[key];
+        }
+      }
       inMemoryQueue = [...inMemoryQueue];
       inMemoryQueue[existingIdx] = {
         ...existing,
         timestamp: fullOp.timestamp,
-        payload: { ...existing.payload, ...fullOp.payload },
+        payload: nextPayload,
       };
       savePendingQueue(inMemoryQueue);
+      notifyOutboxPeers();
       return;
     }
     const hasPendingDelete = inMemoryQueue.some(
@@ -1118,41 +1210,295 @@ function enqueuePendingOperation(op: Omit<PendingOperation, "opId" | "timestamp"
 
   inMemoryQueue = [...inMemoryQueue, fullOp];
   savePendingQueue(inMemoryQueue);
+  notifyOutboxPeers();
+}
+
+/**
+ * Remove a pending op after a confirmed server write.
+ * If coalesce bumped the op timestamp after `writtenAt`, keep it so newer fields still sync.
+ * Pass writtenAt for update acks; omit for creates only when no coalesced follow-up is possible.
+ */
+function ackPendingOperation(
+  entityType: PendingOperation["entityType"],
+  targetId: string,
+  workspaceId: string,
+  type: PendingOperation["type"] = "update",
+  writtenAt?: string,
+): void {
+  if (!isSupabaseLive()) return;
+  mergeInMemoryQueueFromStorage();
+  // When writtenAt is omitted, only drop ops that are not newer than "now" at ack time
+  // so a coalesced follow-up during create/insert still survives.
+  const writeTs = writtenAt ? new Date(writtenAt).getTime() : Date.now();
+  const next: PendingOperation[] = [];
+  let changed = false;
+  for (const op of inMemoryQueue) {
+    const matches =
+      op.type === type &&
+      op.entityType === entityType &&
+      op.targetId === targetId &&
+      op.workspaceId === workspaceId;
+    if (!matches) {
+      next.push(op);
+      continue;
+    }
+    const opTs = new Date(op.timestamp).getTime();
+    if (opTs > writeTs) {
+      // Newer coalesced edit landed while the network write was in flight — keep for retry.
+      next.push(op);
+      continue;
+    }
+    changed = true;
+  }
+  if (!changed) return;
+  inMemoryQueue = next;
+  savePendingQueue(next);
+  notifyOutboxPeers();
+}
+
+/** Drop a doomed outbox op (e.g. RLS 0-row) so UI rollback is not later undone by flush. */
+function dropPendingOperation(
+  entityType: PendingOperation["entityType"],
+  targetId: string,
+  workspaceId: string,
+  type: PendingOperation["type"] = "update",
+): void {
+  ackPendingOperation(entityType, targetId, workspaceId, type, String(Date.now() + 1e12));
+}
+
+/**
+ * After a successful create insert, any coalesced follow-up still on the create op
+ * must become an update — re-inserting would 23505 and drop the merged fields.
+ */
+function promoteSurvivingCreateToUpdate(
+  entityType: PendingOperation["entityType"],
+  targetId: string,
+  workspaceId: string,
+): void {
+  if (!isSupabaseLive()) return;
+  if (inMemoryQueue.length === 0) {
+    inMemoryQueue = loadPendingQueue();
+  }
+  let changed = false;
+  const next = inMemoryQueue.map((op) => {
+    if (
+      op.type === "create" &&
+      op.entityType === entityType &&
+      op.targetId === targetId &&
+      op.workspaceId === workspaceId
+    ) {
+      changed = true;
+      return { ...op, type: "update" as const };
+    }
+    return op;
+  });
+  if (!changed) return;
+  inMemoryQueue = next;
+  savePendingQueue(next);
+}
+
+const CHECKLIST_OR_COMPLETION_KEYS = new Set([
+  "completed",
+  "completed_at",
+  "pending",
+  "status",
+]);
+
+/** Split coalesced payloads so stale title/text cannot ride a completion bypass. */
+function splitChecklistOrCompletionPayload(payload: Record<string, unknown>): {
+  checklist: Record<string, unknown>;
+  rest: Record<string, unknown>;
+} {
+  const checklist: Record<string, unknown> = {};
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (CHECKLIST_OR_COMPLETION_KEYS.has(key)) checklist[key] = value;
+    else rest[key] = value;
+  }
+  return { checklist, rest };
+}
+
+type ServerRowSnapshot = {
+  completed?: boolean | null;
+  pending?: boolean | null;
+  status?: string | null;
+  completed_at?: string | null;
+};
+
+/**
+ * Keep-class LWW:
+ * - If we are newer/equal: apply full payload (minus _bat_* meta).
+ * - If server is newer: never apply non-checklist fields (title/text ride-alongs).
+ * - Checklist/completion applies only when server still matches our recorded prior
+ *   (a title/sort bump on the server must not erase a check; a peer toggle must win).
+ */
+function resolveUpdatePayloadForLww(
+  updatePayload: Record<string, unknown>,
+  serverTs: number,
+  ourTs: number,
+  serverRow?: ServerRowSnapshot | null,
+): { apply: Record<string, unknown> | null; skippedConflict: boolean } {
+  const clean = stripBatMetaFields(updatePayload);
+  if (serverTs <= ourTs) {
+    return { apply: Object.keys(clean).length ? clean : null, skippedConflict: false };
+  }
+
+  const { checklist } = splitChecklistOrCompletionPayload(clean);
+  if (Object.keys(checklist).length === 0) {
+    return { apply: null, skippedConflict: true };
+  }
+
+  const priorCompleted = updatePayload[`${BAT_PRIOR_PREFIX}completed`];
+  const priorPending = updatePayload[`${BAT_PRIOR_PREFIX}pending`];
+  const priorStatus = updatePayload[`${BAT_PRIOR_PREFIX}status`];
+
+  const applyChecklist: Record<string, unknown> = {};
+  if (Object.prototype.hasOwnProperty.call(checklist, "completed")) {
+    // Without prior, do NOT force-apply over a newer server row (stale offline check).
+    if (
+      priorCompleted !== undefined &&
+      serverRow &&
+      !!serverRow.completed === !!priorCompleted
+    ) {
+      applyChecklist.completed = checklist.completed;
+      if (Object.prototype.hasOwnProperty.call(checklist, "completed_at")) {
+        applyChecklist.completed_at = checklist.completed_at;
+      }
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(checklist, "pending")) {
+    if (
+      priorPending !== undefined &&
+      serverRow &&
+      !!serverRow.pending === !!priorPending
+    ) {
+      applyChecklist.pending = checklist.pending;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(checklist, "status")) {
+    if (
+      priorStatus !== undefined &&
+      serverRow &&
+      String(serverRow.status ?? "") === String(priorStatus)
+    ) {
+      applyChecklist.status = checklist.status;
+      if (Object.prototype.hasOwnProperty.call(checklist, "completed_at")) {
+        applyChecklist.completed_at = checklist.completed_at;
+      }
+    }
+  }
+
+  if (Object.keys(applyChecklist).length === 0) {
+    return { apply: null, skippedConflict: true };
+  }
+  return { apply: applyChecklist, skippedConflict: true };
 }
 
 /** Current pending count (reactive callers can poll or store can mirror) */
 export function getPendingCount(): number {
   if (!isSupabaseLive()) return 0;
-  // Rehydrate from storage in case of external clear or multi-tab
-  // Also strip any demo workspace operations that may have leaked in.
-  // Strengthened: String() coercion + sanitize discipline for workspaceId (covers notes/tasks/ws paths in queue).
-  const raw = loadPendingQueue().filter(
-    (op) => {
-      const ws = String(op?.workspaceId ?? "");
-      return !["w1", "w2"].includes(ws) && isSafeId(ws);
-    }
-  );
-  if (raw.length !== loadPendingQueue().length) {
+  mergeInMemoryQueueFromStorage();
+  const raw = inMemoryQueue.filter((op) => {
+    const ws = String(op?.workspaceId ?? "");
+    return !["w1", "w2"].includes(ws) && isSafeId(ws);
+  });
+  if (raw.length !== inMemoryQueue.length) {
+    inMemoryQueue = raw;
     savePendingQueue(raw);
+    notifyOutboxPeers();
   }
-  inMemoryQueue = raw;
   return inMemoryQueue.length;
 }
 
 export function getPendingOperations(): PendingOperation[] {
   if (!isSupabaseLive()) return [];
-  // Strip any demo workspace operations. Strengthened with explicit String() + isSafeId purge.
-  const raw = loadPendingQueue().filter(
-    (op) => {
-      const ws = String(op?.workspaceId ?? "");
-      return !["w1", "w2"].includes(ws) && isSafeId(ws);
-    }
-  );
-  if (raw.length !== loadPendingQueue().length) {
+  mergeInMemoryQueueFromStorage();
+  const raw = inMemoryQueue.filter((op) => {
+    const ws = String(op?.workspaceId ?? "");
+    return !["w1", "w2"].includes(ws) && isSafeId(ws);
+  });
+  if (raw.length !== inMemoryQueue.length) {
+    inMemoryQueue = raw;
     savePendingQueue(raw);
+    notifyOutboxPeers();
   }
-  inMemoryQueue = raw;
   return [...inMemoryQueue];
+}
+
+/** Target IDs with pending outbox ops — for subtle "syncing" UI on checklist rows. */
+export function getPendingEntityTargetIds(
+  entityType?: PendingOperation["entityType"],
+): Set<string> {
+  if (!isSupabaseLive()) return new Set();
+  mergeInMemoryQueueFromStorage();
+  const ids = new Set<string>();
+  for (const op of inMemoryQueue) {
+    if (entityType && op.entityType !== entityType) continue;
+    if (op.targetId) ids.add(normalizeListEntityId(op.targetId));
+    ids.add(op.targetId);
+  }
+  return ids;
+}
+
+export type SyncFetchOptions = {
+  /** ISO timestamp — only return rows with updated_at >= this (resume catch-up). */
+  updatedSince?: string | null;
+};
+
+function readSyncCursorMap(): Record<string, string> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(SYNC_CURSOR_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getWorkspaceSyncCursor(workspaceId: string): string | null {
+  if (!workspaceId || ["w1", "w2"].includes(workspaceId)) return null;
+  return readSyncCursorMap()[workspaceId] ?? null;
+}
+
+export function setWorkspaceSyncCursor(workspaceId: string, iso: string): void {
+  if (typeof localStorage === "undefined") return;
+  if (!workspaceId || ["w1", "w2"].includes(workspaceId) || !iso) return;
+  const map = readSyncCursorMap();
+  const prev = map[workspaceId];
+  if (prev && new Date(prev).getTime() >= new Date(iso).getTime()) return;
+  map[workspaceId] = iso;
+  try {
+    localStorage.setItem(SYNC_CURSOR_KEY, JSON.stringify(map));
+  } catch {
+    /* quota */
+  }
+}
+
+export function advanceWorkspaceSyncCursor(
+  workspaceId: string,
+  rows: ReadonlyArray<unknown>,
+): void {
+  let maxMs = 0;
+  let maxIso: string | null = null;
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as { updatedAt?: unknown; createdAt?: unknown };
+    const iso =
+      typeof r.updatedAt === "string"
+        ? r.updatedAt
+        : typeof r.createdAt === "string"
+          ? r.createdAt
+          : null;
+    if (!iso) continue;
+    const ms = new Date(iso).getTime();
+    if (Number.isFinite(ms) && ms >= maxMs) {
+      maxMs = ms;
+      maxIso = iso;
+    }
+  }
+  if (maxIso) setWorkspaceSyncCursor(workspaceId, maxIso);
 }
 
 /** Clear the queue (e.g. after successful full sync or manual reset) */
@@ -1192,7 +1538,7 @@ export async function processPendingOperations(): Promise<{
 }> {
   if (pendingOpsPromise) return pendingOpsPromise;
 
-  pendingOpsPromise = processPendingOperationsInner().finally(() => {
+  pendingOpsPromise = withOutboxLock(() => processPendingOperationsInner()).finally(() => {
     pendingOpsPromise = null;
   });
   return pendingOpsPromise;
@@ -1279,7 +1625,14 @@ async function processPendingOperationsInner(): Promise<{
 
   const remaining: PendingOperation[] = [];
 
-  for (const op of queue) {
+  const originalOpById = new Map(queue.map((op) => [op.opId, op]));
+
+  for (const snapshotOp of queue) {
+    // Prefer live queue entry — coalesce may have merged newer fields while we were awaiting.
+    const op =
+      inMemoryQueue.find((live) => live.opId === snapshotOp.opId) ??
+      loadPendingQueue().find((live) => live.opId === snapshotOp.opId) ??
+      snapshotOp;
     // Additional runtime guard inside process loop (String coercion + safe ID for both IDs).
     // workspaceId used directly in .insert etc; must be clean to avoid uuid errors on tasks/notes.
     const tId = op?.targetId;
@@ -1302,7 +1655,12 @@ async function processPendingOperationsInner(): Promise<{
           });
           if (error) {
             if (error.code === "23505") {
-              // Duplicate key: create already succeeded in prior sync / concurrent write. Treat as synced (idempotent LWW for creates).
+              // Row exists (prior insert / concurrent). Apply payload as update so
+              // coalesced follow-up fields are not dropped on duplicate-key ack.
+              const { error: upErr } = await (supabase.from("tasks") as any)
+                .update(createPayload)
+                .eq("id", op.targetId);
+              if (upErr) throw upErr;
               synced++;
             } else {
               throw error;
@@ -1318,23 +1676,31 @@ async function processPendingOperationsInner(): Promise<{
             synced++;
             continue;
           }
-          // Simple conflict check via updated_at
+          // Conflict check via updated_at + prior-state for status/completion
           const { data: current } = await supabase
             .from("tasks")
-            .select("updated_at")
+            .select("updated_at, status, completed_at")
             .eq("id", op.targetId)
             .single();
 
           const serverTs = (current as any)?.updated_at ? new Date((current as any).updated_at).getTime() : 0;
           const ourTs = new Date(op.timestamp).getTime();
-
-          if (serverTs > ourTs) {
-            skippedConflicts++; // server has newer write → LWW: drop our older offline change
+          const resolved = resolveUpdatePayloadForLww(updatePayload, serverTs, ourTs, {
+            status: (current as any)?.status ?? null,
+            completed_at: (current as any)?.completed_at ?? null,
+          });
+          if (!resolved.apply) {
+            skippedConflicts++;
           } else {
-            const { error } = await (supabase.from("tasks") as any)
-              .update(updatePayload)
-              .eq("id", op.targetId);
+            if (resolved.skippedConflict) skippedConflicts++;
+            const { data: updatedRows, error } = await (supabase.from("tasks") as any)
+              .update(stripBatMetaFields(resolved.apply))
+              .eq("id", op.targetId)
+              .select("id");
             if (error) throw error;
+            if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+              throw new Error(`No tasks row updated for ${op.targetId}`);
+            }
             synced++;
           }
         } else if (op.type === "delete") {
@@ -1350,23 +1716,34 @@ async function processPendingOperationsInner(): Promise<{
             workspace_id: op.workspaceId,
             ...op.payload,
           });
-          if (error) throw error;
-          synced++;
+          if (error) {
+            if (error.code === "23505") {
+              const { error: upErr } = await (supabase.from("notes") as any)
+                .update(op.payload)
+                .eq("id", op.targetId);
+              if (upErr) throw upErr;
+              synced++;
+            } else {
+              throw error;
+            }
+          } else {
+            synced++;
 
-          const noteTitle =
-            typeof (op.payload as { title?: unknown })?.title === "string"
-              ? (op.payload as { title: string }).title
-              : "New note";
-          const {
-            data: { user: actor },
-          } = await supabase.auth.getUser();
-          fanoutNoteAddedNotifications({
-            workspaceId: op.workspaceId,
-            noteId: op.targetId,
-            noteTitle,
-            actorUserId: actor?.id ?? null,
-            supabase: supabase as any,
-          }).catch(() => {});
+            const noteTitle =
+              typeof (op.payload as { title?: unknown })?.title === "string"
+                ? (op.payload as { title: string }).title
+                : "New note";
+            const {
+              data: { user: actor },
+            } = await supabase.auth.getUser();
+            fanoutNoteAddedNotifications({
+              workspaceId: op.workspaceId,
+              noteId: op.targetId,
+              noteTitle,
+              actorUserId: actor?.id ?? null,
+              supabase: supabase as any,
+            }).catch(() => {});
+          }
         } else if (op.type === "update") {
           const { data: current } = await supabase
             .from("notes")
@@ -1377,19 +1754,29 @@ async function processPendingOperationsInner(): Promise<{
           const serverTs = (current as any)?.updated_at ? new Date((current as any).updated_at).getTime() : 0;
           const ourTs = new Date(op.timestamp).getTime();
 
-          if (serverTs > ourTs) {
+          // For notes, payload may contain .content as string; convert like the normal path
+          const updatePayload = { ...op.payload };
+          if (updatePayload.content !== undefined) {
+            updatePayload.content = noteContentToJson(updatePayload.content);
+          }
+
+          const resolved = resolveUpdatePayloadForLww(
+            updatePayload as Record<string, unknown>,
+            serverTs,
+            ourTs,
+          );
+          if (!resolved.apply) {
             skippedConflicts++;
           } else {
-            // For notes, payload may contain .content as string; convert like the normal path
-            const updatePayload = { ...op.payload };
-            if (updatePayload.content !== undefined) {
-              // Reuse existing converter (it's not exported but we can inline minimal or call via any)
-              updatePayload.content = noteContentToJson(updatePayload.content);
-            }
-            const { error } = await (supabase.from("notes") as any)
-              .update(updatePayload)
-              .eq("id", op.targetId);
+            if (resolved.skippedConflict) skippedConflicts++;
+            const { data: updatedRows, error } = await (supabase.from("notes") as any)
+              .update(stripBatMetaFields(resolved.apply))
+              .eq("id", op.targetId)
+              .select("id");
             if (error) throw error;
+            if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+              throw new Error(`No notes row updated for ${op.targetId}`);
+            }
             synced++;
           }
         } else if (op.type === "delete") {
@@ -1416,7 +1803,14 @@ async function processPendingOperationsInner(): Promise<{
             id: listId,
             workspace_id: op.workspaceId,
           });
-          if (error && error.code !== "23505") throw error;
+          if (error) {
+            if (error.code === "23505") {
+              const { error: upErr } = await listsTable.update(raw).eq("id", listId);
+              if (upErr) throw upErr;
+            } else {
+              throw error;
+            }
+          }
           synced++;
         } else if (op.type === "update") {
           const { data: current } = await listsTable
@@ -1454,7 +1848,14 @@ async function processPendingOperationsInner(): Promise<{
             id: itemId,
             workspace_id: op.workspaceId,
           });
-          if (error && error.code !== "23505") throw error;
+          if (error) {
+            if (error.code === "23505") {
+              const { error: upErr } = await itemsTable.update(raw).eq("id", itemId);
+              if (upErr) throw upErr;
+            } else {
+              throw error;
+            }
+          }
           synced++;
         } else if (op.type === "update") {
           const updatePayload = stripListItemNestingField({ ...(op.payload as Record<string, unknown>) });
@@ -1463,18 +1864,30 @@ async function processPendingOperationsInner(): Promise<{
             continue;
           }
           const { data: current } = await itemsTable
-            .select("updated_at")
+            .select("updated_at, completed, pending, completed_at")
             .eq("id", itemId)
             .maybeSingle();
           const serverTs = (current as { updated_at?: string } | null)?.updated_at
             ? new Date((current as { updated_at: string }).updated_at).getTime()
             : 0;
           const ourTs = new Date(op.timestamp).getTime();
-          if (serverTs > ourTs) {
+          const resolved = resolveUpdatePayloadForLww(updatePayload, serverTs, ourTs, {
+            completed: (current as { completed?: boolean } | null)?.completed ?? null,
+            pending: (current as { pending?: boolean } | null)?.pending ?? null,
+            completed_at: (current as { completed_at?: string } | null)?.completed_at ?? null,
+          });
+          if (!resolved.apply) {
             skippedConflicts++;
           } else {
-            const { error } = await itemsTable.update(updatePayload).eq("id", itemId);
+            if (resolved.skippedConflict) skippedConflicts++;
+            const { data: updatedRows, error } = await itemsTable
+              .update(stripBatMetaFields(resolved.apply))
+              .eq("id", itemId)
+              .select("id");
             if (error) throw error;
+            if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+              throw new Error(`No list_items row updated for ${itemId}`);
+            }
             synced++;
           }
         } else if (op.type === "delete") {
@@ -1514,8 +1927,14 @@ async function processPendingOperationsInner(): Promise<{
               });
               if (retryError && retryError.code !== "23505") throw retryError;
             } else {
-              const { error: retryError } = await itemsTable.update(retryPayload).eq("id", itemId);
+              const { data: retryRows, error: retryError } = await itemsTable
+                .update(retryPayload)
+                .eq("id", itemId)
+                .select("id");
               if (retryError) throw retryError;
+              if (!Array.isArray(retryRows) || retryRows.length === 0) {
+                throw new Error(`No list_items row updated for ${itemId}`);
+              }
             }
             synced++;
             continue;
@@ -1632,8 +2051,51 @@ async function processPendingOperationsInner(): Promise<{
     }
   }
 
-  inMemoryQueue = remaining;
-  savePendingQueue(remaining);
+  // Merge — never replace the live queue with the flush snapshot.
+  // Ops enqueued (or coalesced) during awaits must survive; only drop ops we
+  // successfully synced and that were not bumped after the original snapshot.
+  const failedOpIds = new Set(remaining.map((op) => op.opId));
+  const liveRaw = loadPendingQueue().filter((queued) => {
+    const ws = String(queued?.workspaceId ?? "");
+    return !["w1", "w2"].includes(ws) && isSafeId(ws);
+  });
+  const preferNewer = (a: PendingOperation, b: PendingOperation): PendingOperation =>
+    new Date(a.timestamp).getTime() >= new Date(b.timestamp).getTime() ? a : b;
+
+  const byId = new Map<string, PendingOperation>();
+  for (const op of liveRaw) byId.set(op.opId, op);
+  for (const op of inMemoryQueue) {
+    const prev = byId.get(op.opId);
+    byId.set(op.opId, prev ? preferNewer(prev, op) : op);
+  }
+  // Failed ops must survive, but never clobber a newer coalesced payload with the snapshot.
+  for (const op of remaining) {
+    const prev = byId.get(op.opId);
+    byId.set(op.opId, prev ? preferNewer(prev, op) : op);
+  }
+
+  const next: PendingOperation[] = [];
+  for (const op of byId.values()) {
+    const original = originalOpById.get(op.opId);
+    if (!original) {
+      // Enqueued during this flush — keep.
+      next.push(op);
+      continue;
+    }
+    if (failedOpIds.has(op.opId)) {
+      next.push(op);
+      continue;
+    }
+    // Successfully processed from the original batch. Keep only if coalesce
+    // bumped the op after the snapshot (newer fields still need a flush).
+    if (new Date(op.timestamp).getTime() > new Date(original.timestamp).getTime()) {
+      next.push(op);
+    }
+  }
+
+  inMemoryQueue = next;
+  savePendingQueue(next);
+  notifyOutboxPeers();
 
   return { synced, skippedConflicts, failed };
 }
@@ -1658,8 +2120,31 @@ function setupOfflineListenersOnce() {
     // Could broadcast status; store layer will reflect via its own listeners or polls
   };
 
+  const flushPending = () => {
+    if (getPendingCount() > 0) {
+      processPendingOperations().catch((e) =>
+        console.warn("[hybrid offline] auto-sync flush failed:", e),
+      );
+    }
+  };
+
+  const handleVisibilityFlush = () => {
+    if (typeof document === "undefined") return;
+    // Flush when backgrounding (best-effort before kill) AND when resuming (catch up).
+    flushPending();
+    if (document.visibilityState === "visible") {
+      try {
+        window.dispatchEvent(new CustomEvent("bat:resume-sync"));
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
+  window.addEventListener("pagehide", flushPending);
+  document.addEventListener("visibilitychange", handleVisibilityFlush);
 
   // Kick an initial sync attempt if we start while already online with backlog (e.g. after crash)
   if (isCurrentlyOnline() && getPendingCount() > 0) {
@@ -1684,7 +2169,10 @@ export const isSupabaseLive = isSupabaseConfigured;
 setupOfflineListenersOnce();
 
 /** Fetch all tasks for a workspace */
-export async function getTasks(workspaceId: string): Promise<Task[]> {
+export async function getTasks(
+  workspaceId: string,
+  options?: SyncFetchOptions,
+): Promise<Task[]> {
   if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
 
   // Safety guard: never hit Supabase with invalid or demo workspace IDs.
@@ -1705,11 +2193,16 @@ export async function getTasks(workspaceId: string): Promise<Task[]> {
   await probeTaskOrganizeColumns();
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("tasks")
       .select("*")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false });
+    if (options?.updatedSince) {
+      query = query.gte("updated_at", options.updatedSince);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       logHybridError("getTasks", error);
@@ -1741,47 +2234,54 @@ export async function createTask(input: {
   const supabase = getClient();
   if (!supabase) return null;
 
-  const online = isCurrentlyOnline();
+  const clientId = input.id || generateClientId();
+  const dbPayload = buildTaskDbPayload(input);
+  const tempTask: Task = {
+    id: clientId,
+    workspaceId: input.workspaceId,
+    title: input.title,
+    description: input.description ?? "",
+    status: input.status ?? "todo",
+    priority: input.priority ?? "P2",
+    dueDate: input.dueDate,
+    assignee: "You",
+    tags: input.tags ?? [],
+    createdAt: new Date().toISOString(),
+    completedAt: (input as any).completedAt,
+    timeEstimate: (input as any).timeEstimate,
+    linkedNoteIds: (input as any).linkedNoteIds ?? [],
+    recurringRule: (input as any).recurringRule ?? (input as any).recurring_rule ?? undefined,
+    exceptionDates: (input as any).exceptionDates ?? (input as any).exception_dates ?? undefined,
+  };
 
-  // If offline, immediately queue and return an optimistic Task using provided or generated client id.
-  if (!online) {
-    const clientId = input.id || generateClientId();
-    const dbPayload = buildTaskDbPayload(input);
-    const tempTask: Task = {
-      id: clientId,
-      workspaceId: input.workspaceId,
-      title: input.title,
-      description: input.description ?? "",
-      status: input.status ?? "todo",
-      priority: input.priority ?? "P2",
-      dueDate: input.dueDate,
-      assignee: "You",
-      tags: input.tags ?? [],
-      createdAt: new Date().toISOString(),
-      completedAt: (input as any).completedAt,
-      timeEstimate: (input as any).timeEstimate,
-      linkedNoteIds: (input as any).linkedNoteIds ?? [],
-      recurringRule: (input as any).recurringRule ?? (input as any).recurring_rule ?? undefined,
-      exceptionDates: (input as any).exceptionDates ?? (input as any).exception_dates ?? undefined,
-    };
+  // Durable outbox first (online and offline) so mobile kills cannot drop creates.
+  enqueuePendingOperation({
+    type: "create",
+    entityType: "task",
+    targetId: clientId,
+    payload: dbPayload,
+    workspaceId: input.workspaceId,
+  });
+  const writeStartedAt = new Date().toISOString();
 
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "task",
-      targetId: clientId,
-      payload: dbPayload,
-      workspaceId: input.workspaceId,
-    });
-
+  if (!isCurrentlyOnline()) {
     return tempTask;
   }
 
   await probeTaskOrganizeColumns();
-  const dbPayload = buildTaskDbPayload(input);
+  // Re-read coalesced payload so edits during probe are not lost on insert.
+  const liveCreate = inMemoryQueue.find(
+    (op) =>
+      op.type === "create" &&
+      op.entityType === "task" &&
+      op.targetId === clientId &&
+      op.workspaceId === input.workspaceId,
+  );
+  const livePayload = (liveCreate?.payload as Record<string, unknown> | undefined) ?? dbPayload;
   const insertPayload: TaskInsert = {
-    ...(input.id ? { id: input.id } : {}),
+    id: clientId,
     workspace_id: input.workspaceId,
-    ...dbPayload,
+    ...livePayload,
   } as TaskInsert;
 
   try {
@@ -1793,9 +2293,9 @@ export async function createTask(input: {
     if (error && isTaskOrganizeColumnMissing(error)) {
       markTaskOrganizeColumnsMissing();
       const retryPayload: TaskInsert = {
-        ...(input.id ? { id: input.id } : {}),
+        id: clientId,
         workspace_id: input.workspaceId,
-        ...stripTaskOrganizeFields(buildTaskDbPayload(input)),
+        ...stripTaskOrganizeFields(livePayload),
       } as TaskInsert;
       const retry = await (supabase.from("tasks") as any)
         .insert(retryPayload)
@@ -1806,65 +2306,23 @@ export async function createTask(input: {
     }
 
     if (error) {
-      // On transient failure while "online" flag said yes → queue for later (improves resilience)
-      const clientId = input.id || generateClientId();
-      enqueuePendingOperation({
-        type: "create",
-        entityType: "task",
-        targetId: clientId,
-        payload: dbPayload,
-        workspaceId: input.workspaceId,
-      });
+      if (error.code === "23505") {
+        ackPendingOperation("task", clientId, input.workspaceId, "create", writeStartedAt);
+        promoteSurvivingCreateToUpdate("task", clientId, input.workspaceId);
+        return tempTask;
+      }
       logHybridError("createTask", error);
-      // Return optimistic so caller can keep UI consistent
-      return {
-        id: clientId,
-        workspaceId: input.workspaceId,
-        title: input.title,
-        description: input.description ?? "",
-        status: input.status ?? "todo",
-        priority: input.priority ?? "P2",
-        dueDate: input.dueDate,
-        assignee: "You",
-        tags: input.tags ?? [],
-        createdAt: new Date().toISOString(),
-        completedAt: (input as any).completedAt,
-        timeEstimate: (input as any).timeEstimate,
-        linkedNoteIds: (input as any).linkedNoteIds ?? [],
-        recurringRule: (input as any).recurringRule ?? (input as any).recurring_rule ?? undefined,
-        exceptionDates: (input as any).exceptionDates ?? (input as any).exception_dates ?? undefined,
-      };
+      // Already queued — return optimistic so caller can keep UI consistent
+      return tempTask;
     }
 
+    ackPendingOperation("task", clientId, input.workspaceId, "create", writeStartedAt);
+    promoteSurvivingCreateToUpdate("task", clientId, input.workspaceId);
     return mapTaskRow(data);
   } catch (err) {
-    // Network error etc. → queue
-    const clientId = input.id || generateClientId();
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "task",
-      targetId: clientId,
-      payload: dbPayload,
-      workspaceId: input.workspaceId,
-    });
+    // Already queued before network — keep optimistic task
     logHybridError("createTask", err);
-    return {
-      id: clientId,
-      workspaceId: input.workspaceId,
-      title: input.title,
-      description: input.description ?? "",
-      status: input.status ?? "todo",
-      priority: input.priority ?? "P2",
-      dueDate: input.dueDate,
-      assignee: "You",
-      tags: input.tags ?? [],
-      createdAt: new Date().toISOString(),
-      completedAt: (input as any).completedAt,
-      timeEstimate: (input as any).timeEstimate,
-      linkedNoteIds: (input as any).linkedNoteIds ?? [],
-      recurringRule: (input as any).recurringRule ?? (input as any).recurring_rule ?? undefined,
-      exceptionDates: (input as any).exceptionDates ?? (input as any).exception_dates ?? undefined,
-    };
+    return tempTask;
   }
 }
 
@@ -1877,7 +2335,7 @@ export async function updateTask(
     actorName?: string;
     previousAssigneeIds?: string[];
   },
-): Promise<boolean> {
+): Promise<PersistResult> {
   if (!isSupabaseLive()) return false;
 
   const supabase = getClient();
@@ -1938,42 +2396,56 @@ export async function updateTask(
     (payload as { folder_id?: string | null }).folder_id = folderId ?? null;
   }
 
-  const online = isCurrentlyOnline();
+  const workspaceId = String((updates as any).workspaceId || "").trim();
+  if (!isSafeId(workspaceId)) {
+    logHybridError("updateTask", new Error("Missing workspaceId for durable task update"));
+    return false;
+  }
 
   const queuePayload = attachTaskFolderSnapshot(
     { ...(payload as Record<string, unknown>) },
     anyUpdates.taskFolderSnapshot as TaskFolder | undefined,
   );
+  // Keep-class prior for status flips (peer status change wins; title bump does not).
+  if (
+    Object.prototype.hasOwnProperty.call(anyUpdates, "status") &&
+    anyUpdates.priorStatus !== undefined
+  ) {
+    queuePayload[`${BAT_PRIOR_PREFIX}status`] = anyUpdates.priorStatus;
+  }
 
-  if (!online) {
-    // Queue immediately for later LWW sync
-    enqueuePendingOperation({
-      type: "update",
-      entityType: "task",
-      targetId: id,
-      payload: queuePayload,
-      workspaceId: (updates as any).workspaceId || "", // best effort; store caller usually knows context
-    });
-    return true; // Optimistic success from data layer perspective
+  // Durable outbox first so mobile kills cannot drop completes/status flips.
+  enqueuePendingOperation({
+    type: "update",
+    entityType: "task",
+    targetId: id,
+    payload: queuePayload,
+    workspaceId,
+  });
+  const writeStartedAt = new Date().toISOString();
+
+  if (!isCurrentlyOnline()) {
+    return "queued";
   }
 
   await probeTaskOrganizeColumns();
   let syncPayload = queuePayload;
   if ((queuePayload as { folder_id?: string | null }).folder_id) {
-    syncPayload = await ensureTaskFolderForPayload(
-      queuePayload,
-      (updates as any).workspaceId || "",
-    );
+    syncPayload = await ensureTaskFolderForPayload(queuePayload, workspaceId);
   }
-  const sendPayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(syncPayload));
+  const sendPayload = stripBatMetaFields(
+    stripTaskFolderSnapshot(stripTaskOrganizeFields(syncPayload)),
+  );
   if (Object.keys(sendPayload).length === 0) {
-    return true;
+    ackPendingOperation("task", id, workspaceId, "update", writeStartedAt);
+    return "persisted";
   }
 
   try {
-    const { error } = await (supabase.from("tasks") as any)
+    const { data, error } = await (supabase.from("tasks") as any)
       .update(sendPayload)
-      .eq("id", id);
+      .eq("id", id)
+      .select("id");
 
     if (error) {
       if (isTaskOrganizeColumnMissing(error)) {
@@ -1982,56 +2454,57 @@ export async function updateTask(
           stripTaskOrganizeFields({ ...(payload as Record<string, unknown>) }),
         );
         if (Object.keys(retryPayload).length === 0) {
-          return true;
+          return "queued";
         }
-        const { error: retryError } = await (supabase.from("tasks") as any)
+        const { data: retryData, error: retryError } = await (supabase.from("tasks") as any)
           .update(retryPayload)
-          .eq("id", id);
-        if (!retryError) {
-          return true;
+          .eq("id", id)
+          .select("id");
+        if (!retryError && Array.isArray(retryData) && retryData.length > 0) {
+          ackPendingOperation("task", id, workspaceId, "update", writeStartedAt);
+          return "persisted";
         }
       }
       if (isTaskFolderFkViolation(error) && (sendPayload as { folder_id?: string | null }).folder_id) {
-        const ensured = await ensureTaskFolderForPayload(
-          queuePayload,
-          (updates as any).workspaceId || "",
-        );
+        const ensured = await ensureTaskFolderForPayload(queuePayload, workspaceId);
         const fkRetryPayload = stripTaskFolderSnapshot(stripTaskOrganizeFields(ensured));
         if (Object.keys(fkRetryPayload).length === 0) {
-          return true;
+          return "queued";
         }
-        const { error: fkRetryError } = await (supabase.from("tasks") as any)
+        const { data: fkRetryData, error: fkRetryError } = await (supabase.from("tasks") as any)
           .update(fkRetryPayload)
-          .eq("id", id);
-        if (!fkRetryError) {
-          return true;
+          .eq("id", id)
+          .select("id");
+        if (!fkRetryError && Array.isArray(fkRetryData) && fkRetryData.length > 0) {
+          ackPendingOperation("task", id, workspaceId, "update", writeStartedAt);
+          return "persisted";
         }
       }
-      // Transient error while thought-to-be-online → queue it
-      enqueuePendingOperation({
-        type: "update",
-        entityType: "task",
-        targetId: id,
-        payload: queuePayload,
-        workspaceId: (updates as any).workspaceId || "",
-      });
       logHybridError("updateTask", error);
-      return true; // Still "succeeded" locally/queued
+      return "queued";
     }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      logHybridError("updateTask", new Error(`No tasks row updated for ${id}`));
+      dropPendingOperation("task", id, workspaceId);
+      return false;
+    }
+
+    ackPendingOperation("task", id, workspaceId, "update", writeStartedAt);
 
     const newAssigneeIds = payload.assignee_ids as string[] | undefined;
     const previousAssigneeIds = updates.previousAssigneeIds ?? [];
-    if (newAssigneeIds && updates.workspaceId && !["w1", "w2"].includes(updates.workspaceId)) {
+    if (newAssigneeIds && !["w1", "w2"].includes(workspaceId)) {
       const addedAssignees = newAssigneeIds.filter((uid) => !previousAssigneeIds.includes(uid));
       if (addedAssignees.length > 0) {
         void (async () => {
           const [{ data: workspace }, { data: task }] = await Promise.all([
-            supabase.from("workspaces").select("name").eq("id", updates.workspaceId!).maybeSingle(),
+            supabase.from("workspaces").select("name").eq("id", workspaceId).maybeSingle(),
             supabase.from("tasks").select("title").eq("id", id).maybeSingle(),
           ]);
           await fanoutTaskAssignedNotifications({
             supabase,
-            workspaceId: updates.workspaceId!,
+            workspaceId,
             workspaceName:
               (workspace as { name?: string } | null)?.name?.trim() || "your workspace",
             taskId: id,
@@ -2044,17 +2517,10 @@ export async function updateTask(
       }
     }
 
-    return true;
+    return "persisted";
   } catch (err) {
-    enqueuePendingOperation({
-      type: "update",
-      entityType: "task",
-      targetId: id,
-      payload: queuePayload,
-      workspaceId: (updates as any).workspaceId || "",
-    });
     logHybridError("updateTask", err);
-    return true;
+    return "queued";
   }
 }
 
@@ -2094,43 +2560,29 @@ export async function deleteTask(id: string, workspaceId?: string): Promise<bool
   if (!supabase) return false;
 
   const ws = workspaceId || "";
-  const online = isCurrentlyOnline();
 
-  if (!online) {
-    enqueuePendingOperation({
-      type: "delete",
-      entityType: "task",
-      targetId: id,
-      payload: {},
-      workspaceId: ws,
-    });
-    return true;
-  }
+  // Outbox first — mobile kill mid-DELETE must not lose the delete (ghost revival).
+  enqueuePendingOperation({
+    type: "delete",
+    entityType: "task",
+    targetId: id,
+    payload: {},
+    workspaceId: ws,
+  });
+
+  if (!isCurrentlyOnline()) return true;
 
   try {
     const { error } = await supabase.from("tasks").delete().eq("id", id);
 
     if (error) {
-      enqueuePendingOperation({
-        type: "delete",
-        entityType: "task",
-        targetId: id,
-        payload: {},
-        workspaceId: ws,
-      });
       logHybridError("deleteTask", error);
       return true;
     }
 
+    ackPendingOperation("task", id, ws, "delete");
     return true;
   } catch (err) {
-    enqueuePendingOperation({
-      type: "delete",
-      entityType: "task",
-      targetId: id,
-      payload: {},
-      workspaceId: ws,
-    });
     logHybridError("deleteTask", err);
     return true;
   }
@@ -2140,7 +2592,7 @@ export async function deleteTask(id: string, workspaceId?: string): Promise<bool
 export async function moveTask(id: string, newStatus: TaskStatus, workspaceId?: string): Promise<boolean> {
   const updates: any = { status: newStatus };
   if (workspaceId) updates.workspaceId = workspaceId;
-  return updateTask(id, updates);
+  return (await updateTask(id, updates)) !== false;
 }
 
 // ------------------------------------------------------------------
@@ -2148,7 +2600,10 @@ export async function moveTask(id: string, newStatus: TaskStatus, workspaceId?: 
 // ------------------------------------------------------------------
 
 /** Fetch all active notes for a workspace as lightweight list projections (no heavy bodies). */
-export async function getNotes(workspaceId: string): Promise<Note[]> {
+export async function getNotes(
+  workspaceId: string,
+  options?: SyncFetchOptions,
+): Promise<Note[]> {
   if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
 
   // Safety guard: never hit Supabase with invalid or demo workspace IDs.
@@ -2165,12 +2620,17 @@ export async function getNotes(workspaceId: string): Promise<Note[]> {
   if (!supabase) return [];
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("notes")
       .select(NOTE_LIST_SELECT)
       .eq("workspace_id", workspaceId)
       .eq("is_archived", false) // Phase 1: surface only active notes
       .order("updated_at", { ascending: false });
+    if (options?.updatedSince) {
+      query = query.gte("updated_at", options.updatedSince);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       logHybridError("getNotes", error);
@@ -2381,6 +2841,27 @@ export async function createNote(input: {
   if (!supabase) return null;
 
   const isNotebookNote = !!input.notebookId;
+  const clientId = input.id || generateClientId();
+  const contentJson = noteContentToJson(input.content);
+
+  // Outbox FIRST — before probe — so a kill during schema probe cannot drop the create.
+  const pendingPayload: Record<string, unknown> = {
+    title: input.title,
+    content: contentJson,
+    tags: input.tags ?? [],
+    is_archived: false,
+    ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
+    ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
+  };
+  enqueuePendingOperation({
+    type: "create",
+    entityType: "note",
+    targetId: clientId,
+    payload: pendingPayload,
+    workspaceId: input.workspaceId,
+  });
+  const writeStartedAt = new Date().toISOString();
+
   await probeFilesWorkflow();
   const reviewStatus = isNotebookNote
     ? undefined
@@ -2389,45 +2870,32 @@ export async function createNote(input: {
   const recordType = isNotebookNote
     ? undefined
     : input.recordType ?? inferRecordTypeFromTags(input.tags ?? []);
-  const online = isCurrentlyOnline();
+  const tempNote: Note = {
+    id: clientId,
+    workspaceId: input.workspaceId,
+    title: input.title,
+    content: input.content ?? "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    tags: input.tags ?? [],
+    linkedTaskIds: [],
+    reviewStatus,
+    recordType,
+    memo: input.memo ?? null,
+    parentNoteId: input.parentNoteId ?? null,
+    notebookId: input.notebookId ?? null,
+  };
 
-  if (!online) {
-    const clientId = input.id || generateClientId();
-    const tempNote: Note = {
-      id: clientId,
-      workspaceId: input.workspaceId,
+  if (filesWorkflowAvailable && !isNotebookNote) {
+    pendingPayload.review_status = reviewStatus;
+    pendingPayload.record_type = recordType;
+    if (input.memo) pendingPayload.memo = input.memo;
+    appendSearchFieldsToNotePayload(pendingPayload as Partial<NoteInsert>, {
       title: input.title,
-      content: input.content ?? "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: input.tags ?? [],
-      linkedTaskIds: [],
-      reviewStatus,
-      recordType,
-      memo: input.memo ?? null,
-      notebookId: input.notebookId ?? null,
-    };
-
-    const contentJson = noteContentToJson(input.content);
-    const pendingPayload: Record<string, unknown> = {
-      title: input.title,
-      content: contentJson,
-      tags: input.tags ?? [],
-      is_archived: false,
-      ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
-      ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
-    };
-    if (filesWorkflowAvailable && !isNotebookNote) {
-      pendingPayload.review_status = reviewStatus;
-      pendingPayload.record_type = recordType;
-      if (input.memo) pendingPayload.memo = input.memo;
-      appendSearchFieldsToNotePayload(pendingPayload as Partial<NoteInsert>, {
-        title: input.title,
-        content: input.content,
-        tags: input.tags,
-        memo: input.memo,
-      });
-    }
+      content: input.content,
+      tags: input.tags,
+      memo: input.memo,
+    });
     enqueuePendingOperation({
       type: "create",
       entityType: "note",
@@ -2435,14 +2903,14 @@ export async function createNote(input: {
       payload: pendingPayload,
       workspaceId: input.workspaceId,
     });
+  }
 
+  if (!isCurrentlyOnline()) {
     return tempNote;
   }
 
-  const contentJson = noteContentToJson(input.content);
-
   const insertPayload: NoteInsert & Record<string, unknown> = {
-    ...(input.id ? { id: input.id } : {}),
+    id: clientId,
     workspace_id: input.workspaceId,
     title: input.title,
     content: contentJson,
@@ -2473,36 +2941,17 @@ export async function createNote(input: {
       .single();
 
     if (error) {
-      const clientId = input.id || generateClientId();
-      enqueuePendingOperation({
-        type: "create",
-        entityType: "note",
-        targetId: clientId,
-        payload: {
-          title: input.title,
-          content: contentJson,
-          tags: input.tags ?? [],
-          is_archived: false,
-          ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
-          ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
-        },
-        workspaceId: input.workspaceId,
-      });
+      if (error.code === "23505") {
+        ackPendingOperation("note", clientId, input.workspaceId, "create", writeStartedAt);
+        promoteSurvivingCreateToUpdate("note", clientId, input.workspaceId);
+        return tempNote;
+      }
       logHybridError("createNote", error);
-      return {
-        id: clientId,
-        workspaceId: input.workspaceId,
-        title: input.title,
-        content: input.content ?? "",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tags: input.tags ?? [],
-        linkedTaskIds: [],
-        parentNoteId: input.parentNoteId ?? null,
-        notebookId: input.notebookId ?? null,
-      };
+      return tempNote;
     }
 
+    ackPendingOperation("note", clientId, input.workspaceId, "create", writeStartedAt);
+    promoteSurvivingCreateToUpdate("note", clientId, input.workspaceId);
     const created = mapNoteRow(data);
 
     if (!isNotebookNote) {
@@ -2521,34 +2970,8 @@ export async function createNote(input: {
 
     return created;
   } catch (err) {
-    const clientId = input.id || generateClientId();
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "note",
-      targetId: clientId,
-      payload: {
-        title: input.title,
-        content: noteContentToJson(input.content),
-        tags: input.tags ?? [],
-        is_archived: false,
-        ...(input.parentNoteId ? { parent_note_id: input.parentNoteId } : {}),
-        ...(input.notebookId ? { notebook_id: input.notebookId } : {}),
-      },
-      workspaceId: input.workspaceId,
-    });
     logHybridError("createNote", err);
-    return {
-      id: clientId,
-      workspaceId: input.workspaceId,
-      title: input.title,
-      content: input.content ?? "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: input.tags ?? [],
-      linkedTaskIds: [],
-      parentNoteId: input.parentNoteId ?? null,
-      notebookId: input.notebookId ?? null,
-    };
+    return tempNote;
   }
 }
 
@@ -2575,7 +2998,7 @@ async function resolveWorkspaceIdForNote(noteId: string): Promise<string> {
 }
 
 /** Update an existing note (partial) */
-export async function updateNote(id: string, updates: Partial<Note>): Promise<boolean> {
+export async function updateNote(id: string, updates: Partial<Note>): Promise<PersistResult> {
   if (typeof id !== 'string' || !id || id.length < 5) {
     console.error('[BadAssTasks] updateNote called with invalid id (likely object leaked from drag/hierarchy)', id);
     return false;
@@ -2586,7 +3009,12 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
   const supabase = getClient();
   if (!supabase) return false;
 
-  await probeFilesWorkflow();
+  // Prefer caller workspaceId — never block outbox on a network resolve roundtrip.
+  let wsForQueue = String((updates as { workspaceId?: string }).workspaceId || "").trim();
+  if (!isSafeId(wsForQueue)) {
+    logHybridError("updateNote", new Error("Missing workspaceId for durable note update"));
+    return false;
+  }
 
   const payload: Partial<NoteInsert> = {};
 
@@ -2636,6 +3064,19 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
         ? null
         : (updates.aiSuggestion as Json);
   }
+
+  if (Object.keys(payload).length === 0) return "persisted";
+
+  // Durable outbox FIRST (before probe) so mobile kills cannot drop note edits.
+  enqueuePendingOperation({
+    type: "update",
+    entityType: "note",
+    targetId: id,
+    payload,
+    workspaceId: wsForQueue,
+  });
+
+  await probeFilesWorkflow();
   if (
     filesWorkflowAvailable &&
     (updates.title !== undefined ||
@@ -2651,15 +3092,7 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
       tags: updates.tags,
       memo: updates.memo,
     });
-  }
-
-  // Resolve workspace for any compensation enqueue (offline or Supabase error path).
-  // Prefers explicit on the updates object (zero-cost common case from callers that have the note).
-  const wsForQueue = (updates as any).workspaceId || (await resolveWorkspaceIdForNote(id));
-
-  const online = isCurrentlyOnline();
-
-  if (!online) {
+    // Coalesce search fields into the already-queued op.
     enqueuePendingOperation({
       type: "update",
       entityType: "note",
@@ -2667,37 +3100,37 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<bo
       payload,
       workspaceId: wsForQueue,
     });
-    return true;
   }
+
+  if (!isCurrentlyOnline()) {
+    return "queued";
+  }
+
+  // Stamp after final coalesce so ack doesn't leave a just-written op behind.
+  const writeStartedAt = new Date().toISOString();
 
   try {
-    const { error } = await (supabase.from("notes") as any)
+    const { data, error } = await (supabase.from("notes") as any)
       .update(payload)
-      .eq("id", id);
+      .eq("id", id)
+      .select("id");
 
     if (error) {
-      enqueuePendingOperation({
-        type: "update",
-        entityType: "note",
-        targetId: id,
-        payload,
-        workspaceId: wsForQueue,
-      });
       logHybridError("updateNote", error);
-      return true;
+      return "queued";
     }
 
-    return true;
+    if (!Array.isArray(data) || data.length === 0) {
+      logHybridError("updateNote", new Error(`No notes row updated for ${id}`));
+      dropPendingOperation("note", id, wsForQueue);
+      return false;
+    }
+
+    ackPendingOperation("note", id, wsForQueue, "update", writeStartedAt);
+    return "persisted";
   } catch (err) {
-    enqueuePendingOperation({
-      type: "update",
-      entityType: "note",
-      targetId: id,
-      payload,
-      workspaceId: wsForQueue,
-    });
     logHybridError("updateNote", err);
-    return true;
+    return "queued";
   }
 }
 
@@ -2706,10 +3139,12 @@ export async function archiveFileRecord(
   id: string,
   workspaceId?: string,
 ): Promise<boolean> {
-  return updateNote(id, {
-    workspaceId,
-    isArchived: true,
-  } as Partial<import("@/types").Note> & { workspaceId?: string; isArchived: boolean });
+  return (
+    (await updateNote(id, {
+      workspaceId,
+      isArchived: true,
+    } as Partial<import("@/types").Note> & { workspaceId?: string; isArchived: boolean })) !== false
+  );
 }
 
 /** Approve a record from Review into the filed library. */
@@ -2729,16 +3164,18 @@ export async function approveFileRecord(
     return false;
   }
   const now = new Date().toISOString();
-  return updateNote(id, {
-    workspaceId: input.workspaceId,
-    ...(input.title !== undefined ? { title: input.title } : {}),
-    tags: input.tags,
-    memo: input.memo ?? null,
-    ...(input.recordType ? { recordType: input.recordType } : {}),
-    reviewStatus: FILE_REVIEW_FILED,
-    filedAt: now,
-    reviewedBy: input.reviewedBy ?? null,
-  });
+  return (
+    (await updateNote(id, {
+      workspaceId: input.workspaceId,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      tags: input.tags,
+      memo: input.memo ?? null,
+      ...(input.recordType ? { recordType: input.recordType } : {}),
+      reviewStatus: FILE_REVIEW_FILED,
+      filedAt: now,
+      reviewedBy: input.reviewedBy ?? null,
+    })) !== false
+  );
 }
 
 /** Server-side workspace file search (FTS RPC with client fallback). */
@@ -2877,7 +3314,7 @@ export async function onPersistSnapshot(
       // Offline: use existing updateNote which enqueues with snapshots payload (will merge on client caller side)
       // Note: limitation - single-snapshot enqueue in this branch (see M3 table above)
       logger.info?.(`[hybridStore] onPersistSnapshot offline enqueue for note ${noteId}`);
-      return updateNote(noteId, { snapshots: [snapshot] } as any);
+      return (await updateNote(noteId, { snapshots: [snapshot] } as any)) !== false;
     }
 
     // LIVE round-trip: authoritative fetch + merge on server (HARDENED with retry + logging)
@@ -2929,7 +3366,7 @@ export async function onPersistSnapshot(
       const uErr = new Error("update failed after all retries");
       logHybridError("onPersistSnapshot:update-after-retries", uErr);
       // Fallback to updateNote path (will queue if needed)
-      return updateNote(noteId, { snapshots: merged } as any);
+      return (await updateNote(noteId, { snapshots: merged } as any)) !== false;
     }
 
     logger.info?.(`[hybridStore] onPersistSnapshot LIVE success for note=${noteId} (merged count=${merged.length})`);
@@ -2938,7 +3375,7 @@ export async function onPersistSnapshot(
     logHybridError("onPersistSnapshot", err);
     // Resilient fallback: delegate to updateNote (handles enqueue + optimistic) - no outer existing ref
     try {
-      return await updateNote(noteId, { snapshots: [snapshot] } as any);
+      return (await updateNote(noteId, { snapshots: [snapshot] } as any)) !== false;
     } catch (fbErr) {
       logHybridError("onPersistSnapshot:fallback-updateNote", fbErr);
       return false;
@@ -2953,46 +3390,31 @@ export async function deleteNote(id: string): Promise<boolean> {
   const supabase = getClient();
   if (!supabase) return false;
 
-  const online = isCurrentlyOnline();
-
   // Resolve ws for compensation queue (prevents "refusing to enqueue" for valid live note deletes)
   const wsForQueue = await resolveWorkspaceIdForNote(id);
 
-  if (!online) {
-    enqueuePendingOperation({
-      type: "delete",
-      entityType: "note",
-      targetId: id,
-      payload: {},
-      workspaceId: wsForQueue,
-    });
-    return true;
-  }
+  // Outbox first — before network — so a kill mid-DELETE cannot revive the note.
+  enqueuePendingOperation({
+    type: "delete",
+    entityType: "note",
+    targetId: id,
+    payload: {},
+    workspaceId: wsForQueue,
+  });
+
+  if (!isCurrentlyOnline()) return true;
 
   try {
     const { error } = await supabase.from("notes").delete().eq("id", id);
 
     if (error) {
-      enqueuePendingOperation({
-        type: "delete",
-        entityType: "note",
-        targetId: id,
-        payload: {},
-        workspaceId: wsForQueue,
-      });
       logHybridError("deleteNote", error);
       return true;
     }
 
+    ackPendingOperation("note", id, wsForQueue, "delete");
     return true;
   } catch (err) {
-    enqueuePendingOperation({
-      type: "delete",
-      entityType: "note",
-      targetId: id,
-      payload: {},
-      workspaceId: wsForQueue,
-    });
     logHybridError("deleteNote", err);
     return true;
   }
@@ -4929,6 +5351,29 @@ let activeNotebookTaskChannel: any = null;
 let activeSharedListChannel: any = null;
 let activeListShareChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
+let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleRealtimeReconnect(label: string, wsId: string, status: string) {
+  if (typeof window === "undefined") return;
+  if (realtimeReconnectTimer) return;
+  console.warn(`[realtime] ${label} ${status} for workspace ${wsId} — scheduling reconnect`);
+  realtimeReconnectTimer = setTimeout(() => {
+    realtimeReconnectTimer = null;
+    window.dispatchEvent(new CustomEvent("bat:resume-sync"));
+  }, 2500);
+}
+
+function bindRealtimeStatus(label: string, wsId: string) {
+  return (status: string) => {
+    if (status === "SUBSCRIBED") {
+      console.log(`[realtime] ${label} subscribed for workspace ${wsId}`);
+      return;
+    }
+    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+      scheduleRealtimeReconnect(label, wsId, status);
+    }
+  };
+}
 
 // Track the workspace we are currently actively subscribed for (prevents double-subscribe on rapid switchWorkspace + initializeFromSupabase)
 // This let is intentionally module-private. Use __getCurrentRealtimeWorkspaceIdForTests() / __reset... for tests only.
@@ -5083,11 +5528,7 @@ export function subscribeToWorkspaceRealtime(
           onTaskChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] tasks subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("tasks", wsId));
   }
 
   if (onNoteChange) {
@@ -5105,11 +5546,7 @@ export function subscribeToWorkspaceRealtime(
           onNoteChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] notes subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("notes", wsId));
   }
 
   if (onInviteChange) {
@@ -5127,11 +5564,7 @@ export function subscribeToWorkspaceRealtime(
           onInviteChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] invites subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("invites", wsId));
   }
 
   if (onMemberChange) {
@@ -5149,11 +5582,7 @@ export function subscribeToWorkspaceRealtime(
           onMemberChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] members subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("members", wsId));
   }
 
   // Teammate profile updates (name, handle, location). RLS limits events to visible profiles.
@@ -5171,11 +5600,7 @@ export function subscribeToWorkspaceRealtime(
           onProfileChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] profiles subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("profiles", wsId));
   }
 
   // Comments have no workspace_id column — RLS scopes events; handler filters by task/note in workspace.
@@ -5193,11 +5618,7 @@ export function subscribeToWorkspaceRealtime(
           onCommentChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] comments subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("comments", wsId));
   }
 
   if (onListChange) {
@@ -5215,11 +5636,7 @@ export function subscribeToWorkspaceRealtime(
           onListChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] workspace_lists subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("workspace_lists", wsId));
   }
 
   if (onListItemChange) {
@@ -5237,11 +5654,7 @@ export function subscribeToWorkspaceRealtime(
           onListItemChange(payload);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] list_items subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("list_items", wsId));
   }
 
   if (onNotebookTaskChange) {
@@ -5259,11 +5672,7 @@ export function subscribeToWorkspaceRealtime(
           onNotebookTaskChange(payload);
         },
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] notebook_tasks subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("notebook_tasks", wsId));
   }
 
   // Live-linked lists: items/metadata live under the source workspace_id, so subscribe by list_id.
@@ -5305,6 +5714,10 @@ export function subscribeToWorkspaceRealtime(
         console.log(
           `[realtime] shared lists subscribed for workspace ${wsId} (${sharedListIds.length} list(s))`,
         );
+        return;
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        scheduleRealtimeReconnect("shared_lists", wsId, status);
       }
     });
   } else {
@@ -5326,11 +5739,7 @@ export function subscribeToWorkspaceRealtime(
           onListShareChange(payload);
         },
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[realtime] workspace_list_shares subscribed for workspace ${wsId}`);
-        }
-      });
+      .subscribe(bindRealtimeStatus("workspace_list_shares", wsId));
   }
 
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
@@ -6095,10 +6504,11 @@ export function mapListItemRow(row: ListItemRow): ListItem {
 
 export async function getWorkspaceListsBundle(
   workspaceId: string,
+  options?: SyncFetchOptions,
 ): Promise<{ lists: WorkspaceList[]; items: ListItem[] }> {
   const [ownedLists, ownedItems] = await Promise.all([
     getWorkspaceLists(workspaceId),
-    getListItems(workspaceId),
+    getListItems(workspaceId, options),
   ]);
 
   const sharedLists = await getSharedListsForWorkspace(workspaceId);
@@ -6152,18 +6562,26 @@ export async function getWorkspaceLists(workspaceId: string): Promise<WorkspaceL
   }
 }
 
-export async function getListItems(workspaceId: string): Promise<ListItem[]> {
+export async function getListItems(
+  workspaceId: string,
+  options?: SyncFetchOptions,
+): Promise<ListItem[]> {
   if (!isLiveDataWorkspace(workspaceId) || !isCurrentlyOnline()) return [];
 
   const supabase = getClient();
   if (!supabase) return [];
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("list_items")
       .select("*")
       .eq("workspace_id", workspaceId)
       .order("sort_order", { ascending: true });
+    if (options?.updatedSince) {
+      query = query.gte("updated_at", options.updatedSince);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       if (isSchemaTableMissing(error)) {
@@ -6190,7 +6608,6 @@ export async function createWorkspaceList(input: {
   pinned?: boolean;
 }): Promise<boolean> {
   if (!isLiveDataWorkspace(input.workspaceId)) return false;
-  if (!(await ensureWorkspaceListPersistenceReady())) return true;
 
   const clientId = normalizeListEntityId(input.id);
   const payload: WorkspaceListInsert = {
@@ -6202,19 +6619,22 @@ export async function createWorkspaceList(input: {
     pinned: input.pinned ?? false,
   };
 
-  if (!isCurrentlyOnline()) {
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "list",
-      targetId: clientId,
-      payload,
-      workspaceId: input.workspaceId,
-    });
-    return true;
-  }
+  // Outbox first — never gate durability on ensure/probe (that previously skipped the write).
+  enqueuePendingOperation({
+    type: "create",
+    entityType: "list",
+    targetId: clientId,
+    payload,
+    workspaceId: input.workspaceId,
+  });
+  const writeStartedAt = new Date().toISOString();
+
+  void ensureWorkspaceListPersistenceReady();
+
+  if (!isCurrentlyOnline()) return true;
 
   const supabase = getClient();
-  if (!supabase) return false;
+  if (!supabase) return true;
 
   try {
     const table = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
@@ -6224,30 +6644,23 @@ export async function createWorkspaceList(input: {
         markWorkspaceListTablesMissing();
         return true;
       }
-      enqueuePendingOperation({
-        type: "create",
-        entityType: "list",
-        targetId: clientId,
-        payload,
-        workspaceId: input.workspaceId,
-      });
+      if (error.code === "23505") {
+        ackPendingOperation("list", clientId, input.workspaceId, "create", writeStartedAt);
+        promoteSurvivingCreateToUpdate("list", clientId, input.workspaceId);
+        return true;
+      }
       logHybridError("createWorkspaceList", error);
-    } else {
-      markWorkspaceListTablesAvailable();
+      return true;
     }
+    markWorkspaceListTablesAvailable();
+    ackPendingOperation("list", clientId, input.workspaceId, "create", writeStartedAt);
+    promoteSurvivingCreateToUpdate("list", clientId, input.workspaceId);
     return true;
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
       return true;
     }
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "list",
-      targetId: clientId,
-      payload,
-      workspaceId: input.workspaceId,
-    });
     logHybridError("createWorkspaceList", err);
     return true;
   }
@@ -6259,7 +6672,6 @@ export async function updateWorkspaceList(
   updates: Partial<Pick<WorkspaceList, "title" | "color" | "sortOrder" | "pinned" | "archived">>,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
-  if (!isWorkspaceListPersistenceEnabled()) return true;
 
   const listId = normalizeListEntityId(id);
   const payload: Partial<WorkspaceListInsert> = {};
@@ -6270,32 +6682,41 @@ export async function updateWorkspaceList(
   if (updates.archived !== undefined) payload.archived = updates.archived;
   if (Object.keys(payload).length === 0) return true;
 
-  if (!isCurrentlyOnline()) {
-    enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
-    return true;
-  }
+  enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
+  const writeStartedAt = new Date().toISOString();
+
+  if (!isWorkspaceListPersistenceEnabled() || !isCurrentlyOnline()) return true;
 
   const supabase = getClient();
-  if (!supabase) return false;
+  if (!supabase) return true;
 
   try {
     const table = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
-    const { error } = await table.update(payload).eq("id", listId).eq("workspace_id", workspaceId);
+    const { data, error } = await table
+      .update(payload)
+      .eq("id", listId)
+      .eq("workspace_id", workspaceId)
+      .select("id");
     if (error) {
       if (isSchemaTableMissing(error)) {
         markWorkspaceListTablesMissing();
         return true;
       }
-      enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
       logHybridError("updateWorkspaceList", error);
+      return true;
     }
+    if (!Array.isArray(data) || data.length === 0) {
+      logHybridError("updateWorkspaceList", new Error(`No workspace_lists row updated for ${listId}`));
+      dropPendingOperation("list", listId, workspaceId);
+      return false;
+    }
+    ackPendingOperation("list", listId, workspaceId, "update", writeStartedAt);
     return true;
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
       return true;
     }
-    enqueuePendingOperation({ type: "update", entityType: "list", targetId: listId, payload, workspaceId });
     logHybridError("updateWorkspaceList", err);
     return true;
   }
@@ -6303,17 +6724,15 @@ export async function updateWorkspaceList(
 
 export async function deleteWorkspaceList(id: string, workspaceId: string): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
-  if (!isWorkspaceListPersistenceEnabled()) return true;
 
   const listId = normalizeListEntityId(id);
 
-  if (!isCurrentlyOnline()) {
-    enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
-    return true;
-  }
+  enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
+
+  if (!isCurrentlyOnline()) return true;
 
   const supabase = getClient();
-  if (!supabase) return false;
+  if (!supabase) return true;
 
   try {
     const table = supabase.from("workspace_lists") as ReturnType<typeof supabase.from>;
@@ -6323,16 +6742,16 @@ export async function deleteWorkspaceList(id: string, workspaceId: string): Prom
         markWorkspaceListTablesMissing();
         return true;
       }
-      enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
       logHybridError("deleteWorkspaceList", error);
+      return true;
     }
+    ackPendingOperation("list", listId, workspaceId, "delete");
     return true;
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
       return true;
     }
-    enqueuePendingOperation({ type: "delete", entityType: "list", targetId: listId, payload: {}, workspaceId });
     logHybridError("deleteWorkspaceList", err);
     return true;
   }
@@ -6347,7 +6766,7 @@ export async function createListItem(input: {
   parentItemId?: string | null;
   completed?: boolean;
   completedAt?: string;
-}): Promise<boolean> {
+}): Promise<PersistResult> {
   if (!isLiveDataWorkspace(input.workspaceId)) return false;
 
   const clientId = normalizeListEntityId(input.id);
@@ -6362,80 +6781,80 @@ export async function createListItem(input: {
     completed_at: input.completedAt ?? null,
   } as ListItemInsert);
 
-  if (!(await ensureWorkspaceListPersistenceReady())) {
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "list_item",
-      targetId: clientId,
-      payload,
-      workspaceId: input.workspaceId,
-    });
-    return true;
-  }
+  // Durable outbox first — never depend on ensure/probe completing before durability.
+  enqueuePendingOperation({
+    type: "create",
+    entityType: "list_item",
+    targetId: clientId,
+    payload,
+    workspaceId: input.workspaceId,
+  });
+  const writeStartedAt = new Date().toISOString();
 
-  if (!isCurrentlyOnline()) {
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "list_item",
-      targetId: clientId,
-      payload,
-      workspaceId: input.workspaceId,
-    });
-    return true;
+  await ensureWorkspaceListPersistenceReady();
+
+  if (!isWorkspaceListPersistenceEnabled() || !isCurrentlyOnline()) {
+    return "queued";
   }
 
   const supabase = getClient();
-  if (!supabase) return false;
+  if (!supabase) return "queued";
 
   try {
     const table = supabase.from("list_items") as ReturnType<typeof supabase.from>;
-    const { error } = await table.insert(payload);
+    const liveCreate = inMemoryQueue.find(
+      (op) =>
+        op.type === "create" &&
+        op.entityType === "list_item" &&
+        op.targetId === clientId &&
+        op.workspaceId === input.workspaceId,
+    );
+    const insertPayload = (liveCreate?.payload as Record<string, unknown> | undefined) ?? payload;
+    const { error } = await table.insert(insertPayload);
     if (error) {
       if (isSchemaTableMissing(error)) {
         markWorkspaceListTablesMissing();
-        return true;
+        return "queued";
       }
       if (isListItemNestingColumnMissing(error)) {
         markListItemNestingMissing();
-        const retryPayload = stripListItemNestingField({ ...payload });
+        const retryPayload = stripListItemNestingField({ ...insertPayload });
         const { error: retryError } = await table.insert(retryPayload);
         if (!retryError) {
           markWorkspaceListTablesAvailable();
-          return true;
+          ackPendingOperation("list_item", clientId, input.workspaceId, "create", writeStartedAt);
+          promoteSurvivingCreateToUpdate("list_item", clientId, input.workspaceId);
+          return "persisted";
         }
       }
-      enqueuePendingOperation({
-        type: "create",
-        entityType: "list_item",
-        targetId: clientId,
-        payload,
-        workspaceId: input.workspaceId,
-      });
+      if (error.code === "23505") {
+        ackPendingOperation("list_item", clientId, input.workspaceId, "create", writeStartedAt);
+        promoteSurvivingCreateToUpdate("list_item", clientId, input.workspaceId);
+        return "persisted";
+      }
       logHybridError("createListItem", error);
-    } else {
-      markWorkspaceListTablesAvailable();
+      return "queued";
     }
-    return true;
+    markWorkspaceListTablesAvailable();
+    ackPendingOperation("list_item", clientId, input.workspaceId, "create", writeStartedAt);
+    promoteSurvivingCreateToUpdate("list_item", clientId, input.workspaceId);
+    return "persisted";
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
-      return true;
+      return "queued";
     }
     if (isListItemNestingColumnMissing(err)) {
       markListItemNestingMissing();
-      return true;
+      return "queued";
     }
-    enqueuePendingOperation({
-      type: "create",
-      entityType: "list_item",
-      targetId: clientId,
-      payload,
-      workspaceId: input.workspaceId,
-    });
     logHybridError("createListItem", err);
-    return true;
+    return "queued";
   }
 }
+
+/** @deprecated Use PersistResult — kept for existing imports. */
+export type ListItemUpdateResult = PersistResult;
 
 export async function updateListItem(
   id: string,
@@ -6443,12 +6862,13 @@ export async function updateListItem(
   updates: Partial<
     Omit<Pick<ListItem, "text" | "completed" | "pending" | "sortOrder" | "parentItemId" | "listId">, never> & {
       completedAt?: string | null;
+      /** Base completed before this op — used for Keep-class LWW when server row is newer. */
+      priorCompleted?: boolean;
+      priorPending?: boolean;
     }
   >,
-): Promise<boolean> {
+): Promise<ListItemUpdateResult> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
-  if (!isWorkspaceListPersistenceEnabled()) return true;
-  await probeListItemNesting();
 
   const itemId = normalizeListEntityId(id);
   const payload = stripListItemNestingField({
@@ -6460,50 +6880,106 @@ export async function updateListItem(
     ...(updates.completedAt !== undefined ? { completed_at: updates.completedAt ?? null } : {}),
     ...(updates.listId !== undefined ? { list_id: normalizeListEntityId(updates.listId) } : {}),
   } as Partial<ListItemInsert>);
-  if (Object.keys(payload).length === 0) return true;
+  if (Object.keys(payload).length === 0) return "persisted";
 
-  if (!isCurrentlyOnline()) {
-    enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
-    return true;
+  const queuePayload: Record<string, unknown> = { ...payload };
+  if (updates.priorCompleted !== undefined) {
+    queuePayload[`${BAT_PRIOR_PREFIX}completed`] = updates.priorCompleted;
+  }
+  if (updates.priorPending !== undefined) {
+    queuePayload[`${BAT_PRIOR_PREFIX}pending`] = updates.priorPending;
+  }
+
+  // Durable outbox FIRST (before any await) so mobile background/tab kills cannot drop
+  // checklist writes during probeListItemNesting or other async setup.
+  const queueOp = {
+    type: "update" as const,
+    entityType: "list_item" as const,
+    targetId: itemId,
+    payload: queuePayload,
+    workspaceId,
+  };
+  enqueuePendingOperation(queueOp);
+  const writeStartedAt = new Date().toISOString();
+
+  await probeListItemNesting();
+
+  if (!isWorkspaceListPersistenceEnabled() || !isCurrentlyOnline()) {
+    return "queued";
   }
 
   const supabase = getClient();
-  if (!supabase) return false;
+  if (!supabase) {
+    return "queued";
+  }
+
+  const dbPayload = stripBatMetaFields(payload as Record<string, unknown>);
 
   try {
     const table = supabase.from("list_items") as ReturnType<typeof supabase.from>;
-    const { error } = await table.update(payload).eq("id", itemId).eq("workspace_id", workspaceId);
+    const { data, error } = await table
+      .update(dbPayload)
+      .eq("id", itemId)
+      .eq("workspace_id", workspaceId)
+      .select("id");
+
     if (error) {
       if (isSchemaTableMissing(error)) {
         markWorkspaceListTablesMissing();
-        return true;
+        return "queued";
       }
       if (isListItemNestingColumnMissing(error)) {
         markListItemNestingMissing();
-        const retryPayload = stripListItemNestingField({ ...payload });
-        if (Object.keys(retryPayload).length === 0) return true;
-        const { error: retryError } = await table
+        const retryPayload = stripBatMetaFields(
+          stripListItemNestingField({ ...dbPayload }) as Record<string, unknown>,
+        );
+        if (Object.keys(retryPayload).length === 0) return "queued";
+        const { data: retryData, error: retryError } = await table
           .update(retryPayload)
           .eq("id", itemId)
-          .eq("workspace_id", workspaceId);
-        if (!retryError) return true;
+          .eq("workspace_id", workspaceId)
+          .select("id");
+        if (!retryError && Array.isArray(retryData) && retryData.length > 0) {
+          ackPendingOperation("list_item", itemId, workspaceId, "update", writeStartedAt);
+          return "persisted";
+        }
+        if (!retryError && (!retryData || retryData.length === 0)) {
+          logHybridError(
+            "updateListItem",
+            new Error(`No list_items row updated for ${itemId} (nesting retry)`),
+          );
+          return false;
+        }
+        logHybridError("updateListItem", retryError ?? error);
+        return "queued";
       }
-      enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
       logHybridError("updateListItem", error);
+      return "queued";
     }
-    return true;
+
+    // Supabase returns no error for 0-row updates (RLS / wrong id) — treat as hard failure.
+    if (!Array.isArray(data) || data.length === 0) {
+      logHybridError(
+        "updateListItem",
+        new Error(`No list_items row updated for ${itemId}`),
+      );
+      dropPendingOperation("list_item", itemId, workspaceId);
+      return false;
+    }
+
+    ackPendingOperation("list_item", itemId, workspaceId, "update", writeStartedAt);
+    return "persisted";
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
-      return true;
+      return "queued";
     }
     if (isListItemNestingColumnMissing(err)) {
       markListItemNestingMissing();
-      return true;
+      return "queued";
     }
-    enqueuePendingOperation({ type: "update", entityType: "list_item", targetId: itemId, payload, workspaceId });
     logHybridError("updateListItem", err);
-    return true;
+    return "queued";
   }
 }
 
@@ -6554,17 +7030,15 @@ export async function backfillWorkspaceListsIfNeeded(
 
 export async function deleteListItem(id: string, workspaceId: string): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
-  if (!isWorkspaceListPersistenceEnabled()) return true;
 
   const itemId = normalizeListEntityId(id);
 
-  if (!isCurrentlyOnline()) {
-    enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
-    return true;
-  }
+  enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
+
+  if (!isCurrentlyOnline()) return true;
 
   const supabase = getClient();
-  if (!supabase) return false;
+  if (!supabase) return true;
 
   try {
     const table = supabase.from("list_items") as ReturnType<typeof supabase.from>;
@@ -6574,16 +7048,16 @@ export async function deleteListItem(id: string, workspaceId: string): Promise<b
         markWorkspaceListTablesMissing();
         return true;
       }
-      enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
       logHybridError("deleteListItem", error);
+      return true;
     }
+    ackPendingOperation("list_item", itemId, workspaceId, "delete");
     return true;
   } catch (err) {
     if (isSchemaTableMissing(err)) {
       markWorkspaceListTablesMissing();
       return true;
     }
-    enqueuePendingOperation({ type: "delete", entityType: "list_item", targetId: itemId, payload: {}, workspaceId });
     logHybridError("deleteListItem", err);
     return true;
   }

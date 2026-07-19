@@ -842,6 +842,8 @@ export default function BadAssTasks() {
   const bootstrapLiveSession = React.useCallback(async () => {
     const store = useTaskStore.getState();
     await store.ensureUserHasWorkspace();
+    // Drain durable outbox before authoritative hydrate so check-offs aren't wiped.
+    await store.syncPendingWrites().catch(() => undefined);
     await store.initializeFromSupabase();
     await Promise.all([store.fetchSiteAdminStatus(), store.fetchMyProfile()]);
     if (user?.id && isSupabaseConfigured()) {
@@ -886,6 +888,7 @@ export default function BadAssTasks() {
     let cancelled = false;
     void (async () => {
       const maxAttempts = 8;
+      let deferChecked = false;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (cancelled) return;
         try {
@@ -900,20 +903,28 @@ export default function BadAssTasks() {
           if (cancelled) return;
 
           if (unauthorized || payload.error) {
-            // Session cookies may still be propagating — avoid showing the gate incorrectly.
+            // Keep session gate up and never pretend dual-auth passed on a status error.
+            // Optimistic "verified" triggered protected API calls that amplified cookie drops.
             setDualAuthRequired(false);
-            setDualAuthVerified(true);
+            setDualAuthVerified(false);
             setDualAuthEmail(user.email || "your email");
+            deferChecked = true;
 
             window.setTimeout(() => {
               if (cancelled) return;
               void fetchDualAuthStatus().then((retry) => {
-                if (cancelled || retry.error) return;
-                if (retry.required && !retry.verified) {
-                  setDualAuthRequired(true);
+                if (cancelled) return;
+                if (retry.error) {
+                  // Still unresolved — leave checked so UI can recover (login / retry).
+                  setDualAuthRequired(false);
                   setDualAuthVerified(false);
-                  setDualAuthEmail(retry.email || user.email || "your email");
+                  setDualAuthChecked(true);
+                  return;
                 }
+                setDualAuthRequired(!!retry.required);
+                setDualAuthVerified(!!retry.verified);
+                setDualAuthEmail(retry.email || user.email || "your email");
+                setDualAuthChecked(true);
               });
             }, 2000);
             break;
@@ -929,13 +940,15 @@ export default function BadAssTasks() {
             await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
             continue;
           }
+          // Transient network blip (not an auth rejection): allow the app to load.
+          // Unauthorized is handled above and must not take this path.
           setDualAuthRequired(false);
           setDualAuthVerified(true);
           setDualAuthEmail(user.email || "your email");
         }
       }
 
-      if (!cancelled) setDualAuthChecked(true);
+      if (!cancelled && !deferChecked) setDualAuthChecked(true);
     })();
 
     return () => {
@@ -1232,7 +1245,13 @@ export default function BadAssTasks() {
     const notebookTask = notebookTasks.find((t) => t.id === id);
     if (notebookTask) {
       const wasCompleted = notebookTask.completed;
-      await toggleNotebookTask(id);
+      const ok = await toggleNotebookTask(id);
+      if (!ok) {
+        toast.error("Couldn't save task change", {
+          description: "Check your connection and try again.",
+        });
+        return;
+      }
       toast.success(wasCompleted ? "Task reopened" : "Task completed", {
         description: notebookTask.title,
       });
@@ -1244,8 +1263,9 @@ export default function BadAssTasks() {
     if (!task || taskLoadingStates?.[id]) return;
 
     if (task.status === "done") {
-      await updateTask(id, { status: "todo", completedAt: undefined });
+      const reopened = await updateTask(id, { status: "todo", completedAt: undefined });
       refreshHomeTaskFocusFromStore();
+      if (reopened === null) return;
       toast.success("Task reopened", { description: task.title });
       return;
     }
@@ -1265,6 +1285,10 @@ export default function BadAssTasks() {
         triggerCelebration,
         advancedTask: resolveTaskById(id),
       });
+      return;
+    }
+    if (result === "queued") {
+      // Optimistic UI already updated; confirm durable queue, not DB yet.
       return;
     }
     if (result === "completed") {
@@ -1348,14 +1372,28 @@ export default function BadAssTasks() {
       if (!item) return;
 
       const markingComplete = !item.completed;
-      const ok = await toggleListItem(id);
-      if (!ok || !markingComplete) return;
+      const result = await toggleListItem(id);
+      if (result === false) {
+        toast.error("Couldn't save list change", {
+          description: "Check your connection and try again.",
+        });
+        return;
+      }
+      if (!markingComplete) return;
+
+      if (result === "queued") {
+        toast.info("Saved on this device", {
+          description: "Will sync when you're back online.",
+          duration: 4000,
+        });
+        return;
+      }
 
       showListItemCompletionFeedback(item, {
         undoListItemCompletion: async (itemId) => {
           const current = useTaskStore.getState().listItems.find((i) => i.id === itemId);
           if (!current?.completed) return false;
-          return toggleListItem(itemId);
+          return (await toggleListItem(itemId)) !== false;
         },
       });
     },
@@ -1371,8 +1409,21 @@ export default function BadAssTasks() {
         (i) => i.listId === item.listId && i.workspaceId === item.workspaceId
       );
       const completedSnapshot = getIncompleteSubtreeItems(id, listScopedItems);
-      const ok = await completeListItemFamily(id);
-      if (!ok) return;
+      const result = await completeListItemFamily(id);
+      if (result === false) {
+        toast.error("Couldn't save list change", {
+          description: "Check your connection and try again.",
+        });
+        return;
+      }
+
+      if (result === "queued") {
+        toast.info("Saved on this device", {
+          description: "Will sync when you're back online.",
+          duration: 4000,
+        });
+        return;
+      }
 
       showListItemCompletionFeedback(item, {
         undoListItemCompletion: async () => {
@@ -1381,7 +1432,7 @@ export default function BadAssTasks() {
             const current = useTaskStore.getState().listItems.find((i) => i.id === snapshotItem.id);
             if (!current?.completed) continue;
             const undone = await toggleListItem(snapshotItem.id);
-            if (!undone) allOk = false;
+            if (undone === false) allOk = false;
           }
           return allOk;
         },
@@ -1396,14 +1447,28 @@ export default function BadAssTasks() {
       if (!item) return;
 
       const markingPending = pending && !item.pending;
-      const ok = await setListItemPending(id, pending);
-      if (!ok || !markingPending) return;
+      const result = await setListItemPending(id, pending);
+      if (result === false) {
+        toast.error("Couldn't save list change", {
+          description: "Check your connection and try again.",
+        });
+        return;
+      }
+      if (!markingPending) return;
+
+      if (result === "queued") {
+        toast.info("Saved on this device", {
+          description: "Will sync when you're back online.",
+          duration: 4000,
+        });
+        return;
+      }
 
       showListItemPendingFeedback(item, {
         undoListItemPending: async (itemId) => {
           const current = useTaskStore.getState().listItems.find((i) => i.id === itemId);
           if (!current?.pending) return false;
-          return setListItemPending(itemId, false);
+          return (await setListItemPending(itemId, false)) !== false;
         },
       });
     },

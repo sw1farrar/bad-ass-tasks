@@ -52,12 +52,38 @@ export function enqueueListReorderPersist(
   });
 }
 
+const pendingChecklistSyncIds = new Set<string>();
+
+/** Mark checklist fields (completed/pending) as syncing so hydrate cannot clobber them. */
+export function beginListItemChecklistSync(itemId: string): void {
+  pendingChecklistSyncIds.add(itemId);
+}
+
+export function endListItemChecklistSync(itemId: string): void {
+  pendingChecklistSyncIds.delete(itemId);
+}
+
+export function hasPendingListItemChecklistSync(itemId: string): boolean {
+  return pendingChecklistSyncIds.has(itemId);
+}
+
+function preferLocalChecklistFields(local: ListItem, remote: ListItem): ListItem {
+  return {
+    ...local,
+    ...remote,
+    completed: local.completed,
+    completedAt: local.completedAt,
+    pending: local.pending,
+    updatedAt: local.updatedAt,
+  };
+}
+
 /** Prefer optimistic placement while reorders are in flight or a stale remote event arrives. */
 export function mergeRemoteListItemUpdate(local: ListItem, remote: ListItem): ListItem {
   if (hasPendingListItemReorder(local.listId)) {
+    const merged = preferLocalChecklistFields(local, remote);
     return {
-      ...local,
-      ...remote,
+      ...merged,
       sortOrder: local.sortOrder,
       parentItemId: local.parentItemId,
       updatedAt: local.updatedAt,
@@ -73,13 +99,33 @@ export function mergeRemoteListItemUpdate(local: ListItem, remote: ListItem): Li
     placementKey(local.sortOrder, localParent) === placementKey(last.sortOrder, last.parentItemId) &&
     placementKey(remote.sortOrder, remoteParent) !== placementKey(last.sortOrder, last.parentItemId)
   ) {
+    const merged = preferLocalChecklistFields(local, remote);
     return {
-      ...local,
-      ...remote,
+      ...merged,
       sortOrder: local.sortOrder,
       parentItemId: local.parentItemId,
       updatedAt: local.updatedAt,
     };
+  }
+
+  // Keep optimistic checklist state while a write is in flight, or when local checklist
+  // fields are newer than remote (covers mobile kills: durable outbox + hydrate race).
+  const localTs = Date.parse(local.updatedAt || "") || 0;
+  const remoteTs = Date.parse(remote.updatedAt || "") || 0;
+  const checklistDiffers =
+    local.completed !== remote.completed ||
+    !!local.pending !== !!remote.pending ||
+    (local.completedAt ?? null) !== (remote.completedAt ?? null);
+  if (
+    hasPendingListItemChecklistSync(local.id) ||
+    (checklistDiffers && localTs > remoteTs)
+  ) {
+    const merged = preferLocalChecklistFields(local, remote);
+    lastPersistedPlacement.set(local.id, {
+      sortOrder: merged.sortOrder,
+      parentItemId: merged.parentItemId ?? null,
+    });
+    return merged;
   }
 
   const merged = { ...local, ...remote };

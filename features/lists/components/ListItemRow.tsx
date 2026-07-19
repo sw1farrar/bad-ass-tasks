@@ -19,6 +19,8 @@ function syncTextareaHeight(el: HTMLTextAreaElement) {
 }
 
 interface ListItemRowProps {
+  /** Subtle indicator that this item has a pending outbox write. */
+  syncPending?: boolean;
   item: ListItem;
   depth?: number;
   onToggle: (id: string) => void;
@@ -97,6 +99,7 @@ export function ListItemRow({
   inFamily = false,
   nestedInFamily = false,
   familyChrome,
+  syncPending = false,
 }: ListItemRowProps) {
   const [focused, setFocused] = useState(false);
   const [titleEditMode, setTitleEditMode] = useState(false);
@@ -351,8 +354,13 @@ export function ListItemRow({
           selectRow();
           onToggle(item.id);
         }}
-        className={cn("list-item-check", item.completed && "is-done")}
+        className={cn(
+          "list-item-check",
+          item.completed && "is-done",
+          syncPending && "is-sync-pending",
+        )}
         aria-label={item.completed ? "Mark incomplete" : "Mark complete"}
+        title={syncPending ? "Saving…" : undefined}
         data-no-open
       >
         {item.completed && <Check className="list-item-check-icon" strokeWidth={3} />}

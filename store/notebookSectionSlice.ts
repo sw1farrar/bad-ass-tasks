@@ -197,9 +197,10 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
       return task;
     },
 
-    toggleNotebookTask: async (id: string) => {
+    toggleNotebookTask: async (id: string): Promise<boolean> => {
       const task = get().notebookTasks.find((t) => t.id === id);
-      if (!task) return;
+      if (!task) return false;
+      const previous = { ...task };
       const completed = !task.completed;
       const now = new Date().toISOString();
       set((state) => ({
@@ -215,26 +216,41 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
         ),
       }));
       get().broadcastLiveNotebookTaskToggle?.(id, completed, completed ? now : null);
+
+      if (shouldPersist(task.workspaceId)) {
+        const ok = await updateTaskDb(id, task.workspaceId, {
+          completed,
+          completedAt: completed ? now : null,
+        });
+        if (!ok) {
+          set((state) => ({
+            notebookTasks: state.notebookTasks.map((t) => (t.id === id ? previous : t)),
+          }));
+          get().broadcastLiveNotebookTaskToggle?.(
+            id,
+            previous.completed,
+            previous.completedAt ?? null,
+          );
+          return false;
+        }
+      }
+
       if (completed) {
         triggerHaptic("success");
         get().triggerCelebration?.();
       } else {
         triggerHaptic("light");
       }
-      if (shouldPersist(task.workspaceId)) {
-        void updateTaskDb(id, task.workspaceId, {
-          completed,
-          completedAt: completed ? now : null,
-        });
-      }
+      return true;
     },
 
     updateNotebookTask: async (
       id: string,
       updates: Partial<Pick<NotebookTask, "title" | "showOnWorkspace">>,
-    ) => {
+    ): Promise<boolean> => {
       const task = get().notebookTasks.find((t) => t.id === id);
-      if (!task) return;
+      if (!task) return false;
+      const previous = { ...task };
       const now = new Date().toISOString();
       set((state) => ({
         notebookTasks: state.notebookTasks.map((t) =>
@@ -242,8 +258,15 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
         ),
       }));
       if (shouldPersist(task.workspaceId)) {
-        void updateTaskDb(id, task.workspaceId, updates);
+        const ok = await updateTaskDb(id, task.workspaceId, updates);
+        if (!ok) {
+          set((state) => ({
+            notebookTasks: state.notebookTasks.map((t) => (t.id === id ? previous : t)),
+          }));
+          return false;
+        }
       }
+      return true;
     },
 
     setNotebookTaskShowOnWorkspace: async (id: string, showOnWorkspace: boolean) => {
@@ -358,9 +381,10 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
     updateNotebookInvestment: async (
       id: string,
       updates: Partial<Pick<NotebookInvestment, "title" | "sortOrder" | "completed" | "completedAt">>,
-    ) => {
+    ): Promise<boolean> => {
       const item = get().notebookInvestments.find((i) => i.id === id);
-      if (!item) return;
+      if (!item) return false;
+      const previous = { ...item };
       const now = new Date().toISOString();
       set((state) => ({
         notebookInvestments: state.notebookInvestments.map((i) =>
@@ -368,13 +392,23 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
         ),
       }));
       if (shouldPersist(item.workspaceId)) {
-        void updateInvestmentDb(id, item.workspaceId, updates);
+        const ok = await updateInvestmentDb(id, item.workspaceId, updates);
+        if (!ok) {
+          set((state) => ({
+            notebookInvestments: state.notebookInvestments.map((i) =>
+              i.id === id ? previous : i,
+            ),
+          }));
+          return false;
+        }
       }
+      return true;
     },
 
-    toggleNotebookInvestment: async (id: string) => {
+    toggleNotebookInvestment: async (id: string): Promise<boolean> => {
       const item = get().notebookInvestments.find((i) => i.id === id);
-      if (!item) return;
+      if (!item) return false;
+      const previous = { ...item };
       const completed = !item.completed;
       const now = new Date().toISOString();
       set((state) => ({
@@ -389,18 +423,27 @@ export function createNotebookSectionSliceActions(get: Get, set: Set) {
             : i,
         ),
       }));
+      if (shouldPersist(item.workspaceId)) {
+        const ok = await updateInvestmentDb(id, item.workspaceId, {
+          completed,
+          completedAt: completed ? now : null,
+        });
+        if (!ok) {
+          set((state) => ({
+            notebookInvestments: state.notebookInvestments.map((i) =>
+              i.id === id ? previous : i,
+            ),
+          }));
+          return false;
+        }
+      }
       if (completed) {
         triggerHaptic("success");
         get().triggerCelebration?.();
       } else {
         triggerHaptic("light");
       }
-      if (shouldPersist(item.workspaceId)) {
-        void updateInvestmentDb(id, item.workspaceId, {
-          completed,
-          completedAt: completed ? now : null,
-        });
-      }
+      return true;
     },
 
     reorderNotebookInvestments: async (notebookId: string, orderedIds: string[]) => {

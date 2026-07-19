@@ -914,6 +914,15 @@
   animation: list-check-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Quiet Keep-style "still syncing" cue — does not change checked appearance. */
+.list-card .list-item-check.is-sync-pending,
+.list-detail-modal .list-item-check.is-sync-pending {
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--list-accent, #60a5fa) 55%, transparent 45%),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent 28%);
+  opacity: 0.92;
+}
+
 .list-item-check {
   margin-top: 2px;
   aspect-ratio: 1;

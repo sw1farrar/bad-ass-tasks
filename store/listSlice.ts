@@ -12,6 +12,8 @@ import {
   sortOrderForInsertAfter,
 } from "@/lib/lists/listItemTree";
 import {
+  beginListItemChecklistSync,
+  endListItemChecklistSync,
   enqueueListReorderPersist,
   notePersistedListItemPlacement,
   type ListItemPlacementUpdate,
@@ -23,7 +25,6 @@ import {
   normalizeListEntityId,
   deleteListItem as deleteListItemSupabase,
   deleteWorkspaceList as deleteWorkspaceListSupabase,
-  ensureWorkspaceListPersistenceReady,
   generateClientId,
   isSupabaseLive,
   isWorkspaceListPersistenceEnabled,
@@ -142,11 +143,18 @@ function persistListItemPlacementUpdates(
 
   enqueueListReorderPersist(listId, async () => {
     for (const [id, update] of updates) {
-      await updateListItemSupabase(normalizeListEntityId(id), workspaceId, {
-        sortOrder: update.sortOrder,
-        ...(id === includeParentForId ? { parentItemId: update.parentItemId } : {}),
-      });
-      notePersistedListItemPlacement(id, update);
+      try {
+        const result = await updateListItemSupabase(normalizeListEntityId(id), workspaceId, {
+          sortOrder: update.sortOrder,
+          ...(id === includeParentForId ? { parentItemId: update.parentItemId } : {}),
+        });
+        // Only defend placement against realtime when we actually queued or persisted.
+        if (result === "persisted" || result === "queued") {
+          notePersistedListItemPlacement(id, update);
+        }
+      } catch {
+        // Probe/network throw — leave placement undefended so server can correct.
+      }
     }
   });
 }
@@ -207,17 +215,15 @@ export function createListSliceActions(get: Get, set: Set) {
       };
       set((state) => ({ workspaceLists: [...state.workspaceLists, list] }));
       if (isLiveListWorkspace(workspaceId)) {
-        void (async () => {
-          if (!(await ensureWorkspaceListPersistenceReady())) return;
-          await createWorkspaceListSupabase({
-            id: normalizeListEntityId(list.id),
-            workspaceId,
-            title: list.title,
-            color: list.color,
-            sortOrder: list.sortOrder,
-            pinned: list.pinned,
-          });
-        })();
+        // createWorkspaceList is outbox-first — never gate on ensure (that previously skipped the write).
+        void createWorkspaceListSupabase({
+          id: normalizeListEntityId(list.id),
+          workspaceId,
+          title: list.title,
+          color: list.color,
+          sortOrder: list.sortOrder,
+          pinned: list.pinned,
+        });
       }
       return list;
     },
@@ -363,17 +369,15 @@ export function createListSliceActions(get: Get, set: Set) {
         ),
       }));
       if (isLiveListWorkspace(workspaceId)) {
-        void (async () => {
-          if (!(await ensureWorkspaceListPersistenceReady())) return;
-          await createListItemSupabase({
-            id: item.id,
-            listId: normalizeListEntityId(listId),
-            workspaceId,
-            text: item.text,
-            sortOrder: item.sortOrder,
-            parentItemId: item.parentItemId,
-          });
-        })();
+        // createListItem outbox-first — never gate on ensure (that previously skipped the write).
+        void createListItemSupabase({
+          id: item.id,
+          listId: normalizeListEntityId(listId),
+          workspaceId,
+          text: item.text,
+          sortOrder: item.sortOrder,
+          parentItemId: item.parentItemId,
+        });
       }
       return item;
     },
@@ -384,6 +388,9 @@ export function createListSliceActions(get: Get, set: Set) {
       if (!current) return false;
 
       const completing = !current.completed;
+      const previous = { ...current };
+      beginListItemChecklistSync(id);
+
       set((state) => ({
         listItems: state.listItems.map((i) => {
           if (i.id !== id) return i;
@@ -412,14 +419,51 @@ export function createListSliceActions(get: Get, set: Set) {
         completing ? now : undefined,
       );
 
-      if (shouldPersistLists(current.workspaceId)) {
-        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
-          completed: completing,
-          completedAt: completing ? now : null,
-          ...(completing && current.pending ? { pending: false } : {}),
-        });
+      if (isLiveListWorkspace(current.workspaceId)) {
+        let result: "persisted" | "queued" | false;
+        try {
+          result = await updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
+            completed: completing,
+            completedAt: completing ? now : null,
+            ...(completing && current.pending ? { pending: false } : {}),
+            priorCompleted: previous.completed,
+            priorPending: previous.pending,
+          });
+        } catch {
+          set((state) => ({
+            listItems: state.listItems.map((i) => (i.id === id ? previous : i)),
+          }));
+          get().broadcastLiveListItemToggle?.(
+            previous.listId,
+            id,
+            previous.completed,
+            previous.completedAt,
+          );
+          endListItemChecklistSync(id);
+          return false;
+        }
+        if (result === false) {
+          set((state) => ({
+            listItems: state.listItems.map((i) => (i.id === id ? previous : i)),
+          }));
+          get().broadcastLiveListItemToggle?.(
+            previous.listId,
+            id,
+            previous.completed,
+            previous.completedAt,
+          );
+          endListItemChecklistSync(id);
+          return false;
+        }
+        // Always clear in-memory guard after the await settles. Queued durability is
+        // protected by outbox overlay + updatedAt LWW — leaving the flag set forever
+        // blocked peer checklist updates for the rest of the session.
+        endListItemChecklistSync(id);
+        return result;
       }
-      return true;
+
+      endListItemChecklistSync(id);
+      return "persisted";
     },
 
     completeListItemFamily: async (id: string) => {
@@ -434,6 +478,9 @@ export function createListSliceActions(get: Get, set: Set) {
       if (toComplete.length === 0) return false;
 
       const completeIds = new Set(toComplete.map((i) => i.id));
+      const previousById = new Map(toComplete.map((item) => [item.id, { ...item }]));
+      for (const itemId of completeIds) beginListItemChecklistSync(itemId);
+
       set((state) => ({
         listItems: state.listItems.map((i) => {
           if (!completeIds.has(i.id)) return i;
@@ -453,20 +500,80 @@ export function createListSliceActions(get: Get, set: Set) {
         get().broadcastLiveListItemToggle?.(item.listId, item.id, true, now);
       }
 
-      if (shouldPersistLists(current.workspaceId)) {
-        for (const item of toComplete) {
-          void updateListItemSupabase(normalizeListEntityId(item.id), current.workspaceId, {
-            completed: true,
-            completedAt: now,
-          });
+      if (isLiveListWorkspace(current.workspaceId)) {
+        let results: Array<"persisted" | "queued" | false>;
+        try {
+          results = await Promise.all(
+            toComplete.map((item) =>
+              updateListItemSupabase(normalizeListEntityId(item.id), current.workspaceId, {
+                completed: true,
+                completedAt: now,
+                priorCompleted: item.completed,
+                priorPending: item.pending,
+              }),
+            ),
+          );
+        } catch {
+          // Never leave checklist-sync guards stuck after a probe/network throw.
+          set((state) => ({
+            listItems: state.listItems.map((i) =>
+              completeIds.has(i.id) ? (previousById.get(i.id) ?? i) : i,
+            ),
+          }));
+          for (const itemId of completeIds) {
+            const prev = previousById.get(itemId);
+            if (prev) {
+              get().broadcastLiveListItemToggle?.(
+                prev.listId,
+                prev.id,
+                prev.completed,
+                prev.completedAt,
+              );
+            }
+            endListItemChecklistSync(itemId);
+          }
+          return false;
         }
+        const failedIds = new Set(
+          toComplete.filter((_, index) => results[index] === false).map((item) => item.id),
+        );
+        if (failedIds.size > 0) {
+          set((state) => ({
+            listItems: state.listItems.map((i) =>
+              failedIds.has(i.id) ? (previousById.get(i.id) ?? i) : i,
+            ),
+          }));
+          for (const itemId of failedIds) {
+            const prev = previousById.get(itemId);
+            if (!prev) continue;
+            get().broadcastLiveListItemToggle?.(
+              prev.listId,
+              prev.id,
+              prev.completed,
+              prev.completedAt,
+            );
+          }
+          for (const itemId of completeIds) endListItemChecklistSync(itemId);
+          return false;
+        }
+        for (const itemId of completeIds) endListItemChecklistSync(itemId);
+        return results.every((result) => result === "persisted") ? "persisted" : "queued";
       }
-      return true;
+
+      for (const itemId of completeIds) endListItemChecklistSync(itemId);
+      return "persisted";
     },
 
     updateListItem: async (id: string, updates: Partial<Pick<ListItem, "text" | "completed" | "pending">>) => {
       const now = new Date().toISOString();
       const current = get().listItems.find((i) => i.id === id);
+      if (!current) return false;
+
+      const touchesChecklist =
+        updates.completed !== undefined || updates.pending !== undefined;
+      const previous = { ...current };
+      if (touchesChecklist) beginListItemChecklistSync(id);
+
       set((state) => ({
         listItems: state.listItems.map((i) =>
           i.id === id
@@ -484,8 +591,8 @@ export function createListSliceActions(get: Get, set: Set) {
             : i
         ),
       }));
-      if (current && shouldPersistLists(current.workspaceId)) {
-        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
+      if (isLiveListWorkspace(current.workspaceId)) {
+        const result = await updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
           ...updates,
           completedAt:
             updates.completed === true
@@ -493,9 +600,23 @@ export function createListSliceActions(get: Get, set: Set) {
               : updates.completed === false
                 ? null
                 : current.completedAt,
+          ...(updates.completed !== undefined
+            ? { priorCompleted: previous.completed }
+            : {}),
+          ...(updates.pending !== undefined ? { priorPending: previous.pending } : {}),
         });
+        if (result === false) {
+          set((state) => ({
+            listItems: state.listItems.map((i) => (i.id === id ? previous : i)),
+          }));
+          if (touchesChecklist) endListItemChecklistSync(id);
+          return false;
+        }
+        if (touchesChecklist) endListItemChecklistSync(id);
+        return result;
       }
-      return true;
+      if (touchesChecklist) endListItemChecklistSync(id);
+      return "persisted";
     },
 
     deleteListItem: async (id: string) => {
@@ -784,6 +905,9 @@ export function createListSliceActions(get: Get, set: Set) {
 
       // Pending and completed are mutually exclusive display buckets.
       const clearCompleted = pending && current.completed;
+      const previous = { ...current };
+      beginListItemChecklistSync(id);
+
       set((state) => ({
         listItems: state.listItems.map((i) => {
           if (i.id !== id) return i;
@@ -798,13 +922,26 @@ export function createListSliceActions(get: Get, set: Set) {
 
       if (pending) triggerHaptic("light");
 
-      if (shouldPersistLists(current.workspaceId)) {
-        void updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
+      if (isLiveListWorkspace(current.workspaceId)) {
+        const result = await updateListItemSupabase(normalizeListEntityId(id), current.workspaceId, {
           pending,
           ...(clearCompleted ? { completed: false, completedAt: null } : {}),
+          priorPending: previous.pending,
+          ...(clearCompleted ? { priorCompleted: previous.completed } : {}),
         });
+        if (result === false) {
+          set((state) => ({
+            listItems: state.listItems.map((i) => (i.id === id ? previous : i)),
+          }));
+          endListItemChecklistSync(id);
+          return false;
+        }
+        endListItemChecklistSync(id);
+        return result;
       }
-      return true;
+
+      endListItemChecklistSync(id);
+      return "persisted";
     },
 
     restorePendingListItems: async (listId: string) => {

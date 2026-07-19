@@ -47,7 +47,7 @@ interface UseNoteOperationsProps {
   updateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   deleteNote: (id: string) => Promise<boolean | null>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<boolean | null>;
-  completeTask: (id: string) => Promise<"advanced" | "completed" | null>;
+  completeTask: (id: string) => Promise<"advanced" | "completed" | "queued" | null>;
   addTask: (title: string) => Promise<Task | null>;
 
   // UI actions from parent
@@ -80,7 +80,7 @@ export function useNoteOperations({
   };
 
   const handleUpdateNote = async (id: string, updates: Partial<Note>) => {
-    await updateNote(id, updates);
+    return updateNote(id, updates);
   };
 
   const handleDeleteNote = async (id: string) => {

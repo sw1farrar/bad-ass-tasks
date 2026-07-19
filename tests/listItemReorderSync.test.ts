@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ListItem } from "@/types";
 import {
+  beginListItemChecklistSync,
+  endListItemChecklistSync,
   hasPendingListItemReorder,
   mergeRemoteListItemUpdate,
   notePersistedListItemPlacement,
@@ -71,5 +73,67 @@ describe("mergeRemoteListItemUpdate", () => {
 
     expect(merged.sortOrder).toBe(2000);
     expect(merged.text).toBe("Updated remotely");
+  });
+
+  it("keeps local checklist state while a completion sync is in flight", () => {
+    beginListItemChecklistSync("a");
+    try {
+      const local = item({
+        id: "a",
+        completed: true,
+        completedAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      });
+      const remote = item({
+        id: "a",
+        completed: false,
+        text: "Milk",
+        updatedAt: "2026-01-02T00:00:05.000Z",
+      });
+
+      const merged = mergeRemoteListItemUpdate(local, remote);
+      expect(merged.completed).toBe(true);
+      expect(merged.completedAt).toBe("2026-01-02T00:00:00.000Z");
+      expect(merged.text).toBe("Milk");
+    } finally {
+      endListItemChecklistSync("a");
+    }
+  });
+
+  it("keeps newer local checklist state over a stale remote hydrate", () => {
+    const local = item({
+      id: "a",
+      completed: true,
+      completedAt: "2026-01-02T00:00:10.000Z",
+      updatedAt: "2026-01-02T00:00:10.000Z",
+    });
+    const remote = item({
+      id: "a",
+      completed: false,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const merged = mergeRemoteListItemUpdate(local, remote);
+    expect(merged.completed).toBe(true);
+    expect(merged.completedAt).toBe("2026-01-02T00:00:10.000Z");
+  });
+
+  it("accepts a newer remote checklist change", () => {
+    const local = item({
+      id: "a",
+      completed: true,
+      completedAt: "2026-01-02T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const remote = item({
+      id: "a",
+      completed: false,
+      completedAt: undefined,
+      updatedAt: "2026-01-02T00:00:30.000Z",
+    });
+
+    const merged = mergeRemoteListItemUpdate(local, remote);
+    expect(merged.completed).toBe(false);
+    expect(merged.completedAt).toBeUndefined();
   });
 });

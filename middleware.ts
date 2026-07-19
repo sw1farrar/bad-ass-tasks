@@ -3,6 +3,27 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isDualAuthEnforced, isDualAuthSatisfied } from "@/lib/auth/dualAuthEdge";
 import { isRecoverySession } from "@/lib/auth/recoverySession";
 
+/**
+ * Copy refreshed auth cookies from the Supabase response onto any alternate response.
+ * Without this, refresh-token rotation leaves the browser on a revoked token and the
+ * user appears logged out on the next open.
+ */
+function withSupabaseCookies(from: NextResponse, to: NextResponse): NextResponse {
+  // Prefer full Set-Cookie headers so path / httpOnly / maxAge / sameSite survive.
+  const setCookies =
+    typeof from.headers.getSetCookie === "function" ? from.headers.getSetCookie() : [];
+  if (setCookies.length > 0) {
+    for (const cookie of setCookies) {
+      to.headers.append("Set-Cookie", cookie);
+    }
+    return to;
+  }
+  from.cookies.getAll().forEach(({ name, value }) => {
+    to.cookies.set(name, value);
+  });
+  return to;
+}
+
 export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -39,7 +60,7 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh session if expired
+  // Refresh session if expired (may write new cookies onto supabaseResponse)
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -93,14 +114,18 @@ export async function middleware(request: NextRequest) {
 
       if ((profile as { access_paused?: boolean } | null)?.access_paused) {
         if (pathname.startsWith("/api/")) {
-          return NextResponse.json({ error: "Account paused" }, { status: 403 });
+          return withSupabaseCookies(
+            supabaseResponse,
+            NextResponse.json({ error: "Account paused" }, { status: 403 }),
+          );
         }
         const url = request.nextUrl.clone();
         url.pathname = "/";
         url.searchParams.set("paused", "1");
         const redirect = NextResponse.redirect(url);
         await supabase.auth.signOut();
-        return redirect;
+        // signOut may clear cookies onto supabaseResponse — copy those clears through.
+        return withSupabaseCookies(supabaseResponse, redirect);
       }
     } catch {
       // Column may not exist until migration runs — ignore gracefully
@@ -115,14 +140,20 @@ export async function middleware(request: NextRequest) {
     !isDualAuthExemptApi &&
     !(await isDualAuthSatisfied(request, user.id))
   ) {
-    return NextResponse.json({ error: "dual_auth_required" }, { status: 403 });
+    return withSupabaseCookies(
+      supabaseResponse,
+      NextResponse.json({ error: "dual_auth_required" }, { status: 403 }),
+    );
   }
 
   // Recovery sessions must finish setting a new password before using the app
   if (user && pendingPasswordRecovery && !isAuthPage) {
     const recoveryLogin = new URL("/login", request.url);
     recoveryLogin.searchParams.set("mode", "reset-verify");
-    return NextResponse.redirect(recoveryLogin);
+    return withSupabaseCookies(
+      supabaseResponse,
+      NextResponse.redirect(recoveryLogin),
+    );
   }
 
   // Signed-in users should not linger on the login page (except unfinished password recovery)
@@ -130,12 +161,18 @@ export async function middleware(request: NextRequest) {
     const nextParam = request.nextUrl.searchParams.get("next");
     const destination =
       nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
-    return NextResponse.redirect(new URL(destination, request.url));
+    return withSupabaseCookies(
+      supabaseResponse,
+      NextResponse.redirect(new URL(destination, request.url)),
+    );
   }
 
   // Unauthenticated API calls → JSON 401 (never HTML redirect)
   if (!user && pathname.startsWith("/api/") && !isPublicApi) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return withSupabaseCookies(
+      supabaseResponse,
+      NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    );
   }
 
   // Production: redirect unauthenticated users away from protected pages
@@ -152,7 +189,10 @@ export async function middleware(request: NextRequest) {
     if (returnPath && returnPath !== "/") {
       signInUrl.searchParams.set("next", returnPath);
     }
-    return NextResponse.redirect(signInUrl);
+    return withSupabaseCookies(
+      supabaseResponse,
+      NextResponse.redirect(signInUrl),
+    );
   }
 
   return supabaseResponse;

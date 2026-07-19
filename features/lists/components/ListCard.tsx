@@ -41,6 +41,7 @@ import {
 } from "@/lib/lists/listColorStyles";
 import type { ListColorId } from "@/store/listSlice";
 import { useTaskStore } from "@/store/useTaskStore";
+import { getPendingEntityTargetIds } from "@/lib/data/hybridStore";
 import type { OnAddListItem } from "@/lib/lists/addListItem";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
@@ -127,6 +128,11 @@ export function ListCardBody({
   onShareList,
 }: ListCardBodyProps) {
   const theme = useTaskStore((s) => s.theme);
+  const pendingSyncCount = useTaskStore((s) => s.pendingSyncCount);
+  const pendingListItemIds = useMemo(
+    () => getPendingEntityTargetIds("list_item"),
+    [pendingSyncCount],
+  );
   const listColors = getListColorsForTheme(theme);
   const activeColorRing = theme === "light" ? "#7c3aed" : "#f4f4f5";
   const [newItemText, setNewItemText] = useState("");
@@ -557,6 +563,10 @@ export function ListCardBody({
             : undefined
         }
         familyChrome={chrome}
+        syncPending={
+          pendingListItemIds.has(item.id) ||
+          pendingListItemIds.has(item.id.replace(/^li-/, ""))
+        }
       />
     );
   };
@@ -611,6 +621,10 @@ export function ListCardBody({
           onSetPending={handleParkItemPending}
           inFamily
           nestedInFamily={item.depth > 0}
+          syncPending={
+            pendingListItemIds.has(item.id) ||
+            pendingListItemIds.has(item.id.replace(/^li-/, ""))
+          }
         />
       ))}
       {hiddenCount > 0 && (
