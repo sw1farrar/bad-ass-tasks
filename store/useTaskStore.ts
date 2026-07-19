@@ -171,6 +171,9 @@ import {
   getPendingEntityTargetIds,
   getWorkspaceSyncCursor,
   advanceWorkspaceSyncCursor,
+  clearWorkspaceSyncCursor,
+  markWorkspaceFullSyncBaseline,
+  shouldUseDeltaHydrate,
   clearPendingOperations,
   generateClientId,
   // Phase 2 collaboration foundations
@@ -763,7 +766,10 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   /** Instant Home upcoming task rows from local store (no network). */
   refreshHomeTaskFocusFromStore: () => void;
   /** Load list + item rows for a workspace into the store (no workspace switch). */
-  hydrateWorkspaceListData: (workspaceId: string) => Promise<void>;
+  hydrateWorkspaceListData: (
+    workspaceId: string,
+    options?: { forceFull?: boolean },
+  ) => Promise<void>;
 
   // Platform site admin (server-verified via /api/admin/me)
   fetchSiteAdminStatus: () => Promise<void>;
@@ -1995,6 +2001,11 @@ export const useTaskStore = create<TaskState>()(
             ...realNotes,
             ...nextItems,
           ]);
+          markWorkspaceFullSyncBaseline(workspaceId, {
+            taskCount: mergedTasks.length,
+            noteCount: realNotes.length,
+            listItemCount: nextItems.length,
+          });
           get().refreshHomeNoteAggregatesFromStore();
 
           void get().fetchTaskCommentSummaries();
@@ -2211,6 +2222,14 @@ export const useTaskStore = create<TaskState>()(
             if (onlineNow && pending > 0) {
               // Opportunistic background sync (non-blocking)
               get().syncPendingWrites().catch(() => {});
+            }
+            // After offline/skipped init, resume must re-pull the full workspace when
+            // local cache looks incomplete (common on mobile) — not delta-only.
+            if (onlineNow && !get().isInitializing) {
+              const ws = get().currentWorkspace;
+              if (ws?.id && !["w1", "w2"].includes(ws.id)) {
+                void get().hydrateWorkspaceListData(ws.id);
+              }
             }
           };
 
@@ -2935,12 +2954,26 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
-      hydrateWorkspaceListData: async (workspaceId: string) => {
+      hydrateWorkspaceListData: async (
+        workspaceId: string,
+        options?: { forceFull?: boolean },
+      ) => {
         if (!workspaceId) return;
         if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return;
 
         try {
-          const syncCursor = getWorkspaceSyncCursor(workspaceId);
+          const localBaseline = {
+            taskCount: get().tasks.filter((t) => t.workspaceId === workspaceId).length,
+            noteCount: get().notes.filter((n) => n.workspaceId === workspaceId).length,
+            listItemCount: (get().listItems || []).filter(
+              (i) => i.workspaceId === workspaceId,
+            ).length,
+          };
+          const useDelta = shouldUseDeltaHydrate(workspaceId, localBaseline, options);
+          if (!useDelta && options?.forceFull) {
+            clearWorkspaceSyncCursor(workspaceId);
+          }
+          const syncCursor = useDelta ? getWorkspaceSyncCursor(workspaceId) : null;
           const deltaOpts = syncCursor ? { updatedSince: syncCursor } : undefined;
           const [bundle, remoteTasks, remoteNotes, members] = await Promise.all([
             getWorkspaceListsBundle(workspaceId, deltaOpts).catch(() => ({
@@ -3048,6 +3081,21 @@ export const useTaskStore = create<TaskState>()(
             return Number.isFinite(ms) && Date.now() - ms < 120_000;
           };
 
+          // Flaky mobile networks can return [] without throwing — don't wipe a healthy local set.
+          const suspiciousEmptyFull =
+            !isDelta &&
+            enrichedRemote.length === 0 &&
+            remoteNotes.length === 0 &&
+            items.length === 0 &&
+            localBaseline.taskCount + localBaseline.noteCount + localBaseline.listItemCount > 0;
+
+          if (suspiciousEmptyFull) {
+            console.warn(
+              "[useTaskStore] hydrateWorkspaceListData: empty full fetch with local data; keeping local",
+            );
+            return;
+          }
+
           set((state) => {
             const otherWsTasks = state.tasks.filter((t) => t.workspaceId !== workspaceId);
             const otherWsNotes = state.notes.filter((n) => n.workspaceId !== workspaceId);
@@ -3119,6 +3167,15 @@ export const useTaskStore = create<TaskState>()(
             ...remoteNotes,
             ...items,
           ]);
+          if (!isDelta) {
+            markWorkspaceFullSyncBaseline(workspaceId, {
+              taskCount: get().tasks.filter((t) => t.workspaceId === workspaceId).length,
+              noteCount: get().notes.filter((n) => n.workspaceId === workspaceId).length,
+              listItemCount: (get().listItems || []).filter(
+                (i) => i.workspaceId === workspaceId,
+              ).length,
+            });
+          }
         } catch (err) {
           console.error("[useTaskStore] hydrateWorkspaceListData error:", err);
         }

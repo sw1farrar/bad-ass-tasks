@@ -1049,6 +1049,7 @@ const BAT_PRIOR_PREFIX = "_bat_prior_";
 const OUTBOX_LOCK_NAME = "bat-outbox-flush";
 const OUTBOX_BC_NAME = "bat-outbox";
 const SYNC_CURSOR_KEY = "bat-sync-cursor-v1";
+const FULL_SYNC_BASELINE_KEY = "bat-full-sync-baseline-v1";
 
 let outboxBroadcast: BroadcastChannel | null = null;
 
@@ -1499,6 +1500,93 @@ export function advanceWorkspaceSyncCursor(
     }
   }
   if (maxIso) setWorkspaceSyncCursor(workspaceId, maxIso);
+}
+
+export function clearWorkspaceSyncCursor(workspaceId: string): void {
+  if (typeof localStorage === "undefined") return;
+  if (!workspaceId || ["w1", "w2"].includes(workspaceId)) return;
+  const map = readSyncCursorMap();
+  if (!(workspaceId in map)) return;
+  delete map[workspaceId];
+  try {
+    localStorage.setItem(SYNC_CURSOR_KEY, JSON.stringify(map));
+  } catch {
+    /* quota */
+  }
+}
+
+type FullSyncBaseline = {
+  taskCount: number;
+  noteCount: number;
+  listItemCount: number;
+  at: string;
+};
+
+function readFullSyncBaselineMap(): Record<string, FullSyncBaseline> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(FULL_SYNC_BASELINE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, FullSyncBaseline>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Record entity counts from the last successful full (non-delta) hydrate. */
+export function markWorkspaceFullSyncBaseline(
+  workspaceId: string,
+  counts: { taskCount: number; noteCount: number; listItemCount: number },
+): void {
+  if (typeof localStorage === "undefined") return;
+  if (!workspaceId || ["w1", "w2"].includes(workspaceId)) return;
+  const map = readFullSyncBaselineMap();
+  map[workspaceId] = {
+    taskCount: Math.max(0, counts.taskCount | 0),
+    noteCount: Math.max(0, counts.noteCount | 0),
+    listItemCount: Math.max(0, counts.listItemCount | 0),
+    at: new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(FULL_SYNC_BASELINE_KEY, JSON.stringify(map));
+  } catch {
+    /* quota */
+  }
+}
+
+/**
+ * Delta resume is only safe when this device already has a full-ish local baseline.
+ * Mobile Safari often keeps the sync cursor while zustand persist is empty/partial —
+ * using delta then permanently hides older tasks/notes/list items.
+ */
+export function shouldUseDeltaHydrate(
+  workspaceId: string,
+  local: { taskCount: number; noteCount: number; listItemCount: number },
+  options?: { forceFull?: boolean },
+): boolean {
+  if (options?.forceFull) return false;
+  if (!workspaceId || ["w1", "w2"].includes(workspaceId)) return false;
+  if (!getWorkspaceSyncCursor(workspaceId)) return false;
+
+  const localTotal = local.taskCount + local.noteCount + local.listItemCount;
+  if (localTotal === 0) return false;
+
+  const baseline = readFullSyncBaselineMap()[workspaceId];
+  if (!baseline) {
+    // No baseline yet (upgrade / first run after this guard): force one full hydrate
+    // so devices stuck with a cursor + partial local cache recover missing rows.
+    return false;
+  }
+
+  const tooFewTasks =
+    baseline.taskCount >= 4 && local.taskCount < Math.max(1, Math.floor(baseline.taskCount * 0.5));
+  const tooFewItems =
+    baseline.listItemCount >= 4 &&
+    local.listItemCount < Math.max(1, Math.floor(baseline.listItemCount * 0.5));
+  if (tooFewTasks || tooFewItems) return false;
+
+  return true;
 }
 
 /** Clear the queue (e.g. after successful full sync or manual reset) */
