@@ -254,6 +254,7 @@ import {
 } from "@/lib/notifications/notificationSelectors";
 
 let notificationsFetchGeneration = 0;
+let homeAggregatesGeneration = 0;
 let deadlineRemindersRanForUser: string | null = null;
 let deadlineRemindersPromise: Promise<void> | null = null;
 let authStateListenerAttached = false;
@@ -754,6 +755,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   refreshHomeNoteAggregatesFromStore: () => void;
   /** Clear unread chat badge for a workspace after the user reads messages. */
   clearWorkspaceUnreadChat: (workspaceId: string) => void;
+  /** Set unread chat badge without refetching home aggregates (avoids mark-read races). */
+  setWorkspaceUnreadChat: (workspaceId: string, unread: boolean) => void;
   /** Instant Home upcoming task rows from local store (no network). */
   refreshHomeTaskFocusFromStore: () => void;
   /** Load list + item rows for a workspace into the store (no workspace switch). */
@@ -2620,7 +2623,39 @@ export const useTaskStore = create<TaskState>()(
         });
       },
 
+      setWorkspaceUnreadChat: (workspaceId: string, unread: boolean) => {
+        if (!workspaceId) return;
+        const stats = get().globalWorkspaceStats;
+        const prev = stats[workspaceId];
+        if (prev) {
+          if (!!prev.unreadChat === unread) return;
+          set({
+            globalWorkspaceStats: {
+              ...stats,
+              [workspaceId]: { ...prev, unreadChat: unread },
+            },
+          });
+          return;
+        }
+        if (!unread) return;
+        set({
+          globalWorkspaceStats: {
+            ...stats,
+            [workspaceId]: {
+              openCount: 0,
+              totalTaskCount: 0,
+              doneCount: 0,
+              overdueCount: 0,
+              dueTodayCount: 0,
+              assigneeBreakdown: [],
+              unreadChat: true,
+            },
+          },
+        });
+      },
+
       fetchGlobalHomeAggregates: async () => {
+        const generation = ++homeAggregatesGeneration;
         const isLive = isSupabaseLive();
         const wss = get().workspaces || [];
         const userId = get().user?.id;
@@ -2660,6 +2695,7 @@ export const useTaskStore = create<TaskState>()(
           const demoFocus = buildGlobalUpcomingFocus(wss, tasksForWs, 12, today);
           const demoOpenFocus = buildGlobalOpenTaskFocus(wss, tasksForWs, 16, today);
 
+          if (generation !== homeAggregatesGeneration) return;
           set({
             globalTodayFocus: demoFocus,
             globalOpenTaskFocus: demoOpenFocus,
@@ -2677,6 +2713,14 @@ export const useTaskStore = create<TaskState>()(
           const allHighlights: HomeListHighlight[] = [];
           const aggregatedLists: WorkspaceList[] = [];
           const aggregatedItems: ListItem[] = [];
+          const chatSnapshots: Record<
+            string,
+            {
+              messages: Array<{ userId: string; createdAt: string }>;
+              reactions: Array<{ userId: string; createdAt: string }>;
+            }
+          > = {};
+
           for (const ws of wss.slice(0, 6)) {
             if (!ws.id || ["w1", "w2"].includes(ws.id)) continue;
             try {
@@ -2699,6 +2743,10 @@ export const useTaskStore = create<TaskState>()(
                     fetchWorkspaceMessages(ws.id, 50),
                     fetchWorkspaceMessageReactions(ws.id),
                   ]);
+                  chatSnapshots[ws.id] = {
+                    messages: chatMessages,
+                    reactions: chatReactions,
+                  };
                   unreadChat = hasUnreadChatActivity(
                     userId,
                     ws.id,
@@ -2732,11 +2780,32 @@ export const useTaskStore = create<TaskState>()(
             } catch { /* per-ws fail non-fatal */ }
           }
 
+          // Drop stale fetches so a mid-flight mark-as-read cannot be overwritten.
+          if (generation !== homeAggregatesGeneration) return;
+
+          // Re-read localStorage watermarks at commit time (mark-read may have happened mid-fetch).
+          if (userId) {
+            for (const [wsId, snap] of Object.entries(chatSnapshots)) {
+              const row = statsByWs[wsId];
+              if (!row) continue;
+              statsByWs[wsId] = {
+                ...row,
+                unreadChat: hasUnreadChatActivity(
+                  userId,
+                  wsId,
+                  snap.messages,
+                  snap.reactions,
+                ),
+              };
+            }
+          }
+
           const state = get();
           set({
             globalTodayFocus: sortUpcomingFocusItems(focusItems).slice(0, 12),
             globalOpenTaskFocus: sortOpenTaskFocusItems(openFocusItems, today).slice(0, 16),
-            globalWorkspaceStats: statsByWs,
+            // Merge so workspaces outside this batch keep their prior pulse (incl. unreadChat).
+            globalWorkspaceStats: { ...state.globalWorkspaceStats, ...statsByWs },
             globalListHighlights: pickGlobalListHighlights(allHighlights),
             workspaceLists: mergeWorkspaceLists(state.workspaceLists, aggregatedLists),
             listItems: mergeListItems(state.listItems, aggregatedItems),

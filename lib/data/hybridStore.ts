@@ -5794,11 +5794,13 @@ export async function fetchWorkspaceMessages(workspaceId: string, limit = 80): P
   if (!supabase) return [];
 
   try {
+    // Newest-first from DB, then reverse so callers get chronological order.
+    // (ascending + limit previously returned the *oldest* N — unread checks missed recent chat.)
     const { data, error } = await supabase
       .from("workspace_messages")
       .select("*")
       .eq("workspace_id", workspaceId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -5806,9 +5808,11 @@ export async function fetchWorkspaceMessages(workspaceId: string, limit = 80): P
       return [];
     }
 
-    return (data ?? []).map((row: WorkspaceMessageRow & { profiles?: { full_name?: string | null; username?: string | null } }) =>
-      mapWorkspaceMessageRow(row, row.profiles ?? undefined)
-    );
+    return (data ?? [])
+      .map((row: WorkspaceMessageRow & { profiles?: { full_name?: string | null; username?: string | null } }) =>
+        mapWorkspaceMessageRow(row, row.profiles ?? undefined)
+      )
+      .reverse();
   } catch (err) {
     logHybridError("fetchWorkspaceMessages", err);
     return [];

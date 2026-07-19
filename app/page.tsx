@@ -231,6 +231,7 @@ export default function BadAssTasks() {
     refreshHomeListAggregatesFromStore,
     refreshHomeNoteAggregatesFromStore,
     clearWorkspaceUnreadChat,
+    setWorkspaceUnreadChat,
     refreshHomeTaskFocusFromStore,
     hydrateWorkspaceListData,
     // Offline / sync (Agent 17 mobile polish — exposed from hybrid + store)
@@ -445,11 +446,6 @@ export default function BadAssTasks() {
     setChatOpen(false);
   }, [currentWorkspace.id, showWorkspaceChat, clearWorkspaceUnreadChat]);
 
-  useEffect(() => {
-    if (!workspaceChat.hasUnread) {
-      clearWorkspaceUnreadChat(currentWorkspace.id);
-    }
-  }, [workspaceChat.hasUnread, currentWorkspace.id, clearWorkspaceUnreadChat]);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
@@ -2122,11 +2118,20 @@ export default function BadAssTasks() {
     fetchNotifications,
   ]);
 
+  // Patch the home pulse directly — do not refetch aggregates (that raced mark-as-read).
   useEffect(() => {
+    if (!currentWorkspace.id) return;
     if (workspaceChat.hasUnread) {
-      fetchGlobalHomeAggregates();
+      setWorkspaceUnreadChat(currentWorkspace.id, true);
+    } else {
+      clearWorkspaceUnreadChat(currentWorkspace.id);
     }
-  }, [workspaceChat.hasUnread, fetchGlobalHomeAggregates]);
+  }, [
+    workspaceChat.hasUnread,
+    currentWorkspace.id,
+    setWorkspaceUnreadChat,
+    clearWorkspaceUnreadChat,
+  ]);
 
   useEffect(() => {
     if (currentView !== "lists") setHighlightListId(null);
