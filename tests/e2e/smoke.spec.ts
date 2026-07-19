@@ -93,7 +93,16 @@ test.describe('Badazz Tasks — E2E smoke (production hardening)', () => {
     await page.waitForTimeout(800);
 
     // Default filter is Incomplete — completed tasks move out; show All to confirm persistence.
-    const allFilter = page.getByRole('button', { name: 'All', exact: true });
+    // Mobile keeps status filters inside the compact Filters disclosure.
+    if (isMobileProject) {
+      const filtersTrigger = page.getByRole('button', { name: /filters/i });
+      if (await filtersTrigger.count()) {
+        await filtersTrigger.first().click();
+      }
+    }
+    const allFilter = page
+      .locator('[aria-label="Filter tasks by status"]')
+      .getByRole('button', { name: 'All', exact: true });
     if (await allFilter.count()) {
       await allFilter.first().click();
     }
