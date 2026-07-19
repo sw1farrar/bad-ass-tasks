@@ -3010,7 +3010,7 @@ export async function updateNote(id: string, updates: Partial<Note>): Promise<Pe
   if (!supabase) return false;
 
   // Prefer caller workspaceId — never block outbox on a network resolve roundtrip.
-  let wsForQueue = String((updates as { workspaceId?: string }).workspaceId || "").trim();
+  const wsForQueue = String((updates as { workspaceId?: string }).workspaceId || "").trim();
   if (!isSafeId(wsForQueue)) {
     logHybridError("updateNote", new Error("Missing workspaceId for durable note update"));
     return false;
