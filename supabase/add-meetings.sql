@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS meeting_agenda_items (
   sort_order INTEGER NOT NULL DEFAULT 0,
   owner_id UUID,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'completed', 'continued')),
+  reviewed BOOLEAN NOT NULL DEFAULT false,
   continued_from_item_id UUID REFERENCES meeting_agenda_items(id) ON DELETE SET NULL,
   linked_task_ids UUID[] NOT NULL DEFAULT '{}',
   time_budget_minutes INTEGER,

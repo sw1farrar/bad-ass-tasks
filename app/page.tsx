@@ -74,6 +74,7 @@ import { LoginActivityModal } from "@/components/LoginActivityModal";
 import { isValidListShareId } from "@/lib/list-share/getListSharePreview";
 import { FilesView } from "@/features/files";
 import { NotebooksView } from "@/features/notebooks";
+import { MeetingsView } from "@/features/meetings";
 import { HealthView } from "@/features/health";
 import { getBottomNavViews } from "@/lib/nav/workspaceViews";
 import {
@@ -296,14 +297,12 @@ export default function BadAssTasks() {
     selectedNotebookCompetitorId,
     selectedMeetingId,
     selectedAgendaItemId,
-    notesPageMode,
     setSelectedNotebookId,
     setSelectedNotebookNoteId,
     setSelectedNotebookTaskId,
     setSelectedNotebookInvestmentId,
     setSelectedNotebookCustomerId,
     setSelectedNotebookCompetitorId,
-    setNotesPageMode,
     setSelectedMeetingId,
     setSelectedAgendaItemId,
     addNotebook,
@@ -350,6 +349,7 @@ export default function BadAssTasks() {
     deleteAgendaEntry,
     completeAgendaItem,
     continueAgendaItem,
+    unreviewAgendaItem,
     reopenAgendaItem,
     deleteAgendaItem,
     completeMeeting,
@@ -1308,7 +1308,6 @@ export default function BadAssTasks() {
 
   const openTask = (task: Task) => {
     if (task.notebookId) {
-      setNotesPageMode("notes");
       setSelectedNotebookId(task.notebookId);
       setSelectedNotebookTaskId(task.id);
       setView("notebooks");
@@ -3286,23 +3285,15 @@ export default function BadAssTasks() {
               getNotebookCompetitors(selectedNotebookId).some((c) => c.id === n.competitorId)
             )}
             workspaceCompetitorNotes={notebookCompetitorNotes}
-            meetings={getMeetings()}
-            archivedMeetings={getArchivedMeetings()}
-            meetingAgendaItems={meetingAgendaItems}
-            meetingAgendaEntries={meetingAgendaEntries}
             members={members}
             currentUserId={user?.id}
-            notesPageMode={notesPageMode}
             selectedNotebookId={selectedNotebookId}
             selectedNoteId={selectedNotebookNoteId}
             selectedNotebookTaskId={selectedNotebookTaskId}
             selectedNotebookInvestmentId={selectedNotebookInvestmentId}
             selectedNotebookCustomerId={selectedNotebookCustomerId}
             selectedNotebookCompetitorId={selectedNotebookCompetitorId}
-            selectedMeetingId={selectedMeetingId}
-            selectedAgendaItemId={selectedAgendaItemId}
             isLive={isSupabaseConfigured()}
-            onNotesPageModeChange={setNotesPageMode}
             onSelectNotebook={(id) => {
               setSelectedNotebookId(id);
               setSelectedNotebookTaskId(null);
@@ -3314,8 +3305,6 @@ export default function BadAssTasks() {
             onSelectNotebookInvestment={setSelectedNotebookInvestmentId}
             onSelectNotebookCustomer={setSelectedNotebookCustomerId}
             onSelectNotebookCompetitor={setSelectedNotebookCompetitorId}
-            onSelectMeeting={setSelectedMeetingId}
-            onSelectAgendaItem={setSelectedAgendaItemId}
             onAddNotebook={addNotebook}
             onUpdateNotebook={updateNotebook}
             onDeleteNotebook={deleteNotebook}
@@ -3323,23 +3312,6 @@ export default function BadAssTasks() {
             onUpdateNote={updateNote}
             onDeleteNote={deleteNote}
             onHydrateNote={hydrateNoteDetail}
-            onAddMeeting={addMeeting}
-            onUpdateMeeting={updateMeeting}
-            onDeleteMeeting={deleteMeeting}
-            onAddAgendaItem={addAgendaItem}
-            onUpdateAgendaItem={updateAgendaItem}
-            onReorderAgendaItems={reorderAgendaItems}
-            onAddAgendaEntry={addAgendaEntry}
-            onUpdateAgendaEntry={updateAgendaEntry}
-            onDeleteAgendaEntry={deleteAgendaEntry}
-            onCompleteAgendaItem={completeAgendaItem}
-            onContinueAgendaItem={continueAgendaItem}
-            onReopenAgendaItem={reopenAgendaItem}
-            onDeleteAgendaItem={deleteAgendaItem}
-            onCompleteMeeting={completeMeeting}
-            onReopenMeeting={reopenMeeting}
-            onStartNextMeeting={startNextMeeting}
-            onDuplicateMeeting={duplicateMeeting}
             onAddNotebookTask={(title) =>
               selectedNotebookId ? addNotebookTask(selectedNotebookId, title) : undefined
             }
@@ -3414,6 +3386,41 @@ export default function BadAssTasks() {
                 ).length,
               };
             }}
+          />
+        );
+      case "meetings":
+        return (
+          <MeetingsView
+            workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
+            meetings={getMeetings()}
+            archivedMeetings={getArchivedMeetings()}
+            meetingAgendaItems={meetingAgendaItems}
+            meetingAgendaEntries={meetingAgendaEntries}
+            members={members}
+            currentUserId={user?.id}
+            selectedMeetingId={selectedMeetingId}
+            selectedAgendaItemId={selectedAgendaItemId}
+            onSelectMeeting={setSelectedMeetingId}
+            onSelectAgendaItem={setSelectedAgendaItemId}
+            onAddMeeting={addMeeting}
+            onUpdateMeeting={updateMeeting}
+            onDeleteMeeting={deleteMeeting}
+            onAddAgendaItem={addAgendaItem}
+            onUpdateAgendaItem={updateAgendaItem}
+            onReorderAgendaItems={reorderAgendaItems}
+            onAddAgendaEntry={addAgendaEntry}
+            onUpdateAgendaEntry={updateAgendaEntry}
+            onDeleteAgendaEntry={deleteAgendaEntry}
+            onCompleteAgendaItem={completeAgendaItem}
+            onContinueAgendaItem={continueAgendaItem}
+            onUnreviewAgendaItem={unreviewAgendaItem}
+            onReopenAgendaItem={reopenAgendaItem}
+            onDeleteAgendaItem={deleteAgendaItem}
+            onCompleteMeeting={completeMeeting}
+            onReopenMeeting={reopenMeeting}
+            onStartNextMeeting={startNextMeeting}
+            onDuplicateMeeting={duplicateMeeting}
             onSaveSummaryAsNote={async (meeting) => {
               const items = getMeetingAgendaItems(meeting.id);
               const itemIds = new Set(items.map((i) => i.id));
@@ -3440,9 +3447,9 @@ export default function BadAssTasks() {
                 notebookId: targetNotebookId,
               });
               if (created) {
-                setNotesPageMode("notes");
                 if (created.notebookId) setSelectedNotebookId(created.notebookId);
                 setSelectedNotebookNoteId(created.id);
+                setView("notebooks");
                 toast.success("Summary saved to notebook");
               } else {
                 toast.error("Could not save summary as note");
@@ -4116,6 +4123,7 @@ export default function BadAssTasks() {
               | "tasks"
               | "notes"
               | "notebooks"
+              | "meetings"
               | "lists"
               | "health"
               | "teams"

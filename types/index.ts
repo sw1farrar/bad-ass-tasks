@@ -230,7 +230,6 @@ export interface HealthProfile {
 
 export type MeetingStatus = "draft" | "scheduled" | "in_progress" | "completed";
 export type AgendaItemStatus = "open" | "in_progress" | "completed" | "continued";
-export type NotesPageMode = "notes" | "meetings";
 
 export interface Meeting {
   id: string;
@@ -262,6 +261,11 @@ export interface MeetingAgendaItem {
   /** Free-text responsible when not a workspace member. */
   ownerName?: string | null;
   status: AgendaItemStatus;
+  /**
+   * Covered in this meeting for carry-forward. Persists across complete/reopen
+   * so returning a completed topic to Active keeps the Reviewed state.
+   */
+  reviewed?: boolean;
   continuedFromItemId?: string | null;
   linkedTaskIds: string[];
   timeBudgetMinutes?: number | null;

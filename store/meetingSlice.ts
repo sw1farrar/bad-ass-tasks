@@ -2,7 +2,6 @@ import type {
   Meeting,
   MeetingAgendaEntry,
   MeetingAgendaItem,
-  NotesPageMode,
   Workspace,
   WorkspaceMember,
 } from "@/types";
@@ -25,7 +24,7 @@ import {
   type DuplicateMeetingOptions,
 } from "@/lib/meetings/duplicateMeeting";
 import { getMeetingTemplate, type MeetingTemplate } from "@/lib/meetings/agendaTemplates";
-import { getFirstAgendaItemId, getNextActiveAgendaItemId } from "@/lib/meetings/agendaNavigation";
+import { getNextActiveAgendaItemId } from "@/lib/meetings/agendaNavigation";
 import {
   sortAgendaItems,
   sortMeetingEntriesNewestFirst,
@@ -52,8 +51,6 @@ import {
   updateMeetingAgendaItem as updateAgendaItemSupabase,
   deleteMeetingAgendaItem as deleteAgendaItemSupabase,
 } from "@/lib/data/hybridStore";
-
-const NOTES_PAGE_MODE_KEY = "badazz-notes-page-mode";
 
 export const SAMPLE_MEETINGS: Meeting[] = [
   {
@@ -90,6 +87,7 @@ export const SAMPLE_AGENDA_ITEMS: MeetingAgendaItem[] = [
     title: "Budget review",
     sortOrder: 1000,
     status: "continued",
+    reviewed: true,
     linkedTaskIds: [],
     createdAt: new Date(Date.now() - 86400000 * 8).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
@@ -109,7 +107,6 @@ type MeetingStoreSlice = {
   meetings: Meeting[];
   meetingAgendaItems: MeetingAgendaItem[];
   meetingAgendaEntries: MeetingAgendaEntry[];
-  notesPageMode: NotesPageMode;
   selectedMeetingId: string | null;
   selectedAgendaItemId: string | null;
   selectedNotebookId: string | null;
@@ -138,24 +135,6 @@ type Set = (
     | Partial<MeetingStoreSlice>
     | ((state: MeetingStoreSlice) => Partial<MeetingStoreSlice>),
 ) => void;
-
-function readNotesPageMode(): NotesPageMode {
-  if (typeof window === "undefined") return "notes";
-  try {
-    const v = sessionStorage.getItem(NOTES_PAGE_MODE_KEY);
-    return v === "meetings" ? "meetings" : "notes";
-  } catch {
-    return "notes";
-  }
-}
-
-function writeNotesPageMode(mode: NotesPageMode): void {
-  try {
-    sessionStorage.setItem(NOTES_PAGE_MODE_KEY, mode);
-  } catch {
-    /* ignore */
-  }
-}
 
 function isLiveMeetingWorkspace(workspaceId: string): boolean {
   return isSupabaseLive() && !!workspaceId && !["", "w1", "w2"].includes(workspaceId);
@@ -197,25 +176,11 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       );
     },
 
-    setNotesPageMode: (mode: NotesPageMode) => {
-      writeNotesPageMode(mode);
-      set({
-        notesPageMode: mode,
-        ...(mode === "meetings"
-          ? { selectedNotebookNoteId: null }
-          : { selectedMeetingId: null, selectedAgendaItemId: null }),
-      });
-    },
-
     setSelectedMeetingId: (id: string | null) => {
-      const nextAgendaId = id
-        ? getFirstAgendaItemId(
-            get().meetingAgendaItems.filter((i) => i.meetingId === id),
-          )
-        : null;
       set({
         selectedMeetingId: id,
-        selectedAgendaItemId: nextAgendaId,
+        // Board UI opens topics on demand; do not auto-select an agenda item.
+        selectedAgendaItemId: null,
         ...(id ? { selectedNotebookNoteId: null } : {}),
       });
     },
@@ -251,6 +216,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         title: topic.title,
         sortOrder: index * 1000,
         status: "open" as const,
+        reviewed: false,
         linkedTaskIds: [],
         createdAt: now,
         updatedAt: now,
@@ -384,6 +350,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         title: title.trim() || "New topic",
         sortOrder: maxOrder + 1000,
         status: "open",
+        reviewed: false,
         linkedTaskIds: [],
         createdAt: now,
         updatedAt: now,
@@ -498,7 +465,11 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       const meetingItems = get().meetingAgendaItems.filter((i) => i.meetingId === meetingId);
       const toDefer = meetingItems.filter(shouldAutoDeferAgendaItem);
       for (const item of toDefer) {
-        await actions.updateAgendaItem(item.id, { status: "continued", completedAt: null });
+        await actions.updateAgendaItem(item.id, {
+          status: "continued",
+          reviewed: true,
+          completedAt: null,
+        });
       }
       const items = get().meetingAgendaItems.filter((i) => i.meetingId === meetingId);
       const itemIds = new Set(items.map((i) => i.id));
@@ -546,7 +517,11 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     continueAgendaItem: async (itemId: string) => {
       const item = get().meetingAgendaItems.find((i) => i.id === itemId);
-      await actions.updateAgendaItem(itemId, { status: "continued", completedAt: null });
+      await actions.updateAgendaItem(itemId, {
+        status: "continued",
+        reviewed: true,
+        completedAt: null,
+      });
       if (item) {
         const nextId = getNextActiveAgendaItemId(
           get().meetingAgendaItems.filter((i) => i.meetingId === item.meetingId),
@@ -556,8 +531,34 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       }
     },
 
+    unreviewAgendaItem: async (itemId: string) => {
+      return actions.updateAgendaItem(itemId, {
+        status: "open",
+        reviewed: false,
+        completedAt: null,
+      });
+    },
+
     reopenAgendaItem: async (itemId: string) => {
-      return actions.updateAgendaItem(itemId, { status: "open", completedAt: null });
+      const item = get().meetingAgendaItems.find((i) => i.id === itemId);
+      if (!item) return false;
+
+      // Undo review/defer while still in Active → clear reviewed.
+      if (item.status === "continued") {
+        return actions.updateAgendaItem(itemId, {
+          status: "open",
+          reviewed: false,
+          completedAt: null,
+        });
+      }
+
+      // Move out of Completed → keep reviewed and restore continued/open.
+      const reviewed = item.reviewed === true;
+      return actions.updateAgendaItem(itemId, {
+        status: reviewed ? "continued" : "open",
+        reviewed,
+        completedAt: null,
+      });
     },
 
     startNextMeeting: async (
@@ -667,7 +668,3 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 }
 
 export type MeetingSliceActions = ReturnType<typeof createMeetingSliceActions>;
-
-export function getInitialNotesPageMode(): NotesPageMode {
-  return readNotesPageMode();
-}

@@ -1,4 +1,5 @@
 import {
+  Calendar,
   Check,
   FolderOpen,
   HeartPulse,
@@ -17,6 +18,7 @@ export type WorkspaceNavViewId =
   | "tasks"
   | "notes"
   | "notebooks"
+  | "meetings"
   | "lists"
   | "health"
   | "teams"
@@ -36,6 +38,7 @@ const ALL_VIEWS: WorkspaceNavView[] = [
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Files", icon: FolderOpen },
   { id: "notebooks", label: "Notes", icon: Notebook },
+  { id: "meetings", label: "Meetings", icon: Calendar },
   { id: "lists", label: "Lists", icon: ListChecks },
   { id: "health", label: "Health", icon: HeartPulse },
   { id: "teams", label: "Team", icon: Users },
@@ -48,7 +51,7 @@ const ALL_VIEWS: WorkspaceNavView[] = [
 ];
 
 function isViewVisible(id: WorkspaceNavViewId, workspace: Workspace): boolean {
-  if (id === "notebooks") return isNotesFeatureEnabled(workspace.settings);
+  if (id === "notebooks" || id === "meetings") return isNotesFeatureEnabled(workspace.settings);
   if (id === "health") return isHealthFeatureEnabled(workspace.settings);
   return true;
 }

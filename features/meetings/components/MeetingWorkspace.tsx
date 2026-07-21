@@ -2,8 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 import { Calendar } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { toast } from "sonner";
 import type {
   Meeting,
@@ -13,9 +11,8 @@ import type {
 } from "@/types";
 import { sortMeetingEntriesNewestFirst } from "@/lib/meetings/meetingFilters";
 import { MeetingHeader } from "./MeetingHeader";
-import { MeetingAgendaRail } from "./MeetingAgendaRail";
-import { MeetingTopicPanel } from "./MeetingTopicPanel";
-
+import { MeetingAgendaBoard } from "./MeetingAgendaBoard";
+import { MeetingTopicModal } from "./MeetingTopicModal";
 import { MeetingSummaryView } from "./MeetingSummaryView";
 import { MeetingAgendaPreviewModal } from "./MeetingAgendaPreviewModal";
 import { MeetingSummaryPreviewModal } from "./MeetingSummaryPreviewModal";
@@ -39,6 +36,7 @@ interface MeetingWorkspaceProps {
   onAddEntry: (agendaItemId: string, body: string) => void | Promise<unknown>;
   onCompleteItem: (id: string) => void | Promise<unknown>;
   onContinueItem: (id: string) => void | Promise<unknown>;
+  onUnreviewItem: (id: string) => void | Promise<unknown>;
   onReopenItem: (id: string) => void | Promise<unknown>;
   onRequestDeleteAgendaItem?: (id: string) => void;
   onUpdateAgendaEntry?: (id: string, body: string) => void | Promise<unknown>;
@@ -69,6 +67,7 @@ export function MeetingWorkspace({
   onAddEntry,
   onCompleteItem,
   onContinueItem,
+  onUnreviewItem,
   onReopenItem,
   onRequestDeleteAgendaItem,
   onUpdateAgendaEntry,
@@ -85,6 +84,7 @@ export function MeetingWorkspace({
   const [agendaPreviewOpen, setAgendaPreviewOpen] = useState(false);
   const [summaryPreviewOpen, setSummaryPreviewOpen] = useState(false);
   const [agendaPreviewIncludeComments, setAgendaPreviewIncludeComments] = useState(false);
+  const [autoSelectTitle, setAutoSelectTitle] = useState(false);
 
   const selectedItem = useMemo(
     () => agendaItems.find((i) => i.id === selectedAgendaItemId) ?? null,
@@ -100,9 +100,6 @@ export function MeetingWorkspace({
         : [],
     [agendaEntries, selectedAgendaItemId],
   );
-
-  const isMobile = useIsMobileViewport();
-  const showMobileTopicDetail = isMobile && !!selectedAgendaItemId;
 
   const continuedCount = agendaItems.filter((i) => i.status === "continued").length;
   const openCount = agendaItems.filter(
@@ -122,6 +119,30 @@ export function MeetingWorkspace({
 
   const isCompleted = meeting.status === "completed";
   const readOnly = isCompleted;
+  const topicModalOpen = !!selectedAgendaItemId && !!selectedItem;
+
+  const closeTopicModal = () => {
+    setAutoSelectTitle(false);
+    onSelectAgendaItem(null);
+  };
+
+  const handleCompleteItem = async (id: string) => {
+    await onCompleteItem(id);
+    onSelectAgendaItem(null);
+  };
+
+  const handleContinueItem = async (id: string) => {
+    await onContinueItem(id);
+    onSelectAgendaItem(null);
+  };
+
+  const handleUnreviewItem = async (id: string) => {
+    await onUnreviewItem(id);
+  };
+
+  const handleReopenItem = async (id: string) => {
+    await onReopenItem(id);
+  };
 
   return (
     <div className="files-detail-column flex flex-1 flex-col min-w-0 min-h-0 h-full meetings-root">
@@ -156,45 +177,67 @@ export function MeetingWorkspace({
           }}
         />
       ) : (
-        <div
-          className={cn(
-            "meetings-workspace flex flex-1 min-h-0",
-            showMobileTopicDetail && "meetings-mobile-topic-detail",
-          )}
-        >
-          <MeetingAgendaRail
-            items={agendaItems}
-            members={members}
-            currentUserId={currentUserId}
-            selectedId={selectedAgendaItemId}
-            readOnly={readOnly}
-            onSelect={(id) => onSelectAgendaItem(id)}
-            onAdd={(title) => {
-              void Promise.resolve(onAddAgendaItem(meeting.id, title)).then((item) => {
-                if (item) onSelectAgendaItem(item.id);
-              });
-            }}
-            onReorder={(ids) => void onReorderAgendaItems(meeting.id, ids)}
-          />
-          <MeetingTopicPanel
-            meeting={meeting}
-            item={selectedItem}
-            onBackToAgenda={showMobileTopicDetail ? () => onSelectAgendaItem(null) : undefined}
-            entries={itemEntries}
-            members={members}
-            currentUserId={currentUserId}
-            readOnly={readOnly}
-            onUpdateItem={(id, updates) => void onUpdateAgendaItem(id, updates)}
-            onCompleteItem={(id) => void onCompleteItem(id)}
-            onContinueItem={(id) => void onContinueItem(id)}
-            onReopenItem={(id) => void onReopenItem(id)}
-            onRequestDeleteItem={onRequestDeleteAgendaItem}
-            onAddEntry={(agendaItemId, body) => void onAddEntry(agendaItemId, body)}
-            onUpdateEntry={onUpdateAgendaEntry}
-            onRequestDeleteEntry={onRequestDeleteAgendaEntry}
-          />
-        </div>
+        <MeetingAgendaBoard
+          items={agendaItems}
+          entries={agendaEntries}
+          members={members}
+          currentUserId={currentUserId}
+          readOnly={readOnly}
+          onSelect={(id) => {
+            setAutoSelectTitle(false);
+            onSelectAgendaItem(id);
+          }}
+          onAdd={(title, options) => {
+            const openInModal = options?.openInModal !== false;
+            if (openInModal) setAutoSelectTitle(true);
+            else setAutoSelectTitle(false);
+            void Promise.resolve(onAddAgendaItem(meeting.id, title)).then((item) => {
+              if (item && openInModal) onSelectAgendaItem(item.id);
+            });
+          }}
+          onReorder={(ids) => void onReorderAgendaItems(meeting.id, ids)}
+          onCompleteItem={(id) => void handleCompleteItem(id)}
+          onContinueItem={(id) => void handleContinueItem(id)}
+          onUnreviewItem={(id) => void handleUnreviewItem(id)}
+          onReopenItem={(id) => void handleReopenItem(id)}
+        />
       )}
+
+      <MeetingTopicModal
+        open={topicModalOpen}
+        onOpenChange={(open) => {
+          if (!open) closeTopicModal();
+        }}
+        meeting={meeting}
+        item={selectedItem}
+        entries={itemEntries}
+        members={members}
+        currentUserId={currentUserId}
+        readOnly={readOnly}
+        autoSelectTitle={autoSelectTitle}
+        onUpdateItem={(id, updates) => void onUpdateAgendaItem(id, updates)}
+        onCompleteItem={(id) => void handleCompleteItem(id)}
+        onContinueItem={(id) => void handleContinueItem(id)}
+        onReopenItem={(id) => {
+          // In the topic modal, Reopen on a reviewed/active topic means unreview.
+          if (selectedItem && selectedItem.status !== "completed") {
+            void handleUnreviewItem(id);
+            return;
+          }
+          void handleReopenItem(id);
+        }}
+        onRequestDeleteItem={
+          onRequestDeleteAgendaItem
+            ? (id) => {
+                onRequestDeleteAgendaItem(id);
+                closeTopicModal();
+              }
+            : undefined
+        }
+        onAddEntry={(agendaItemId, body) => void onAddEntry(agendaItemId, body)}
+        onUpdateEntry={onUpdateAgendaEntry}
+        onRequestDeleteEntry={onRequestDeleteAgendaEntry}
+      />
 
       <CompleteMeetingModal
         open={completeOpen}

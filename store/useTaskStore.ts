@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, NotebookCompetitorNote, HealthReading, HealthProfile, Meeting, MeetingAgendaItem, MeetingAgendaEntry, NotesPageMode } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, NotebookCompetitorNote, HealthReading, HealthProfile, Meeting, MeetingAgendaItem, MeetingAgendaEntry } from "@/types";
 import {
   DEFAULT_NOTEBOOK_SECTION_TAB,
   type NotebookSectionTab,
@@ -58,7 +58,6 @@ import {
 } from "@/store/notebookSectionSlice";
 import {
   createMeetingSliceActions,
-  getInitialNotesPageMode,
   SAMPLE_MEETINGS,
   SAMPLE_AGENDA_ITEMS,
   SAMPLE_AGENDA_ENTRIES,
@@ -446,7 +445,7 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "health" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "health" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksFolderFilterMode = "all" | "none" | string;
@@ -474,7 +473,6 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   meetings: Meeting[];
   meetingAgendaItems: MeetingAgendaItem[];
   meetingAgendaEntries: MeetingAgendaEntry[];
-  notesPageMode: NotesPageMode;
   selectedMeetingId: string | null;
   selectedAgendaItemId: string | null;
   healthReadings: HealthReading[];
@@ -1102,7 +1100,6 @@ export const useTaskStore = create<TaskState>()(
       meetings: SAMPLE_MEETINGS,
       meetingAgendaItems: SAMPLE_AGENDA_ITEMS,
       meetingAgendaEntries: SAMPLE_AGENDA_ENTRIES,
-      notesPageMode: getInitialNotesPageMode(),
       selectedMeetingId: null,
       selectedAgendaItemId: null,
       healthReadings: [],
@@ -1333,7 +1330,10 @@ export const useTaskStore = create<TaskState>()(
           get().updatePresenceMeta({ view: "home" });
           return;
         }
-        if (resolved === "notebooks" && !isNotesFeatureEnabled(get().currentWorkspace.settings)) {
+        if (
+          (resolved === "notebooks" || resolved === "meetings") &&
+          !isNotesFeatureEnabled(get().currentWorkspace.settings)
+        ) {
           set({ currentView: "home" });
           get().updatePresenceMeta({ view: "home" });
           return;
@@ -1421,7 +1421,6 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookCustomerId: null,
           selectedNotebookCompetitorId: null,
           selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
-          notesPageMode: "notes",
           selectedMeetingId: null,
           selectedAgendaItemId: null,
           isInitializing: true,
@@ -5437,7 +5436,7 @@ export const useTaskStore = create<TaskState>()(
           if (updated) {
             set({ currentWorkspace: updated });
             if (
-              get().currentView === "notebooks" &&
+              (get().currentView === "notebooks" || get().currentView === "meetings") &&
               !isNotesFeatureEnabled(updated.settings)
             ) {
               get().setView("home");
@@ -6463,7 +6462,6 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookCustomerId: state.selectedNotebookCustomerId,
             selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
             selectedNotebookSectionTab: state.selectedNotebookSectionTab,
-            notesPageMode: state.notesPageMode,
             selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
             theme: state.theme,
@@ -6498,7 +6496,6 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookCustomerId: state.selectedNotebookCustomerId,
           selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
           selectedNotebookSectionTab: state.selectedNotebookSectionTab,
-          notesPageMode: state.notesPageMode,
           selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
           myProfile: state.myProfile,
@@ -6529,7 +6526,7 @@ if (typeof window !== "undefined") {
       useTaskStore.setState({ currentView: "home" });
     }
     if (
-      persistedView === "notebooks" &&
+      (persistedView === "notebooks" || persistedView === "meetings") &&
       !isNotesFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
     ) {
       useTaskStore.setState({ currentView: "home" });

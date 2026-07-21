@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowRightCircle, CheckCircle2, ChevronLeft, RotateCcw, Trash2 } from "lucide-react";
 import { MeetingResponsiblePicker } from "@/components/MeetingResponsiblePicker";
 import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem, WorkspaceMember } from "@/types";
@@ -14,6 +14,8 @@ interface MeetingTopicPanelProps {
   members: WorkspaceMember[];
   currentUserId?: string;
   readOnly?: boolean;
+  /** When true, focus and select the title field (e.g. after Add Agenda Item). */
+  autoSelectTitle?: boolean;
   onUpdateItem: (id: string, updates: Partial<MeetingAgendaItem>) => void;
   onCompleteItem: (id: string) => void;
   onContinueItem: (id: string) => void;
@@ -32,6 +34,7 @@ export function MeetingTopicPanel({
   members,
   currentUserId,
   readOnly,
+  autoSelectTitle = false,
   onUpdateItem,
   onCompleteItem,
   onContinueItem,
@@ -42,6 +45,7 @@ export function MeetingTopicPanel({
   onRequestDeleteEntry,
   onBackToAgenda,
 }: MeetingTopicPanelProps) {
+  const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(item?.title ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
 
@@ -49,6 +53,17 @@ export function MeetingTopicPanel({
     setTitle(item?.title ?? "");
     setDescription(item?.description ?? "");
   }, [item?.id, item?.title, item?.description]);
+
+  useEffect(() => {
+    if (!item || !autoSelectTitle) return;
+    const timer = window.setTimeout(() => {
+      const el = titleRef.current;
+      if (!el || el.disabled) return;
+      el.focus();
+      el.select();
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [item?.id, autoSelectTitle]);
 
   if (!item) {
     return (
@@ -79,6 +94,7 @@ export function MeetingTopicPanel({
         ) : null}
         <div className="flex items-start gap-2">
           <input
+            ref={titleRef}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={() => {
@@ -148,7 +164,7 @@ export function MeetingTopicPanel({
                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-400/90 hover:bg-amber-400/10"
               >
                 <ArrowRightCircle className="h-3.5 w-3.5" />
-                Defer
+                Mark reviewed
               </button>
             </div>
           )}
@@ -159,7 +175,7 @@ export function MeetingTopicPanel({
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:bg-surface-hover ml-auto"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              Reopen
+              {item.status === "continued" ? "Unreview" : "Reopen"}
             </button>
           )}
         </div>

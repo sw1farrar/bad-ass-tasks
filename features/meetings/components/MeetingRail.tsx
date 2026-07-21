@@ -3,13 +3,9 @@
 import React from "react";
 import { Archive, ArchiveRestore, Loader2, Plus, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NotesMeetingsToggle } from "./NotesMeetingsToggle";
-import type { NotesPageMode } from "@/types";
 
 interface MeetingRailProps {
   isDesktop?: boolean;
-  notesPageMode: NotesPageMode;
-  onNotesPageModeChange: (mode: NotesPageMode) => void;
   onNewMeeting: () => void;
   isCreating?: boolean;
   searchQuery?: string;
@@ -22,8 +18,6 @@ interface MeetingRailProps {
 
 export function MeetingRail({
   isDesktop = false,
-  notesPageMode,
-  onNotesPageModeChange,
   onNewMeeting,
   isCreating,
   searchQuery = "",
@@ -43,8 +37,6 @@ export function MeetingRail({
       aria-label="Meetings browse"
     >
       <div className="files-browse-toolbar files-action-bar shrink-0 p-4 border-b border-border-glass space-y-3">
-        <NotesMeetingsToggle mode={notesPageMode} onModeChange={onNotesPageModeChange} />
-
         <div className="flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />

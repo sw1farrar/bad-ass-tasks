@@ -3,15 +3,11 @@
 import React from "react";
 import { Archive, ArchiveRestore, Loader2, Plus, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NotesMeetingsToggle } from "@/features/meetings/components/NotesMeetingsToggle";
-import type { NotesPageMode } from "@/types";
 
 interface NotebookRailProps {
   onNewNotebook: () => void;
   isCreating?: boolean;
   isDesktop?: boolean;
-  notesPageMode?: NotesPageMode;
-  onNotesPageModeChange?: (mode: NotesPageMode) => void;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
   libraryView?: "active" | "archived";
@@ -24,8 +20,6 @@ export function NotebookRail({
   onNewNotebook,
   isCreating,
   isDesktop = false,
-  notesPageMode = "notes",
-  onNotesPageModeChange,
   searchQuery = "",
   onSearchQueryChange,
   libraryView = "active",
@@ -43,10 +37,6 @@ export function NotebookRail({
       aria-label="Notebooks browse"
     >
       <div className="files-browse-toolbar files-action-bar shrink-0 p-4 border-b border-border-glass space-y-3">
-        {onNotesPageModeChange && (
-          <NotesMeetingsToggle mode={notesPageMode} onModeChange={onNotesPageModeChange} />
-        )}
-
         <div className="flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />

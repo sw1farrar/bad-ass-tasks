@@ -7792,6 +7792,7 @@ type MeetingAgendaItemRow = {
   owner_id: string | null;
   owner_name: string | null;
   status: string;
+  reviewed?: boolean | null;
   continued_from_item_id: string | null;
   linked_task_ids: string[] | null;
   time_budget_minutes: number | null;
@@ -7876,6 +7877,7 @@ export function mapMeetingRow(row: MeetingRow): Meeting {
 }
 
 function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
+  const status = row.status as MeetingAgendaItem["status"];
   return {
     id: row.id,
     meetingId: row.meeting_id,
@@ -7884,7 +7886,9 @@ function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
     sortOrder: row.sort_order,
     ownerId: row.owner_id,
     ownerName: row.owner_name,
-    status: row.status as MeetingAgendaItem["status"],
+    status,
+    // Prefer explicit column; fall back for rows that predate the migration.
+    reviewed: row.reviewed === true || (row.reviewed == null && status === "continued"),
     continuedFromItemId: row.continued_from_item_id,
     linkedTaskIds: row.linked_task_ids ?? [],
     timeBudgetMinutes: row.time_budget_minutes,
@@ -8088,6 +8092,7 @@ export async function createMeetingAgendaItem(item: MeetingAgendaItem): Promise<
     owner_id: item.ownerId ?? null,
     owner_name: item.ownerName ?? null,
     status: item.status,
+    reviewed: item.reviewed ?? false,
     continued_from_item_id: item.continuedFromItemId ?? null,
     linked_task_ids: item.linkedTaskIds ?? [],
     time_budget_minutes: item.timeBudgetMinutes ?? null,
@@ -8121,6 +8126,7 @@ export async function updateMeetingAgendaItem(
   if (updates.ownerId !== undefined) payload.owner_id = updates.ownerId;
   if (updates.ownerName !== undefined) payload.owner_name = updates.ownerName;
   if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.reviewed !== undefined) payload.reviewed = updates.reviewed;
   if (updates.continuedFromItemId !== undefined) payload.continued_from_item_id = updates.continuedFromItemId;
   if (updates.linkedTaskIds !== undefined) payload.linked_task_ids = updates.linkedTaskIds;
   if (updates.timeBudgetMinutes !== undefined) payload.time_budget_minutes = updates.timeBudgetMinutes;

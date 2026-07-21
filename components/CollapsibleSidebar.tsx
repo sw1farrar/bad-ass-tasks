@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Calendar,
   Check,
   ChevronDown,
   FolderOpen,
@@ -38,6 +39,7 @@ const VIEW_ICONS: Record<AppViewId, LucideIcon> = {
   tasks: Check,
   notes: FolderOpen,
   notebooks: Notebook,
+  meetings: Calendar,
   lists: ListChecks,
   health: HeartPulse,
   teams: Users,

@@ -47,7 +47,7 @@ export function resolveAgendaItemsForMeetingCompletion(
 ): MeetingAgendaItem[] {
   return items.map((item) =>
     shouldAutoDeferAgendaItem(item)
-      ? { ...item, status: "continued", completedAt: null }
+      ? { ...item, status: "continued", reviewed: true, completedAt: null }
       : item,
   );
 }

@@ -89,6 +89,7 @@ export function cloneCarryOverItems(
     ownerId: item.ownerId ?? null,
     ownerName: item.ownerName ?? null,
     status: "open" as const,
+    reviewed: false,
     continuedFromItemId: item.id,
     linkedTaskIds: [...(item.linkedTaskIds ?? [])],
     timeBudgetMinutes: null,
