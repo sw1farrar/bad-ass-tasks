@@ -3,6 +3,7 @@ import {
   mapNoteListRow,
   isNoteBodyHydrated,
   mergeHydratedNote,
+  mergeNoteListProjection,
   noteListSearchHaystack,
 } from "@/lib/files/noteListProjection";
 import type { Note } from "@/types";
@@ -69,6 +70,21 @@ describe("noteListProjection", () => {
     expect(merged.content).toContain("doc");
     expect(merged.rawHtml).toBe("<p>hi</p>");
     expect(merged.memo).toBe("Q1");
+  });
+
+  it("mergeNoteListProjection keeps local body when sync returns a stub", () => {
+    const listNote = mapNoteListRow({ ...listRow, title: "Renamed" });
+    const hydrated: Note = {
+      ...mapNoteListRow(listRow),
+      content: '{"type":"doc","content":[{"type":"paragraph"}]}',
+      rawHtml: "<p>kept</p>",
+      bodyHydrated: true,
+    };
+    const merged = mergeNoteListProjection(hydrated, listNote);
+    expect(merged.title).toBe("Renamed");
+    expect(merged.content).toContain("paragraph");
+    expect(merged.rawHtml).toBe("<p>kept</p>");
+    expect(merged.bodyHydrated).toBe(true);
   });
 
   it("noteListSearchHaystack uses metadata only", () => {

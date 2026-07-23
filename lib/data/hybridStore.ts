@@ -2972,6 +2972,7 @@ export async function createNote(input: {
     memo: input.memo ?? null,
     parentNoteId: input.parentNoteId ?? null,
     notebookId: input.notebookId ?? null,
+    bodyHydrated: true,
   };
 
   if (filesWorkflowAvailable && !isNotebookNote) {

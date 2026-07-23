@@ -96,10 +96,14 @@ export function NotebookNoteEditor({
     setTitle(note.title || "");
     titleByIdRef.current.set(note.id, note.title || "Untitled note");
     contentByIdRef.current.set(note.id, note.content ?? "");
-    if (!isNoteBodyHydrated(note)) {
-      void onHydrateNote(note.id);
-    }
-  }, [note?.id, onHydrateNote]);
+  }, [note?.id]);
+
+  // Re-fetch body whenever this note is selected but only a list stub is in store
+  // (e.g. resume sync replaced a hydrated note with content:"" / bodyHydrated:false).
+  useEffect(() => {
+    if (!note || isNoteBodyHydrated(note)) return;
+    void onHydrateNote(note.id);
+  }, [note?.id, note?.bodyHydrated, note?.content, onHydrateNote]);
 
   // Keep content snapshot in sync after hydrate without treating it as a user edit.
   useEffect(() => {

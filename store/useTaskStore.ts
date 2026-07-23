@@ -78,7 +78,11 @@ import {
 } from "@/lib/assignee";
 import { deliverNotification, recipientAllowsNotificationChannel } from "@/lib/notifications/deliverNotification";
 import { mapRealtimeNoteRow, mergeRealtimeNoteUpdate } from "@/lib/notes/mapRealtimeNoteRow";
-import { isNoteBodyHydrated, mergeHydratedNote } from "@/lib/files/noteListProjection";
+import {
+  isNoteBodyHydrated,
+  mergeHydratedNote,
+  mergeNoteListProjection,
+} from "@/lib/files/noteListProjection";
 import { noteUpdatesAreNoOp } from "@/lib/notes/noteUpdates";
 import {
   generateId,
@@ -3099,6 +3103,11 @@ export const useTaskStore = create<TaskState>()(
             const otherWsTasks = state.tasks.filter((t) => t.workspaceId !== workspaceId);
             const otherWsNotes = state.notes.filter((n) => n.workspaceId !== workspaceId);
             const patchedNotes = remoteNotes.map(applyPendingNoteUpdate);
+            const localNotesById = new Map(
+              state.notes
+                .filter((n) => n.workspaceId === workspaceId)
+                .map((n) => [n.id, applyPendingNoteUpdate(n)]),
+            );
 
             if (isDelta) {
               // Resume catch-up: merge changed rows into existing workspace state.
@@ -3108,12 +3117,10 @@ export const useTaskStore = create<TaskState>()(
                   .map((t) => [t.id, applyPendingTaskUpdate(t)]),
               );
               for (const t of enrichedRemote) taskById.set(t.id, t);
-              const noteById = new Map(
-                state.notes
-                  .filter((n) => n.workspaceId === workspaceId)
-                  .map((n) => [n.id, applyPendingNoteUpdate(n)]),
-              );
-              for (const n of patchedNotes) noteById.set(n.id, n);
+              const noteById = new Map(localNotesById);
+              for (const n of patchedNotes) {
+                noteById.set(n.id, mergeNoteListProjection(noteById.get(n.id), n));
+              }
               return {
                 workspaceLists: mergeWorkspaceLists(state.workspaceLists, lists),
                 listItems: mergeListItems(
@@ -3141,6 +3148,9 @@ export const useTaskStore = create<TaskState>()(
                 !remoteNoteIds.has(n.id) &&
                 (pendingNoteCreateIds.has(n.id) || recentlyCreated(n.createdAt)),
             );
+            const mergedRemoteNotes = patchedNotes.map((n) =>
+              mergeNoteListProjection(localNotesById.get(n.id), n),
+            );
             return {
               workspaceLists: mergeWorkspaceLists(state.workspaceLists, lists),
               listItems: mergeListItems(
@@ -3155,7 +3165,7 @@ export const useTaskStore = create<TaskState>()(
               notes: [
                 ...otherWsNotes,
                 ...localOnlyNotes.map(applyPendingNoteUpdate),
-                ...patchedNotes,
+                ...mergedRemoteNotes,
               ],
               pendingSyncCount: getPendingCount(),
             };
@@ -3840,6 +3850,7 @@ export const useTaskStore = create<TaskState>()(
           memo,
           filedAt,
           notebookId,
+          bodyHydrated: true,
         };
 
         set((state) => {

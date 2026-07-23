@@ -98,6 +98,29 @@ export function mergeHydratedNote(existing: Note, hydrated: Note): Note {
   };
 }
 
+/**
+ * Merge a lightweight list projection into local state without clobbering an
+ * already-loaded editor body (content / rawHtml / snapshots).
+ */
+export function mergeNoteListProjection(existing: Note | undefined, incoming: Note): Note {
+  if (!existing) return incoming;
+  if (!isNoteBodyHydrated(existing)) return incoming;
+  if (isNoteBodyHydrated(incoming)) {
+    return {
+      ...existing,
+      ...incoming,
+      bodyHydrated: true,
+    };
+  }
+  return {
+    ...incoming,
+    content: existing.content,
+    rawHtml: existing.rawHtml,
+    snapshots: existing.snapshots,
+    bodyHydrated: true,
+  };
+}
+
 /** Stable local search haystack from list metadata (no body required). */
 export function noteListSearchHaystack(note: Note): string {
   return [note.title, note.searchPlain, note.searchDocument, note.memo, ...(note.tags ?? [])]
