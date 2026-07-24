@@ -8,12 +8,13 @@ import {
 import type { Note } from "@/types";
 
 function note(partial: Partial<Note> & { id: string }): Note {
+  const stamp = partial.updatedAt ?? partial.createdAt ?? "2026-07-01T12:00:00.000Z";
   return {
     id: partial.id,
     title: partial.title ?? "Test",
     content: "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: partial.createdAt ?? stamp,
+    updatedAt: partial.updatedAt ?? stamp,
     tags: partial.tags ?? [],
     linkedTaskIds: [],
     workspaceId: partial.workspaceId ?? "ws-1",
@@ -23,11 +24,30 @@ function note(partial: Partial<Note> & { id: string }): Note {
 }
 
 describe("filesBrowseFilter", () => {
+  // Explicit timestamps: listFilesForBrowseFilter sorts newest-first by updatedAt.
   const notes = [
-    note({ id: "1", reviewStatus: "pending_review", bookmarked: true }),
-    note({ id: "2", reviewStatus: "pending_review" }),
-    note({ id: "3", reviewStatus: "filed", bookmarked: true }),
-    note({ id: "4", reviewStatus: "filed" }),
+    note({
+      id: "1",
+      reviewStatus: "pending_review",
+      bookmarked: true,
+      updatedAt: "2026-07-04T12:00:00.000Z",
+    }),
+    note({
+      id: "2",
+      reviewStatus: "pending_review",
+      updatedAt: "2026-07-03T12:00:00.000Z",
+    }),
+    note({
+      id: "3",
+      reviewStatus: "filed",
+      bookmarked: true,
+      updatedAt: "2026-07-02T12:00:00.000Z",
+    }),
+    note({
+      id: "4",
+      reviewStatus: "filed",
+      updatedAt: "2026-07-01T12:00:00.000Z",
+    }),
   ];
 
   it("lists review or archive exclusively", () => {
