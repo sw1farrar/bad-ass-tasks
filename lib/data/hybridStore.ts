@@ -39,6 +39,7 @@ import {
 import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
 import { fanoutCommentNotifications } from "@/lib/notifications/fanoutCommentNotifications";
 import { fanoutTaskAssignedNotifications } from "@/lib/notifications/fanoutTaskAssigned";
+import { fanoutListItemCompletedById } from "@/lib/notifications/fanoutListItemCompleted";
 import { cleanupDuplicateNotifications } from "@/lib/notifications/cleanupDuplicateNotifications";
 import { notificationDedupeKey } from "@/lib/notifications/dedupeNotifications";
 import { processDeadlineReminders } from "@/lib/notifications/processDeadlineReminders";
@@ -1977,6 +1978,17 @@ async function processPendingOperationsInner(): Promise<{
               throw new Error(`No list_items row updated for ${itemId}`);
             }
             synced++;
+            if (resolved.apply.completed === true && op.workspaceId) {
+              const {
+                data: { user: actor },
+              } = await supabase.auth.getUser();
+              fanoutListItemCompletedById({
+                listItemId: itemId,
+                workspaceId: op.workspaceId,
+                actorUserId: actor?.id ?? null,
+                supabase: supabase as any,
+              }).catch(() => {});
+            }
           }
         } else if (op.type === "delete") {
           const { error } = await itemsTable.delete().eq("id", itemId);
@@ -7030,6 +7042,17 @@ export async function updateListItem(
           .select("id");
         if (!retryError && Array.isArray(retryData) && retryData.length > 0) {
           ackPendingOperation("list_item", itemId, workspaceId, "update", writeStartedAt);
+          if (updates.completed === true) {
+            const {
+              data: { user: actor },
+            } = await supabase.auth.getUser();
+            fanoutListItemCompletedById({
+              listItemId: itemId,
+              workspaceId,
+              actorUserId: actor?.id ?? null,
+              supabase: supabase as any,
+            }).catch(() => {});
+          }
           return "persisted";
         }
         if (!retryError && (!retryData || retryData.length === 0)) {
@@ -7057,6 +7080,17 @@ export async function updateListItem(
     }
 
     ackPendingOperation("list_item", itemId, workspaceId, "update", writeStartedAt);
+    if (updates.completed === true) {
+      const {
+        data: { user: actor },
+      } = await supabase.auth.getUser();
+      fanoutListItemCompletedById({
+        listItemId: itemId,
+        workspaceId,
+        actorUserId: actor?.id ?? null,
+        supabase: supabase as any,
+      }).catch(() => {});
+    }
     return "persisted";
   } catch (err) {
     if (isSchemaTableMissing(err)) {
@@ -7777,12 +7811,41 @@ type MeetingRow = {
   previous_meeting_id: string | null;
   notebook_id: string | null;
   attendee_ids: string[] | null;
+  attendees?: string[] | null;
   summary_html: string | null;
   sort_order: number;
   archived?: boolean;
   created_at: string;
   updated_at: string;
 };
+
+/** null = not probed; false = attendees column missing; true = available */
+let meetingAttendeesColumnAvailable: boolean | null = null;
+let meetingAttendeesMigrationWarned = false;
+
+function isMeetingAttendeesColumnMissing(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return (
+    (e?.code === "PGRST204" || e?.code === "42703") &&
+    typeof e?.message === "string" &&
+    e.message.includes("attendees")
+  );
+}
+
+function markMeetingAttendeesColumnMissing(): void {
+  if (meetingAttendeesColumnAvailable === false) return;
+  meetingAttendeesColumnAvailable = false;
+  if (!meetingAttendeesMigrationWarned) {
+    meetingAttendeesMigrationWarned = true;
+    console.warn(
+      "[Badazz Tasks] meetings.attendees is not synced yet. Run supabase/add-meeting-attendees.sql, then refresh.",
+    );
+  }
+}
+
+function markMeetingAttendeesColumnAvailable(): void {
+  meetingAttendeesColumnAvailable = true;
+}
 
 type MeetingAgendaItemRow = {
   id: string;
@@ -7869,6 +7932,7 @@ export function mapMeetingRow(row: MeetingRow): Meeting {
     previousMeetingId: row.previous_meeting_id,
     notebookId: row.notebook_id,
     attendeeIds: row.attendee_ids ?? [],
+    attendees: row.attendees ?? [],
     summaryHtml: row.summary_html,
     sortOrder: row.sort_order,
     archived: Boolean(row.archived),
@@ -7984,7 +8048,7 @@ export async function createMeeting(meeting: Meeting): Promise<boolean> {
   const supabase = getClient();
   if (!supabase) return false;
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     id: meeting.id,
     workspace_id: meeting.workspaceId,
     title: meeting.title,
@@ -8001,14 +8065,32 @@ export async function createMeeting(meeting: Meeting): Promise<boolean> {
     created_at: meeting.createdAt,
     updated_at: meeting.updatedAt,
   };
+  if (meetingAttendeesColumnAvailable !== false) {
+    payload.attendees = meeting.attendees ?? [];
+  }
 
   try {
     const { error } = await (supabase.from("meetings") as any).insert(payload);
     if (error) {
-      if (isSchemaTableMissing(error)) markMeetingTablesMissing();
-      else logHybridError("createMeeting", error);
+      if (isSchemaTableMissing(error)) {
+        markMeetingTablesMissing();
+        return false;
+      }
+      if (isMeetingAttendeesColumnMissing(error) && "attendees" in payload) {
+        markMeetingAttendeesColumnMissing();
+        delete payload.attendees;
+        const retry = await (supabase.from("meetings") as any).insert(payload);
+        if (retry.error) {
+          logHybridError("createMeeting", retry.error);
+          return false;
+        }
+        markMeetingTablesAvailable();
+        return true;
+      }
+      logHybridError("createMeeting", error);
       return false;
     }
+    if ("attendees" in payload) markMeetingAttendeesColumnAvailable();
     markMeetingTablesAvailable();
     return true;
   } catch (err) {
@@ -8039,6 +8121,9 @@ export async function updateMeeting(
   if (updates.previousMeetingId !== undefined) payload.previous_meeting_id = updates.previousMeetingId;
   if (updates.notebookId !== undefined) payload.notebook_id = updates.notebookId;
   if (updates.attendeeIds !== undefined) payload.attendee_ids = updates.attendeeIds;
+  if (updates.attendees !== undefined && meetingAttendeesColumnAvailable !== false) {
+    payload.attendees = updates.attendees;
+  }
   if (updates.summaryHtml !== undefined) payload.summary_html = updates.summaryHtml;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
   if (updates.archived !== undefined) payload.archived = updates.archived;
@@ -8048,7 +8133,23 @@ export async function updateMeeting(
       .update(payload)
       .eq("id", id)
       .eq("workspace_id", workspaceId);
-    if (error && !isSchemaTableMissing(error)) logHybridError("updateMeeting", error);
+    if (error) {
+      if (isMeetingAttendeesColumnMissing(error) && "attendees" in payload) {
+        markMeetingAttendeesColumnMissing();
+        delete payload.attendees;
+        const retry = await (supabase.from("meetings") as any)
+          .update(payload)
+          .eq("id", id)
+          .eq("workspace_id", workspaceId);
+        if (retry.error && !isSchemaTableMissing(retry.error)) {
+          logHybridError("updateMeeting", retry.error);
+        }
+        return true;
+      }
+      if (!isSchemaTableMissing(error)) logHybridError("updateMeeting", error);
+      return true;
+    }
+    if ("attendees" in payload) markMeetingAttendeesColumnAvailable();
     return true;
   } catch (err) {
     logHybridError("updateMeeting", err);

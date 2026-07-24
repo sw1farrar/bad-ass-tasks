@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, ArchiveRestore, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -13,10 +13,18 @@ import type {
   WorkspaceMember,
 } from "@/types";
 import {
+  readForcedNextMeetingId,
+  resolveForcedNextMeetingId,
+  writeForcedNextMeetingId,
+} from "@/lib/meetings/forcedNextMeeting";
+import {
+  countContinuedItems,
+  countOpenAgendaItems,
   filterMeetingsBySearch,
   sortAgendaItems,
   sortMeetings,
 } from "@/lib/meetings/meetingFilters";
+import { computeCompleteMeetingStats } from "@/lib/meetings/meetingLifecycle";
 import {
   buildDestructiveConfirmContent,
   type PendingDestructiveDelete,
@@ -26,6 +34,7 @@ import { CreateMeetingModal } from "./components/CreateMeetingModal";
 import { MeetingRail } from "./components/MeetingRail";
 import { MeetingStream } from "./components/MeetingStream";
 import { MeetingWorkspace } from "./components/MeetingWorkspace";
+import { StartNextMeetingModal } from "./components/StartNextMeetingModal";
 import "../files/files-workspace.css";
 import "./meetings-workspace.css";
 
@@ -66,7 +75,11 @@ export interface MeetingsViewProps {
   onReopenMeeting: (id: string) => Promise<unknown>;
   onStartNextMeeting: (
     id: string,
-    options: { includeContinued: boolean; includeOpen: boolean },
+    options: {
+      includeContinued: boolean;
+      includeOpen: boolean;
+      scheduledAt: string | null;
+    },
   ) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onDuplicateMeeting: (
     id: string,
@@ -122,6 +135,26 @@ export function MeetingsView({
 
   const [isCreatingMeeting, setIsCreatingMeeting] = useState(false);
   const [createMeetingOpen, setCreateMeetingOpen] = useState(false);
+  /** Survives unmount + refresh until carry-over is created or no longer needed. */
+  const [forcedNextMeetingId, setForcedNextMeetingId] = useState<string | null>(() =>
+    readForcedNextMeetingId(workspaceId),
+  );
+  const [isStartingForcedNext, setIsStartingForcedNext] = useState(false);
+
+  useEffect(() => {
+    setForcedNextMeetingId(readForcedNextMeetingId(workspaceId));
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setForcedNextMeetingId((current) =>
+      resolveForcedNextMeetingId(
+        workspaceId,
+        current ?? readForcedNextMeetingId(workspaceId),
+        [...meetings, ...archivedMeetings],
+        meetingAgendaItems,
+      ),
+    );
+  }, [workspaceId, meetings, archivedMeetings, meetingAgendaItems]);
   const [pendingDeleteMeetingId, setPendingDeleteMeetingId] = useState<string | null>(null);
   const [pendingCopyMeetingId, setPendingCopyMeetingId] = useState<string | null>(null);
   const [isCopyingMeeting, setIsCopyingMeeting] = useState(false);
@@ -131,8 +164,14 @@ export function MeetingsView({
   const [isDeletingDestructive, setIsDeletingDestructive] = useState(false);
 
   const filteredMeetings = useMemo(
-    () => sortMeetings(filterMeetingsBySearch(sourceMeetings, meetingSearchQuery)),
-    [sourceMeetings, meetingSearchQuery],
+    () =>
+      sortMeetings(
+        filterMeetingsBySearch(sourceMeetings, meetingSearchQuery, {
+          agendaItems: meetingAgendaItems,
+          agendaEntries: meetingAgendaEntries,
+        }),
+      ),
+    [sourceMeetings, meetingSearchQuery, meetingAgendaItems, meetingAgendaEntries],
   );
 
   const selectedMeeting = useMemo(
@@ -196,6 +235,48 @@ export function MeetingsView({
   );
 
   const showMobileMeetingDetail = isMobile && !!selectedMeetingId;
+
+  const forcedNextContinuedCount = forcedNextMeetingId
+    ? countContinuedItems(forcedNextMeetingId, meetingAgendaItems)
+    : 0;
+  const forcedNextOpenCount = forcedNextMeetingId
+    ? countOpenAgendaItems(forcedNextMeetingId, meetingAgendaItems)
+    : 0;
+
+  const handleCompleteMeeting = useCallback(
+    async (id: string) => {
+      const items = meetingAgendaItems.filter((item) => item.meetingId === id);
+      const stats = computeCompleteMeetingStats(items, 0);
+      await onCompleteMeeting(id);
+      if (stats.continuedTopics > 0) {
+        writeForcedNextMeetingId(workspaceId, id);
+        setForcedNextMeetingId(id);
+      }
+    },
+    [meetingAgendaItems, onCompleteMeeting, workspaceId],
+  );
+
+  const handleStartNextMeeting = useCallback(
+    async (
+      id: string,
+      options: {
+        includeContinued: boolean;
+        includeOpen: boolean;
+        scheduledAt: string | null;
+      },
+    ) => {
+      const result = await onStartNextMeeting(id, options);
+      if (result) {
+        writeForcedNextMeetingId(workspaceId, null);
+        setForcedNextMeetingId((current) => (current === id ? null : current));
+        onSelectMeeting(result.meeting.id);
+        const firstItem = [...result.agendaItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+        if (firstItem) onSelectAgendaItem(firstItem.id);
+      }
+      return result;
+    },
+    [onStartNextMeeting, onSelectMeeting, onSelectAgendaItem, workspaceId],
+  );
 
   const handleAddMeeting = useCallback(async (input: {
     title: string;
@@ -398,8 +479,12 @@ export function MeetingsView({
         <div className="files-mobile-back-bar">
           <button
             type="button"
-            onClick={() => onSelectMeeting(null)}
-            className="flex items-center rounded-xl px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[44px]"
+            onClick={() => {
+              if (forcedNextMeetingId) return;
+              onSelectMeeting(null);
+            }}
+            disabled={!!forcedNextMeetingId}
+            className="flex items-center rounded-xl px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary min-h-[44px] disabled:opacity-40 disabled:pointer-events-none"
             aria-label="Back to meetings"
           >
             Back
@@ -410,7 +495,8 @@ export function MeetingsView({
           <button
             type="button"
             onClick={() => selectedMeetingId && setPendingDeleteMeetingId(selectedMeetingId)}
-            className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover shrink-0"
+            disabled={!!forcedNextMeetingId}
+            className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-surface-hover shrink-0 disabled:opacity-40 disabled:pointer-events-none"
             aria-label={`Delete ${selectedMeeting?.title || "meeting"}`}
           >
             <Trash2 className="h-4 w-4" />
@@ -421,7 +507,7 @@ export function MeetingsView({
       {(!isMobile || showMobileMeetingDetail) && (
         <MeetingWorkspace
           meeting={selectedMeeting}
-          meetings={meetings}
+          meetings={[...meetings, ...archivedMeetings]}
           agendaItems={selectedMeetingAgendaItems}
           agendaEntries={selectedMeetingEntries}
           members={members}
@@ -445,20 +531,38 @@ export function MeetingsView({
           onRequestDeleteAgendaEntry={(id) =>
             setPendingDestructiveDelete({ kind: "agendaEntry", id })
           }
-          onCompleteMeeting={onCompleteMeeting}
+          onCompleteMeeting={handleCompleteMeeting}
           onReopenMeeting={onReopenMeeting}
-          onStartNextMeeting={async (id, options) => {
-            const result = await onStartNextMeeting(id, options);
-            if (result) {
-              onSelectMeeting(result.meeting.id);
-              const firstItem = [...result.agendaItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
-              if (firstItem) onSelectAgendaItem(firstItem.id);
-            }
-            return result;
-          }}
+          onStartNextMeeting={handleStartNextMeeting}
+          suppressNextMeetingModal={!!forcedNextMeetingId}
           onSaveSummaryAsNote={onSaveSummaryAsNote}
         />
       )}
+
+      <StartNextMeetingModal
+        open={!!forcedNextMeetingId}
+        onOpenChange={(open) => {
+          if (!open) return;
+        }}
+        continuedCount={forcedNextContinuedCount}
+        openCount={forcedNextOpenCount}
+        isLoading={isStartingForcedNext}
+        required
+        onConfirm={async (options) => {
+          if (!forcedNextMeetingId) return;
+          setIsStartingForcedNext(true);
+          try {
+            const next = await handleStartNextMeeting(forcedNextMeetingId, options);
+            if (!next) throw new Error("Next meeting was not created");
+            toast.success("Next meeting created");
+          } catch {
+            toast.error("Could not create next meeting");
+            throw new Error("Could not create next meeting");
+          } finally {
+            setIsStartingForcedNext(false);
+          }
+        }}
+      />
 
       <ConfirmationModal
         open={!!pendingDestructiveDelete && !!destructiveConfirm}

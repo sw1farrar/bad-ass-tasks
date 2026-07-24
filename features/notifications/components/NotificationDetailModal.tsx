@@ -6,7 +6,7 @@ import { BottomSheet } from "@/components/BottomSheet";
 import type { Notification } from "@/types";
 import { formatRoleLabel } from "@/lib/roles";
 
-export type AppView = "home" | "tasks" | "notes" | "teams";
+export type AppView = "home" | "tasks" | "notes" | "lists" | "teams";
 
 export interface NotificationDetailModalProps {
   notification: Notification | null;
@@ -15,6 +15,7 @@ export interface NotificationDetailModalProps {
   onDismiss?: (id: string) => void;
   onViewChange?: (view: AppView) => void;
   onOpenNote?: (noteId: string) => void;
+  onOpenList?: (listId: string, workspaceId?: string) => void;
   onAcceptListShare?: (shareId: string) => void | Promise<void>;
   onDeclineListShare?: (shareId: string) => void | Promise<void>;
 }
@@ -24,10 +25,13 @@ type InviteMetadata = {
   invited_by_name?: string;
   role?: string;
   note_id?: string;
+  list_id?: string;
+  list_item_id?: string;
   list_share_id?: string;
   list_title?: string;
   source_workspace_name?: string;
   shared_by_name?: string;
+  event?: string;
 };
 
 function NotificationTypeIcon({ type }: { type: Notification["type"] }) {
@@ -61,6 +65,7 @@ export function NotificationDetailModal({
   onDismiss,
   onViewChange,
   onOpenNote,
+  onOpenList,
   onAcceptListShare,
   onDeclineListShare,
 }: NotificationDetailModalProps) {
@@ -86,6 +91,16 @@ export function NotificationDetailModal({
       return;
     }
 
+    if (
+      notification.type === "activity" &&
+      metadata?.event === "list_item_completed" &&
+      metadata.list_id
+    ) {
+      onOpenList?.(metadata.list_id, notification.workspaceId);
+      onClose();
+      return;
+    }
+
     if (!notification.link) return;
     if (notification.link.startsWith("?")) {
       const url = new URL(window.location.href);
@@ -93,8 +108,18 @@ export function NotificationDetailModal({
       params.forEach((value, key) => url.searchParams.set(key, value));
       window.history.replaceState({}, "", url.toString());
       const view = url.searchParams.get("view");
-      if (view === "home" || view === "tasks" || view === "notes" || view === "teams") {
+      if (
+        view === "home" ||
+        view === "tasks" ||
+        view === "notes" ||
+        view === "lists" ||
+        view === "teams"
+      ) {
         onViewChange?.(view);
+      }
+      const highlightList = url.searchParams.get("highlightList");
+      if (view === "lists" && highlightList) {
+        onOpenList?.(highlightList, url.searchParams.get("workspace") || undefined);
       }
     } else {
       window.location.hash = notification.link;

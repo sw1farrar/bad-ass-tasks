@@ -9,10 +9,53 @@ export interface MeetingGroup {
   meetings: Meeting[];
 }
 
-export function filterMeetingsBySearch(meetings: Meeting[], query: string): Meeting[] {
+export interface MeetingSearchContext {
+  agendaItems?: MeetingAgendaItem[];
+  agendaEntries?: MeetingAgendaEntry[];
+}
+
+function searchableText(value: string | null | undefined): string {
+  return (value ?? "").replace(/<[^>]*>/g, " ").toLowerCase();
+}
+
+export function filterMeetingsBySearch(
+  meetings: Meeting[],
+  query: string,
+  context: MeetingSearchContext = {},
+): Meeting[] {
   const q = query.trim().toLowerCase();
   if (!q) return meetings;
-  return meetings.filter((m) => m.title.toLowerCase().includes(q));
+
+  const items = context.agendaItems ?? [];
+  const entries = context.agendaEntries ?? [];
+  const itemsByMeeting = new Map<string, MeetingAgendaItem[]>();
+  for (const item of items) {
+    const list = itemsByMeeting.get(item.meetingId) ?? [];
+    list.push(item);
+    itemsByMeeting.set(item.meetingId, list);
+  }
+  const entriesByItem = new Map<string, MeetingAgendaEntry[]>();
+  for (const entry of entries) {
+    const list = entriesByItem.get(entry.agendaItemId) ?? [];
+    list.push(entry);
+    entriesByItem.set(entry.agendaItemId, list);
+  }
+
+  return meetings.filter((m) => {
+    if (searchableText(m.title).includes(q)) return true;
+    if (searchableText(m.description).includes(q)) return true;
+    if ((m.attendees ?? []).some((name) => searchableText(name).includes(q))) return true;
+
+    const meetingItems = itemsByMeeting.get(m.id) ?? [];
+    for (const item of meetingItems) {
+      if (searchableText(item.title).includes(q)) return true;
+      if (searchableText(item.description).includes(q)) return true;
+      if (searchableText(item.ownerName).includes(q)) return true;
+      const itemEntries = entriesByItem.get(item.id) ?? [];
+      if (itemEntries.some((entry) => searchableText(entry.body).includes(q))) return true;
+    }
+    return false;
+  });
 }
 
 export function filterMeetingsByMode(
@@ -44,6 +87,19 @@ function meetingListDate(meeting: Meeting): number {
   return new Date(value).getTime();
 }
 
+function sortUpcomingMeetings(meetings: Meeting[]): Meeting[] {
+  return [...meetings].sort((a, b) => {
+    const aUndated = !a.scheduledAt;
+    const bUndated = !b.scheduledAt;
+    // Undated meetings sit at the top of the Upcoming queue.
+    if (aUndated !== bUndated) return aUndated ? -1 : 1;
+    if (aUndated && bUndated) {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+    return meetingListDate(a) - meetingListDate(b);
+  });
+}
+
 function sortMeetingsByDate(meetings: Meeting[], direction: "asc" | "desc"): Meeting[] {
   const factor = direction === "asc" ? 1 : -1;
   return [...meetings].sort((a, b) => (meetingListDate(a) - meetingListDate(b)) * factor);
@@ -54,9 +110,8 @@ function isUpcomingMeeting(status: MeetingStatus): boolean {
 }
 
 export function groupMeetingsByStatus(meetings: Meeting[]): MeetingGroup[] {
-  const upcoming = sortMeetingsByDate(
+  const upcoming = sortUpcomingMeetings(
     meetings.filter((m) => isUpcomingMeeting(m.status)),
-    "asc",
   );
   const past = sortMeetingsByDate(
     meetings.filter((m) => m.status === "completed"),

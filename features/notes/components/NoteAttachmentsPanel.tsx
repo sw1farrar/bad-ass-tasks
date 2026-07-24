@@ -196,7 +196,7 @@ function AttachmentRemoveButton({
         e.stopPropagation();
         onRemove();
       }}
-      className="absolute -right-1 -top-1 rounded-full border border-black/10 bg-white p-1 text-text-muted opacity-0 shadow-md transition-opacity hover:text-red-500 group-hover:opacity-100"
+      className="absolute -right-1 -top-1 rounded-full border border-[var(--note-canvas-border,rgba(24,24,27,0.14))] bg-[var(--note-canvas-surface,#f0f0ed)] p-1 text-[var(--note-canvas-text-muted,#71717a)] opacity-0 shadow-md transition-opacity hover:text-red-500 group-hover:opacity-100"
       aria-label={`Delete ${fileName}`}
     >
       <Trash2 className="h-3 w-3" aria-hidden />
@@ -503,7 +503,7 @@ export function NoteAttachmentsPanel({
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading}
         className={cn(
-          "flex items-center justify-center border border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-white text-[var(--note-canvas-text,#18181b)] hover:bg-black/5 disabled:opacity-50 touch-manipulation transition-colors",
+          "note-attachments-attach-btn flex items-center justify-center border border-[var(--note-canvas-border,rgba(24,24,27,0.1))] bg-[var(--note-canvas-surface,#f0f0ed)] text-[var(--note-canvas-text,#18181b)] hover:bg-[color-mix(in_srgb,var(--note-canvas-text,#18181b)_8%,transparent)] disabled:opacity-50 touch-manipulation transition-colors",
           compact
             ? "h-6 w-6 min-h-6 min-w-6 rounded-md p-0"
             : "gap-1 rounded-lg px-2 py-1 text-[10px]",

@@ -31,6 +31,18 @@ export function idempotencyMetadataMatch(
     return { activity_log_id: logId };
   }
 
+  if (
+    type === "activity" &&
+    metadata.event === "list_item_completed" &&
+    metadata.list_item_id
+  ) {
+    return {
+      event: "list_item_completed",
+      list_item_id: metadata.list_item_id,
+      ...(metadata.completed_at ? { completed_at: metadata.completed_at } : {}),
+    };
+  }
+
   if ((type === "activity" || type === "inbound_file") && metadata.note_id) {
     return { note_id: metadata.note_id };
   }

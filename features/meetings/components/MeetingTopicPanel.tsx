@@ -149,22 +149,32 @@ export function MeetingTopicPanel({
             />
           ) : null}
           {!readOnly && !isCompleted && item.status === "open" && (
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="flex items-start gap-2 ml-auto">
               <button
                 type="button"
                 onClick={() => onCompleteItem(item.id)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-emerald-400/90 hover:bg-emerald-400/10"
+                className="inline-flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg text-emerald-400/90 hover:bg-emerald-400/10"
               >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Complete
+                <span className="inline-flex items-center gap-1 text-xs font-medium">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Complete
+                </span>
+                <span className="text-[10px] font-normal leading-tight text-text-muted">
+                  Close Agenda Item
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => onContinueItem(item.id)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-400/90 hover:bg-amber-400/10"
+                className="inline-flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg text-amber-400/90 hover:bg-amber-400/10"
               >
-                <ArrowRightCircle className="h-3.5 w-3.5" />
-                Mark reviewed
+                <span className="inline-flex items-center gap-1 text-xs font-medium">
+                  <ArrowRightCircle className="h-3.5 w-3.5" />
+                  Mark Reviewed
+                </span>
+                <span className="text-[10px] font-normal leading-tight text-text-muted">
+                  Continue to Next Meeting
+                </span>
               </button>
             </div>
           )}

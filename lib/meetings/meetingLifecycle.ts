@@ -1,4 +1,7 @@
-import { hasMeetingBeenCarriedForward } from "@/lib/meetings/carryOver";
+import {
+  hasCarryOverEligibleItems,
+  hasMeetingBeenCarriedForward,
+} from "@/lib/meetings/carryOver";
 import type { Meeting, MeetingAgendaItem, MeetingStatus } from "@/types";
 
 export function canCompleteMeeting(meeting: Meeting): boolean {
@@ -9,9 +12,15 @@ export function canReopenMeeting(meeting: Meeting): boolean {
   return meeting.status === "completed";
 }
 
-export function canStartNextMeeting(meeting: Meeting, meetings: Meeting[]): boolean {
+export function canStartNextMeeting(
+  meeting: Meeting,
+  meetings: Meeting[],
+  agendaItems: MeetingAgendaItem[] = [],
+): boolean {
   return (
-    canReopenMeeting(meeting) && !hasMeetingBeenCarriedForward(meeting.id, meetings)
+    canReopenMeeting(meeting) &&
+    !hasMeetingBeenCarriedForward(meeting.id, meetings) &&
+    hasCarryOverEligibleItems(meeting.id, agendaItems)
   );
 }
 

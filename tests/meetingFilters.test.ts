@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterMeetingsBySearch,
   groupMeetingsByStatus,
   sortMeetingEntriesNewestFirst,
   sortMeetings,
 } from "@/lib/meetings/meetingFilters";
-import type { Meeting, MeetingAgendaEntry } from "@/types";
+import type { Meeting, MeetingAgendaEntry, MeetingAgendaItem } from "@/types";
 
 function meeting(
   id: string,
   status: Meeting["status"],
-  scheduledAt: string,
+  scheduledAt: string | null,
+  overrides: Partial<Meeting> = {},
 ): Meeting {
   return {
     id,
@@ -18,9 +20,11 @@ function meeting(
     status,
     scheduledAt,
     attendeeIds: [],
+    attendees: [],
     sortOrder: 0,
-    createdAt: scheduledAt,
-    updatedAt: scheduledAt,
+    createdAt: scheduledAt ?? "2026-06-01T12:00:00Z",
+    updatedAt: scheduledAt ?? "2026-06-01T12:00:00Z",
+    ...overrides,
   };
 }
 
@@ -34,6 +38,63 @@ describe("meetingFilters", () => {
 
     const sorted = sortMeetings(meetings);
     expect(sorted.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("puts undated upcoming meetings at the top of the queue", () => {
+    const meetings = [
+      meeting("dated", "scheduled", "2026-06-20T12:00:00Z"),
+      meeting("undated-old", "draft", null, {
+        createdAt: "2026-06-01T12:00:00Z",
+        updatedAt: "2026-06-01T12:00:00Z",
+      }),
+      meeting("undated-new", "draft", null, {
+        createdAt: "2026-06-10T12:00:00Z",
+        updatedAt: "2026-06-10T12:00:00Z",
+      }),
+    ];
+
+    const sorted = sortMeetings(meetings);
+    expect(sorted.map((m) => m.id)).toEqual(["undated-new", "undated-old", "dated"]);
+  });
+
+  it("searches title, attendees, agenda topics, and note bodies", () => {
+    const meetings = [
+      meeting("m1", "scheduled", "2026-06-20T12:00:00Z", {
+        title: "Planning",
+        attendees: ["Alex Rivera"],
+      }),
+      meeting("m2", "scheduled", "2026-06-21T12:00:00Z", { title: "Other" }),
+    ];
+    const agendaItems: MeetingAgendaItem[] = [
+      {
+        id: "a1",
+        meetingId: "m2",
+        title: "Budget review",
+        sortOrder: 0,
+        status: "open",
+        linkedTaskIds: [],
+        createdAt: "2026-06-21T12:00:00Z",
+        updatedAt: "2026-06-21T12:00:00Z",
+      },
+    ];
+    const agendaEntries: MeetingAgendaEntry[] = [
+      {
+        id: "e1",
+        agendaItemId: "a1",
+        body: "Need design review from Jordan",
+        createdAt: "2026-06-21T12:30:00Z",
+      },
+    ];
+
+    expect(
+      filterMeetingsBySearch(meetings, "alex", { agendaItems, agendaEntries }).map((m) => m.id),
+    ).toEqual(["m1"]);
+    expect(
+      filterMeetingsBySearch(meetings, "budget", { agendaItems, agendaEntries }).map((m) => m.id),
+    ).toEqual(["m2"]);
+    expect(
+      filterMeetingsBySearch(meetings, "jordan", { agendaItems, agendaEntries }).map((m) => m.id),
+    ).toEqual(["m2"]);
   });
 
   it("sorts meeting entries newest first", () => {

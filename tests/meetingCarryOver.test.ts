@@ -128,6 +128,10 @@ describe("carryOver", () => {
     expect(title.startsWith("Weekly Sync —")).toBe(true);
   });
 
+  it("builds next meeting title without a date when undated", () => {
+    expect(buildNextMeetingTitle(baseMeeting, null)).toBe("Weekly Sync — Next");
+  });
+
   it("excludes meetings that already had topics carried forward", () => {
     const meetings: Meeting[] = [
       baseMeeting,

@@ -243,7 +243,10 @@ export interface Meeting {
   completedAt?: string | null;
   previousMeetingId?: string | null;
   notebookId?: string | null;
+  /** Legacy workspace-member UUID attendees (kept for older rows / filters). */
   attendeeIds: string[];
+  /** Freeform attendee display names. */
+  attendees?: string[];
   summaryHtml?: string | null;
   sortOrder: number;
   archived?: boolean;

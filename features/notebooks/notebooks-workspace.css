@@ -114,39 +114,119 @@
   padding: 1rem 1.25rem 2rem;
 }
 
+/*
+ * Dark mode: keep a distinct writing surface (slightly elevated from app bg)
+ * so the note content area stands out, without forcing a light paper canvas.
+ */
+[data-theme="dark"] .notebooks-note-editor {
+  --note-canvas-bg: #1e1e24;
+  --note-canvas-surface: #25252b;
+  --note-canvas-text: var(--text-primary, #f4f4f8);
+  --note-canvas-text-secondary: var(--text-secondary, #a1a1aa);
+  --note-canvas-text-muted: var(--text-muted, #71717a);
+  --note-canvas-border: rgba(255, 255, 255, 0.12);
+}
+
 [data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome {
-  background: #25252b;
-  border-bottom-color: #2f2f38;
+  background: var(--note-canvas-surface, #25252b);
+  border-bottom-color: var(--note-canvas-border, #2f2f38);
   box-shadow: none;
 }
 
 [data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .notes-editor-toolbar--full,
 [data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .notes-editor-toolbar--compact {
-  background: #25252b !important;
-  border-bottom-color: #2f2f38 !important;
+  background: var(--note-canvas-surface, #25252b) !important;
+  border-bottom-color: var(--note-canvas-border, #2f2f38) !important;
 }
 
 [data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .notes-editor-toolbar__group {
-  background: #1a1a1f !important;
-  border-color: #2f2f38 !important;
+  background: var(--bg, #0f0f12) !important;
+  border-color: var(--note-canvas-border, #2f2f38) !important;
 }
 
 [data-theme="dark"] .notebooks-note-editor .notes-editor-sticky-chrome .note-attachments-embedded {
-  background: #1a1a1f !important;
-  border-bottom-color: #2f2f38 !important;
+  background: var(--bg-secondary, #1a1a1f) !important;
+  border-bottom-color: var(--note-canvas-border, #2f2f38) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .note-attachments-attach-btn {
+  background: var(--note-canvas-surface, #25252b) !important;
+  color: var(--note-canvas-text, #f4f4f8) !important;
+  border-color: var(--note-canvas-border, rgba(255, 255, 255, 0.12)) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .note-attachments-attach-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
 }
 
 [data-theme="dark"] .notebooks-note-editor .notes-editor-scroll-body {
-  background: #fafafc;
+  background: var(--note-canvas-bg, #1e1e24);
 }
 
 [data-theme="dark"] .notebooks-note-editor .notes-editor-scroll-body .notes-editor-body {
-  --note-canvas-bg: #ffffff;
-  --note-canvas-surface: #fafafc;
-  --note-canvas-text: #0f172a;
-  --note-canvas-text-secondary: #64748b;
-  --note-canvas-text-muted: #94a3b8;
-  --note-canvas-border: rgba(15, 23, 42, 0.1);
+  --note-canvas-bg: #1e1e24;
+  --note-canvas-surface: #25252b;
+  --note-canvas-text: var(--text-primary, #f4f4f8);
+  --note-canvas-text-secondary: var(--text-secondary, #a1a1aa);
+  --note-canvas-text-muted: var(--text-muted, #71717a);
+  --note-canvas-border: rgba(255, 255, 255, 0.12);
+  background: var(--note-canvas-bg) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror {
+  color: var(--note-canvas-text, #f4f4f8) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror h1,
+[data-theme="dark"] .notebooks-note-editor .ProseMirror h2,
+[data-theme="dark"] .notebooks-note-editor .ProseMirror h3 {
+  color: var(--note-canvas-text, #f4f4f8) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror blockquote {
+  color: var(--note-canvas-text-secondary, #a1a1aa) !important;
+  border-left-color: var(--note-canvas-border, rgba(255, 255, 255, 0.12)) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror a {
+  color: var(--neon-purple-tint, #c4b5fd);
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror code {
+  background: color-mix(in srgb, var(--note-canvas-text, #f4f4f8) 12%, transparent);
+  color: var(--note-canvas-text, #f4f4f8);
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror pre {
+  background: var(--bg, #0f0f12);
+  border-color: var(--note-canvas-border, rgba(255, 255, 255, 0.12));
+  color: var(--note-canvas-text, #f4f4f8);
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror th,
+[data-theme="dark"] .notebooks-note-editor .ProseMirror td {
+  border-color: var(--note-canvas-border, rgba(255, 255, 255, 0.12));
+  color: var(--note-canvas-text, #f4f4f8);
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror th {
+  background: color-mix(in srgb, var(--note-canvas-text, #f4f4f8) 8%, transparent);
+}
+
+[data-theme="dark"] .notebooks-note-editor .ProseMirror p.is-editor-empty:first-child::before,
+[data-theme="dark"] .notebooks-note-editor .ProseMirror .is-empty::before {
+  color: var(--note-canvas-text-muted, #71717a) !important;
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-toolbar--compact button,
+[data-theme="dark"] .notebooks-note-editor .notes-editor-toolbar--full button {
+  color: var(--note-canvas-text-muted, #71717a);
+}
+
+[data-theme="dark"] .notebooks-note-editor .notes-editor-toolbar--compact button:hover,
+[data-theme="dark"] .notebooks-note-editor .notes-editor-toolbar--full button:hover {
+  color: var(--note-canvas-text, #f4f4f8);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 @media (max-width: 767px) {

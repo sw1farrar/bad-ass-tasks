@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { format, parseISO } from "date-fns";
+import React, { useEffect, useMemo, useState } from "react";
+import { format, isValid, parseISO } from "date-fns";
 import {
   CheckCircle2,
   ClipboardList,
@@ -9,16 +9,19 @@ import {
   RotateCcw,
   FastForward,
 } from "lucide-react";
-import type { Meeting } from "@/types";
+import type { Meeting, MeetingAgendaItem } from "@/types";
+import { collectKnownAttendeeNames } from "@/lib/meetings/attendees";
 import {
   canCompleteMeeting,
   canReopenMeeting,
   canStartNextMeeting,
 } from "@/lib/meetings/meetingLifecycle";
+import { MeetingAttendeeEditor } from "./MeetingAttendeeEditor";
 
 interface MeetingHeaderProps {
   meeting: Meeting;
   meetings: Meeting[];
+  agendaItems: MeetingAgendaItem[];
   onUpdateMeeting: (id: string, updates: Partial<Meeting>) => void;
   onComplete: () => void;
   onReopen: () => void;
@@ -30,6 +33,7 @@ interface MeetingHeaderProps {
 export function MeetingHeader({
   meeting,
   meetings,
+  agendaItems,
   onUpdateMeeting,
   onComplete,
   onReopen,
@@ -44,6 +48,11 @@ export function MeetingHeader({
     setTitle(meeting.title);
     setDescription(meeting.description ?? "");
   }, [meeting.id, meeting.title, meeting.description]);
+
+  const attendeeSuggestions = useMemo(
+    () => collectKnownAttendeeNames(meetings),
+    [meetings],
+  );
 
   const saveDescription = () => {
     const next = description.trim();
@@ -74,9 +83,12 @@ export function MeetingHeader({
                 Completed
               </span>
             )}
-            {meeting.scheduledAt && (
-              <span>{format(parseISO(meeting.scheduledAt), "MMM d, yyyy")}</span>
-            )}
+            {(() => {
+              if (!meeting.scheduledAt) return <span>No date</span>;
+              const parsed = parseISO(meeting.scheduledAt);
+              if (!isValid(parsed)) return <span>No date</span>;
+              return <span>{format(parsed, "MMM d, yyyy")}</span>;
+            })()}
           </div>
           <input
             value={description}
@@ -92,6 +104,14 @@ export function MeetingHeader({
             className="mt-1.5 w-full bg-transparent text-sm text-text-secondary placeholder:text-text-faint focus:outline-none disabled:opacity-80"
             aria-label="Meeting description"
           />
+          <div className="mt-2">
+            <MeetingAttendeeEditor
+              value={meeting.attendees ?? []}
+              suggestions={attendeeSuggestions}
+              disabled={meeting.status === "completed"}
+              onChange={(attendees) => onUpdateMeeting(meeting.id, { attendees })}
+            />
+          </div>
         </div>
 
         <div className="meetings-header-actions flex flex-wrap items-center gap-2">
@@ -134,7 +154,7 @@ export function MeetingHeader({
                 <RotateCcw className="h-4 w-4" />
                 Reopen
               </button>
-              {canStartNextMeeting(meeting, meetings) && (
+              {canStartNextMeeting(meeting, meetings, agendaItems) && (
                 <button
                   type="button"
                   onClick={onStartNext}

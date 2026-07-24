@@ -17,7 +17,10 @@ import { MeetingSummaryView } from "./MeetingSummaryView";
 import { MeetingAgendaPreviewModal } from "./MeetingAgendaPreviewModal";
 import { MeetingSummaryPreviewModal } from "./MeetingSummaryPreviewModal";
 import { CompleteMeetingModal } from "./CompleteMeetingModal";
-import { StartNextMeetingModal } from "./StartNextMeetingModal";
+import {
+  StartNextMeetingModal,
+  type StartNextMeetingOptions,
+} from "./StartNextMeetingModal";
 
 interface MeetingWorkspaceProps {
   meeting: Meeting | null;
@@ -45,8 +48,10 @@ interface MeetingWorkspaceProps {
   onReopenMeeting: (id: string) => void | Promise<unknown>;
   onStartNextMeeting: (
     id: string,
-    options: { includeContinued: boolean; includeOpen: boolean },
+    options: StartNextMeetingOptions,
   ) => void | Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
+  /** When true, hide the in-workspace next-meeting modal (parent owns the required flow). */
+  suppressNextMeetingModal?: boolean;
   onSaveSummaryAsNote?: (meeting: Meeting) => void | Promise<void>;
 }
 
@@ -75,10 +80,12 @@ export function MeetingWorkspace({
   onCompleteMeeting,
   onReopenMeeting,
   onStartNextMeeting,
+  suppressNextMeetingModal = false,
   onSaveSummaryAsNote,
 }: MeetingWorkspaceProps) {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [nextOpen, setNextOpen] = useState(false);
+  const [nextSourceMeetingId, setNextSourceMeetingId] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const [isStartingNext, setIsStartingNext] = useState(false);
   const [agendaPreviewOpen, setAgendaPreviewOpen] = useState(false);
@@ -149,10 +156,14 @@ export function MeetingWorkspace({
       <MeetingHeader
         meeting={meeting}
         meetings={meetings}
+        agendaItems={agendaItems}
         onUpdateMeeting={(id, updates) => void onUpdateMeeting(id, updates)}
         onComplete={() => setCompleteOpen(true)}
         onReopen={() => void onReopenMeeting(meeting.id)}
-        onStartNext={() => setNextOpen(true)}
+        onStartNext={() => {
+          setNextSourceMeetingId(meeting.id);
+          setNextOpen(true);
+        }}
         onOpenAgendaPreview={() => {
           setAgendaPreviewIncludeComments(false);
           setAgendaPreviewOpen(true);
@@ -282,27 +293,37 @@ export function MeetingWorkspace({
         currentUserId={currentUserId}
       />
 
-      <StartNextMeetingModal
-        open={nextOpen}
-        onOpenChange={setNextOpen}
-        continuedCount={continuedCount}
-        openCount={openCount}
-        isLoading={isStartingNext}
-        onConfirm={async (options) => {
-          setIsStartingNext(true);
-          try {
-            const next = await onStartNextMeeting(meeting.id, options);
-            if (next) {
-              toast.success("Next meeting created");
-              setNextOpen(false);
+      {!suppressNextMeetingModal && (
+        <StartNextMeetingModal
+          open={nextOpen}
+          onOpenChange={(open) => {
+            setNextOpen(open);
+            if (!open) setNextSourceMeetingId(null);
+          }}
+          continuedCount={continuedCount}
+          openCount={openCount}
+          isLoading={isStartingNext}
+          onConfirm={async (options) => {
+            const sourceId = nextSourceMeetingId ?? meeting.id;
+            setIsStartingNext(true);
+            try {
+              const next = await onStartNextMeeting(sourceId, options);
+              if (next) {
+                toast.success("Next meeting created");
+                setNextOpen(false);
+                setNextSourceMeetingId(null);
+              } else {
+                throw new Error("Next meeting was not created");
+              }
+            } catch {
+              toast.error("Could not create next meeting");
+              throw new Error("Could not create next meeting");
+            } finally {
+              setIsStartingNext(false);
             }
-          } catch {
-            toast.error("Could not create next meeting");
-          } finally {
-            setIsStartingNext(false);
-          }
-        }}
-      />
+          }}
+        />
+      )}
     </div>
   );
 }

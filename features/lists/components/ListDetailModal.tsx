@@ -90,6 +90,8 @@ export function ListDetailModal({
   const [colorOpen, setColorOpen] = useState(false);
   const [titleEditMode, setTitleEditMode] = useState(false);
   const [localTitle, setLocalTitle] = useState(list?.title ?? "");
+  /** Layout viewport height locked on open — ignores keyboard visualViewport shrink. */
+  const [lockedSheetHeight, setLockedSheetHeight] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const sheetSurfaceRef = useRef<HTMLDivElement>(null);
@@ -223,7 +225,16 @@ export function ListDetailModal({
     dragEngine: "manual",
   });
 
+  // Keep keyboard-inset for scroll padding only; sheet height is locked separately.
   useVisualViewportInsets(isMobile && isOpen);
+
+  useLayoutEffect(() => {
+    if (!isMobile || !isOpen) {
+      setLockedSheetHeight(null);
+      return;
+    }
+    setLockedSheetHeight((prev) => prev ?? window.innerHeight);
+  }, [isMobile, isOpen]);
 
   const handleClose = useCallback(() => {
     if (isMobile) {
@@ -343,10 +354,22 @@ export function ListDetailModal({
       {isOpen && list && colorStyle && (
         <div
           className={cn(
-            "list-detail-modal-root fixed inset-0 z-[200] flex p-0",
-            isMobile ? "flex-col justify-end" : "items-center justify-center p-4 sm:p-6",
+            "list-detail-modal-root z-[200] flex p-0",
+            // Mobile: pin to layout top + locked height so the keyboard cannot
+            // shrink a fixed inset-0 layer and collapse the sheet.
+            isMobile
+              ? "fixed top-0 left-0 right-0 flex-col justify-start"
+              : "fixed inset-0 items-center justify-center p-4 sm:p-6",
             isMobile && isDismissing && "pointer-events-none",
           )}
+          style={
+            isMobile
+              ? {
+                  height: lockedSheetHeight ?? "100dvh",
+                  maxHeight: lockedSheetHeight ?? "100dvh",
+                }
+              : undefined
+          }
         >
           <motion.div
             key="list-detail-backdrop"
@@ -386,6 +409,12 @@ export function ListDetailModal({
                 ? {
                     y: sheetY,
                     touchAction: "pan-y" as const,
+                    ...(lockedSheetHeight
+                      ? {
+                          height: lockedSheetHeight,
+                          maxHeight: lockedSheetHeight,
+                        }
+                      : {}),
                   }
                 : {}),
             }}

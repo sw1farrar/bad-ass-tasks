@@ -63,6 +63,7 @@ export const SAMPLE_MEETINGS: Meeting[] = [
     startedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
     completedAt: new Date(Date.now() - 86400000 * 7 + 3600000).toISOString(),
     attendeeIds: [],
+    attendees: [],
     sortOrder: 0,
     createdAt: new Date(Date.now() - 86400000 * 8).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
@@ -126,6 +127,7 @@ type MeetingSliceActionsInternal = {
     templateId?: string;
     previousMeetingId?: string | null;
     attendeeIds?: string[];
+    attendees?: string[];
   }) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] }>;
 };
 
@@ -147,6 +149,25 @@ function shouldPersistMeetings(workspaceId: string): boolean {
 function newMeetingId(workspaceId: string): string {
   return isLiveMeetingWorkspace(workspaceId) ? generateClientId() : generateId();
 }
+
+/** Serialize remote meeting writes so full-array fields (attendees) cannot land out of order. */
+const meetingPersistChains = new Map<string, Promise<void>>();
+
+function enqueueMeetingPersist(meetingId: string, task: () => Promise<void>): Promise<void> {
+  const previous = meetingPersistChains.get(meetingId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(task);
+  meetingPersistChains.set(
+    meetingId,
+    next.catch(() => undefined).then(() => {
+      if (meetingPersistChains.get(meetingId) === next) {
+        meetingPersistChains.delete(meetingId);
+      }
+    }),
+  );
+  return next;
+}
+
+const startNextInFlight = new Set<string>();
 
 export function createMeetingSliceActions(get: Get, set: Set) {
   const wsId = () => get().currentWorkspace.id;
@@ -196,6 +217,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
       templateId?: string;
       previousMeetingId?: string | null;
       attendeeIds?: string[];
+      attendees?: string[];
       carryOverFromMeetingId?: string | null;
       carryOver?: CarryOverOptions;
     }) => {
@@ -261,6 +283,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         status: input?.scheduledAt ? "scheduled" : "draft",
         scheduledAt: input?.scheduledAt ?? null,
         attendeeIds: input?.attendeeIds ?? [],
+        attendees: input?.attendees ?? [],
         previousMeetingId,
         sortOrder: maxOrder + 1000,
         archived: false,
@@ -281,13 +304,36 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         // writes (copy / carry-over) don't race RLS (meeting must exist first).
         const ready = await ensureMeetingPersistenceReady();
         if (ready) {
+          const rollbackLocalMeeting = () => {
+            const itemIds = new Set(allAgendaItems.map((item) => item.id));
+            set((state) => ({
+              meetings: state.meetings.filter((m) => m.id !== meetingId),
+              meetingAgendaItems: state.meetingAgendaItems.filter((i) => i.meetingId !== meetingId),
+              meetingAgendaEntries: state.meetingAgendaEntries.filter(
+                (e) => !itemIds.has(e.agendaItemId),
+              ),
+            }));
+          };
+
           const ok = await createMeetingSupabase(meeting);
-          if (ok) {
-            for (const item of allAgendaItems) {
-              await createAgendaItemSupabase(item);
+          if (!ok) {
+            rollbackLocalMeeting();
+            throw new Error("Could not save meeting");
+          }
+          for (const item of allAgendaItems) {
+            const itemOk = await createAgendaItemSupabase(item);
+            if (!itemOk) {
+              await deleteMeetingSupabase(meetingId, workspaceId);
+              rollbackLocalMeeting();
+              throw new Error("Could not save meeting topics");
             }
-            for (const entry of carryEntries) {
-              await createAgendaEntrySupabase(entry);
+          }
+          for (const entry of carryEntries) {
+            const entryOk = await createAgendaEntrySupabase(entry);
+            if (!entryOk) {
+              await deleteMeetingSupabase(meetingId, workspaceId);
+              rollbackLocalMeeting();
+              throw new Error("Could not save meeting notes");
             }
           }
         }
@@ -309,7 +355,15 @@ export function createMeetingSliceActions(get: Get, set: Set) {
           : {}),
       }));
       if (workspaceId && shouldPersistMeetings(workspaceId)) {
-        void updateMeetingSupabase(id, workspaceId, updates);
+        await enqueueMeetingPersist(id, async () => {
+          const latest = get().meetings.find((m) => m.id === id);
+          const payload: Partial<Meeting> = { ...updates };
+          // Always persist the latest attendees array so rapid chip edits cannot clobber.
+          if (updates.attendees !== undefined && latest) {
+            payload.attendees = latest.attendees ?? [];
+          }
+          await updateMeetingSupabase(id, workspaceId, payload);
+        });
       }
       return true;
     },
@@ -563,43 +617,69 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     startNextMeeting: async (
       previousMeetingId: string,
-      options: CarryOverOptions = DEFAULT_CARRY_OVER_OPTIONS,
+      options: CarryOverOptions & { scheduledAt?: string | null } = DEFAULT_CARRY_OVER_OPTIONS,
     ) => {
-      const previous = get().meetings.find((m) => m.id === previousMeetingId);
-      if (!previous) throw new Error("Meeting not found");
-      if (hasMeetingBeenCarriedForward(previousMeetingId, get().meetings)) {
-        throw new Error("This meeting's topics were already carried forward");
+      if (startNextInFlight.has(previousMeetingId)) {
+        throw new Error("Next meeting is already being created");
       }
-      const prevItems = get().meetingAgendaItems.filter((i) => i.meetingId === previousMeetingId);
-      const sourceItems = sortAgendaItems(getCarryOverSourceItems(prevItems, options));
-      const { meeting, agendaItems: templateItems } = await actions.addMeeting({
-        title: buildNextMeetingTitle(previous),
-        scheduledAt: new Date().toISOString(),
-        previousMeetingId: previous.id,
-        attendeeIds: [...previous.attendeeIds],
-      });
-      const idFn = isLiveMeetingWorkspace(meeting.workspaceId) ? generateClientId : generateId;
-      const carryItems = cloneCarryOverItems(sourceItems, meeting.id, templateItems.length * 1000, idFn);
-      const sourceItemIds = new Set(sourceItems.map((item) => item.id));
-      const sourceEntries = get().meetingAgendaEntries.filter((entry) =>
-        sourceItemIds.has(entry.agendaItemId),
-      );
-      const carryEntries = cloneCarryOverEntries(sourceEntries, carryItems, idFn);
-      if (carryItems.length) {
-        set((state) => ({
-          meetingAgendaItems: [...state.meetingAgendaItems, ...carryItems],
-          meetingAgendaEntries: [...state.meetingAgendaEntries, ...carryEntries],
-        }));
-        if (shouldPersistMeetings(meeting.workspaceId)) {
-          for (const item of carryItems) {
-            await createAgendaItemSupabase(item);
-          }
-          for (const entry of carryEntries) {
-            await createAgendaEntrySupabase(entry);
+      startNextInFlight.add(previousMeetingId);
+      try {
+        const previous = get().meetings.find((m) => m.id === previousMeetingId);
+        if (!previous) throw new Error("Meeting not found");
+        if (hasMeetingBeenCarriedForward(previousMeetingId, get().meetings)) {
+          throw new Error("This meeting's topics were already carried forward");
+        }
+        const prevItems = get().meetingAgendaItems.filter((i) => i.meetingId === previousMeetingId);
+        const sourceItems = sortAgendaItems(getCarryOverSourceItems(prevItems, options));
+        const scheduledAt =
+          options.scheduledAt === undefined
+            ? new Date().toISOString()
+            : options.scheduledAt;
+        const { meeting, agendaItems: templateItems } = await actions.addMeeting({
+          title: buildNextMeetingTitle(previous, scheduledAt),
+          scheduledAt,
+          previousMeetingId: previous.id,
+          attendeeIds: [...previous.attendeeIds],
+          attendees: [...(previous.attendees ?? [])],
+        });
+        const idFn = isLiveMeetingWorkspace(meeting.workspaceId) ? generateClientId : generateId;
+        const carryItems = cloneCarryOverItems(
+          sourceItems,
+          meeting.id,
+          templateItems.length * 1000,
+          idFn,
+        );
+        const sourceItemIds = new Set(sourceItems.map((item) => item.id));
+        const sourceEntries = get().meetingAgendaEntries.filter((entry) =>
+          sourceItemIds.has(entry.agendaItemId),
+        );
+        const carryEntries = cloneCarryOverEntries(sourceEntries, carryItems, idFn);
+        if (carryItems.length) {
+          set((state) => ({
+            meetingAgendaItems: [...state.meetingAgendaItems, ...carryItems],
+            meetingAgendaEntries: [...state.meetingAgendaEntries, ...carryEntries],
+          }));
+          if (shouldPersistMeetings(meeting.workspaceId)) {
+            for (const item of carryItems) {
+              const itemOk = await createAgendaItemSupabase(item);
+              if (!itemOk) {
+                await actions.deleteMeeting(meeting.id);
+                throw new Error("Could not save carry-over topics");
+              }
+            }
+            for (const entry of carryEntries) {
+              const entryOk = await createAgendaEntrySupabase(entry);
+              if (!entryOk) {
+                await actions.deleteMeeting(meeting.id);
+                throw new Error("Could not save carry-over notes");
+              }
+            }
           }
         }
+        return { meeting, agendaItems: [...templateItems, ...carryItems] };
+      } finally {
+        startNextInFlight.delete(previousMeetingId);
       }
-      return { meeting, agendaItems: [...templateItems, ...carryItems] };
     },
 
     duplicateMeeting: async (
@@ -619,6 +699,7 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         description: source.description ?? null,
         scheduledAt,
         attendeeIds: [...source.attendeeIds],
+        attendees: [...(source.attendees ?? [])],
       });
 
       const idFn = isLiveMeetingWorkspace(meeting.workspaceId) ? generateClientId : generateId;

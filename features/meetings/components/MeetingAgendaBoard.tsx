@@ -222,7 +222,7 @@ export function MeetingAgendaBoard({
                     className="meeting-agenda-board__group-label"
                     role="presentation"
                   >
-                    Reviewed
+                    Reviewed. Carry over to next meeting.
                   </div>
                   {reviewedItems.map((item, index) =>
                     renderTile(item, index, reviewedItems),

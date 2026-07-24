@@ -1524,6 +1524,20 @@ export default function BadAssTasks() {
     openListDetail(listId, workspaceId);
   };
 
+  const handleNotificationOpenList = useCallback(
+    (listId: string, workspaceId?: string) => {
+      const targetWorkspaceId = workspaceId || currentWorkspace.id;
+      setView("lists");
+      if (targetWorkspaceId && currentWorkspace.id !== targetWorkspaceId) {
+        setPendingWorkspaceNav({ kind: "list", workspaceId: targetWorkspaceId, listId });
+        switchWorkspace(targetWorkspaceId);
+        return;
+      }
+      void hydrateWorkspaceListData(targetWorkspaceId).then(() => setHighlightListId(listId));
+    },
+    [currentWorkspace.id, setView, switchWorkspace, hydrateWorkspaceListData],
+  );
+
   const handleHomeNavigateDue = useCallback(
     (workspaceId: string) => {
       setView("tasks");
@@ -4691,6 +4705,7 @@ export default function BadAssTasks() {
         onDismiss={handleDismissNotification}
         onViewChange={setView}
         onOpenNote={setSelectedNoteId}
+        onOpenList={handleNotificationOpenList}
         onAcceptListShare={(shareId) => {
           handleHomeAcceptListShare(shareId, selectedNotification?.link);
         }}

@@ -28,6 +28,16 @@ export function notificationDedupeKey(notification: Notification): string {
     notification.activityLogId || (meta.activity_log_id as string | undefined);
   if (activityLogId) return `${notification.type}:activity:${activityLogId}`;
 
+  const listItemId = meta.list_item_id as string | undefined;
+  if (
+    notification.type === "activity" &&
+    meta.event === "list_item_completed" &&
+    listItemId
+  ) {
+    const completedAt = (meta.completed_at as string | undefined) || "";
+    return `activity:list_item_completed:${listItemId}:${completedAt}`;
+  }
+
   const noteId = meta.note_id as string | undefined;
   if (noteId && notification.type === "activity") return `activity:note:${noteId}`;
   if (noteId && notification.type === "inbound_file") return `inbound_file:note:${noteId}`;

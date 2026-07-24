@@ -121,10 +121,11 @@
 }
 
 .meeting-topic-modal {
-  width: 80vw;
-  max-width: 80vw;
-  height: 80vh;
-  max-height: 80vh;
+  /* Comfortable note-reading width; tall viewport for agenda + entries */
+  width: min(100%, 48rem);
+  max-width: 48rem !important;
+  height: 95vh !important;
+  max-height: 95vh !important;
 }
 
 .meeting-topic-modal__body {
@@ -176,11 +177,12 @@
     display: none;
   }
 
-  .meeting-topic-modal {
+  .meeting-topic-modal,
+  .meeting-topic-modal.mobile-bottom-sheet--90 {
     width: 100%;
-    max-width: 100%;
-    height: 80dvh;
-    max-height: 80dvh;
+    max-width: 100% !important;
+    height: min(95dvh, var(--vvh, 95dvh)) !important;
+    max-height: min(95dvh, var(--vvh, 95dvh)) !important;
   }
 
   .meeting-summary-view__canvas {
@@ -983,7 +985,7 @@
 
 /*
  * Agenda compose/edit TipTap follows app theme.
- * Scoped to .meeting-entry-rich-editor so notebook note editors keep their light paper canvas.
+ * Scoped to .meeting-entry-rich-editor so notebook note editors keep their own canvas tokens.
  */
 .meeting-entry-rich-editor {
   --note-canvas-bg: var(--bg-secondary, #ffffff);
@@ -1104,8 +1106,7 @@
 }
 
 /*
- * Agenda item note previews follow app theme (unlike notebook notes, which keep
- * a light paper canvas in dark mode).
+ * Agenda item note previews follow app theme (transparent body in the timeline).
  */
 .meeting-entry-body-view {
   --note-canvas-bg: transparent;

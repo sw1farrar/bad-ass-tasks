@@ -62,10 +62,17 @@ export function getCarryOverCandidateMeetings(
   );
 }
 
-export function buildNextMeetingTitle(previous: Meeting): string {
+export function buildNextMeetingTitle(
+  previous: Meeting,
+  scheduledAt?: string | null,
+): string {
   const base =
     previous.title.replace(/\s*[-—]\s*[^-—]+,\s*\d{4}.*$/, "").trim() || previous.title;
-  const date = new Date().toLocaleDateString(undefined, {
+  if (scheduledAt === null) {
+    return `${base} — Next`;
+  }
+  const dateSource = scheduledAt ? new Date(scheduledAt) : new Date();
+  const date = dateSource.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",

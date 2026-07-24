@@ -804,6 +804,7 @@ function clearedLiveSessionState() {
     isInitializing: false,
     pendingSyncCount: 0,
     isSyncing: false,
+    celebrationTrigger: 0,
   };
 }
 
@@ -2142,6 +2143,8 @@ export const useTaskStore = create<TaskState>()(
 
           // Fresh sign-in: purge demo residue only; keep live persisted optimistic/outbox rows.
           if (!previousUser && newUser) {
+            // Never replay completion confetti from a prior session/tab counter.
+            set({ celebrationTrigger: 0 });
             if (isSupabaseLive()) {
               const isDemoWs = (id?: string) => !id || ["w1", "w2"].includes(id);
               set({
@@ -6526,6 +6529,9 @@ export const useTaskStore = create<TaskState>()(
 if (typeof window !== "undefined") {
   // @ts-ignore - persist API is available on the store instance
   useTaskStore.persist.onFinishHydration((state) => {
+    // Confetti is session-only; never restore a stale counter from older storage shapes.
+    useTaskStore.setState({ celebrationTrigger: 0 });
+
     const theme = normalizeThemeMode((state as { theme?: unknown })?.theme ?? readThemeMode());
     applyThemeToDocument(theme);
     if ((state as { theme?: unknown })?.theme !== theme) {

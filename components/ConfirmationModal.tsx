@@ -25,6 +25,10 @@ interface ConfirmationModalProps {
   variant?: 'default' | 'destructive';
   onConfirm: () => void | Promise<void>;
   isLoading?: boolean;
+  /** Block backdrop / Escape / cancel dismiss. Caller closes after successful confirm. */
+  preventDismiss?: boolean;
+  /** Hide the cancel button (useful with preventDismiss). */
+  hideCancel?: boolean;
 }
 
 function ConfirmationBody({
@@ -40,6 +44,7 @@ function ConfirmationBody({
   handleConfirm,
   showHeaderClose = true,
   hideTitle = false,
+  hideCancel = false,
 }: {
   title: string;
   description?: string;
@@ -53,6 +58,7 @@ function ConfirmationBody({
   handleConfirm: () => void;
   showHeaderClose?: boolean;
   hideTitle?: boolean;
+  hideCancel?: boolean;
 }) {
   return (
     <>
@@ -99,14 +105,16 @@ function ConfirmationBody({
       </div>
 
       <div className="flex flex-col-reverse md:flex-row gap-2.5 px-5 pb-5">
-        <button
-          type="button"
-          onClick={close}
-          disabled={isLoading}
-          className="confirmation-modal__cancel flex-1 min-h-[44px] rounded-xl border border-border-glass px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 transition"
-        >
-          {cancelText}
-        </button>
+        {!hideCancel && (
+          <button
+            type="button"
+            onClick={close}
+            disabled={isLoading}
+            className="confirmation-modal__cancel flex-1 min-h-[44px] rounded-xl border border-border-glass px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 transition"
+          >
+            {cancelText}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleConfirm}
@@ -137,6 +145,8 @@ export function ConfirmationModal({
   variant = 'default',
   onConfirm,
   isLoading = false,
+  preventDismiss = false,
+  hideCancel = false,
 }: ConfirmationModalProps) {
   const [mounted, setMounted] = useState(false);
   const isMobile = useIsMobileViewport();
@@ -146,13 +156,13 @@ export function ConfirmationModal({
   }, []);
 
   const close = useCallback(() => {
-    if (!isLoading) onOpenChange(false);
-  }, [isLoading, onOpenChange]);
+    if (!isLoading && !preventDismiss) onOpenChange(false);
+  }, [isLoading, onOpenChange, preventDismiss]);
 
   useScrollLock(open && !isMobile);
 
   useEffect(() => {
-    if (!open || isMobile) return;
+    if (!open || isMobile || preventDismiss) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
@@ -160,11 +170,11 @@ export function ConfirmationModal({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, close, isMobile]);
+  }, [open, close, isMobile, preventDismiss]);
 
   const handleConfirm = async () => {
     await onConfirm();
-    onOpenChange(false);
+    if (!preventDismiss) onOpenChange(false);
   };
 
   if (!open || !mounted) return null;
@@ -178,8 +188,8 @@ export function ConfirmationModal({
         zIndex={CONFIRMATION_MODAL_Z_INDEX}
         panelClassName="confirmation-modal"
         showClose={false}
-        showDragHandle
-        enableDragDismiss={!isLoading}
+        showDragHandle={!preventDismiss}
+        enableDragDismiss={!isLoading && !preventDismiss}
         dragMode="handle"
         ariaLabel={title}
       >
@@ -196,6 +206,7 @@ export function ConfirmationModal({
           handleConfirm={() => void handleConfirm()}
           showHeaderClose={false}
           hideTitle
+          hideCancel={hideCancel || preventDismiss}
         />
       </BottomSheet>
     );
@@ -235,6 +246,8 @@ export function ConfirmationModal({
           isLoading={isLoading}
           close={close}
           handleConfirm={() => void handleConfirm()}
+          showHeaderClose={!preventDismiss}
+          hideCancel={hideCancel || preventDismiss}
         />
       </div>
     </div>,

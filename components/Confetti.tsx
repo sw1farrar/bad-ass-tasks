@@ -6,11 +6,25 @@ interface ConfettiProps {
   trigger: number; // increment to fire
 }
 
+/**
+ * Fires confetti when `trigger` increases after mount.
+ * Ignores the initial value so login/rehydrate/remount never replays a stale counter.
+ */
 export function Confetti({ trigger }: ConfettiProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const baselineRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (trigger === 0) return;
+    if (baselineRef.current === null) {
+      baselineRef.current = trigger;
+      return;
+    }
+
+    if (trigger <= baselineRef.current) {
+      baselineRef.current = trigger;
+      return;
+    }
+    baselineRef.current = trigger;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -40,6 +54,7 @@ export function Confetti({ trigger }: ConfettiProps) {
     }
 
     let frame = 0;
+    let raf = 0;
     const animate = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -74,27 +89,29 @@ export function Confetti({ trigger }: ConfettiProps) {
 
       frame++;
       if (stillAlive && frame < 140) {
-        requestAnimationFrame(animate);
+        raf = requestAnimationFrame(animate);
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     };
 
-    animate();
+    raf = requestAnimationFrame(animate);
 
-    // cleanup after animation
     const timeout = setTimeout(() => {
       if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
     }, 4200);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timeout);
+    };
   }, [trigger]);
 
   return (
-    <canvas 
-      ref={canvasRef} 
-      id="confetti-canvas" 
-      className="pointer-events-none fixed inset-0 z-[9999]" 
+    <canvas
+      ref={canvasRef}
+      id="confetti-canvas"
+      className="pointer-events-none fixed inset-0 z-[9999]"
     />
   );
 }

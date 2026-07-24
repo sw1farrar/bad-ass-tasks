@@ -2642,8 +2642,13 @@
 .list-detail-sheet--mobile {
   width: 100%;
   max-width: 100%;
-  height: var(--vvh, 100dvh);
-  max-height: var(--vvh, 100dvh);
+  /* Layout viewport height — do NOT use --vvh (visual viewport shrinks with keyboard). */
+  height: 100vh;
+  height: 100dvh;
+  height: 100lvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  max-height: 100lvh;
   min-height: 0;
   margin-left: auto;
   margin-right: auto;
