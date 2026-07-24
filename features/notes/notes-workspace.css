@@ -274,10 +274,6 @@
   padding-right: 0 !important;
 }
 
-.notes-drawer-body .linked-tasks-panel .swipe-action-bg {
-  opacity: 0;
-}
-
 .notes-drawer-sheet .sheet-drag-handle-zone {
   padding-bottom: 4px;
 }

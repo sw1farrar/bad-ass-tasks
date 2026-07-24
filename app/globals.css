@@ -1824,47 +1824,6 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 }
 
-/* Swipe-to-complete / actions on task rows (gesture container) */
-.swipe-container {
-  position: relative;
-  overflow: hidden;
-  touch-action: pan-y; /* allow vertical scroll, capture horizontal for gestures */
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.swipe-action-bg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 0 20px;
-  transition: opacity 0.1s ease;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.swipe-action-bg.complete {
-  left: 0;
-  right: 50%;
-  background: linear-gradient(to right, var(--neon-green), var(--neon-green));
-  justify-content: flex-start;
-  padding-left: 24px;
-}
-
-.swipe-action-bg.actions {
-  left: 50%;
-  right: 0;
-  background: linear-gradient(to left, #ff3366, #ff6b6b);
-  justify-content: flex-end;
-  padding-right: 24px;
-}
-
 /* Sync / offline status indicators (mobile-friendly, tappable) */
 .sync-indicator {
   display: inline-flex;
@@ -1918,11 +1877,6 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   .fab {
     /* Reduce paint/composite cost on low-end devices during scrolls/gestures */
     will-change: auto;
-  }
-
-  .swipe-container {
-    /* Critical for smooth horizontal gesture without vertical interference */
-    touch-action: pan-y;
   }
 
   /* Passive-friendly scroll areas (lists) */

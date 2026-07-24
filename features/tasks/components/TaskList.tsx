@@ -15,8 +15,7 @@ interface TaskListProps {
  * Thin presentational wrapper for the list-mode rendering of tasks.
  * Currently just wraps the map over renderTaskRow + empty state.
  *
- * Guard note: renderTaskRow (which contains heavy swipe/gesture/complete logic)
- * and all store mutations remain in the parent for this batch.
+ * Guard note: renderTaskRow and all store mutations remain in the parent for this batch.
  * This component is intentionally kept minimal to allow safe, incremental progress.
  *
  * Future batches can evolve this into a richer TaskList with virtualization,

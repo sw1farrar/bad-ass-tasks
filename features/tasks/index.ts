@@ -8,7 +8,7 @@
  * - TasksSearch (hybrid semantic search + filters + results)
  * - TaskList (list mode + empty state)
  * - KanbanBoard (full DnD board + subcomponents)
- * - TaskRow (presentation + swipe gestures)
+ * - TaskRow (presentation)
  *
  * Guard note: All store selectors, filteredTasks derivation, business handlers 
  * Recurrence-aware completion lives in useTaskStore.completeTask; page.tsx wires toasts/UI.

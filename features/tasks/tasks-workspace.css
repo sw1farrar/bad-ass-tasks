@@ -55,11 +55,6 @@
     height: calc(0.875rem * 0.75);
   }
 
-  /* Hide swipe-complete reveal until user drags (prevents green edge bleed) */
-  .tasks-root .swipe-action-bg {
-    opacity: 0;
-  }
-
   .tasks-root .tasks-empty-state {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
@@ -1200,12 +1195,6 @@
 [data-theme="dark"] .task-assignee-badge .bg-neon-purple\/15 {
   background: rgba(42, 31, 74, 0.72) !important;
   color: #a78bfa !important;
-}
-
-/* Swipe-to-complete reveal */
-[data-theme="dark"] .tasks-root .swipe-action-bg.complete {
-  background: linear-gradient(to right, #34d399, #10b981) !important;
-  color: #0f0f12 !important;
 }
 
 /* Empty state */

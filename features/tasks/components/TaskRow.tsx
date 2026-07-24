@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
-import { motion } from "framer-motion";
+import React, { useEffect, useState } from "react";
 import { Check, FolderOpen, Loader2, Notebook, Repeat } from "lucide-react";
 import { cn, getRecurringLabel } from "@/lib/utils";
 import type { Task } from "@/types";
@@ -29,7 +28,6 @@ interface TaskRowProps {
   commentWorkspaceId?: string;
   onOpen: (task: Task) => void;
   onComplete: (id: string) => void;
-  onSwipeComplete?: (id: string) => void;
   /** Tasks workspace: star + folder controls */
   showOrganize?: boolean;
   onOpenLinkedFile?: (task: Task) => void;
@@ -48,7 +46,6 @@ export function TaskRow({
   commentWorkspaceId,
   onOpen,
   onComplete,
-  onSwipeComplete,
   showOrganize = false,
   onOpenLinkedFile,
 }: TaskRowProps) {
@@ -64,10 +61,7 @@ export function TaskRow({
   } = useTaskStore();
   const folders = showOrganize ? getTaskFolders() : [];
   const folderName = folders.find((f) => f.id === task.folderId)?.name;
-  const swipeThreshold = 120;
-  const didSwipeDragRef = useRef(false);
   const [allowHtmlDrag, setAllowHtmlDrag] = useState(false);
-  const [swipeRevealOpacity, setSwipeRevealOpacity] = useState(0);
   const commentState = getTaskCommentIndicatorState(
     task.id,
     taskCommentSummaries,
@@ -91,22 +85,12 @@ export function TaskRow({
     }
   };
 
-  const handleDragEnd = (_e: unknown, info: { offset?: { x?: number }; velocity?: { x?: number } }) => {
-    if (isDone || isOpLoading) return;
-    const offsetX = info.offset?.x || 0;
-    const velocityX = info.velocity?.x || 0;
-
-    if (offsetX < -swipeThreshold || velocityX < -800) {
-      if (onSwipeComplete) onSwipeComplete(task.id);
-    }
-  };
-
   return (
     <div
       id={rowId}
       key={task.id}
       className={cn(
-        "swipe-container relative rounded-xl overflow-hidden mb-1 transition-colors duration-500",
+        "relative rounded-xl overflow-hidden mb-1 transition-colors duration-500",
         isHighlighted && "task-row--highlighted ring-2 ring-neon-purple/50 bg-neon-purple/10",
       )}
       draggable={allowHtmlDrag && !isDone}
@@ -118,43 +102,15 @@ export function TaskRow({
       }}
     >
       <div
-        className="swipe-action-bg complete"
-        aria-hidden="true"
-        style={{ opacity: swipeRevealOpacity }}
-      >
-        <Check className="h-5 w-5 mr-2" /> COMPLETE
-      </div>
-
-      <motion.div
-        drag="x"
-        dragConstraints={{ left: -160, right: 0 }}
-        dragElastic={0.2}
-        onDragStart={() => {
-          didSwipeDragRef.current = false;
-          setSwipeRevealOpacity(0);
-        }}
-        onDrag={(_e, info) => {
-          if (Math.abs(info.offset.x) > 6) didSwipeDragRef.current = true;
-          const leftDrag = Math.min(0, info.offset.x);
-          setSwipeRevealOpacity(Math.min(1, Math.abs(leftDrag) / 72));
-        }}
-        onDragEnd={(e, info) => {
-          setSwipeRevealOpacity(0);
-          handleDragEnd(e, info);
-        }}
-        whileTap={{ scale: 0.995 }}
         className={cn(
-          "task-row group flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-2.5 rounded-xl border border-transparent cursor-grab active:cursor-grabbing focus:outline-none focus:ring-1 focus:ring-neon-purple/50 bg-[var(--bg-card)] relative z-10",
+          "task-row group flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-2.5 rounded-xl border border-transparent cursor-pointer focus:outline-none focus:ring-1 focus:ring-neon-purple/50 bg-[var(--bg-card)] relative z-10",
           isDone && "completed"
         )}
         role="button"
         tabIndex={0}
         aria-label={`Task: ${task.title}${isDone ? " (completed)" : ""}${due ? `, due ${due.label}` : ""}. Open task; use Mark complete button to complete.`}
-        onClick={() => {
-          if (!didSwipeDragRef.current) onOpen(task);
-        }}
+        onClick={() => onOpen(task)}
         onKeyDown={handleKeyDown}
-        style={{ touchAction: "pan-y" }}
       >
         {showOrganize ? (
           task.notebookId ? (
@@ -342,8 +298,7 @@ export function TaskRow({
             </div>
           )}
         </div>
-      </motion.div>
-
+      </div>
     </div>
   );
 }

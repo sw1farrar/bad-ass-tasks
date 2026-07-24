@@ -19,7 +19,7 @@ export function TaskCommentIndicator({ count, unread = false, className }: TaskC
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 shrink-0",
+        "inline-flex items-center gap-1 shrink-0 pointer-events-none",
         unread ? "text-neon-green" : "text-text-muted",
         className,
       )}

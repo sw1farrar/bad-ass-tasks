@@ -172,11 +172,6 @@ export function LinkedTasksPanel({
                   showAssignee
                   onOpen={() => onOpenTask?.(task.id)}
                   onComplete={() => void handleToggleComplete(task)}
-                  onSwipeComplete={
-                    onToggleTaskComplete
-                      ? () => void handleToggleComplete(task)
-                      : undefined
-                  }
                   showOrganize
                 />
               );

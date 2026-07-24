@@ -29,7 +29,6 @@ export interface TasksTableProps {
   onOpenTask: (task: Task) => void;
   onComplete: (id: string) => void;
   onAddTask?: (title: string) => Promise<unknown>;
-  onSwipeComplete?: (id: string) => void;
   showAssignee?: boolean;
   showQuickAdd?: boolean;
   emptyMessage?: string;
@@ -99,7 +98,6 @@ export function TasksTable({
   onOpenTask,
   onComplete,
   onAddTask,
-  onSwipeComplete,
   showAssignee = true,
   showQuickAdd = true,
   emptyMessage = "No tasks yet.",
@@ -333,7 +331,6 @@ export function TasksTable({
                 commentWorkspaceId={task.workspaceId}
                 onOpen={onOpenTask}
                 onComplete={onComplete}
-                onSwipeComplete={onSwipeComplete}
                 showOrganize
                 onOpenLinkedFile={handleOpenLinkedFile}
               />

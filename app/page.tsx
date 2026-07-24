@@ -1983,7 +1983,6 @@ export default function BadAssTasks() {
           onOpenTask={openTask}
           onComplete={handleComplete}
           onAddTask={addTask}
-          onSwipeComplete={handleComplete}
           showAssignee={isSharedWorkspace(members)}
           searchValue={taskFilter.search || ""}
           onSearchChange={(search) => setTaskFilter({ search })}
