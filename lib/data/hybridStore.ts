@@ -6786,19 +6786,20 @@ export async function updateWorkspaceConversationName(params: {
 }
 
 /**
- * Hard-delete a shared channel: messages, prefs, and the conversation row.
- * General (null conversation_id) cannot be deleted.
+ * Hard-delete a shared conversation.
+ * - Named channel: messages + prefs + conversation row
+ * - General: pass conversationId null/omit — deletes all General messages (not DMs)
  */
 export async function deleteWorkspaceConversation(params: {
   workspaceId: string;
-  conversationId: string;
+  /** Named channel id, or null/undefined for General */
+  conversationId?: string | null;
 }): Promise<boolean> {
   if (!isSupabaseLive() || ["w1", "w2"].includes(params.workspaceId)) return false;
   const supabase = getClient();
   if (!supabase) return false;
 
-  const conversationId = params.conversationId?.trim();
-  if (!conversationId) return false;
+  const conversationId = params.conversationId?.trim() || null;
 
   try {
     const { data, error } = await (supabase as any).rpc("delete_workspace_conversation", {
@@ -6807,8 +6808,6 @@ export async function deleteWorkspaceConversation(params: {
     });
 
     if (error) {
-      // Fallback if RPC not applied yet: best-effort delete of channel row only
-      // (messages would SET NULL → General — prefer failing closed if RPC missing)
       if (
         String(error.message || "").toLowerCase().includes("function") ||
         error.code === "42883" ||

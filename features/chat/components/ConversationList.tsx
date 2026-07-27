@@ -22,12 +22,11 @@ import { conversationIdsEqual } from "../lib/conversations";
 
 interface ConversationListProps {
   items: ConversationListItem[];
-  selected: ChatConversationId;
+  selected: ChatConversationId | null;
   onSelect: (id: ChatConversationId) => void;
   onCreateConversation?: () => void | Promise<void>;
   onRename?: (id: ChatConversationId, title: string) => void | Promise<void>;
   onArchive?: (id: ChatConversationId, archived: boolean) => void | Promise<void>;
-  /** Named channels only — General cannot be deleted. */
   onDelete?: (id: ChatConversationId) => void | Promise<void>;
   searchQuery: string;
   onSearchQueryChange: (q: string) => void;
@@ -37,6 +36,8 @@ interface ConversationListProps {
   autoRenameKey?: string | null;
   onAutoRenameHandled?: () => void;
   isCreating?: boolean;
+  /** True while channels/inbox meta is still loading — avoid flashing General-only list */
+  isLoading?: boolean;
   className?: string;
 }
 
@@ -55,6 +56,7 @@ export function ConversationList({
   autoRenameKey,
   onAutoRenameHandled,
   isCreating = false,
+  isLoading = false,
   className,
 }: ConversationListProps) {
   const [menuKey, setMenuKey] = useState<string | null>(null);
@@ -209,17 +211,21 @@ export function ConversationList({
         role="listbox"
         aria-label={showArchived ? "Archived conversations" : "Conversations"}
       >
-        {items.length === 0 ? (
+        {isLoading ? (
+          <li className="px-3 py-10 text-center text-xs text-text-muted" aria-busy="true">
+            Loading conversations…
+          </li>
+        ) : items.length === 0 ? (
           <li className="px-3 py-10 text-center text-xs text-text-muted">
             {searchQuery.trim()
               ? "No conversations match your search"
               : showArchived
                 ? "No archived conversations"
-                : "No conversations yet — press New"}
+                : "No conversations yet — press New to create one"}
           </li>
         ) : (
           items.map((item) => {
-            const active = conversationIdsEqual(item.id, selected);
+            const active = !!selected && conversationIdsEqual(item.id, selected);
             const when = item.lastMessageAt
               ? safeFormatDistanceToNow(item.lastMessageAt, "")
               : "";
@@ -344,7 +350,7 @@ export function ConversationList({
                       ) : null}
                       {onArchive ||
                       (!item.isGeneral && onRename) ||
-                      (!item.isGeneral && onDelete) ? (
+                      onDelete ? (
                         <>
                           <button
                             type="button"
@@ -396,7 +402,7 @@ export function ConversationList({
                                   )}
                                 </button>
                               ) : null}
-                              {!item.isGeneral && onDelete ? (
+                              {onDelete ? (
                                 <button
                                   type="button"
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[var(--priority-p0)] hover:bg-[var(--priority-p0)]/10"

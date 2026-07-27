@@ -36,7 +36,10 @@ export interface UseWorkspaceChatOptions {
   userId: string | undefined;
   members: WorkspaceMember[];
   isOpen?: boolean;
-  conversation?: ChatConversationId;
+  /** Required when enabled; omitted while Chat has no selection. */
+  conversation?: ChatConversationId | null;
+  /** When false, skip loading/subscribing (e.g. no conversation selected yet). */
+  enabled?: boolean;
 }
 
 function resolveAuthor(
@@ -58,11 +61,16 @@ export function useWorkspaceChat({
   members,
   isOpen = false,
   conversation: conversationProp,
+  enabled = true,
 }: UseWorkspaceChatOptions) {
-  const conversation = conversationProp ?? generalConversation();
+  // Resolve active conversation only while enabled (callers with no selection set enabled=false)
+  const conversation = !enabled
+    ? generalConversation() // placeholder; load/subscribe are gated by enabled
+    : conversationProp ?? generalConversation();
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Start idle so we never paint a loading/general thread on first Chat open
+  const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const seenIds = useRef(new Set<string>());
@@ -144,23 +152,26 @@ export function useWorkspaceChat({
     wasOpenRef.current = false;
   }, [workspaceId]);
 
-  const conversationStableKey = conversationKey(conversation);
+  const conversationStableKey = !enabled
+    ? "__none__"
+    : conversationKey(conversationProp ?? generalConversation());
 
   useEffect(() => {
     seenIds.current.clear();
     reactionIds.current.clear();
     setMessages([]);
     setReactions([]);
-    setIsLoading(true);
     setHasUnread(false);
 
-    if (!workspaceId) {
+    if (!enabled || !workspaceId) {
       setIsLoading(false);
       return;
     }
 
+    setIsLoading(true);
     let cancelled = false;
-    const active = conversationRef.current;
+    const active = conversationProp ?? generalConversation();
+    conversationRef.current = active;
 
     (async () => {
       if (isSupabaseConfigured() && !["w1", "w2"].includes(workspaceId)) {
@@ -214,6 +225,7 @@ export function useWorkspaceChat({
       unsub();
     };
   }, [
+    enabled,
     workspaceId,
     userId,
     conversationStableKey,
@@ -394,7 +406,7 @@ export function useWorkspaceChat({
   );
 
   useEffect(() => {
-    if (!userId || !workspaceId) {
+    if (!enabled || !userId || !workspaceId) {
       setHasUnreadSafe(false);
       wasOpenRef.current = false;
       return;
@@ -426,6 +438,7 @@ export function useWorkspaceChat({
       ),
     );
   }, [
+    enabled,
     isOpen,
     userId,
     workspaceId,

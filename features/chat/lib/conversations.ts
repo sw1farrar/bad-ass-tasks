@@ -95,25 +95,33 @@ export function buildConversationList(params: {
     return best;
   };
 
-  const generalKey = "general";
-  const generalPref = prefMap.get(generalKey);
-  const generalLatest = latestFor((m) => !m.conversationId);
-  const generalDefault = "General";
-  const general: ConversationListItem = {
-    id: generalConversation(),
-    key: generalKey,
-    defaultTitle: generalDefault,
-    title: generalDefault,
-    subtitle: "Everyone in this workspace",
-    avatarLabel: "#",
-    isGeneral: true,
-    lastMessageAt: generalLatest?.createdAt,
-    lastPreview: generalLatest?.body,
-    unread: isUnread(generalConversation()),
-    archived: !!generalPref?.archivedAt,
-  };
+  // Named channels only by default. "General" is legacy (messages with no conversation_id)
+  // and is listed only while those messages still exist — never auto-created empty.
+  const generalMessages = messages.filter((m) => !m.conversationId);
+  const includeLegacyGeneral = generalMessages.length > 0;
 
-  const channelItems: ConversationListItem[] = channels.map((ch) => {
+  const items: ConversationListItem[] = [];
+
+  if (includeLegacyGeneral) {
+    const generalKey = "general";
+    const generalPref = prefMap.get(generalKey);
+    const generalLatest = latestFor((m) => !m.conversationId);
+    items.push({
+      id: generalConversation(),
+      key: generalKey,
+      defaultTitle: "General",
+      title: "General",
+      subtitle: "Legacy workspace channel",
+      avatarLabel: "#",
+      isGeneral: true,
+      lastMessageAt: generalLatest?.createdAt,
+      lastPreview: generalLatest?.body,
+      unread: isUnread(generalConversation()),
+      archived: !!generalPref?.archivedAt,
+    });
+  }
+
+  for (const ch of channels) {
     const id = channelConversation(ch.id);
     const key = conversationKey(id);
     const pref = prefMap.get(key);
@@ -122,7 +130,7 @@ export function buildConversationList(params: {
     const title = ch.name.trim() || "Conversation";
     // Activity time: latest message, else channel updated/created (new empty chats rise to top)
     const activityAt = latest?.createdAt || ch.updatedAt || ch.createdAt;
-    return {
+    items.push({
       id,
       key,
       defaultTitle: title,
@@ -135,21 +143,19 @@ export function buildConversationList(params: {
       lastPreview: latest?.body,
       unread: isUnread(id),
       archived: !!pref?.archivedAt,
-    };
-  });
+    });
+  }
 
-  // Most recently active conversation always first (General is not pinned)
-  const all = [general, ...channelItems];
-  all.sort((a, b) => {
+  // Most recently active conversation first
+  items.sort((a, b) => {
     const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
     const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
     if (at !== bt) return bt - at;
-    // Unread as a mild tiebreaker when activity times match
     if (a.unread !== b.unread) return a.unread ? -1 : 1;
     return a.title.localeCompare(b.title);
   });
 
-  return all;
+  return items;
 }
 
 export function filterConversationsBySearch(

@@ -55,7 +55,8 @@ export function ChatView({
   className,
   onUnreadChange,
 }: ChatViewProps) {
-  const [selected, setSelected] = useState<ChatConversationId>(generalConversation());
+  /** null until the user picks a conversation — do not auto-open General */
+  const [selected, setSelected] = useState<ChatConversationId | null>(null);
   const [channels, setChannels] = useState<WorkspaceConversation[]>([]);
   const [inboxMessages, setInboxMessages] = useState<WorkspaceMessage[]>([]);
   const [prefs, setPrefs] = useState<WorkspaceConversationPref[]>([]);
@@ -64,6 +65,8 @@ export function ChatView({
   const [showArchived, setShowArchived] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [autoRenameKey, setAutoRenameKey] = useState<string | null>(null);
+  /** Prevents flashing a General-only list before channels/inbox hydrate */
+  const [metaReady, setMetaReady] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
     id: ChatConversationId;
     title: string;
@@ -80,6 +83,7 @@ export function ChatView({
     setChannels(chs);
     setInboxMessages(rows);
     setPrefs(prefRows);
+    setMetaReady(true);
   }, [workspaceId, userId]);
 
   useEffect(() => {
@@ -87,8 +91,15 @@ export function ChatView({
     setChannels([]);
     setInboxMessages([]);
     setPrefs([]);
+    setMetaReady(false);
+    // Always clear selection when (re)entering a workspace chat context
+    setSelected(null);
+    setMobileShowThread(false);
     (async () => {
-      if (!isSupabaseConfigured() || ["w1", "w2"].includes(workspaceId)) return;
+      if (!isSupabaseConfigured() || ["w1", "w2"].includes(workspaceId)) {
+        if (!cancelled) setMetaReady(true);
+        return;
+      }
       const [chs, rows, prefRows] = await Promise.all([
         fetchWorkspaceConversations(workspaceId),
         fetchWorkspaceMessagesForInbox(workspaceId, 250),
@@ -98,6 +109,7 @@ export function ChatView({
       setChannels(chs);
       setInboxMessages(rows);
       setPrefs(prefRows);
+      setMetaReady(true);
     })();
     return () => {
       cancelled = true;
@@ -133,33 +145,45 @@ export function ChatView({
   }, [workspaceId, userId]);
 
   useEffect(() => {
-    setSelected(generalConversation());
+    setSelected(null);
     setMobileShowThread(false);
     setSearchQuery("");
     setShowArchived(false);
     setAutoRenameKey(null);
   }, [workspaceId]);
 
+  const hasSelection = selected != null;
+
   const chat = useWorkspaceChat({
     workspaceId,
     userId,
     members,
-    isOpen: true,
-    conversation: selected,
+    // Load thread only after the user picks a conversation (never auto-General)
+    enabled: hasSelection,
+    isOpen: hasSelection,
+    conversation: selected ?? undefined,
   });
 
   const previewMessages = useMemo(() => {
+    if (!metaReady) return [];
     const byId = new Map(inboxMessages.map((m) => [m.id, m]));
-    for (const m of chat.messages) {
-      byId.set(m.id, m);
+    // Only merge open-thread messages when a conversation is selected
+    if (hasSelection) {
+      for (const m of chat.messages) {
+        byId.set(m.id, m);
+      }
     }
     return [...byId.values()];
-  }, [inboxMessages, chat.messages]);
+  }, [inboxMessages, chat.messages, hasSelection, metaReady]);
 
   const isConversationUnread = useCallback(
     (conversation: ChatConversationId) => {
       // Selected + loaded thread owns its unread via live mark-read
-      if (conversationIdsEqual(conversation, selected) && !chat.isLoading) {
+      if (
+        selected &&
+        conversationIdsEqual(conversation, selected) &&
+        !chat.isLoading
+      ) {
         return chat.hasUnread;
       }
       const scoped = previewMessages.filter((m) =>
@@ -182,11 +206,12 @@ export function ChatView({
   );
 
   const visibleConversations = useMemo(() => {
+    if (!metaReady) return [];
     const byArchive = allConversations.filter((c) =>
       showArchived ? c.archived : !c.archived,
     );
     return filterConversationsBySearch(byArchive, previewMessages, searchQuery);
-  }, [allConversations, showArchived, previewMessages, searchQuery]);
+  }, [allConversations, showArchived, previewMessages, searchQuery, metaReady]);
 
   const anyUnread = useMemo(
     () => allConversations.some((c) => !c.archived && c.unread),
@@ -200,29 +225,39 @@ export function ChatView({
   }, [anyUnread]);
 
   useEffect(() => {
+    if (!selected) return;
     const sel = allConversations.find((c) => conversationIdsEqual(c.id, selected));
-    if (!sel) return;
+    if (!sel) {
+      // Channel removed / no longer in list
+      setSelected(null);
+      setMobileShowThread(false);
+      return;
+    }
 
-    let next: ChatConversationId | null = null;
+    // Selection hidden by archive filter — clear rather than auto-picking another
     if (showArchived && !sel.archived) {
-      next = visibleConversations[0]?.id ?? null;
+      setSelected(null);
+      setMobileShowThread(false);
     } else if (!showArchived && sel.archived) {
-      next = generalConversation();
+      setSelected(null);
+      setMobileShowThread(false);
     }
-
-    if (next && !conversationIdsEqual(next, selected)) {
-      setSelected(next);
-    }
-  }, [showArchived, selected, allConversations, visibleConversations]);
+  }, [showArchived, selected, allConversations]);
 
   const selectedMeta = useMemo(
-    () => allConversations.find((c) => conversationIdsEqual(c.id, selected)),
+    () =>
+      selected
+        ? allConversations.find((c) => conversationIdsEqual(c.id, selected))
+        : undefined,
     [allConversations, selected],
   );
 
-  const headerTitle = selectedMeta?.title ?? (selected.kind === "general" ? "General" : "Conversation");
-  const headerSubtitle =
-    selected.kind === "general"
+  const headerTitle =
+    selectedMeta?.title ??
+    (selected?.kind === "general" ? "General" : selected ? "Conversation" : "Messages");
+  const headerSubtitle = !selected
+    ? "Choose a conversation to start chatting"
+    : selected.kind === "general"
       ? `${members.length} member${members.length === 1 ? "" : "s"} · ${workspaceName}`
       : `Shared with everyone · ${workspaceName}`;
 
@@ -312,13 +347,13 @@ export function ChatView({
   }, [headerRenaming]);
 
   const startHeaderRename = () => {
-    if (selected.kind !== "channel") return;
+    if (!selected || selected.kind !== "channel") return;
     setHeaderRenameValue(headerTitle);
     setHeaderRenaming(true);
   };
 
   const commitHeaderRename = async () => {
-    if (!headerRenaming) return;
+    if (!headerRenaming || !selected || selected.kind !== "channel") return;
     setHeaderRenaming(false);
     const next = headerRenameValue.trim();
     if (!next || next === headerTitle) return;
@@ -357,8 +392,8 @@ export function ChatView({
       ];
     });
 
-    if (archived && conversationIdsEqual(id, selected)) {
-      setSelected(generalConversation());
+    if (selected && archived && conversationIdsEqual(id, selected)) {
+      setSelected(null);
       setMobileShowThread(false);
     }
 
@@ -381,20 +416,18 @@ export function ChatView({
   };
 
   const requestDelete = (id: ChatConversationId) => {
-    if (id.kind !== "channel") {
-      toast.error("General cannot be deleted");
-      return;
-    }
     const meta = allConversations.find((c) => conversationIdsEqual(c.id, id));
     setPendingDelete({
       id,
-      title: meta?.title ?? "this conversation",
+      title: meta?.title ?? (id.kind === "general" ? "General" : "this conversation"),
     });
   };
 
   const confirmDelete = async () => {
-    if (!pendingDelete || pendingDelete.id.kind !== "channel") return;
-    const conversationId = pendingDelete.id.conversationId;
+    if (!pendingDelete) return;
+    const isGeneral = pendingDelete.id.kind === "general";
+    const conversationId =
+      pendingDelete.id.kind === "channel" ? pendingDelete.id.conversationId : null;
     const key = conversationKey(pendingDelete.id);
     setIsDeleting(true);
     try {
@@ -407,32 +440,42 @@ export function ChatView({
         throw new Error("delete failed");
       }
 
-      setChannels((prev) => prev.filter((c) => c.id !== conversationId));
-      setInboxMessages((prev) =>
-        prev.filter((m) => m.conversationId !== conversationId),
-      );
-      setPrefs((prev) => prev.filter((p) => p.conversationKey !== key));
+      if (isGeneral) {
+        // Remove legacy General messages — list no longer injects empty General
+        setInboxMessages((prev) => prev.filter((m) => !!m.conversationId));
+        setPrefs((prev) =>
+          prev.filter((p) => p.conversationKey !== "general" && p.conversationKey !== "team"),
+        );
+      } else if (conversationId) {
+        setChannels((prev) => prev.filter((c) => c.id !== conversationId));
+        setInboxMessages((prev) =>
+          prev.filter((m) => m.conversationId !== conversationId),
+        );
+        setPrefs((prev) => prev.filter((p) => p.conversationKey !== key));
+      }
 
-      if (conversationIdsEqual(pendingDelete.id, selected)) {
-        setSelected(generalConversation());
+      if (selected && conversationIdsEqual(pendingDelete.id, selected)) {
+        setSelected(null);
         setMobileShowThread(false);
       }
 
       setPendingDelete(null);
-      toast.success("Conversation deleted");
+      toast.success(
+        isGeneral ? "General removed" : "Conversation deleted",
+      );
     } finally {
       setIsDeleting(false);
     }
   };
 
   useEffect(() => {
-    if (chat.messages.length === 0) return;
+    if (!selected || chat.messages.length === 0) return;
     const last = chat.messages[chat.messages.length - 1];
     setInboxMessages((prev) => {
       if (prev.some((m) => m.id === last.id)) return prev;
       return [...prev, last];
     });
-  }, [chat.messages]);
+  }, [chat.messages, selected]);
 
   return (
     <div className={cn("chat-root chat-view flex flex-col flex-1 min-h-0 w-full", className)}>
@@ -440,7 +483,7 @@ export function ChatView({
         <aside
           className={cn(
             "chat-view__rail flex flex-col w-full md:w-[min(20rem,34%)] shrink-0 border-r border-border-glass bg-bg min-h-0",
-            mobileShowThread && "hidden md:flex",
+            mobileShowThread && hasSelection && "hidden md:flex",
           )}
         >
           <ConversationList
@@ -458,136 +501,149 @@ export function ChatView({
             autoRenameKey={autoRenameKey}
             onAutoRenameHandled={() => setAutoRenameKey(null)}
             isCreating={isCreating}
+            isLoading={!metaReady}
           />
         </aside>
 
         <section
           className={cn(
             "chat-view__thread flex flex-col flex-1 min-w-0 min-h-0 bg-bg",
-            !mobileShowThread && "hidden md:flex",
+            // Mobile: list-only until a conversation is chosen
+            (!hasSelection || !mobileShowThread) && "hidden md:flex",
           )}
         >
-          <div className="chat-view__thread-header shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border-glass">
-            <button
-              type="button"
-              className="md:hidden rounded-lg p-2 text-text-muted hover:text-text-primary hover:bg-surface-hover"
-              onClick={() => setMobileShowThread(false)}
-              aria-label="Back to conversations"
-            >
-              ←
-            </button>
-            <div
-              className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                selected.kind === "general"
-                  ? "bg-neon-purple/15 text-neon-purple border-neon-purple/30"
-                  : "bg-surface-hover text-text-secondary border-border-glass",
-              )}
-              aria-hidden
-            >
-              {selected.kind === "general" ? (
-                <Hash className="h-4 w-4" />
-              ) : (
-                selectedMeta?.avatarLabel ?? "#"
-              )}
+          {!hasSelection ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border-glass bg-surface-hover text-neon-purple">
+                <MessageCircle className="h-7 w-7" aria-hidden />
+              </div>
+              <div className="space-y-1 max-w-xs">
+                <p className="text-sm font-semibold text-text-primary">
+                  Select a conversation
+                </p>
+                <p className="text-xs text-text-muted">
+                  Choose a channel from the list, or press New to create one.
+                </p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              {headerRenaming && selected.kind === "channel" ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void commitHeaderRename();
-                  }}
-                  className="min-w-0"
+          ) : (
+            <>
+              <div className="chat-view__thread-header shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border-glass">
+                <button
+                  type="button"
+                  className="md:hidden rounded-lg p-2 text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                  onClick={() => setMobileShowThread(false)}
+                  aria-label="Back to conversations"
                 >
-                  <input
-                    ref={headerRenameRef}
-                    value={headerRenameValue}
-                    onChange={(e) => setHeaderRenameValue(e.target.value)}
-                    onBlur={() => void commitHeaderRename()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
+                  ←
+                </button>
+                <div
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                    selected.kind === "general"
+                      ? "bg-neon-purple/15 text-neon-purple border-neon-purple/30"
+                      : "bg-surface-hover text-text-secondary border-border-glass",
+                  )}
+                  aria-hidden
+                >
+                  {selected.kind === "general" ? (
+                    <Hash className="h-4 w-4" />
+                  ) : (
+                    selectedMeta?.avatarLabel ?? "#"
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  {headerRenaming && selected.kind === "channel" ? (
+                    <form
+                      onSubmit={(e) => {
                         e.preventDefault();
-                        setHeaderRenaming(false);
-                      }
-                    }}
-                    maxLength={80}
-                    className="input w-full max-w-md rounded-lg border border-neon-purple/50 bg-bg px-2.5 py-1.5 text-sm font-semibold ring-2 ring-neon-purple/20"
-                    aria-label="Conversation name"
-                  />
-                  <p className="mt-0.5 text-[10px] text-text-muted">
-                    Enter to save · Esc to cancel
-                  </p>
-                </form>
-              ) : (
-                <>
-                  <div className="font-semibold text-sm text-text-primary flex items-center gap-1.5 min-w-0">
-                    <button
-                      type="button"
-                      onClick={
-                        selected.kind === "channel" ? startHeaderRename : undefined
-                      }
-                      onDoubleClick={
-                        selected.kind === "channel" ? startHeaderRename : undefined
-                      }
-                      className={cn(
-                        "truncate text-left rounded-md px-0.5 -mx-0.5",
-                        selected.kind === "channel" &&
-                          "hover:bg-surface-hover cursor-text",
-                      )}
-                      title={
-                        selected.kind === "channel"
-                          ? "Click to rename"
-                          : undefined
-                      }
+                        void commitHeaderRename();
+                      }}
+                      className="min-w-0"
                     >
-                      {headerTitle}
-                    </button>
-                    {selected.kind === "channel" ? (
-                      <button
-                        type="button"
-                        onClick={startHeaderRename}
-                        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:text-neon-purple hover:bg-neon-purple/10 transition"
-                        title="Rename conversation"
-                        aria-label="Rename conversation"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                    {selectedMeta?.archived ? (
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted border border-border-glass rounded-full px-1.5 py-0.5">
-                        Archived
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="text-[11px] text-text-muted truncate">
-                    {headerSubtitle}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+                      <input
+                        ref={headerRenameRef}
+                        value={headerRenameValue}
+                        onChange={(e) => setHeaderRenameValue(e.target.value)}
+                        onBlur={() => void commitHeaderRename()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setHeaderRenaming(false);
+                          }
+                        }}
+                        maxLength={80}
+                        className="input w-full max-w-md rounded-lg border border-neon-purple/50 bg-bg px-2.5 py-1.5 text-sm font-semibold ring-2 ring-neon-purple/20"
+                        aria-label="Conversation name"
+                      />
+                      <p className="mt-0.5 text-[10px] text-text-muted">
+                        Enter to save · Esc to cancel
+                      </p>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="font-semibold text-sm text-text-primary flex items-center gap-1.5 min-w-0">
+                        <button
+                          type="button"
+                          onClick={
+                            selected.kind === "channel" ? startHeaderRename : undefined
+                          }
+                          onDoubleClick={
+                            selected.kind === "channel" ? startHeaderRename : undefined
+                          }
+                          className={cn(
+                            "truncate text-left rounded-md px-0.5 -mx-0.5",
+                            selected.kind === "channel" &&
+                              "hover:bg-surface-hover cursor-text",
+                          )}
+                          title={
+                            selected.kind === "channel"
+                              ? "Click to rename"
+                              : undefined
+                          }
+                        >
+                          {headerTitle}
+                        </button>
+                        {selected.kind === "channel" ? (
+                          <button
+                            type="button"
+                            onClick={startHeaderRename}
+                            className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:text-neon-purple hover:bg-neon-purple/10 transition"
+                            title="Rename conversation"
+                            aria-label="Rename conversation"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                        {selectedMeta?.archived ? (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted border border-border-glass rounded-full px-1.5 py-0.5">
+                            Archived
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-[11px] text-text-muted truncate">
+                        {headerSubtitle}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
 
-          <div className="flex-1 min-h-0 px-3 md:px-5 py-3 flex flex-col">
-            <WorkspaceChatPanel
-              key={conversationKey(selected)}
-              workspaceId={workspaceId}
-              workspaceName={workspaceName}
-              userId={userId}
-              members={members}
-              chat={chat}
-              showHeader={false}
-              className="flex-1 min-h-0"
-            />
-          </div>
+              <div className="flex-1 min-h-0 px-3 md:px-5 py-3 flex flex-col">
+                <WorkspaceChatPanel
+                  key={conversationKey(selected)}
+                  workspaceId={workspaceId}
+                  workspaceName={workspaceName}
+                  userId={userId}
+                  members={members}
+                  chat={chat}
+                  showHeader={false}
+                  className="flex-1 min-h-0"
+                />
+              </div>
+            </>
+          )}
         </section>
-
-        {!selected && (
-          <div className="hidden md:flex flex-1 items-center justify-center text-text-muted text-sm gap-2">
-            <MessageCircle className="h-5 w-5" />
-            Select a conversation
-          </div>
-        )}
       </div>
 
       <ConfirmationModal
@@ -595,10 +651,22 @@ export function ChatView({
         onOpenChange={(open) => {
           if (!open && !isDeleting) setPendingDelete(null);
         }}
-        title="Delete conversation?"
+        title={
+          pendingDelete?.id.kind === "general"
+            ? "Delete General?"
+            : "Delete conversation?"
+        }
         highlight={pendingDelete?.title}
-        description="This permanently deletes the channel and all of its messages for everyone in the workspace. This cannot be undone."
-        confirmText="Delete conversation"
+        description={
+          pendingDelete?.id.kind === "general"
+            ? "This permanently deletes every message in the legacy General channel for everyone in the workspace. General will not reappear unless old messages remain. Prefer named channels (New) going forward. This cannot be undone."
+            : "This permanently deletes the channel and all of its messages for everyone in the workspace. This cannot be undone."
+        }
+        confirmText={
+          pendingDelete?.id.kind === "general"
+            ? "Delete General"
+            : "Delete conversation"
+        }
         variant="destructive"
         isLoading={isDeleting}
         onConfirm={() => void confirmDelete()}
