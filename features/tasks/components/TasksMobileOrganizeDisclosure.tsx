@@ -5,6 +5,11 @@ import { SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
 import type { TasksFolderFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
+import {
+  folderFilterSummary,
+  isFolderFilterActive,
+  normalizeFolderFilter,
+} from "@/features/tasks/lib/folderFilter";
 import { TasksOrganizeBar } from "./TasksOrganizeBar";
 import { TasksStatusFilter, type TasksStatusFilterMode } from "./TasksStatusFilter";
 import {
@@ -60,7 +65,7 @@ export function TasksMobileOrganizeDisclosure({
     if (statusFilter !== "incomplete") n += 1;
     if (recurrenceFilter !== "all") n += 1;
     if (starredFilter === "only") n += 1;
-    if (folderFilter !== "all") n += 1;
+    if (isFolderFilterActive(folderFilter)) n += 1;
     return n;
   }, [statusFilter, recurrenceFilter, starredFilter, folderFilter]);
 
@@ -69,10 +74,8 @@ export function TasksMobileOrganizeDisclosure({
     const recurrence = recurrenceShortLabel(recurrenceFilter);
     if (recurrence) parts.push(recurrence);
     if (starredFilter === "only") parts.push("Important");
-    if (folderFilter === "none") parts.push("Unfiled");
-    else if (folderFilter !== "all") {
-      const folder = folders.find((f) => f.id === folderFilter);
-      if (folder) parts.push(folder.name);
+    if (isFolderFilterActive(folderFilter)) {
+      parts.push(folderFilterSummary(normalizeFolderFilter(folderFilter), folders));
     }
     return parts.join(" · ");
   }, [statusFilter, recurrenceFilter, starredFilter, folderFilter, folders]);

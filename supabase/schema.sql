@@ -161,11 +161,15 @@ CREATE TABLE workspace_messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- NULL = team channel; set for 1:1 DM with that peer in the same workspace
+  recipient_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   body TEXT NOT NULL CHECK (char_length(trim(body)) > 0 AND char_length(body) <= 4000),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_workspace_messages_ws_created ON workspace_messages(workspace_id, created_at DESC);
+CREATE INDEX idx_workspace_messages_team ON workspace_messages (workspace_id, created_at DESC) WHERE recipient_user_id IS NULL;
+CREATE INDEX idx_workspace_messages_dm ON workspace_messages (workspace_id, recipient_user_id, created_at DESC) WHERE recipient_user_id IS NOT NULL;
 
 -- PostgREST embed: workspace_messages.user_id → profiles.id (same UUID as auth.users)
 ALTER TABLE workspace_messages
@@ -339,10 +343,15 @@ CREATE POLICY "Workspace members can access comments" ON comments
     ))
   );
 
--- Workspace team chat: members can read and post
+-- Workspace team chat + DMs: members can read team channel; DMs only for participants
 CREATE POLICY "Workspace members can view messages" ON workspace_messages
   FOR SELECT USING (
     is_workspace_member(workspace_id, auth.uid())
+    AND (
+      recipient_user_id IS NULL
+      OR user_id = auth.uid()
+      OR recipient_user_id = auth.uid()
+    )
   );
 
 CREATE POLICY "Workspace members can send messages" ON workspace_messages
@@ -350,6 +359,13 @@ CREATE POLICY "Workspace members can send messages" ON workspace_messages
     auth.uid() IS NOT NULL
     AND user_id = auth.uid()
     AND is_workspace_member(workspace_id, auth.uid())
+    AND (
+      recipient_user_id IS NULL
+      OR (
+        recipient_user_id IS DISTINCT FROM auth.uid()
+        AND is_workspace_member(workspace_id, recipient_user_id)
+      )
+    )
   );
 
 CREATE POLICY "Workspace members can view reactions" ON workspace_message_reactions

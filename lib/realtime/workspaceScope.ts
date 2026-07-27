@@ -1,8 +1,14 @@
-import type { Note, Task } from "@/types";
+import type { Meeting, MeetingAgendaItem, Note, Task } from "@/types";
 
 type WorkspaceSlice = {
   tasks: Task[];
   notes: Note[];
+  currentWorkspace: { id: string };
+};
+
+type MeetingWorkspaceSlice = {
+  meetings: Meeting[];
+  meetingAgendaItems: MeetingAgendaItem[];
   currentWorkspace: { id: string };
 };
 
@@ -20,4 +26,26 @@ export function commentBelongsToWorkspace(
     return state.notes.some((n) => n.id === row.note_id && n.workspaceId === wsId);
   }
   return false;
+}
+
+/** Agenda items have meeting_id only — scope via parent meeting in the active workspace. */
+export function agendaItemBelongsToWorkspace(
+  state: MeetingWorkspaceSlice,
+  row: { meeting_id?: string | null } | null | undefined,
+): boolean {
+  if (!row?.meeting_id) return false;
+  const wsId = state.currentWorkspace.id;
+  return state.meetings.some((m) => m.id === row.meeting_id && m.workspaceId === wsId);
+}
+
+/** Agenda entries have agenda_item_id only — scope via known agenda item + meeting. */
+export function agendaEntryBelongsToWorkspace(
+  state: MeetingWorkspaceSlice,
+  row: { agenda_item_id?: string | null } | null | undefined,
+): boolean {
+  if (!row?.agenda_item_id) return false;
+  const wsId = state.currentWorkspace.id;
+  const item = state.meetingAgendaItems.find((i) => i.id === row.agenda_item_id);
+  if (!item) return false;
+  return state.meetings.some((m) => m.id === item.meetingId && m.workspaceId === wsId);
 }

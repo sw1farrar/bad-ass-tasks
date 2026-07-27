@@ -303,13 +303,18 @@ export function MeetingWorkspace({
           continuedCount={continuedCount}
           openCount={openCount}
           isLoading={isStartingNext}
+          previousMeeting={
+            nextSourceMeetingId
+              ? meetings.find((m) => m.id === nextSourceMeetingId) ?? meeting
+              : meeting
+          }
           onConfirm={async (options) => {
             const sourceId = nextSourceMeetingId ?? meeting.id;
             setIsStartingNext(true);
             try {
               const next = await onStartNextMeeting(sourceId, options);
               if (next) {
-                toast.success("Next meeting created");
+                toast.success("Next meeting created — previous meeting archived");
                 setNextOpen(false);
                 setNextSourceMeetingId(null);
               } else {

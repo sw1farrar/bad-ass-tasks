@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { format, isValid, parseISO } from "date-fns";
+import { isValid, parseISO } from "date-fns";
 import {
   CheckCircle2,
   ClipboardList,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Meeting, MeetingAgendaItem } from "@/types";
 import { collectKnownAttendeeNames } from "@/lib/meetings/attendees";
+import { localDateInputValue, parseLocalDateInput } from "@/lib/meetings/meetingDates";
 import {
   canCompleteMeeting,
   canReopenMeeting,
@@ -43,11 +44,13 @@ export function MeetingHeader({
 }: MeetingHeaderProps) {
   const [title, setTitle] = useState(meeting.title);
   const [description, setDescription] = useState(meeting.description ?? "");
+  const [dateLocal, setDateLocal] = useState(() => scheduledAtToLocalInput(meeting.scheduledAt));
 
   useEffect(() => {
     setTitle(meeting.title);
     setDescription(meeting.description ?? "");
-  }, [meeting.id, meeting.title, meeting.description]);
+    setDateLocal(scheduledAtToLocalInput(meeting.scheduledAt));
+  }, [meeting.id, meeting.title, meeting.description, meeting.scheduledAt]);
 
   const attendeeSuggestions = useMemo(
     () => collectKnownAttendeeNames(meetings),
@@ -59,6 +62,29 @@ export function MeetingHeader({
     const prev = (meeting.description ?? "").trim();
     if (next === prev) return;
     onUpdateMeeting(meeting.id, { description: next || null });
+  };
+
+  const saveDate = (nextLocal: string) => {
+    const prevLocal = scheduledAtToLocalInput(meeting.scheduledAt);
+    if (nextLocal === prevLocal) return;
+
+    if (!nextLocal) {
+      onUpdateMeeting(meeting.id, {
+        scheduledAt: null,
+        ...(meeting.status === "scheduled" ? { status: "draft" as const } : {}),
+      });
+      return;
+    }
+
+    const iso = parseLocalDateInput(nextLocal);
+    if (!iso) {
+      setDateLocal(prevLocal);
+      return;
+    }
+    onUpdateMeeting(meeting.id, {
+      scheduledAt: iso,
+      ...(meeting.status === "draft" ? { status: "scheduled" as const } : {}),
+    });
   };
 
   return (
@@ -83,12 +109,34 @@ export function MeetingHeader({
                 Completed
               </span>
             )}
-            {(() => {
-              if (!meeting.scheduledAt) return <span>No date</span>;
-              const parsed = parseISO(meeting.scheduledAt);
-              if (!isValid(parsed)) return <span>No date</span>;
-              return <span>{format(parsed, "MMM d, yyyy")}</span>;
-            })()}
+            {meeting.status === "completed" ? (
+              <span>{dateLocal ? localDateLabel(dateLocal) : "No date"}</span>
+            ) : (
+              <div className="inline-flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={dateLocal}
+                  onChange={(e) => setDateLocal(e.target.value)}
+                  onBlur={() => saveDate(dateLocal)}
+                  className="rounded-md border border-border-glass bg-bg-secondary px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-neon-purple/40 min-h-[28px]"
+                  aria-label="Meeting date"
+                />
+                {dateLocal ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDateLocal("");
+                      saveDate("");
+                    }}
+                    className="text-[11px] font-medium text-text-faint hover:text-text-secondary"
+                  >
+                    Clear
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-text-faint">No date</span>
+                )}
+              </div>
+            )}
           </div>
           <input
             value={description}
@@ -170,4 +218,23 @@ export function MeetingHeader({
       </div>
     </header>
   );
+}
+
+function scheduledAtToLocalInput(scheduledAt: string | null | undefined): string {
+  if (!scheduledAt) return "";
+  const parsed = parseISO(scheduledAt);
+  if (!isValid(parsed)) return "";
+  return localDateInputValue(parsed);
+}
+
+function localDateLabel(value: string): string {
+  const iso = parseLocalDateInput(value);
+  if (!iso) return "No date";
+  const parsed = parseISO(iso);
+  if (!isValid(parsed)) return "No date";
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }

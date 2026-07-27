@@ -79,6 +79,7 @@ export interface MeetingsViewProps {
       includeContinued: boolean;
       includeOpen: boolean;
       scheduledAt: string | null;
+      title?: string | null;
     },
   ) => Promise<{ meeting: Meeting; agendaItems: MeetingAgendaItem[] } | undefined>;
   onDuplicateMeeting: (
@@ -263,19 +264,28 @@ export function MeetingsView({
         includeContinued: boolean;
         includeOpen: boolean;
         scheduledAt: string | null;
+        title?: string | null;
       },
     ) => {
       const result = await onStartNextMeeting(id, options);
       if (result) {
         writeForcedNextMeetingId(workspaceId, null);
         setForcedNextMeetingId((current) => (current === id ? null : current));
+        // Open the new meeting board without auto-opening a topic modal
         onSelectMeeting(result.meeting.id);
-        const firstItem = [...result.agendaItems].sort((a, b) => a.sortOrder - b.sortOrder)[0];
-        if (firstItem) onSelectAgendaItem(firstItem.id);
+        onSelectAgendaItem(null);
       }
       return result;
     },
     [onStartNextMeeting, onSelectMeeting, onSelectAgendaItem, workspaceId],
+  );
+
+  const forcedNextPreviousMeeting = useMemo(
+    () =>
+      forcedNextMeetingId
+        ? [...meetings, ...archivedMeetings].find((m) => m.id === forcedNextMeetingId) ?? null
+        : null,
+    [forcedNextMeetingId, meetings, archivedMeetings],
   );
 
   const handleAddMeeting = useCallback(async (input: {
@@ -548,13 +558,14 @@ export function MeetingsView({
         openCount={forcedNextOpenCount}
         isLoading={isStartingForcedNext}
         required
+        previousMeeting={forcedNextPreviousMeeting}
         onConfirm={async (options) => {
           if (!forcedNextMeetingId) return;
           setIsStartingForcedNext(true);
           try {
             const next = await handleStartNextMeeting(forcedNextMeetingId, options);
             if (!next) throw new Error("Next meeting was not created");
-            toast.success("Next meeting created");
+            toast.success("Next meeting created — previous meeting archived");
           } catch {
             toast.error("Could not create next meeting");
             throw new Error("Could not create next meeting");

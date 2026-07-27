@@ -43,6 +43,18 @@ export function idempotencyMetadataMatch(
     };
   }
 
+  if (
+    type === "activity" &&
+    metadata.event === "task_completed" &&
+    metadata.task_id
+  ) {
+    return {
+      event: "task_completed",
+      task_id: metadata.task_id,
+      ...(metadata.completed_at ? { completed_at: metadata.completed_at } : {}),
+    };
+  }
+
   if ((type === "activity" || type === "inbound_file") && metadata.note_id) {
     return { note_id: metadata.note_id };
   }

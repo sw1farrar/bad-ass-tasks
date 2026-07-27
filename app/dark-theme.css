@@ -185,16 +185,16 @@
   color: var(--text-muted) !important;
 }
 
-[data-theme="dark"] .notifications-panel .notifications-panel__list > div {
+[data-theme="dark"] .notifications-panel .notifications-panel__item {
   border-color: var(--border) !important;
 }
 
-[data-theme="dark"] .notifications-panel .notifications-panel__list > div:hover {
+[data-theme="dark"] .notifications-panel .notifications-panel__item:hover {
   background: var(--bg-tertiary) !important;
 }
 
-[data-theme="dark"] .notifications-panel .notifications-panel__list > div.bg-neon-purple\/10 {
-  background: rgba(124, 58, 237, 0.14) !important;
+[data-theme="dark"] .notifications-panel .notifications-panel__item.border-neon-purple\/35 {
+  background: rgba(124, 58, 237, 0.12) !important;
   border-color: rgba(167, 139, 250, 0.32) !important;
 }
 

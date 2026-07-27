@@ -1,13 +1,19 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
-import type { CarryOverOptions } from "@/lib/meetings/carryOver";
+import {
+  buildNextMeetingTitle,
+  type CarryOverOptions,
+} from "@/lib/meetings/carryOver";
 import { localDateInputValue, parseLocalDateInput } from "@/lib/meetings/meetingDates";
+import type { Meeting } from "@/types";
 
 export type StartNextMeetingOptions = CarryOverOptions & {
   /** ISO scheduled time, or null for undated (top of Upcoming queue). */
   scheduledAt: string | null;
+  /** Final title for the new meeting (user may edit the suggestion). */
+  title: string;
 };
 
 interface StartNextMeetingModalProps {
@@ -18,6 +24,8 @@ interface StartNextMeetingModalProps {
   isLoading?: boolean;
   /** Required after complete when carry-over items exist — cannot dismiss. */
   required?: boolean;
+  /** Source meeting used to suggest the next title. */
+  previousMeeting?: Meeting | null;
   onConfirm: (options: StartNextMeetingOptions) => void | Promise<void>;
 }
 
@@ -28,23 +36,48 @@ export function StartNextMeetingModal({
   openCount,
   isLoading,
   required = false,
+  previousMeeting = null,
   onConfirm,
 }: StartNextMeetingModalProps) {
   const [includeContinued, setIncludeContinued] = useState(true);
   const [includeOpen, setIncludeOpen] = useState(true);
-  const [dateLocal, setDateLocal] = useState(localDateInputValue);
-  const [noDate, setNoDate] = useState(false);
+  const [dateLocal, setDateLocal] = useState("");
+  // Undated by default — only set a date when the user explicitly picks one.
+  const [noDate, setNoDate] = useState(true);
   const [dateError, setDateError] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
+
+  const scheduledPreview = useMemo((): string | null => {
+    if (noDate) return null;
+    return parseLocalDateInput(dateLocal);
+  }, [noDate, dateLocal]);
+
+  const suggestedTitle = useMemo(() => {
+    if (!previousMeeting) return "Next meeting";
+    return buildNextMeetingTitle(previousMeeting, scheduledPreview);
+  }, [previousMeeting, scheduledPreview]);
 
   useEffect(() => {
-    if (open) {
-      setIncludeContinued(true);
-      setIncludeOpen(true);
-      setDateLocal(localDateInputValue());
-      setNoDate(false);
-      setDateError(null);
-    }
-  }, [open]);
+    if (!open) return;
+    setIncludeContinued(true);
+    setIncludeOpen(true);
+    setDateLocal("");
+    setNoDate(true);
+    setDateError(null);
+    setTitleError(null);
+    setTitleTouched(false);
+    setTitle(
+      previousMeeting ? buildNextMeetingTitle(previousMeeting, null) : "Next meeting",
+    );
+  }, [open, previousMeeting]);
+
+  // Keep suggested title in sync with date until the user edits the name.
+  useEffect(() => {
+    if (!open || titleTouched) return;
+    setTitle(suggestedTitle);
+  }, [open, suggestedTitle, titleTouched]);
 
   const carryTotal = continuedCount + openCount;
   const selectionEmpty =
@@ -59,8 +92,8 @@ export function StartNextMeetingModal({
       title={required ? "Create next meeting" : "Start next meeting?"}
       description={
         required
-          ? "This meeting has items to carry forward. Create the next meeting to bring over topics and their notes history."
-          : "A new meeting will be created with unresolved topics from this meeting."
+          ? "This meeting has items to carry forward. Create the next meeting to bring over topics and their notes history. The completed meeting will be archived."
+          : "A new meeting will be created with unresolved topics from this meeting. The completed meeting will be archived."
       }
       preventDismiss={required}
       details={
@@ -101,13 +134,34 @@ export function StartNextMeetingModal({
             </p>
           )}
           <div className="space-y-2 pt-1 border-t border-border-glass">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-text-secondary">Meeting name</span>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setTitleTouched(true);
+                  setTitleError(null);
+                }}
+                placeholder={suggestedTitle}
+                maxLength={200}
+                className="w-full rounded-xl border border-border-glass bg-bg-secondary px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon-purple/40 min-h-[44px]"
+                autoFocus
+              />
+              {titleError && <p className="text-xs text-[var(--priority-p0)]">{titleError}</p>}
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={noDate}
                 onChange={(e) => {
-                  setNoDate(e.target.checked);
+                  const next = e.target.checked;
+                  setNoDate(next);
                   setDateError(null);
+                  if (!next && !dateLocal) {
+                    setDateLocal(localDateInputValue());
+                  }
                 }}
                 className="rounded border-border-glass"
               />
@@ -137,6 +191,11 @@ export function StartNextMeetingModal({
         if (selectionEmpty) {
           throw new Error("No topics selected to carry forward");
         }
+        const trimmedTitle = title.trim();
+        if (!trimmedTitle) {
+          setTitleError("Enter a name for the next meeting.");
+          throw new Error("Missing meeting title");
+        }
         let scheduledAt: string | null = null;
         if (!noDate) {
           const iso = parseLocalDateInput(dateLocal);
@@ -150,6 +209,7 @@ export function StartNextMeetingModal({
           includeContinued: required ? true : includeContinued,
           includeOpen: required ? true : includeOpen,
           scheduledAt,
+          title: trimmedTitle,
         });
       }}
     />

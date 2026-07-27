@@ -28,7 +28,14 @@ describe("chatReadState", () => {
 
     expect(hasUnreadChatActivity("me", "ws-1", messages, [])).toBe(true);
     expect(hasUnreadChatActivity("me", "ws-1", [], reactions)).toBe(true);
-    expect(hasUnreadChatActivity("me", "ws-1", [{ userId: "me", createdAt: "2026-06-05T13:00:00.000Z" }], [])).toBe(false);
+    expect(
+      hasUnreadChatActivity(
+        "me",
+        "ws-1",
+        [{ userId: "me", createdAt: "2026-06-05T13:00:00.000Z" }],
+        [],
+      ),
+    ).toBe(false);
   });
 
   it("watermark covers all loaded activity so viewed messages stay read", () => {
@@ -38,7 +45,8 @@ describe("chatReadState", () => {
     ];
     const reactions = [{ createdAt: "2026-06-06T10:00:02.000Z" }];
     const watermark = computeChatReadWatermark(messages, reactions);
-    setChatLastReadAt("me", "ws-1", watermark);
+    expect(watermark).toBeTruthy();
+    setChatLastReadAt("me", "ws-1", watermark!);
 
     expect(
       hasUnreadChatActivity(
@@ -48,5 +56,26 @@ describe("chatReadState", () => {
         [{ userId: "other", createdAt: "2026-06-06T10:00:02.000Z" }],
       ),
     ).toBe(false);
+  });
+
+  it("does not invent a watermark for empty activity", () => {
+    expect(computeChatReadWatermark([], [])).toBeNull();
+  });
+
+  it("tracks channel watermarks separately from general", () => {
+    setChatLastReadAt("me", "ws-1", "2026-06-05T12:00:00.000Z", { kind: "general" });
+    setChatLastReadAt("me", "ws-1", "2026-06-05T15:00:00.000Z", {
+      kind: "channel",
+      conversationId: "11111111-1111-1111-1111-111111111111",
+    });
+    expect(getChatLastReadAt("me", "ws-1", { kind: "general" })).toBe(
+      "2026-06-05T12:00:00.000Z",
+    );
+    expect(
+      getChatLastReadAt("me", "ws-1", {
+        kind: "channel",
+        conversationId: "11111111-1111-1111-1111-111111111111",
+      }),
+    ).toBe("2026-06-05T15:00:00.000Z");
   });
 });

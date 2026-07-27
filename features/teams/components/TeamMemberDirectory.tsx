@@ -5,12 +5,15 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRoleLabel } from "@/lib/roles";
 import { getMemberDisplayName } from "@/lib/assignee";
-import type { Task, WorkspaceMember } from "@/types";
+import type { ActivityLog, Task, WorkspaceMember } from "@/types";
 import { computeMemberOpenTaskCounts } from "../lib/computeTeamStats";
 import {
+  buildActivityLastSeenMap,
+  buildTaskActivityLastSeenMap,
   formatMemberJoined,
   formatMemberLastActive,
   getMemberInitials,
+  resolveMemberLastActiveAt,
 } from "../lib/formatMemberPresence";
 
 interface TeamMemberDirectoryProps {
@@ -19,6 +22,8 @@ interface TeamMemberDirectoryProps {
   onlineUserIds: Set<string>;
   currentUserId?: string;
   isLoading?: boolean;
+  /** Workspace activity used to infer last-seen when profile last_active_at is stale */
+  recentActivity?: ActivityLog[];
   renderMemberActions?: (member: WorkspaceMember, isSelf: boolean) => React.ReactNode;
 }
 
@@ -28,11 +33,22 @@ export function TeamMemberDirectory({
   onlineUserIds,
   currentUserId,
   isLoading = false,
+  recentActivity = [],
   renderMemberActions,
 }: TeamMemberDirectoryProps) {
   const taskCounts = useMemo(
     () => computeMemberOpenTaskCounts(tasks, members),
     [tasks, members]
+  );
+
+  const activityLastSeen = useMemo(
+    () => buildActivityLastSeenMap(recentActivity),
+    [recentActivity],
+  );
+
+  const taskLastSeen = useMemo(
+    () => buildTaskActivityLastSeenMap(tasks, members),
+    [tasks, members],
   );
 
   const sortedMembers = useMemo(() => {
@@ -58,9 +74,16 @@ export function TeamMemberDirectory({
         <div className="min-w-0">
           <div className="font-medium text-sm md:text-base">Team directory</div>
           <div className="text-[10px] text-text-muted mt-0.5">
-            {members.length} member{members.length === 1 ? "" : "s"}
+            <span>
+              {members.length} member{members.length === 1 ? "" : "s"}
+            </span>
             {onlineCount > 0 && (
-              <span className="text-neon-green ml-1.5">{onlineCount} online</span>
+              <>
+                <span aria-hidden className="mx-1.5 text-text-faint">
+                  ·
+                </span>
+                <span className="text-neon-green">{onlineCount} online</span>
+              </>
             )}
           </div>
         </div>
@@ -76,9 +99,17 @@ export function TeamMemberDirectory({
             const isOnline = onlineUserIds.has(member.userId);
             const displayName = getMemberDisplayName(member, currentUserId);
             const openTasks = taskCounts.get(member.userId) ?? 0;
-            const lastActive = formatMemberLastActive(member.lastActiveAt);
+            const resolvedLastActiveAt = resolveMemberLastActiveAt(
+              member,
+              activityLastSeen,
+              taskLastSeen,
+            );
+            const lastActive = formatMemberLastActive(resolvedLastActiveAt);
             const joined = formatMemberJoined(member.joinedAt);
-            const presenceLabel = isOnline ? "Online now" : lastActive;
+            // Online presence wins; never show stale "Active …" while green/online
+            const presenceLabel = isOnline
+              ? "Online now"
+              : lastActive ?? (isSelf ? "Online now" : null);
 
             return (
               <div
@@ -99,7 +130,11 @@ export function TeamMemberDirectory({
                       </div>
                     )}
                     {isOnline && (
-                      <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-neon-green border-2 border-bg" />
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-neon-green border-2 border-bg"
+                        title="Online"
+                        aria-label="Online"
+                      />
                     )}
                   </div>
 

@@ -56,10 +56,29 @@ describe("fanoutListItemCompletedNotifications", () => {
     vi.clearAllMocks();
   });
 
-  it("skips when the list has no active shares", async () => {
+  it("notifies workspace teammates even when the list is not cross-shared", async () => {
     const { client, notificationInserts } = createMockSupabase({
       shares: [],
-      membersByWorkspace: {},
+      membersByWorkspace: {
+        "ws-source": [
+          {
+            user_id: "user-a",
+            profiles: {
+              full_name: "Alex Actor",
+              email: "alex@example.com",
+              notification_prefs: { types: { activity: { inApp: true, email: false } } },
+            },
+          },
+          {
+            user_id: "user-b",
+            profiles: {
+              full_name: "Blake",
+              email: "blake@example.com",
+              notification_prefs: { types: { activity: { inApp: true, email: false } } },
+            },
+          },
+        ],
+      },
     });
 
     await fanoutListItemCompletedNotifications({
@@ -72,7 +91,15 @@ describe("fanoutListItemCompletedNotifications", () => {
       actorUserId: "user-a",
     });
 
-    expect(notificationInserts).toHaveLength(0);
+    expect(notificationInserts).toHaveLength(1);
+    const payload = notificationInserts[0] as {
+      user_id: string;
+      type: string;
+      metadata: Record<string, unknown>;
+    };
+    expect(payload.user_id).toBe("user-b");
+    expect(payload.type).toBe("activity");
+    expect(payload.metadata.event).toBe("list_item_completed");
   });
 
   it("notifies other shared-list collaborators and excludes the actor", async () => {

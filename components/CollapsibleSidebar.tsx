@@ -10,6 +10,7 @@ import {
   HeartPulse,
   Home,
   ListChecks,
+  MessageCircle,
   Notebook,
   PanelLeft,
   PanelLeftClose,
@@ -41,6 +42,7 @@ const VIEW_ICONS: Record<AppViewId, LucideIcon> = {
   notebooks: Notebook,
   meetings: Calendar,
   lists: ListChecks,
+  chat: MessageCircle,
   health: HeartPulse,
   teams: Users,
   settings: Settings,
@@ -89,6 +91,9 @@ interface CollapsibleSidebarProps {
   overdueTaskCount: number;
   reviewCount: number;
   isSiteAdmin: boolean;
+  /** Multi-member workspaces only */
+  showChat?: boolean;
+  chatUnread?: boolean;
 }
 
 export function CollapsibleSidebar({
@@ -99,6 +104,8 @@ export function CollapsibleSidebar({
   overdueTaskCount,
   reviewCount,
   isSiteAdmin,
+  showChat = false,
+  chatUnread = false,
 }: CollapsibleSidebarProps) {
   const [displayMode, setDisplayMode] = useState<SidebarDisplayMode>("expanded");
   const [hoverExpanded, setHoverExpanded] = useState(false);
@@ -226,7 +233,7 @@ export function CollapsibleSidebar({
         )}
 
         <div className={cn("space-y-0.5 px-1 flex-1 min-h-0", isCollapsed && "px-0")}>
-          {getSidebarWorkspaceViews(workspace).map((v) => {
+          {getSidebarWorkspaceViews(workspace, { showChat }).map((v) => {
             const Icon = VIEW_ICONS[v.id];
             const isActive = currentView === v.id;
             const label = v.shortLabel ?? v.label;
@@ -261,6 +268,13 @@ export function CollapsibleSidebar({
                       {v.id === "notes" && (
                         <FilesNavIndicator reviewCount={reviewCount} variant="sidebar" />
                       )}
+                      {v.id === "chat" && chatUnread && (
+                        <span
+                          className="h-2 w-2 rounded-full bg-neon-purple shrink-0"
+                          title="Unread messages"
+                          aria-label="Unread messages"
+                        />
+                      )}
                     </>
                   )}
                   {isCollapsed && v.id === "tasks" && openTaskCount > 0 && (
@@ -268,6 +282,9 @@ export function CollapsibleSidebar({
                   )}
                   {isCollapsed && v.id === "notes" && reviewCount > 0 && (
                     <span className="sidebar-item__dot sidebar-item__dot--review" aria-hidden />
+                  )}
+                  {isCollapsed && v.id === "chat" && chatUnread && (
+                    <span className="sidebar-item__dot sidebar-item__dot--chat" aria-hidden />
                   )}
                 </div>
               </SidebarTooltip>

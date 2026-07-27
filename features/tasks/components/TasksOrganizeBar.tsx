@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { Download, FolderPlus, Star } from "lucide-react";
+import { Download, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
 import type { TasksFolderFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
-import { TaskFoldersManageModal } from "./TaskFoldersManageModal";
 import { TasksExportModal } from "./TasksExportModal";
+import { TasksFolderFilterPicker } from "./TasksFolderFilterPicker";
 import { TasksStatusFilter, type TasksStatusFilterMode } from "./TasksStatusFilter";
 import {
   TasksRecurrenceFilter,
@@ -48,12 +48,11 @@ export function TasksOrganizeBar({
   onRecurrenceFilterChange,
   showRecurrenceFilter = false,
 }: TasksOrganizeBarProps) {
-  const [manageOpen, setManageOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
-  const folderChipClass = (active: boolean) =>
+  const chipClass = (active: boolean) =>
     cn(
-      "tasks-folder-chip inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition",
+      "tasks-folder-chip inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 py-0 text-[11px] font-semibold leading-none whitespace-nowrap transition",
       active
         ? "is-active border-neon-purple/50 bg-neon-purple/15 text-neon-purple"
         : "border-border-glass bg-surface-hover text-text-secondary hover:text-text-primary hover:border-neon-purple/30",
@@ -62,106 +61,71 @@ export function TasksOrganizeBar({
   return (
     <>
       <div className={cn("tasks-organize-bar w-full", className)}>
-        <div className="tasks-organize-bar__track flex w-full items-center gap-2">
-          <div className="tasks-organize-bar__chips flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 md:flex-wrap md:overflow-visible md:pb-0">
-          {showStatusFilter && statusFilter && onStatusFilterChange ? (
-            <TasksStatusFilter
-              value={statusFilter}
-              onChange={onStatusFilterChange}
-              className="tasks-organize-bar__status shrink-0"
-              trackClassName="tasks-organize-bar__status-track"
-            />
-          ) : null}
-          {showRecurrenceFilter && recurrenceFilter && onRecurrenceFilterChange ? (
-            <TasksRecurrenceFilter
-              value={recurrenceFilter}
-              onChange={onRecurrenceFilterChange}
-              className="tasks-organize-bar__recurrence shrink-0"
-            />
-          ) : null}
-          <button
-            type="button"
-            onClick={() =>
-              onStarredFilterChange(starredFilter === "only" ? "all" : "only")
-            }
-            aria-pressed={starredFilter === "only"}
-            className={cn(
-              folderChipClass(starredFilter === "only"),
-              starredFilter === "only" && "text-amber-300 border-amber-400/40 bg-amber-400/10",
-            )}
-          >
-            <Star
-              className={cn(
-                "h-3.5 w-3.5",
-                starredFilter === "only" && "fill-current text-amber-400",
-              )}
-              strokeWidth={starredFilter === "only" ? 0 : 2}
-            />
-            Important
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onFolderFilterChange("all")}
-            aria-pressed={folderFilter === "all"}
-            className={folderChipClass(folderFilter === "all")}
-          >
-            All folders
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onFolderFilterChange("none")}
-            aria-pressed={folderFilter === "none"}
-            className={folderChipClass(folderFilter === "none")}
-          >
-            Unfiled
-          </button>
-
-          {folders.map((folder) => (
+        <div className="tasks-organize-bar__track flex w-full items-center gap-1.5">
+          <div className="tasks-organize-bar__chips flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-visible pb-0.5 md:flex-nowrap md:overflow-visible md:pb-0">
+            {showStatusFilter && statusFilter && onStatusFilterChange ? (
+              <TasksStatusFilter
+                value={statusFilter}
+                onChange={onStatusFilterChange}
+                className="tasks-organize-bar__status shrink-0"
+                trackClassName="tasks-organize-bar__status-track"
+              />
+            ) : null}
+            {showRecurrenceFilter && recurrenceFilter && onRecurrenceFilterChange ? (
+              <TasksRecurrenceFilter
+                value={recurrenceFilter}
+                onChange={onRecurrenceFilterChange}
+                className="tasks-organize-bar__recurrence shrink-0"
+              />
+            ) : null}
             <button
-              key={folder.id}
               type="button"
-              onClick={() => onFolderFilterChange(folder.id)}
-              aria-pressed={folderFilter === folder.id}
-              className={folderChipClass(folderFilter === folder.id)}
+              onClick={() =>
+                onStarredFilterChange(starredFilter === "only" ? "all" : "only")
+              }
+              aria-pressed={starredFilter === "only"}
+              className={cn(
+                chipClass(starredFilter === "only"),
+                starredFilter === "only" &&
+                  "text-amber-300 border-amber-400/40 bg-amber-400/10",
+              )}
             >
-              {folder.name}
+              <Star
+                className={cn(
+                  "h-3 w-3",
+                  starredFilter === "only" && "fill-current text-amber-400",
+                )}
+                strokeWidth={starredFilter === "only" ? 0 : 2}
+              />
+              Important
             </button>
-          ))}
+
+            <TasksFolderFilterPicker
+              folders={folders}
+              value={folderFilter}
+              onChange={onFolderFilterChange}
+              onAddFolder={onAddFolder}
+              onRenameFolder={onRenameFolder}
+              onDeleteFolder={onDeleteFolder}
+              className="tasks-organize-bar__folder-filter"
+            />
           </div>
 
-          <div className="tasks-organize-bar__actions flex shrink-0 items-center gap-1.5">
+          <div className="tasks-organize-bar__actions flex shrink-0 items-center gap-1">
             <button
               type="button"
               onClick={() => setExportOpen(true)}
-              className="tasks-export-btn inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border-glass px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple hover:bg-neon-purple/8"
+              aria-label="Export"
+              title="Export"
+              className="tasks-export-btn inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-glass text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple hover:bg-neon-purple/8"
             >
-              <Download className="h-3.5 w-3.5" />
-              Export
-            </button>
-            <button
-              type="button"
-              onClick={() => setManageOpen(true)}
-              className="tasks-folder-manage-btn inline-flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border-glass px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-neon-purple/40 hover:text-neon-purple hover:bg-neon-purple/8"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-              Manage
+              <Download className="h-3 w-3" />
             </button>
           </div>
         </div>
       </div>
 
       <TasksExportModal open={exportOpen} onOpenChange={setExportOpen} />
-
-      <TaskFoldersManageModal
-        open={manageOpen}
-        onOpenChange={setManageOpen}
-        folders={folders}
-        onAddFolder={onAddFolder}
-        onRenameFolder={onRenameFolder}
-        onDeleteFolder={onDeleteFolder}
-      />
     </>
   );
 }

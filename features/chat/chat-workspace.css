@@ -1,4 +1,47 @@
 /* ══════════════════════════════════════════════════════════════
+   Full-page Chat view
+   ══════════════════════════════════════════════════════════════ */
+
+.chat-root.chat-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.main-content--chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@media (max-width: 767px) {
+  .main-content--chat {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 10px)) !important;
+  }
+
+  .chat-workspace {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
+.sidebar-item__dot--chat {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--neon-purple, #a78bfa);
+}
+
+/* ══════════════════════════════════════════════════════════════
    Messages panel — dark theme refinements
    ══════════════════════════════════════════════════════════════ */
 

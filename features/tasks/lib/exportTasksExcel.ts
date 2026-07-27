@@ -4,7 +4,12 @@ import { getRecurringLabel } from "@/lib/utils";
 import type { Task, TaskFolder, TaskCommentSummary } from "@/types";
 import type { TasksStatusFilterMode } from "@/features/tasks/components/TasksStatusFilter";
 import type { TasksRecurrenceFilterMode } from "@/features/tasks/components/TasksRecurrenceFilter";
-import type { TasksFolderFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
+import type { TasksStarredFilterMode } from "@/store/useTaskStore";
+import {
+  normalizeFolderFilter,
+  taskMatchesFolderFilter,
+  type TasksFolderFilterMode,
+} from "@/features/tasks/lib/folderFilter";
 
 export type TasksExportFilters = {
   statusMode: TasksStatusFilterMode;
@@ -57,10 +62,9 @@ export function filterTasksForExport(
     result = result.filter((t) => !!t.starred);
   }
 
-  if (filters.folderFilter === "none") {
-    result = result.filter((t) => !t.folderId);
-  } else if (filters.folderFilter !== "all") {
-    result = result.filter((t) => t.folderId === filters.folderFilter);
+  const folderSelection = normalizeFolderFilter(filters.folderFilter);
+  if (folderSelection.length > 0) {
+    result = result.filter((t) => taskMatchesFolderFilter(t, folderSelection));
   }
 
   return result.sort((a, b) => {

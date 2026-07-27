@@ -1066,14 +1066,21 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
     );
   }
 
-  .notifications-panel {
+  .notifications-panel-shell {
     position: fixed !important;
     left: 0 !important;
     right: 0 !important;
     top: var(--notifications-panel-top) !important;
     width: 100% !important;
     max-width: 100% !important;
+    max-height: min(78dvh, calc(100dvh - var(--notifications-panel-top) - 0.5rem)) !important;
     margin: 0 !important;
+    z-index: 260 !important;
+  }
+
+  .notifications-panel {
+    height: 100% !important;
+    max-height: inherit !important;
     border-radius: 0 0 1rem 1rem !important;
     border-left: none !important;
     border-right: none !important;
@@ -1082,6 +1089,8 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
     box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.75) !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   .notifications-panel .notifications-panel__header,
@@ -1090,7 +1099,11 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 
   .notifications-panel .notifications-panel__list {
-    max-height: min(58vh, calc(100dvh - var(--notifications-panel-top) - 7rem)) !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Floating elements adjust for bottom nav — unified clearance to eliminate FAB/AI collisions on phones */
@@ -1101,6 +1114,26 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
   .fab { right: 16px; }
   .ai-fab { right: 16px; } /* align both; was conflicting 6/16 + different bottoms */
+}
+
+/* Desktop notifications panel — larger, scrollable inbox */
+@media (min-width: 768px) {
+  .notifications-panel-shell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .notifications-panel {
+    min-height: 20rem;
+  }
+
+  .notifications-panel .notifications-panel__list {
+    flex: 1 1 auto;
+    min-height: 12rem;
+    max-height: none;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
 }
 
 /* Base styles for new mobile bottom navigation (md:hidden, fixed, native feel) */

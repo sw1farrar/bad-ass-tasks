@@ -337,6 +337,7 @@ export interface Database {
           id: string
           workspace_id: string
           user_id: string
+          recipient_user_id: string | null
           body: string
           created_at: string
         }
@@ -344,6 +345,7 @@ export interface Database {
           id?: string
           workspace_id: string
           user_id: string
+          recipient_user_id?: string | null
           body: string
           created_at?: string
         }
@@ -351,10 +353,43 @@ export interface Database {
           id?: string
           workspace_id?: string
           user_id?: string
+          recipient_user_id?: string | null
           body?: string
           created_at?: string
         }
       },
+      workspace_conversation_prefs: {
+        Row: {
+          id: string
+          workspace_id: string
+          user_id: string
+          conversation_key: string
+          title: string | null
+          archived_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          user_id: string
+          conversation_key: string
+          title?: string | null
+          archived_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          user_id?: string
+          conversation_key?: string
+          title?: string | null
+          archived_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
       workspace_message_reactions: {
         Row: {
           id: string

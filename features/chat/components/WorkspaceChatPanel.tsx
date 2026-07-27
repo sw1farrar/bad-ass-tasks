@@ -51,10 +51,12 @@ function WorkspaceChatPanelInner({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottom = useRef(true);
 
+  const lastMessageId = messages[messages.length - 1]?.id;
   useEffect(() => {
     if (!stickBottom.current || !scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages.length]);
+    // Scroll on new posts and optimistic→server id swaps (length may stay same)
+  }, [messages.length, lastMessageId]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -100,7 +102,7 @@ function WorkspaceChatPanelInner({
           </div>
         ) : messages.length === 0 ? (
           <p className="text-xs text-text-muted text-center py-8 px-2">
-            Say hello to your team.
+            No messages yet — say hello.
           </p>
         ) : (
           messages.map((msg) => {

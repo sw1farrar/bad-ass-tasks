@@ -124,12 +124,14 @@ describe("carryOver", () => {
   });
 
   it("builds next meeting title with date", () => {
-    const title = buildNextMeetingTitle(baseMeeting);
+    const title = buildNextMeetingTitle(baseMeeting, "2026-07-01T12:00:00.000Z");
     expect(title.startsWith("Weekly Sync —")).toBe(true);
+    expect(title).not.toBe("Weekly Sync — Next");
   });
 
   it("builds next meeting title without a date when undated", () => {
     expect(buildNextMeetingTitle(baseMeeting, null)).toBe("Weekly Sync — Next");
+    expect(buildNextMeetingTitle(baseMeeting)).toBe("Weekly Sync — Next");
   });
 
   it("excludes meetings that already had topics carried forward", () => {

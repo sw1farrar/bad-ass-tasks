@@ -39,6 +39,7 @@ import {
 import { fanoutNoteAddedNotifications } from "@/lib/notifications/fanoutNoteAdded";
 import { fanoutCommentNotifications } from "@/lib/notifications/fanoutCommentNotifications";
 import { fanoutTaskAssignedNotifications } from "@/lib/notifications/fanoutTaskAssigned";
+import { fanoutTaskCompletedById } from "@/lib/notifications/fanoutTaskCompleted";
 import { fanoutListItemCompletedById } from "@/lib/notifications/fanoutListItemCompleted";
 import { cleanupDuplicateNotifications } from "@/lib/notifications/cleanupDuplicateNotifications";
 import { notificationDedupeKey } from "@/lib/notifications/dedupeNotifications";
@@ -982,6 +983,9 @@ export function __resetRealtimeGuardForTests(): void {
   activeNotebookTaskChannel = null;
   activeSharedListChannel = null;
   activeListShareChannel = null;
+  activeMeetingChannel = null;
+  activeMeetingAgendaItemChannel = null;
+  activeMeetingAgendaEntryChannel = null;
 }
 
 export function __getCurrentRealtimeWorkspaceIdForTests(): string | null {
@@ -1791,6 +1795,21 @@ async function processPendingOperationsInner(): Promise<{
               throw new Error(`No tasks row updated for ${op.targetId}`);
             }
             synced++;
+            if (resolved.apply.status === "done" && op.workspaceId) {
+              const {
+                data: { user: actor },
+              } = await supabase.auth.getUser();
+              fanoutTaskCompletedById({
+                taskId: op.targetId,
+                workspaceId: op.workspaceId,
+                actorUserId: actor?.id ?? null,
+                completedAt:
+                  typeof resolved.apply.completed_at === "string"
+                    ? resolved.apply.completed_at
+                    : null,
+                supabase: supabase as any,
+              }).catch(() => {});
+            }
           }
         } else if (op.type === "delete") {
           // For delete, simple: always attempt (or could check ts too)
@@ -2615,6 +2634,23 @@ export async function updateTask(
           });
         })().catch(() => {});
       }
+    }
+
+    // Bell: notify teammates when a task is completed (exclude actor inside fanout)
+    if (payload.status === "done" && !["w1", "w2"].includes(workspaceId)) {
+      void (async () => {
+        const {
+          data: { user: actor },
+        } = await supabase.auth.getUser();
+        await fanoutTaskCompletedById({
+          taskId: id,
+          workspaceId,
+          actorUserId: updates.actorUserId ?? actor?.id ?? null,
+          completedAt: (payload.completed_at as string | null | undefined) ?? null,
+          taskTitle: updates.title ?? null,
+          supabase: supabase as any,
+        });
+      })().catch(() => {});
     }
 
     return "persisted";
@@ -3571,7 +3607,7 @@ export async function logActivity(params: {
 }
 
 /** Fetch recent activity logs for a workspace (basic, no joins for Phase 1 lightness) */
-export async function getRecentActivity(workspaceId: string, limit = 15): Promise<ActivityLog[]> {
+export async function getRecentActivity(workspaceId: string, limit = 50): Promise<ActivityLog[]> {
   if (!isSupabaseLive()) return []; // DEMO GUARD (STRENGTHENED)
 
   // Safety guard: never hit Supabase with invalid or demo workspace IDs
@@ -4539,6 +4575,55 @@ export async function getMyProfile(): Promise<MyProfile | null> {
   }
 }
 
+/** Throttle client-side last_active_at writes (5 minutes). */
+let lastActiveTouchAt = 0;
+const LAST_ACTIVE_TOUCH_MS = 5 * 60 * 1000;
+
+/**
+ * Bump profiles.last_active_at for the signed-in user so Team directory
+ * "Active …" reflects real app usage (not just account creation time).
+ * Throttled; safe no-op in demo / offline / missing column.
+ */
+export async function touchMyLastActiveAt(options?: {
+  force?: boolean;
+}): Promise<boolean> {
+  if (!isSupabaseLive()) return false;
+  const now = Date.now();
+  if (!options?.force && now - lastActiveTouchAt < LAST_ACTIVE_TOUCH_MS) {
+    return false;
+  }
+
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const uid = user?.id;
+    if (!uid) return false;
+
+    const iso = new Date().toISOString();
+    const { error } = await (supabase.from("profiles") as any)
+      .update({ last_active_at: iso })
+      .eq("id", uid);
+
+    if (error) {
+      // Column may be missing on very old DBs — ignore quietly
+      if (error.code !== "42703") {
+        logHybridError("touchMyLastActiveAt", error);
+      }
+      return false;
+    }
+
+    lastActiveTouchAt = now;
+    return true;
+  } catch (err) {
+    logHybridError("touchMyLastActiveAt", err);
+    return false;
+  }
+}
+
 /** Update the current user's own profile (full_name, username/handle, location).
  *  Fully guarded + resilient to missing columns during schema rollout (strips username/location on 42703 and retries).
  *  Uses direct UPDATE (RLS "Users can update own profile" enforces self-only).
@@ -5451,6 +5536,9 @@ let activeListItemChannel: any = null;
 let activeNotebookTaskChannel: any = null;
 let activeSharedListChannel: any = null;
 let activeListShareChannel: any = null;
+let activeMeetingChannel: any = null;
+let activeMeetingAgendaItemChannel: any = null;
+let activeMeetingAgendaEntryChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
 let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -5498,6 +5586,9 @@ export function subscribeToWorkspaceRealtime(
     onListItemChange?: (payload: any) => void;
     onNotebookTaskChange?: (payload: any) => void;
     onListShareChange?: (payload: any) => void;
+    onMeetingChange?: (payload: any) => void;
+    onMeetingAgendaItemChange?: (payload: any) => void;
+    onMeetingAgendaEntryChange?: (payload: any) => void;
   },
   options?: {
     /** Live-linked list ids visible in this workspace (from other workspaces). */
@@ -5535,7 +5626,8 @@ export function subscribeToWorkspaceRealtime(
     currentRealtimeWorkspaceId === wsId &&
     !sharedListsChanged &&
     (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel)
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel ||
+      activeMeetingChannel || activeMeetingAgendaItemChannel || activeMeetingAgendaEntryChannel)
   ) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
@@ -5548,7 +5640,8 @@ export function subscribeToWorkspaceRealtime(
   // Defensive: clear any stale channels from previous workspace BEFORE setting new guard value.
   // We clear currentRealtimeWorkspaceId here so that a subsequent subscribe for a *different* ws always proceeds.
   if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel) {
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel ||
+      activeMeetingChannel || activeMeetingAgendaItemChannel || activeMeetingAgendaEntryChannel) {
     if (activeTaskChannel) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
       activeTaskChannel = null;
@@ -5593,6 +5686,18 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeListShareChannel).catch(() => {});
       activeListShareChannel = null;
     }
+    if (activeMeetingChannel) {
+      supabase.removeChannel(activeMeetingChannel).catch(() => {});
+      activeMeetingChannel = null;
+    }
+    if (activeMeetingAgendaItemChannel) {
+      supabase.removeChannel(activeMeetingAgendaItemChannel).catch(() => {});
+      activeMeetingAgendaItemChannel = null;
+    }
+    if (activeMeetingAgendaEntryChannel) {
+      supabase.removeChannel(activeMeetingAgendaEntryChannel).catch(() => {});
+      activeMeetingAgendaEntryChannel = null;
+    }
     currentRealtimeWorkspaceId = null; // explicit clear in teardown path
     lastSubscribedSharedListKey = null;
   }
@@ -5612,6 +5717,9 @@ export function subscribeToWorkspaceRealtime(
     onListItemChange,
     onNotebookTaskChange,
     onListShareChange,
+    onMeetingChange,
+    onMeetingAgendaItemChange,
+    onMeetingAgendaEntryChange,
   } = handlers;
 
   if (onTaskChange) {
@@ -5843,6 +5951,59 @@ export function subscribeToWorkspaceRealtime(
       .subscribe(bindRealtimeStatus("workspace_list_shares", wsId));
   }
 
+  if (onMeetingChange) {
+    activeMeetingChannel = supabase
+      .channel(`ws-meetings-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "meetings",
+          filter: `workspace_id=eq.${wsId}`,
+        },
+        (payload: any) => {
+          onMeetingChange(payload);
+        },
+      )
+      .subscribe(bindRealtimeStatus("meetings", wsId));
+  }
+
+  // Agenda items/entries have no workspace_id — RLS scopes events; handlers filter via parent meeting.
+  if (onMeetingAgendaItemChange) {
+    activeMeetingAgendaItemChannel = supabase
+      .channel(`ws-meeting-agenda-items-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "meeting_agenda_items",
+        },
+        (payload: any) => {
+          onMeetingAgendaItemChange(payload);
+        },
+      )
+      .subscribe(bindRealtimeStatus("meeting_agenda_items", wsId));
+  }
+
+  if (onMeetingAgendaEntryChange) {
+    activeMeetingAgendaEntryChannel = supabase
+      .channel(`ws-meeting-agenda-entries-${wsId}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "meeting_agenda_entries",
+        },
+        (payload: any) => {
+          onMeetingAgendaEntryChange(payload);
+        },
+      )
+      .subscribe(bindRealtimeStatus("meeting_agenda_entries", wsId));
+  }
+
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
   activeRealtimeCleanup = () => {
     if (activeTaskChannel && supabase) {
@@ -5889,6 +6050,18 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeListShareChannel).catch(() => {});
       activeListShareChannel = null;
     }
+    if (activeMeetingChannel && supabase) {
+      supabase.removeChannel(activeMeetingChannel).catch(() => {});
+      activeMeetingChannel = null;
+    }
+    if (activeMeetingAgendaItemChannel && supabase) {
+      supabase.removeChannel(activeMeetingAgendaItemChannel).catch(() => {});
+      activeMeetingAgendaItemChannel = null;
+    }
+    if (activeMeetingAgendaEntryChannel && supabase) {
+      supabase.removeChannel(activeMeetingAgendaEntryChannel).catch(() => {});
+      activeMeetingAgendaEntryChannel = null;
+    }
     currentRealtimeWorkspaceId = null;
     lastSubscribedSharedListKey = null;
     activeRealtimeCleanup = null;
@@ -5896,13 +6069,18 @@ export function subscribeToWorkspaceRealtime(
   return activeRealtimeCleanup;
 }
 
-// Basic presence helper stub (full in store integration for Phase 2 presence indicators)
-export function getWorkspacePresenceChannel(workspaceId: string) {
+// Presence channel for a workspace. Key must be the local user id so each
+// teammate has a distinct presence entry (shared keys cause online list flicker).
+export function getWorkspacePresenceChannel(
+  workspaceId: string,
+  userId?: string | null,
+) {
   if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return null;
   const supabase = getClient();
   if (!supabase) return null;
+  const presenceKey = userId?.trim() || "anonymous";
   return supabase.channel(`presence-${workspaceId}`, {
-    config: { presence: { key: "online" } },
+    config: { presence: { key: presenceKey } },
   });
 }
 
@@ -6287,40 +6465,94 @@ function mapMessageReactionRow(row: WorkspaceMessageReactionRow): MessageReactio
 }
 
 function mapWorkspaceMessageRow(row: WorkspaceMessageRow, profile?: { full_name?: string | null; username?: string | null }): WorkspaceMessage {
+  const r = row as WorkspaceMessageRow & {
+    recipient_user_id?: string | null;
+    conversation_id?: string | null;
+  };
   return {
-    id: row.id,
-    workspaceId: row.workspace_id,
-    userId: row.user_id,
-    body: row.body,
-    createdAt: row.created_at,
+    id: r.id,
+    workspaceId: r.workspace_id,
+    userId: r.user_id,
+    recipientUserId: r.recipient_user_id ?? null,
+    conversationId: r.conversation_id ?? null,
+    body: r.body,
+    createdAt: r.created_at,
     authorName: profile?.full_name ?? undefined,
     authorUsername: profile?.username ?? undefined,
   };
 }
 
-export async function fetchWorkspaceMessages(workspaceId: string, limit = 80): Promise<WorkspaceMessage[]> {
+function isChatColumnMissing(error: unknown, column: string): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  if (!e) return false;
+  if (e.code === "42703") return true;
+  const msg = String(e.message || "").toLowerCase();
+  return msg.includes(column) && (msg.includes("does not exist") || msg.includes("column"));
+}
+
+export type FetchWorkspaceMessagesOptions = {
+  limit?: number;
+  /** general = conversation_id null; channel = specific shared channel */
+  conversation?:
+    | { kind: "general" }
+    | { kind: "channel"; conversationId: string }
+    | { kind: "team" }; // legacy alias for general
+  currentUserId?: string;
+};
+
+export async function fetchWorkspaceMessages(
+  workspaceId: string,
+  limitOrOptions: number | FetchWorkspaceMessagesOptions = 80,
+): Promise<WorkspaceMessage[]> {
   if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return [];
   const supabase = getClient();
   if (!supabase) return [];
 
+  const options: FetchWorkspaceMessagesOptions =
+    typeof limitOrOptions === "number" ? { limit: limitOrOptions } : limitOrOptions;
+  const limit = options.limit ?? 80;
+  let conversation = options.conversation ?? { kind: "general" as const };
+  if (conversation.kind === "team") conversation = { kind: "general" };
+
   try {
-    // Newest-first from DB, then reverse so callers get chronological order.
-    // (ascending + limit previously returned the *oldest* N — unread checks missed recent chat.)
-    const { data, error } = await supabase
-      .from("workspace_messages")
+    let query = (supabase.from("workspace_messages") as any)
       .select("*")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
       .limit(limit);
 
+    if (conversation.kind === "general") {
+      // Shared General channel: no conversation_id (legacy + default)
+      query = query.is("conversation_id", null);
+    } else {
+      query = query.eq("conversation_id", conversation.conversationId);
+    }
+
+    const { data, error } = await query;
+
     if (error) {
+      if (isChatColumnMissing(error, "conversation_id")) {
+        const { data: legacy, error: legacyErr } = await supabase
+          .from("workspace_messages")
+          .select("*")
+          .eq("workspace_id", workspaceId)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (legacyErr) {
+          logHybridError("fetchWorkspaceMessages", legacyErr);
+          return [];
+        }
+        return (legacy ?? [])
+          .map((row: WorkspaceMessageRow) => mapWorkspaceMessageRow(row))
+          .reverse();
+      }
       logHybridError("fetchWorkspaceMessages", error);
       return [];
     }
 
     return (data ?? [])
       .map((row: WorkspaceMessageRow & { profiles?: { full_name?: string | null; username?: string | null } }) =>
-        mapWorkspaceMessageRow(row, row.profiles ?? undefined)
+        mapWorkspaceMessageRow(row, row.profiles ?? undefined),
       )
       .reverse();
   } catch (err) {
@@ -6329,10 +6561,44 @@ export async function fetchWorkspaceMessages(workspaceId: string, limit = 80): P
   }
 }
 
+/** Recent messages for conversation list previews (all shared channels + general). */
+export async function fetchWorkspaceMessagesForInbox(
+  workspaceId: string,
+  limit = 200,
+): Promise<WorkspaceMessage[]> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return [];
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.from("workspace_messages") as any)
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      if (isChatColumnMissing(error, "conversation_id")) {
+        return fetchWorkspaceMessages(workspaceId, { limit, conversation: { kind: "general" } });
+      }
+      logHybridError("fetchWorkspaceMessagesForInbox", error);
+      return [];
+    }
+
+    return (data ?? [])
+      .map((row: WorkspaceMessageRow) => mapWorkspaceMessageRow(row))
+      .reverse();
+  } catch (err) {
+    logHybridError("fetchWorkspaceMessagesForInbox", err);
+    return [];
+  }
+}
+
 export async function sendWorkspaceMessage(
   workspaceId: string,
   body: string,
-  userId: string
+  userId: string,
+  options?: { conversationId?: string | null },
 ): Promise<WorkspaceMessage | null> {
   const trimmed = body.trim();
   if (!trimmed || trimmed.length > 4000) return null;
@@ -6341,25 +6607,227 @@ export async function sendWorkspaceMessage(
   const supabase = getClient();
   if (!supabase) return null;
 
+  const conversationId = options?.conversationId?.trim() || null;
+
   try {
+    const insertPayload: Record<string, unknown> = {
+      workspace_id: workspaceId,
+      user_id: userId,
+      body: trimmed,
+    };
+    if (conversationId) {
+      insertPayload.conversation_id = conversationId;
+    }
+
     const { data, error } = await (supabase.from("workspace_messages") as any)
+      .insert(insertPayload)
+      .select("*")
+      .single();
+
+    if (error) {
+      if (isChatColumnMissing(error, "conversation_id") && !conversationId) {
+        const { data: legacy, error: legacyErr } = await (supabase.from("workspace_messages") as any)
+          .insert({
+            workspace_id: workspaceId,
+            user_id: userId,
+            body: trimmed,
+          })
+          .select("*")
+          .single();
+        if (legacyErr || !legacy) {
+          logHybridError("sendWorkspaceMessage", legacyErr || error);
+          return null;
+        }
+        return mapWorkspaceMessageRow(legacy);
+      }
+      logHybridError("sendWorkspaceMessage", error);
+      return null;
+    }
+
+    if (!data) return null;
+    const mapped = mapWorkspaceMessageRow(data);
+    // Bump channel activity so list sorts by most recent use
+    if (conversationId) {
+      void (supabase.from("workspace_conversations") as any)
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", conversationId)
+        .eq("workspace_id", workspaceId)
+        .then(() => {})
+        .catch(() => {});
+    }
+    return mapped;
+  } catch (err) {
+    logHybridError("sendWorkspaceMessage", err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared workspace conversations (channels)
+// ---------------------------------------------------------------------------
+
+type ConversationRow = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapConversationRow(row: ConversationRow): import("@/types").WorkspaceConversation {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function fetchWorkspaceConversations(
+  workspaceId: string,
+): Promise<import("@/types").WorkspaceConversation[]> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return [];
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.from("workspace_conversations") as any)
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      if (!isSchemaTableMissing(error)) {
+        logHybridError("fetchWorkspaceConversations", error);
+      }
+      return [];
+    }
+    return (data ?? []).map((row: ConversationRow) => mapConversationRow(row));
+  } catch (err) {
+    if (!isSchemaTableMissing(err)) {
+      logHybridError("fetchWorkspaceConversations", err);
+    }
+    return [];
+  }
+}
+
+export async function createWorkspaceConversation(params: {
+  workspaceId: string;
+  userId: string;
+  name?: string;
+}): Promise<import("@/types").WorkspaceConversation | null> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(params.workspaceId)) return null;
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  const name = (params.name?.trim() || "New conversation").slice(0, 80);
+
+  try {
+    const { data, error } = await (supabase.from("workspace_conversations") as any)
       .insert({
-        workspace_id: workspaceId,
-        user_id: userId,
-        body: trimmed,
+        workspace_id: params.workspaceId,
+        name,
+        created_by: params.userId,
       })
       .select("*")
       .single();
 
     if (error || !data) {
-      logHybridError("sendWorkspaceMessage", error);
+      if (!isSchemaTableMissing(error)) {
+        logHybridError("createWorkspaceConversation", error);
+      }
       return null;
     }
-
-    return mapWorkspaceMessageRow(data);
+    return mapConversationRow(data as ConversationRow);
   } catch (err) {
-    logHybridError("sendWorkspaceMessage", err);
+    if (!isSchemaTableMissing(err)) {
+      logHybridError("createWorkspaceConversation", err);
+    }
     return null;
+  }
+}
+
+export async function updateWorkspaceConversationName(params: {
+  conversationId: string;
+  workspaceId: string;
+  name: string;
+}): Promise<import("@/types").WorkspaceConversation | null> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(params.workspaceId)) return null;
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  const name = params.name.trim().slice(0, 80);
+  if (!name) return null;
+
+  try {
+    const { data, error } = await (supabase.from("workspace_conversations") as any)
+      .update({ name, updated_at: new Date().toISOString() })
+      .eq("id", params.conversationId)
+      .eq("workspace_id", params.workspaceId)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      if (!isSchemaTableMissing(error)) {
+        logHybridError("updateWorkspaceConversationName", error);
+      }
+      return null;
+    }
+    return mapConversationRow(data as ConversationRow);
+  } catch (err) {
+    if (!isSchemaTableMissing(err)) {
+      logHybridError("updateWorkspaceConversationName", err);
+    }
+    return null;
+  }
+}
+
+/**
+ * Hard-delete a shared channel: messages, prefs, and the conversation row.
+ * General (null conversation_id) cannot be deleted.
+ */
+export async function deleteWorkspaceConversation(params: {
+  workspaceId: string;
+  conversationId: string;
+}): Promise<boolean> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(params.workspaceId)) return false;
+  const supabase = getClient();
+  if (!supabase) return false;
+
+  const conversationId = params.conversationId?.trim();
+  if (!conversationId) return false;
+
+  try {
+    const { data, error } = await (supabase as any).rpc("delete_workspace_conversation", {
+      p_workspace_id: params.workspaceId,
+      p_conversation_id: conversationId,
+    });
+
+    if (error) {
+      // Fallback if RPC not applied yet: best-effort delete of channel row only
+      // (messages would SET NULL → General — prefer failing closed if RPC missing)
+      if (
+        String(error.message || "").toLowerCase().includes("function") ||
+        error.code === "42883" ||
+        error.code === "PGRST202"
+      ) {
+        logHybridError("deleteWorkspaceConversation", error);
+        return false;
+      }
+      if (!isSchemaTableMissing(error)) {
+        logHybridError("deleteWorkspaceConversation", error);
+      }
+      return false;
+    }
+    return data === true || data === null;
+  } catch (err) {
+    if (!isSchemaTableMissing(err)) {
+      logHybridError("deleteWorkspaceConversation", err);
+    }
+    return false;
   }
 }
 
@@ -6454,114 +6922,262 @@ export async function toggleWorkspaceMessageReaction(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Conversation prefs (rename + archive) — per user, additive table
+// ---------------------------------------------------------------------------
+
+type ConversationPrefRow = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  conversation_key: string;
+  title: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapConversationPrefRow(row: ConversationPrefRow): import("@/types").WorkspaceConversationPref {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    conversationKey: row.conversation_key,
+    title: row.title,
+    archivedAt: row.archived_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function fetchConversationPrefs(
+  workspaceId: string,
+  userId: string,
+): Promise<import("@/types").WorkspaceConversationPref[]> {
+  if (!isSupabaseLive() || !userId || ["w1", "w2"].includes(workspaceId)) return [];
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await (supabase.from("workspace_conversation_prefs") as any)
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId);
+
+    if (error) {
+      if (!isSchemaTableMissing(error)) {
+        logHybridError("fetchConversationPrefs", error);
+      }
+      return [];
+    }
+    return (data ?? []).map((row: ConversationPrefRow) => mapConversationPrefRow(row));
+  } catch (err) {
+    if (!isSchemaTableMissing(err)) {
+      logHybridError("fetchConversationPrefs", err);
+    }
+    return [];
+  }
+}
+
+export async function upsertConversationPref(params: {
+  workspaceId: string;
+  userId: string;
+  conversationKey: string;
+  title?: string | null;
+  archivedAt?: string | null;
+}): Promise<import("@/types").WorkspaceConversationPref | null> {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(params.workspaceId)) return null;
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  const now = new Date().toISOString();
+
+  try {
+    // Load existing so partial updates (title-only or archive-only) do not wipe the other field
+    const { data: existing, error: findErr } = await (supabase.from("workspace_conversation_prefs") as any)
+      .select("*")
+      .eq("workspace_id", params.workspaceId)
+      .eq("user_id", params.userId)
+      .eq("conversation_key", params.conversationKey)
+      .maybeSingle();
+
+    if (findErr && !isSchemaTableMissing(findErr)) {
+      logHybridError("upsertConversationPref:find", findErr);
+    }
+
+    const nextTitle =
+      params.title !== undefined
+        ? params.title?.trim() || null
+        : (existing as ConversationPrefRow | null)?.title ?? null;
+    const nextArchived =
+      params.archivedAt !== undefined
+        ? params.archivedAt
+        : (existing as ConversationPrefRow | null)?.archived_at ?? null;
+
+    const payload = {
+      workspace_id: params.workspaceId,
+      user_id: params.userId,
+      conversation_key: params.conversationKey,
+      title: nextTitle,
+      archived_at: nextArchived,
+      updated_at: now,
+    };
+
+    const { data, error } = await (supabase.from("workspace_conversation_prefs") as any)
+      .upsert(payload, { onConflict: "workspace_id,user_id,conversation_key" })
+      .select("*")
+      .single();
+
+    if (error) {
+      if (!isSchemaTableMissing(error)) {
+        logHybridError("upsertConversationPref", error);
+      }
+      return null;
+    }
+    return data ? mapConversationPrefRow(data as ConversationPrefRow) : null;
+  } catch (err) {
+    if (!isSchemaTableMissing(err)) {
+      logHybridError("upsertConversationPref", err);
+    }
+    return null;
+  }
+}
+
 export type WorkspaceChatRealtimeHandlers = {
   onMessageInsert?: (message: WorkspaceMessage) => void;
   onReactionInsert?: (reaction: MessageReaction) => void;
   onReactionDelete?: (reaction: MessageReaction) => void;
 };
 
-let activeMessagesChannel: ReturnType<NonNullable<ReturnType<typeof getClient>>["channel"]> | null = null;
-let activeMessagesWorkspaceId: string | null = null;
+type ChatRealtimeChannel = ReturnType<NonNullable<ReturnType<typeof getClient>>["channel"]>;
+
+/** Multi-subscriber bus: many hooks can listen; one Realtime channel per workspace. */
+const chatRealtimeSubs = new Map<
+  string,
+  {
+    channel: ChatRealtimeChannel;
+    handlers: Set<WorkspaceChatRealtimeHandlers>;
+  }
+>();
+
+function fanoutChatHandlers(
+  wsId: string,
+  invoke: (h: WorkspaceChatRealtimeHandlers) => void,
+) {
+  const entry = chatRealtimeSubs.get(wsId);
+  if (!entry) return;
+  for (const h of entry.handlers) {
+    try {
+      invoke(h);
+    } catch {
+      /* ignore subscriber errors */
+    }
+  }
+}
+
+function ensureChatRealtimeChannel(workspaceId: string): string | null {
+  if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return null;
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  const wsId = String(workspaceId);
+  if (chatRealtimeSubs.has(wsId)) return wsId;
+
+  const channel = supabase.channel(`ws-messages-${wsId}`);
+
+  channel.on(
+    "postgres_changes" as const,
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "workspace_messages",
+      filter: `workspace_id=eq.${wsId}`,
+    },
+    (payload: { new: WorkspaceMessageRow }) => {
+      if (!payload?.new) return;
+      const mapped = mapWorkspaceMessageRow(payload.new);
+      fanoutChatHandlers(wsId, (h) => h.onMessageInsert?.(mapped));
+    },
+  );
+
+  const ch = channel as ChatRealtimeChannel & {
+    on: (event: string, filter: object, cb: (payload: unknown) => void) => typeof channel;
+  };
+
+  ch.on(
+    "postgres_changes",
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "workspace_message_reactions",
+      filter: `workspace_id=eq.${wsId}`,
+    },
+    (payload: unknown) => {
+      const p = payload as { new?: WorkspaceMessageReactionRow };
+      if (!p?.new) return;
+      const mapped = mapMessageReactionRow(p.new);
+      fanoutChatHandlers(wsId, (h) => h.onReactionInsert?.(mapped));
+    },
+  );
+
+  // DELETE often omits filtered columns — subscribe without filter and gate client-side
+  ch.on(
+    "postgres_changes",
+    {
+      event: "DELETE",
+      schema: "public",
+      table: "workspace_message_reactions",
+    },
+    (payload: unknown) => {
+      const p = payload as { old?: WorkspaceMessageReactionRow };
+      if (!p?.old) return;
+      if (p.old.workspace_id && p.old.workspace_id !== wsId) return;
+      const mapped = mapMessageReactionRow(p.old);
+      fanoutChatHandlers(wsId, (h) => h.onReactionDelete?.(mapped));
+    },
+  );
+
+  channel.subscribe();
+  chatRealtimeSubs.set(wsId, { channel, handlers: new Set() });
+  return wsId;
+}
 
 export function subscribeToWorkspaceMessages(
   workspaceId: string,
-  onInsert: (message: WorkspaceMessage) => void
+  onInsert: (message: WorkspaceMessage) => void,
 ): () => void {
   return subscribeToWorkspaceChat(workspaceId, { onMessageInsert: onInsert });
 }
 
+/**
+ * Subscribe to workspace chat realtime. Multiple callers share one channel and
+ * all receive events (fixes badge + open thread both needing live updates).
+ */
 export function subscribeToWorkspaceChat(
   workspaceId: string,
-  handlers: WorkspaceChatRealtimeHandlers
+  handlers: WorkspaceChatRealtimeHandlers,
 ): () => void {
-  if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return () => {};
+  const wsId = ensureChatRealtimeChannel(workspaceId);
+  if (!wsId) return () => {};
 
-  const supabase = getClient();
-  if (!supabase) return () => {};
+  const entry = chatRealtimeSubs.get(wsId);
+  if (!entry) return () => {};
 
-  const wsId = String(workspaceId);
-  if (activeMessagesChannel && activeMessagesWorkspaceId === wsId) {
-    return () => {};
-  }
+  entry.handlers.add(handlers);
 
-  if (activeMessagesChannel) {
+  return () => {
+    const current = chatRealtimeSubs.get(wsId);
+    if (!current) return;
+    current.handlers.delete(handlers);
+    if (current.handlers.size > 0) return;
+
+    const supabase = getClient();
     try {
-      supabase.removeChannel(activeMessagesChannel);
+      supabase?.removeChannel(current.channel);
     } catch {
       /* ignore */
     }
-    activeMessagesChannel = null;
-    activeMessagesWorkspaceId = null;
-  }
-
-  activeMessagesWorkspaceId = wsId;
-  const channel = supabase.channel(`ws-messages-${wsId}`);
-
-  if (handlers.onMessageInsert) {
-    channel.on(
-      "postgres_changes" as const,
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "workspace_messages",
-        filter: `workspace_id=eq.${wsId}`,
-      },
-      (payload: { new: WorkspaceMessageRow }) => {
-        if (payload?.new) {
-          handlers.onMessageInsert!(mapWorkspaceMessageRow(payload.new));
-        }
-      }
-    );
-  }
-
-  const ch = channel as ReturnType<typeof supabase.channel> & {
-    on: (event: string, filter: object, cb: (payload: unknown) => void) => typeof channel;
-  };
-
-  if (handlers.onReactionInsert) {
-    ch.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "workspace_message_reactions",
-        filter: `workspace_id=eq.${wsId}`,
-      },
-      (payload: unknown) => {
-        const p = payload as { new?: WorkspaceMessageReactionRow };
-        if (p?.new) handlers.onReactionInsert!(mapMessageReactionRow(p.new));
-      }
-    );
-  }
-
-  if (handlers.onReactionDelete) {
-    ch.on(
-      "postgres_changes",
-      {
-        event: "DELETE",
-        schema: "public",
-        table: "workspace_message_reactions",
-        filter: `workspace_id=eq.${wsId}`,
-      },
-      (payload: unknown) => {
-        const p = payload as { old?: WorkspaceMessageReactionRow };
-        if (p?.old) handlers.onReactionDelete!(mapMessageReactionRow(p.old));
-      }
-    );
-  }
-
-  activeMessagesChannel = channel.subscribe();
-
-  return () => {
-    if (activeMessagesChannel) {
-      try {
-        supabase.removeChannel(activeMessagesChannel);
-      } catch {
-        /* ignore */
-      }
-      activeMessagesChannel = null;
-      activeMessagesWorkspaceId = null;
-    }
+    chatRealtimeSubs.delete(wsId);
   };
 }
 
@@ -7941,7 +8557,7 @@ export function mapMeetingRow(row: MeetingRow): Meeting {
   };
 }
 
-function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
+export function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
   const status = row.status as MeetingAgendaItem["status"];
   return {
     id: row.id,
@@ -7963,7 +8579,7 @@ function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
   };
 }
 
-function mapAgendaEntryRow(row: MeetingAgendaEntryRow): MeetingAgendaEntry {
+export function mapAgendaEntryRow(row: MeetingAgendaEntryRow): MeetingAgendaEntry {
   return {
     id: row.id,
     agendaItemId: row.agenda_item_id,

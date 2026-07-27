@@ -66,7 +66,7 @@ export function MeetingStream({
               : countContinuedItems(meeting.id, agendaItems);
             const dateLabel = meeting.scheduledAt
               ? format(parseISO(meeting.scheduledAt), "MMM d, yyyy")
-              : format(parseISO(meeting.createdAt), "MMM d, yyyy");
+              : "No date";
 
             return (
               <div
@@ -95,7 +95,9 @@ export function MeetingStream({
                     )}
                     <div className="flex items-center gap-2 mt-1 text-xs text-text-muted">
                       <Calendar className="h-3 w-3 shrink-0" />
-                      <span>{dateLabel}</span>
+                      <span className={!meeting.scheduledAt ? "text-text-faint" : undefined}>
+                        {dateLabel}
+                      </span>
                       {openCount > 0 && meeting.status !== "completed" && (
                         <span className="text-neon-purple-tint">{openCount} open</span>
                       )}

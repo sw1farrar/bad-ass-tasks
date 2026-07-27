@@ -427,11 +427,44 @@ export interface WorkspaceMessage {
   id: string;
   workspaceId: string;
   userId: string;
+  /**
+   * Legacy DM peer (optional). Shared channels use conversationId instead.
+   */
+  recipientUserId?: string | null;
+  /** Shared channel id; NULL = General (legacy team) channel */
+  conversationId?: string | null;
   body: string;
   createdAt: string;
   /** Populated from profiles/members join when available */
   authorName?: string;
   authorUsername?: string;
+}
+
+/** Shared workspace chat thread: General channel or a named channel. */
+export type ChatConversationId =
+  | { kind: "general" }
+  | { kind: "channel"; conversationId: string };
+
+/** Shared channel row (all workspace members can see / post). */
+export interface WorkspaceConversation {
+  id: string;
+  workspaceId: string;
+  name: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Per-user archive prefs (and legacy custom titles) keyed by conversation_key. */
+export interface WorkspaceConversationPref {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  conversationKey: string;
+  title?: string | null;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MessageReaction {

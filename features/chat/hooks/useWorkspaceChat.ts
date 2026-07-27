@@ -11,12 +11,22 @@ import {
 } from "@/lib/data/hybridStore";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { generateId } from "@/lib/utils";
-import type { WorkspaceMember, WorkspaceMessage, MessageReaction } from "@/types";
+import type {
+  ChatConversationId,
+  WorkspaceMember,
+  WorkspaceMessage,
+  MessageReaction,
+} from "@/types";
 import {
   computeChatReadWatermark,
   hasUnreadChatActivity,
   setChatLastReadAt,
 } from "@/lib/chatReadState";
+import {
+  conversationKey,
+  generalConversation,
+  messageMatchesConversation,
+} from "../lib/conversations";
 import { groupMessageReactions } from "../lib/reactions";
 
 const DEMO_CAP = 100;
@@ -25,14 +35,14 @@ export interface UseWorkspaceChatOptions {
   workspaceId: string;
   userId: string | undefined;
   members: WorkspaceMember[];
-  /** When true, marks workspace chat as read (panel/drawer open). */
   isOpen?: boolean;
+  conversation?: ChatConversationId;
 }
 
 function resolveAuthor(
   userId: string,
   members: WorkspaceMember[],
-  msg: WorkspaceMessage
+  msg: WorkspaceMessage,
 ): string {
   if (msg.authorUsername) return `@${msg.authorUsername}`;
   if (msg.authorName) return msg.authorName;
@@ -47,7 +57,9 @@ export function useWorkspaceChat({
   userId,
   members,
   isOpen = false,
+  conversation: conversationProp,
 }: UseWorkspaceChatOptions) {
+  const conversation = conversationProp ?? generalConversation();
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -56,44 +68,61 @@ export function useWorkspaceChat({
   const seenIds = useRef(new Set<string>());
   const reactionIds = useRef(new Set<string>());
   const wasOpenRef = useRef(false);
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+
+  const messagesRef = useRef(messages);
+  const reactionsRef = useRef(reactions);
+  messagesRef.current = messages;
+  reactionsRef.current = reactions;
 
   const enrich = useCallback(
     (msg: WorkspaceMessage): WorkspaceMessage => ({
       ...msg,
       authorName: msg.authorName ?? resolveAuthor(msg.userId, members, msg),
     }),
-    [members]
+    [members],
   );
 
   const appendUnique = useCallback(
     (msg: WorkspaceMessage) => {
-      if (seenIds.current.has(msg.id)) return;
+      if (seenIds.current.has(msg.id)) return false;
+      if (!messageMatchesConversation(msg, conversationRef.current)) return false;
       seenIds.current.add(msg.id);
       setMessages((prev) => [...prev, enrich(msg)]);
+      return true;
     },
-    [enrich]
+    [enrich],
   );
 
   const appendReaction = useCallback((r: MessageReaction) => {
     setReactions((prev) => {
       if (
         prev.some(
-          (x) => x.messageId === r.messageId && x.userId === r.userId && x.emoji === r.emoji
+          (x) =>
+            (x.id && r.id && x.id === r.id) ||
+            (x.messageId === r.messageId && x.userId === r.userId && x.emoji === r.emoji),
         )
       ) {
         return prev;
       }
-      reactionIds.current.add(r.id);
+      if (r.id) reactionIds.current.add(r.id);
       return [...prev, r];
     });
   }, []);
 
   const removeReaction = useCallback((r: MessageReaction) => {
-    reactionIds.current.delete(r.id);
+    if (r.id) reactionIds.current.delete(r.id);
     setReactions((prev) =>
       prev.filter(
-        (x) => !(x.messageId === r.messageId && x.userId === r.userId && x.emoji === r.emoji)
-      )
+        (x) =>
+          !(
+            (r.id && x.id === r.id) ||
+            (x.messageId === r.messageId && x.userId === r.userId && x.emoji === r.emoji)
+          ),
+      ),
     );
   }, []);
 
@@ -112,11 +141,18 @@ export function useWorkspaceChat({
   }, [reactions, userId]);
 
   useEffect(() => {
+    wasOpenRef.current = false;
+  }, [workspaceId]);
+
+  const conversationStableKey = conversationKey(conversation);
+
+  useEffect(() => {
     seenIds.current.clear();
     reactionIds.current.clear();
     setMessages([]);
     setReactions([]);
     setIsLoading(true);
+    setHasUnread(false);
 
     if (!workspaceId) {
       setIsLoading(false);
@@ -124,18 +160,32 @@ export function useWorkspaceChat({
     }
 
     let cancelled = false;
+    const active = conversationRef.current;
 
     (async () => {
       if (isSupabaseConfigured() && !["w1", "w2"].includes(workspaceId)) {
+        const fetchConv =
+          active.kind === "channel"
+            ? { kind: "channel" as const, conversationId: active.conversationId }
+            : { kind: "general" as const };
         const [rows, rxn] = await Promise.all([
-          fetchWorkspaceMessages(workspaceId, 120),
+          fetchWorkspaceMessages(workspaceId, {
+            limit: 120,
+            conversation: fetchConv,
+            currentUserId: userId,
+          }),
           fetchWorkspaceMessageReactions(workspaceId),
         ]);
         if (cancelled) return;
+        if (conversationKey(active) !== conversationKey(conversationRef.current)) return;
         rows.forEach((m) => seenIds.current.add(m.id));
-        rxn.forEach((r) => reactionIds.current.add(r.id));
+        const msgIds = new Set(rows.map((m) => m.id));
+        const scopedRxn = rxn.filter((r) => msgIds.has(r.messageId));
+        scopedRxn.forEach((r) => {
+          if (r.id) reactionIds.current.add(r.id);
+        });
         setMessages(rows.map(enrich));
-        setReactions(rxn);
+        setReactions(scopedRxn);
       }
       if (!cancelled) setIsLoading(false);
     })();
@@ -144,12 +194,18 @@ export function useWorkspaceChat({
       isSupabaseConfigured() && !["w1", "w2"].includes(workspaceId)
         ? subscribeToWorkspaceChat(workspaceId, {
             onMessageInsert: (msg) => {
-              if (msg.userId !== userId || !seenIds.current.has(msg.id)) {
-                appendUnique(msg);
+              // Instant peer (and self-echo) delivery for the open conversation
+              appendUnique(msg);
+            },
+            onReactionInsert: (r) => {
+              // Only attach reactions for messages currently loaded in this thread
+              if (seenIds.current.has(r.messageId)) {
+                appendReaction(r);
               }
             },
-            onReactionInsert: (r) => appendReaction(r),
-            onReactionDelete: (r) => removeReaction(r),
+            onReactionDelete: (r) => {
+              removeReaction(r);
+            },
           })
         : () => {};
 
@@ -157,7 +213,49 @@ export function useWorkspaceChat({
       cancelled = true;
       unsub();
     };
-  }, [workspaceId, userId, enrich, appendUnique, appendReaction, removeReaction]);
+  }, [
+    workspaceId,
+    userId,
+    conversationStableKey,
+    enrich,
+    appendUnique,
+    appendReaction,
+    removeReaction,
+  ]);
+
+  const setHasUnreadSafe = useCallback((next: boolean) => {
+    setHasUnread((prev) => (prev === next ? prev : next));
+  }, []);
+
+  /**
+   * Persist read watermark only from messages that belong to the active conversation.
+   * Prevents a race when switching channels (stale previous-thread rows still in state).
+   */
+  const markRead = useCallback(() => {
+    if (!userId || !workspaceId) return;
+    const conv = conversationRef.current;
+    const scopedMsgs = messagesRef.current.filter((m) =>
+      messageMatchesConversation(m, conv),
+    );
+    // Stale state from another conversation — wait for load
+    if (messagesRef.current.length > 0 && scopedMsgs.length === 0) {
+      return;
+    }
+    const msgIds = new Set(scopedMsgs.map((m) => m.id));
+    const scopedRxn = reactionsRef.current.filter((r) => msgIds.has(r.messageId));
+
+    if (scopedMsgs.length === 0 && scopedRxn.length === 0) {
+      setHasUnreadSafe(false);
+      return;
+    }
+    const watermark = computeChatReadWatermark(scopedMsgs, scopedRxn);
+    if (!watermark) {
+      setHasUnreadSafe(false);
+      return;
+    }
+    setChatLastReadAt(userId, workspaceId, watermark, conv);
+    setHasUnreadSafe(false);
+  }, [userId, workspaceId, setHasUnreadSafe]);
 
   const send = useCallback(
     async (body: string) => {
@@ -165,69 +263,89 @@ export function useWorkspaceChat({
       if (!trimmed || !userId) return false;
 
       setIsSending(true);
+      const conversationId =
+        conversation.kind === "channel" ? conversation.conversationId : null;
+      const authorLabel = resolveAuthor(userId, members, { userId } as WorkspaceMessage);
+
+      // Optimistic append so sender sees the post instantly
+      const tempId = `temp-${generateId()}`;
+      const optimistic: WorkspaceMessage = {
+        id: tempId,
+        workspaceId,
+        userId,
+        conversationId,
+        body: trimmed,
+        createdAt: new Date().toISOString(),
+        authorName: authorLabel,
+      };
+      appendUnique(optimistic);
+
+      const finalizeRead = (extra: WorkspaceMessage) => {
+        if (!isOpenRef.current) return;
+        const scoped = [
+          ...messagesRef.current.filter((m) =>
+            messageMatchesConversation(m, conversationRef.current),
+          ),
+          extra,
+        ];
+        const msgIds = new Set(scoped.map((m) => m.id));
+        const scopedRxn = reactionsRef.current.filter((r) => msgIds.has(r.messageId));
+        const wm = computeChatReadWatermark(scoped, scopedRxn);
+        if (wm) setChatLastReadAt(userId, workspaceId, wm, conversationRef.current);
+        setHasUnreadSafe(false);
+      };
+
       try {
         if (isSupabaseConfigured() && !["w1", "w2"].includes(workspaceId)) {
-          const created = await sendWorkspaceMessage(workspaceId, trimmed, userId);
+          const created = await sendWorkspaceMessage(workspaceId, trimmed, userId, {
+            conversationId,
+          });
           if (!created) {
+            seenIds.current.delete(tempId);
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
             toast.error("Could not send message");
             return false;
           }
-          appendUnique(created);
+          // Swap temp → server row (realtime may already have inserted the real id)
+          seenIds.current.delete(tempId);
+          seenIds.current.add(created.id);
+          setMessages((prev) => {
+            const withoutTemp = prev.filter((m) => m.id !== tempId);
+            if (withoutTemp.some((m) => m.id === created.id)) return withoutTemp;
+            return [...withoutTemp, enrich(created)];
+          });
+          finalizeRead(created);
           return true;
         }
 
-        const demo: WorkspaceMessage = {
-          id: generateId(),
-          workspaceId,
-          userId,
-          body: trimmed,
-          createdAt: new Date().toISOString(),
-          authorName: resolveAuthor(userId, members, { userId } as WorkspaceMessage),
-        };
-        appendUnique(demo);
+        // Demo / offline path — keep optimistic as permanent
         setMessages((prev) => {
-          const next = [...prev];
-          if (next.length > DEMO_CAP) return next.slice(-DEMO_CAP);
+          const next = prev.length > DEMO_CAP ? prev.slice(-DEMO_CAP) : prev;
           return next;
         });
+        finalizeRead(optimistic);
         return true;
       } finally {
         setIsSending(false);
       }
     },
-    [workspaceId, userId, members, appendUnique]
+    [workspaceId, userId, members, appendUnique, conversation, enrich, setHasUnreadSafe],
   );
 
   const toggleReaction = useCallback(
     async (messageId: string, emoji: string) => {
       if (!userId) return;
-
       const trimmed = emoji.trim();
-      const existing = reactions.find(
-        (r) => r.messageId === messageId && r.userId === userId && r.emoji === trimmed
+      const existing = reactionsRef.current.find(
+        (r) => r.messageId === messageId && r.userId === userId && r.emoji === trimmed,
       );
 
-      if (isSupabaseConfigured() && !["w1", "w2"].includes(workspaceId)) {
-        const result = await toggleWorkspaceMessageReaction(
-          workspaceId,
-          messageId,
-          trimmed,
-          userId
-        );
-        if (!result) {
-          return;
-        }
-        if (result === "removed" && existing) {
-          removeReaction(existing);
-        }
-        return;
-      }
-
+      // Optimistic local update for instant UI on the actor's device
       if (existing) {
         removeReaction(existing);
       } else {
         appendReaction({
-          id: generateId(),
+          id: `opt-${messageId}-${userId}-${trimmed}`,
           messageId,
           workspaceId,
           userId,
@@ -235,47 +353,89 @@ export function useWorkspaceChat({
           createdAt: new Date().toISOString(),
         });
       }
+
+      if (isSupabaseConfigured() && !["w1", "w2"].includes(workspaceId)) {
+        const result = await toggleWorkspaceMessageReaction(
+          workspaceId,
+          messageId,
+          trimmed,
+          userId,
+        );
+        if (!result) {
+          // Rollback optimistic
+          if (existing) {
+            appendReaction(existing);
+          } else {
+            removeReaction({
+              id: `opt-${messageId}-${userId}-${trimmed}`,
+              messageId,
+              workspaceId,
+              userId,
+              emoji: trimmed,
+              createdAt: new Date().toISOString(),
+            });
+          }
+          toast.error("Could not update reaction");
+          return;
+        }
+        // Realtime INSERT/DELETE fans out to other clients; local already optimistic.
+        // While thread is open, keep watermark current so badges stay clear.
+        if (isOpenRef.current) {
+          markRead();
+        }
+      }
     },
-    [workspaceId, userId, reactions, appendReaction, removeReaction]
+    [workspaceId, userId, appendReaction, removeReaction, markRead],
   );
 
   const getReactionSummaries = useCallback(
     (messageId: string) => reactionSummariesByMessage.get(messageId) ?? [],
-    [reactionSummariesByMessage]
+    [reactionSummariesByMessage],
   );
-
-  const messagesRef = useRef(messages);
-  const reactionsRef = useRef(reactions);
-  messagesRef.current = messages;
-  reactionsRef.current = reactions;
-
-  const markRead = useCallback(() => {
-    if (!userId || !workspaceId) return;
-    const watermark = computeChatReadWatermark(
-      messagesRef.current,
-      reactionsRef.current,
-    );
-    setChatLastReadAt(userId, workspaceId, watermark);
-    setHasUnread(false);
-  }, [userId, workspaceId]);
 
   useEffect(() => {
     if (!userId || !workspaceId) {
-      setHasUnread(false);
+      setHasUnreadSafe(false);
       wasOpenRef.current = false;
       return;
     }
+    if (isLoading) return;
+
+    // Guard against stale rows from the previous conversation still in state
+    const scopedMsgs = messages.filter((m) =>
+      messageMatchesConversation(m, conversationRef.current),
+    );
+    if (messages.length > 0 && scopedMsgs.length === 0) return;
 
     const justClosed = wasOpenRef.current && !isOpen;
     wasOpenRef.current = isOpen;
 
     if (isOpen || justClosed) {
+      // Viewing this thread: clear unread and persist watermark
       markRead();
       return;
     }
 
-    setHasUnread(hasUnreadChatActivity(userId, workspaceId, messages, reactions));
-  }, [isOpen, userId, workspaceId, messages, reactions, markRead]);
+    setHasUnreadSafe(
+      hasUnreadChatActivity(
+        userId,
+        workspaceId,
+        scopedMsgs,
+        reactions.filter((r) => scopedMsgs.some((m) => m.id === r.messageId)),
+        conversationRef.current,
+      ),
+    );
+  }, [
+    isOpen,
+    userId,
+    workspaceId,
+    messages,
+    reactions,
+    markRead,
+    isLoading,
+    conversationStableKey,
+    setHasUnreadSafe,
+  ]);
 
   return {
     messages,
@@ -283,6 +443,7 @@ export function useWorkspaceChat({
     isLoading,
     isSending,
     hasUnread,
+    conversation,
     send,
     resolveAuthor,
     toggleReaction,

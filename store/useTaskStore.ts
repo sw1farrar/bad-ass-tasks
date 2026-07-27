@@ -13,6 +13,13 @@ import {
 } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
 import {
+  includeNotebookRowsForFolderFilter,
+  normalizeFolderFilter,
+  taskMatchesFolderFilter,
+  type TasksFolderFilterMode,
+} from "@/features/tasks/lib/folderFilter";
+export type { TasksFolderFilterMode } from "@/features/tasks/lib/folderFilter";
+import {
   DEFAULT_NOTIFICATION_PREFS,
   mergeNotificationTypePrefs,
 } from "@/lib/notifications/notificationPrefs";
@@ -191,6 +198,7 @@ import {
   updateWorkspace,
   deleteWorkspace,
   updateMyProfile, // self profile (name + location)
+  touchMyLastActiveAt,
   getMyProfile,
   searchPotentialTeammates, // new: multi-field (name/username/location/city) search for empty-owner invite UX (RPC-backed, RLS-safe)
   subscribeToWorkspaceRealtime,
@@ -228,6 +236,9 @@ import {
   mapCommentRow,
   mapWorkspaceListRow,
   mapListItemRow,
+  mapMeetingRow,
+  mapAgendaItemRow,
+  mapAgendaEntryRow,
 } from "@/lib/data/hybridStore";
 import {
   areNotebookSectionTablesReady,
@@ -245,7 +256,11 @@ import {
   markBroadcastChannelReady,
   sendChannelBroadcast,
 } from "@/lib/realtime/channelBroadcast";
-import { commentBelongsToWorkspace } from "@/lib/realtime/workspaceScope";
+import {
+  agendaEntryBelongsToWorkspace,
+  agendaItemBelongsToWorkspace,
+  commentBelongsToWorkspace,
+} from "@/lib/realtime/workspaceScope";
 import {
   dismissReminder,
   dismissReminders,
@@ -449,10 +464,9 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "health" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "health" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
-export type TasksFolderFilterMode = "all" | "none" | string;
 
 interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions, HealthSliceActions {
   // Data
@@ -694,6 +708,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   removeWorkspaceMember: (userId: string) => Promise<boolean>;
   // Profile self-edit (name, username/handle, location). Personal, RLS-protected.
   updateMyProfile: (updates: { fullName?: string; username?: string; location?: string }) => Promise<boolean>;
+  /** Optimistically set members[].lastActiveAt after a successful last_active_at touch */
+  patchMemberLastActive: (userId?: string | null, at?: string) => void;
   // Teammate search for invite (name/username/location/city/email) - empty owner state only, RPC-backed
   searchPotentialTeammates: (query: string, currentWorkspaceId?: string) => Promise<Array<{ id: string; fullName?: string; username?: string; location?: string; email?: string; avatarUrl?: string }>>;
   shareList: (
@@ -1499,20 +1515,16 @@ export const useTaskStore = create<TaskState>()(
           result = result.filter((t) => !!t.starred);
         }
 
-        const folderFilter = taskFilter.folderFilter ?? "all";
-        if (folderFilter !== "all") {
-          if (folderFilter === "none") {
-            result = result.filter((t) => !t.folderId);
-          } else {
-            result = result.filter((t) => t.folderId === folderFilter);
-          }
+        const folderSelection = normalizeFolderFilter(taskFilter.folderFilter);
+        if (folderSelection.length > 0) {
+          result = result.filter((t) => taskMatchesFolderFilter(t, folderSelection));
         }
 
         // Notebook tasks opted into the workspace Tasks page
         const includeNotebookRows =
           recurrenceMode !== "only" &&
           taskFilter.starred !== "only" &&
-          (folderFilter === "all" || folderFilter === "none");
+          includeNotebookRowsForFolderFilter(folderSelection);
 
         if (includeNotebookRows) {
           const notebookNameById = new Map(notebooks.map((n) => [n.id, n.name]));
@@ -2024,6 +2036,10 @@ export const useTaskStore = create<TaskState>()(
             get().fetchNotifications?.().catch(() => {});
             // Setup realtime + presence *immediately* for real-time "Online in this workspace" (no artificial delay)
             get().setupWorkspaceRealtime();
+            // Seed last_active_at so Team directory isn't stuck at account-created time
+            void touchMyLastActiveAt({ force: true }).then((ok) => {
+              if (ok) get().patchMemberLastActive(get().user?.id);
+            });
           }
         } catch (error: any) {
           console.error("[useTaskStore] initializeFromSupabase error:", error);
@@ -4123,7 +4139,10 @@ export const useTaskStore = create<TaskState>()(
           set({ members: [], isLoadingMembers: false });
           return;
         }
-        set({ isLoadingMembers: true });
+        // Soft refresh: only show spinner when we have no members yet (avoids Team UI flicker)
+        if ((get().members || []).length === 0) {
+          set({ isLoadingMembers: true });
+        }
         try {
           const members = await getWorkspaceMembers(wsId);
           const userId = get().user?.id;
@@ -4799,6 +4818,16 @@ export const useTaskStore = create<TaskState>()(
           toast.error("Failed to save profile");
         }
         return ok;
+      },
+
+      patchMemberLastActive: (userId, at) => {
+        if (!userId) return;
+        const iso = at || new Date().toISOString();
+        set((state) => ({
+          members: (state.members || []).map((m) =>
+            m.userId === userId ? { ...m, lastActiveAt: iso } : m,
+          ),
+        }));
       },
 
       searchPotentialTeammates: async (query, currentWorkspaceId) => {
@@ -5533,6 +5562,17 @@ export const useTaskStore = create<TaskState>()(
         const wsId = get().currentWorkspace.id;
         if (!isSupabaseLive() || !wsId || ["w1", "w2"].includes(wsId)) return;
 
+        // Idempotent: avoid teardown/resubscribe loops (focus/visibility) that
+        // drop presence and make Team "online" indicators flicker.
+        if (
+          (get() as any)._realtimeWsId === wsId &&
+          (get() as any)._presenceChannel &&
+          (get() as any)._realtimeCleanup
+        ) {
+          get().updatePresenceMeta();
+          return;
+        }
+
         // Teardown old first
         get().teardownWorkspaceRealtime();
 
@@ -5731,6 +5771,7 @@ export const useTaskStore = create<TaskState>()(
                       username: newRow.username ?? m.username,
                       location: newRow.location ?? m.location,
                       avatarUrl: newRow.avatar_url ?? m.avatarUrl,
+                      lastActiveAt: newRow.last_active_at ?? m.lastActiveAt,
                     }
                   : m,
               );
@@ -6002,15 +6043,100 @@ export const useTaskStore = create<TaskState>()(
               });
             }
           },
+          onMeetingChange: (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const meetings = get().meetings || [];
+            if (eventType === "INSERT" && newRow) {
+              const mapped = mapMeetingRow(newRow);
+              if (meetings.some((m) => m.id === mapped.id)) return;
+              set({ meetings: [...meetings, mapped] });
+            } else if (eventType === "UPDATE" && newRow) {
+              const mapped = mapMeetingRow(newRow);
+              set({
+                meetings: meetings.map((m) => (m.id === mapped.id ? { ...m, ...mapped } : m)),
+              });
+            } else if (eventType === "DELETE" && oldRow) {
+              const deletedId = oldRow.id as string;
+              const itemIds = new Set(
+                (get().meetingAgendaItems || [])
+                  .filter((i) => i.meetingId === deletedId)
+                  .map((i) => i.id),
+              );
+              set({
+                meetings: meetings.filter((m) => m.id !== deletedId),
+                meetingAgendaItems: (get().meetingAgendaItems || []).filter(
+                  (i) => i.meetingId !== deletedId,
+                ),
+                meetingAgendaEntries: (get().meetingAgendaEntries || []).filter(
+                  (e) => !itemIds.has(e.agendaItemId),
+                ),
+                selectedMeetingId:
+                  get().selectedMeetingId === deletedId ? null : get().selectedMeetingId,
+                selectedAgendaItemId:
+                  get().selectedAgendaItemId && itemIds.has(get().selectedAgendaItemId!)
+                    ? null
+                    : get().selectedAgendaItemId,
+              });
+            }
+          },
+          onMeetingAgendaItemChange: (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const row = newRow || oldRow;
+            if (!agendaItemBelongsToWorkspace(get(), row)) return;
+
+            const items = get().meetingAgendaItems || [];
+            if (eventType === "INSERT" && newRow) {
+              const mapped = mapAgendaItemRow(newRow);
+              if (items.some((i) => i.id === mapped.id)) return;
+              set({ meetingAgendaItems: [...items, mapped] });
+            } else if (eventType === "UPDATE" && newRow) {
+              const mapped = mapAgendaItemRow(newRow);
+              set({
+                meetingAgendaItems: items.map((i) => (i.id === mapped.id ? mapped : i)),
+              });
+            } else if (eventType === "DELETE" && oldRow) {
+              const deletedId = oldRow.id as string;
+              set({
+                meetingAgendaItems: items.filter((i) => i.id !== deletedId),
+                meetingAgendaEntries: (get().meetingAgendaEntries || []).filter(
+                  (e) => e.agendaItemId !== deletedId,
+                ),
+                selectedAgendaItemId:
+                  get().selectedAgendaItemId === deletedId ? null : get().selectedAgendaItemId,
+              });
+            }
+          },
+          onMeetingAgendaEntryChange: (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            const row = newRow || oldRow;
+            if (!agendaEntryBelongsToWorkspace(get(), row)) return;
+
+            const entries = get().meetingAgendaEntries || [];
+            if (eventType === "INSERT" && newRow) {
+              const mapped = mapAgendaEntryRow(newRow);
+              if (entries.some((e) => e.id === mapped.id)) return;
+              set({ meetingAgendaEntries: [...entries, mapped] });
+            } else if (eventType === "UPDATE" && newRow) {
+              const mapped = mapAgendaEntryRow(newRow);
+              set({
+                meetingAgendaEntries: entries.map((e) => (e.id === mapped.id ? mapped : e)),
+              });
+            } else if (eventType === "DELETE" && oldRow) {
+              set({
+                meetingAgendaEntries: entries.filter((e) => e.id !== oldRow.id),
+              });
+            }
+          },
         }, { sharedListIds });
 
         // Store cleanup for later teardown (simple closure capture via state flag)
         (get() as any)._realtimeCleanup = cleanup;
+        (get() as any)._realtimeWsId = wsId;
 
         // Basic presence (track self) + enhanced meta for view/item editing indicators (Agent 14 polish)
-        const presenceChannel = getWorkspacePresenceChannel(wsId);
+        const user = get().user;
+        const presenceChannel = getWorkspacePresenceChannel(wsId, user?.id);
         if (presenceChannel) {
-          const user = get().user;
           presenceChannel
             .on("presence", { event: "sync" }, () => {
               const state = presenceChannel.presenceState();
@@ -6019,7 +6145,9 @@ export const useTaskStore = create<TaskState>()(
               Object.keys(state).forEach((key) => {
                 const presences = state[key] as any[];
                 presences.forEach((p) => {
-                  const userId = p.user_id || key;
+                  // Prefer explicit user_id; ignore shared/legacy "online" keys without user_id
+                  const userId = p.user_id || (key !== "online" ? key : undefined);
+                  if (!userId) return;
                   const existing = userMap.get(userId);
 
                   // Keep the most recent presence per user (prefer ones with editing context)
@@ -6030,6 +6158,8 @@ export const useTaskStore = create<TaskState>()(
                     userMap.set(userId, {
                       userId,
                       email: p.email,
+                      fullName: p.fullName || p.full_name,
+                      username: p.username,
                       presenceRef: key,
                       view: p.currentView,
                       editingItemId: p.editingItemId,
@@ -6041,6 +6171,14 @@ export const useTaskStore = create<TaskState>()(
               });
 
               const users = Array.from(userMap.values());
+              // Skip no-op updates so Team UI does not re-render every heartbeat
+              const prev = get().onlineUsers || [];
+              const sig = (list: typeof users) =>
+                list
+                  .map((u) => `${u.userId}:${u.view ?? ""}:${u.editingItemId ?? ""}`)
+                  .sort()
+                  .join("|");
+              if (sig(prev) === sig(users)) return;
               set({ onlineUsers: users });
             })
             .on("presence", { event: "join" }, ({ key, newPresences }) => {
@@ -6171,14 +6309,19 @@ export const useTaskStore = create<TaskState>()(
                 const st = get();
                 const editingItemId = st.selectedTaskId || st.selectedNoteId || undefined;
                 const editingItemType = st.selectedTaskId ? 'task' : st.selectedNoteId ? 'note' : undefined;
+                const profile = st.myProfile;
                 await presenceChannel.track({
                   user_id: user?.id,
                   email: user?.email,
+                  fullName: profile?.fullName,
+                  username: profile?.username,
                   online_at: new Date().toISOString(),
                   currentView: st.currentView,
                   editingItemId,
                   editingItemType,
-                }, { key: user?.id }); // Use user ID as presence key so multiple tabs from same user are handled better
+                });
+                (get() as any)._lastPresenceTrackAt = Date.now();
+                (get() as any)._lastPresenceTrackSig = `${st.currentView}|${editingItemId ?? ""}|${editingItemType ?? ""}`;
                 // Initial meta refresh available via action
                 get().updatePresenceMeta();
               }
@@ -6199,6 +6342,9 @@ export const useTaskStore = create<TaskState>()(
           cleanup();
           delete (get() as any)._realtimeCleanup;
         }
+        delete (get() as any)._realtimeWsId;
+        delete (get() as any)._lastPresenceTrackAt;
+        delete (get() as any)._lastPresenceTrackSig;
         const pres = (get() as any)._presenceChannel;
         if (pres) {
           // Explicit untrack for instant leave signal (peers see user disappear immediately on ws switch / signout / close)
@@ -6217,17 +6363,41 @@ export const useTaskStore = create<TaskState>()(
         if (!pres || !isSupabaseLive()) return;
         const st = get();
         const user = st.user;
+        const currentView = meta?.view ?? st.currentView;
+        const editingItemId =
+          meta?.editingItemId ?? st.selectedTaskId ?? st.selectedNoteId ?? undefined;
+        const editingItemType =
+          meta?.editingItemType ??
+          (st.selectedTaskId ? "task" : st.selectedNoteId ? "note" : undefined);
+        const sig = `${currentView}|${editingItemId ?? ""}|${editingItemType ?? ""}`;
+        const lastSig = (get() as any)._lastPresenceTrackSig as string | undefined;
+        const lastAt = (get() as any)._lastPresenceTrackAt as number | undefined;
+        // Heartbeat at most every 45s when view/editing unchanged — prevents Team page flicker
+        if (lastSig === sig && lastAt && Date.now() - lastAt < 45_000) {
+          // Still bump last_active_at on a longer throttle while the tab is alive
+          void touchMyLastActiveAt().then((ok) => {
+            if (ok) get().patchMemberLastActive(user?.id);
+          });
+          return;
+        }
+        const profile = st.myProfile;
         const payload: any = {
           user_id: user?.id,
           email: user?.email,
+          fullName: profile?.fullName,
+          username: profile?.username,
           online_at: new Date().toISOString(),
-          currentView: meta?.view ?? st.currentView,
-          editingItemId: meta?.editingItemId ?? st.selectedTaskId ?? st.selectedNoteId ?? undefined,
-          editingItemType:
-            meta?.editingItemType ??
-            (st.selectedTaskId ? 'task' : st.selectedNoteId ? 'note' : undefined),
+          currentView,
+          editingItemId,
+          editingItemType,
         };
-        pres.track(payload, { key: user?.id }).catch(() => {});
+        (get() as any)._lastPresenceTrackSig = sig;
+        (get() as any)._lastPresenceTrackAt = Date.now();
+        pres.track(payload).catch(() => {});
+        // Persist real "last active" for Team directory (profiles.last_active_at)
+        void touchMyLastActiveAt().then((ok) => {
+          if (ok) get().patchMemberLastActive(user?.id);
+        });
       },
 
       // Agent 30: Update cursor/selection position - broadcasts via presence channel for live cursors in editor

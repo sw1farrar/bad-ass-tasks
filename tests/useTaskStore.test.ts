@@ -427,6 +427,16 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
 
       useTaskStore.getState().setTaskFilter({ folderFilter: 'none' });
       expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id)).toEqual(['s2']);
+
+      useTaskStore.setState({
+        tasks: [
+          { id: 's1', status: 'todo', priority: 'P2', title: 'Starred work', workspaceId: 'w1', starred: true, folderId: 'tf-work' } as any,
+          { id: 's2', status: 'todo', priority: 'P2', title: 'Plain', workspaceId: 'w1' } as any,
+          { id: 's3', status: 'todo', priority: 'P2', title: 'Other folder', workspaceId: 'w1', folderId: 'tf-other' } as any,
+        ],
+      });
+      useTaskStore.getState().setTaskFilter({ folderFilter: ['none', 'tf-work'] });
+      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id).sort()).toEqual(['s1', 's2']);
     });
 
     it('toggleTaskStarred + task folders CRUD (demo)', async () => {

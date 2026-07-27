@@ -79,8 +79,8 @@ async function fetchWorkspaceMembers(
 }
 
 /**
- * Notify collaborators on a shared list when someone checks off an item.
- * Only runs for lists with active cross-workspace shares. Excludes the actor.
+ * Notify workspace teammates (and any active cross-workspace list share collaborators)
+ * when someone checks off a list item. Excludes the actor.
  * Safe to call fire-and-forget (.catch(() => {})).
  */
 export async function fanoutListItemCompletedNotifications(
@@ -95,6 +95,9 @@ export async function fanoutListItemCompletedNotifications(
   if (!supabase) return;
 
   try {
+    // Always include the source workspace; also include linked workspaces when the list is shared.
+    const linkedWorkspaceIds = new Set<string>([workspaceId]);
+
     const { data: shares, error: sharesError } = await supabase
       .from("workspace_list_shares")
       .select("source_workspace_id, target_workspace_id")
@@ -102,20 +105,17 @@ export async function fanoutListItemCompletedNotifications(
       .is("revoked_at", null);
 
     if (sharesError) {
+      // Shares table may be unavailable — still notify source workspace members.
       logError("fanoutListItemCompleted:shares", sharesError);
-      return;
-    }
-
-    const shareRows = (shares ?? []) as Array<{
-      source_workspace_id: string;
-      target_workspace_id: string;
-    }>;
-    if (shareRows.length === 0) return;
-
-    const linkedWorkspaceIds = new Set<string>([workspaceId]);
-    for (const share of shareRows) {
-      if (share.source_workspace_id) linkedWorkspaceIds.add(share.source_workspace_id);
-      if (share.target_workspace_id) linkedWorkspaceIds.add(share.target_workspace_id);
+    } else {
+      const shareRows = (shares ?? []) as Array<{
+        source_workspace_id: string;
+        target_workspace_id: string;
+      }>;
+      for (const share of shareRows) {
+        if (share.source_workspace_id) linkedWorkspaceIds.add(share.source_workspace_id);
+        if (share.target_workspace_id) linkedWorkspaceIds.add(share.target_workspace_id);
+      }
     }
 
     const memberResults = await Promise.all(
@@ -126,11 +126,17 @@ export async function fanoutListItemCompletedNotifications(
     );
 
     const allMembers: MemberProfileRow[] = [];
-    /** First linked workspace each recipient belongs to (for inbox scoping). */
+    /** Prefer source workspace for inbox scoping when the recipient is a member there. */
     const recipientWorkspace = new Map<string, string>();
     const recipientProfile = new Map<string, MemberProfileRow>();
 
-    for (const { workspaceId: wsId, members } of memberResults) {
+    // Process source workspace first so teammates land in the completing workspace inbox.
+    const ordered = [
+      ...memberResults.filter((r) => r.workspaceId === workspaceId),
+      ...memberResults.filter((r) => r.workspaceId !== workspaceId),
+    ];
+
+    for (const { workspaceId: wsId, members } of ordered) {
       for (const member of members) {
         if (!member.user_id) continue;
         allMembers.push(member);
@@ -147,7 +153,7 @@ export async function fanoutListItemCompletedNotifications(
 
     const actorName = resolveActorName(actorUserId, allMembers);
     const itemLabel = truncateLabel(params.itemText || "an item");
-    const listLabel = truncateLabel(params.listTitle || "shared list");
+    const listLabel = truncateLabel(params.listTitle || "list");
     const completedAt = params.completedAt?.trim() || new Date().toISOString();
 
     const title = "List item completed";

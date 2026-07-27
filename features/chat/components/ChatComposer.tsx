@@ -17,7 +17,7 @@ export function ChatComposer({
   onSend,
   isSending = false,
   disabled = false,
-  placeholder = "Message the team…",
+  placeholder = "Write a message…",
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);

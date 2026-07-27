@@ -68,11 +68,10 @@ export function buildNextMeetingTitle(
 ): string {
   const base =
     previous.title.replace(/\s*[-—]\s*[^-—]+,\s*\d{4}.*$/, "").trim() || previous.title;
-  if (scheduledAt === null) {
+  if (!scheduledAt) {
     return `${base} — Next`;
   }
-  const dateSource = scheduledAt ? new Date(scheduledAt) : new Date();
-  const date = dateSource.toLocaleDateString(undefined, {
+  const date = new Date(scheduledAt).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",

@@ -617,7 +617,11 @@ export function createMeetingSliceActions(get: Get, set: Set) {
 
     startNextMeeting: async (
       previousMeetingId: string,
-      options: CarryOverOptions & { scheduledAt?: string | null } = DEFAULT_CARRY_OVER_OPTIONS,
+      options: CarryOverOptions & {
+        scheduledAt?: string | null;
+        /** Optional custom title; defaults to buildNextMeetingTitle(previous, scheduledAt). */
+        title?: string | null;
+      } = DEFAULT_CARRY_OVER_OPTIONS,
     ) => {
       if (startNextInFlight.has(previousMeetingId)) {
         throw new Error("Next meeting is already being created");
@@ -631,12 +635,12 @@ export function createMeetingSliceActions(get: Get, set: Set) {
         }
         const prevItems = get().meetingAgendaItems.filter((i) => i.meetingId === previousMeetingId);
         const sourceItems = sortAgendaItems(getCarryOverSourceItems(prevItems, options));
-        const scheduledAt =
-          options.scheduledAt === undefined
-            ? new Date().toISOString()
-            : options.scheduledAt;
+        // Prefer explicit null (undated) over inventing "today" when callers omit the field.
+        const scheduledAt = options.scheduledAt === undefined ? null : options.scheduledAt;
+        const title =
+          options.title?.trim() || buildNextMeetingTitle(previous, scheduledAt);
         const { meeting, agendaItems: templateItems } = await actions.addMeeting({
-          title: buildNextMeetingTitle(previous, scheduledAt),
+          title,
           scheduledAt,
           previousMeetingId: previous.id,
           attendeeIds: [...previous.attendeeIds],
@@ -675,6 +679,10 @@ export function createMeetingSliceActions(get: Get, set: Set) {
               }
             }
           }
+        }
+        // Completing → next meeting: archive the finished meeting so the library stays focused.
+        if (!previous.archived) {
+          await actions.updateMeeting(previousMeetingId, { archived: true });
         }
         return { meeting, agendaItems: [...templateItems, ...carryItems] };
       } finally {

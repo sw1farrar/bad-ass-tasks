@@ -301,6 +301,26 @@
   box-shadow: var(--card-shadow) !important;
 }
 
+[data-theme="light"] .notifications-panel .notifications-panel__header,
+[data-theme="light"] .notifications-panel .notifications-panel__footer {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .notifications-panel .notifications-panel__item {
+  background: #ffffff;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .notifications-panel .notifications-panel__item:hover {
+  background: #f8fafc !important;
+}
+
+[data-theme="light"] .notifications-panel .notifications-panel__item.border-neon-purple\/35 {
+  background: rgba(124, 58, 237, 0.06) !important;
+  border-color: rgba(124, 58, 237, 0.28) !important;
+}
+
 [data-theme="light"] .modal-panel:not(.list-detail-modal),
 [data-theme="light"] .modal-shell {
   background: #ffffff;

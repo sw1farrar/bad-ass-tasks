@@ -6,6 +6,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { 
   Search, Plus, CheckSquare, FileText, ListChecks, Users, Settings,
   ArrowRight, Briefcase, FilePlus, Hash, Filter, Download, FolderOpen, Notebook, HeartPulse, Calendar,
+  MessageCircle,
 } from "lucide-react";
 import { getBottomNavViews } from "@/lib/nav/workspaceViews";
 import { searchNotesLocal } from "@/lib/files/searchNotesLocal";
@@ -47,6 +48,7 @@ export function CommandPalette({ open, onOpenChange, onOpenTask }: CommandPalett
     setFilesSelectNoteId,
     setFilesCaptureOpen,
     setSelectedNoteId,
+    members,
   } = useTaskStore();
 
   const runCommand = (action: () => void | Promise<void>) => {
@@ -357,7 +359,9 @@ export function CommandPalette({ open, onOpenChange, onOpenTask }: CommandPalett
 
             {/* Navigation - all views + current indicator */}
             <Command.Group heading="Navigate Views" className="px-2 py-1.5 text-[10px] font-semibold tracking-widest text-text-muted uppercase mt-2">
-              {getBottomNavViews(currentWorkspace)
+              {getBottomNavViews(currentWorkspace, {
+                showChat: (members?.length ?? 0) > 1,
+              })
                 .filter((v) => v.id !== "home")
                 .map((v, index) => ({
                   label: v.id === "notes" ? "Files" : v.label,
@@ -373,6 +377,8 @@ export function CommandPalette({ open, onOpenChange, onOpenTask }: CommandPalett
                             ? Calendar
                           : v.id === "lists"
                             ? ListChecks
+                            : v.id === "chat"
+                              ? MessageCircle
                             : v.id === "health"
                               ? HeartPulse
                             : v.id === "teams"

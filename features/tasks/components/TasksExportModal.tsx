@@ -12,6 +12,7 @@ import { isSharedWorkspace } from "@/lib/assignee";
 import { useTaskStore } from "@/store/useTaskStore";
 import { TasksStatusFilter } from "./TasksStatusFilter";
 import { TasksRecurrenceFilter } from "./TasksRecurrenceFilter";
+import { TasksFolderFilterPicker } from "./TasksFolderFilterPicker";
 import {
   buildTasksExportRows,
   createDefaultTasksExportFilters,
@@ -138,33 +139,12 @@ function ExportBody({
               />
               Important
             </button>
-            <button
-              type="button"
-              onClick={() => onChange({ folderFilter: "all" })}
-              aria-pressed={filters.folderFilter === "all"}
-              className={folderChipClass(filters.folderFilter === "all")}
-            >
-              All folders
-            </button>
-            <button
-              type="button"
-              onClick={() => onChange({ folderFilter: "none" })}
-              aria-pressed={filters.folderFilter === "none"}
-              className={folderChipClass(filters.folderFilter === "none")}
-            >
-              Unfiled
-            </button>
-            {folders.map((folder) => (
-              <button
-                key={folder.id}
-                type="button"
-                onClick={() => onChange({ folderFilter: folder.id })}
-                aria-pressed={filters.folderFilter === folder.id}
-                className={folderChipClass(filters.folderFilter === folder.id)}
-              >
-                {folder.name}
-              </button>
-            ))}
+            <TasksFolderFilterPicker
+              folders={folders}
+              value={filters.folderFilter}
+              onChange={(folderFilter) => onChange({ folderFilter })}
+              compact={false}
+            />
           </div>
         </div>
       </div>

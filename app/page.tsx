@@ -19,7 +19,7 @@ import {
   X,
   Bell,
   Home,
-  MessageCircle,
+
   Zap,
   Repeat,
   FolderOpen,
@@ -117,7 +117,7 @@ import {
   getPendingListShareNotifications,
   isBellUnread,
 } from "@/lib/notifications/notificationSelectors";
-import { WorkspaceChatPanel, ChatDrawer, useWorkspaceChat } from "@/features/chat";
+import { ChatView, useChatUnreadBadge } from "@/features/chat";
 import { WorkspaceSettingsView } from "@/features/settings";
 import { TransferOwnershipControl } from "@/features/workspace/TransferOwnershipControl";
 import {
@@ -125,8 +125,12 @@ import {
   TeamCollaborationPanel,
   TeamMemberDirectory,
 } from "@/features/teams/components";
+import { buildMemberOnlineUserIds } from "@/features/teams/lib/memberOnlineIds";
 import { BottomSheet } from "@/components/BottomSheet";
-import { NotificationDetailModal } from "@/features/notifications";
+import {
+  NotificationDetailModal,
+  NotificationsPanel,
+} from "@/features/notifications";
 import { TasksTable } from "@/features/tasks/components/TasksTable";
 import {
   type TasksStatusFilterMode,
@@ -136,6 +140,10 @@ import {
 } from "@/features/tasks/components/TasksRecurrenceFilter";
 import { TasksOrganizeBar } from "@/features/tasks/components/TasksOrganizeBar";
 import { TasksMobileOrganizeDisclosure } from "@/features/tasks/components/TasksMobileOrganizeDisclosure";
+import {
+  isFolderFilterActive,
+  normalizeFolderFilter,
+} from "@/features/tasks/lib/folderFilter";
 import {
   findWorkspaceByRef,
   getPreferredWorkspaceRefFromUrl,
@@ -376,8 +384,6 @@ export default function BadAssTasks() {
     upsertHealthProfile,
   } = useTaskStore();
 
-  const bottomNavViews = useMemo(() => getBottomNavViews(currentWorkspace), [currentWorkspace]);
-
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
   // This replaces the previous fragile direct-query + undefined-supabase pattern. Since fetchNotifications
   // now pulls ALL notifs for the user (cross-ws) and auto-runs on login/ws init, the banner + bell
@@ -404,47 +410,34 @@ export default function BadAssTasks() {
   const isSingleOwnerWorkspace =
     myRole === "owner" && members.length <= 1 && isLiveWorkspace && !isDemoWs;
   const showWorkspaceChat = isSharedWorkspace(members);
-
-  const [chatOpen, setChatOpen] = useState(false);
-  const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
-  const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
-
-  const workspaceChat = useWorkspaceChat({
+  const chatNavUnread = useChatUnreadBadge({
     workspaceId: currentWorkspace.id,
     userId: user?.id,
     members,
-    isOpen: chatOpen,
+    enabled: showWorkspaceChat,
+    suppress: currentView === "chat",
   });
-  const markChatReadRef = useRef(workspaceChat.markRead);
-  markChatReadRef.current = workspaceChat.markRead;
-  const chatOpenRef = useRef(chatOpen);
-  chatOpenRef.current = chatOpen;
+  const bottomNavViews = useMemo(
+    () => getBottomNavViews(currentWorkspace, { showChat: showWorkspaceChat }),
+    [currentWorkspace, showWorkspaceChat],
+  );
 
-  const closeChat = useCallback(() => {
-    markChatReadRef.current();
-    clearWorkspaceUnreadChat(currentWorkspace.id);
-    setChatOpen(false);
-  }, [clearWorkspaceUnreadChat, currentWorkspace.id]);
+  const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
+  const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
 
-  const toggleChat = () => {
-    triggerHaptic("light");
-    if (chatOpen) {
-      closeChat();
-      return;
-    }
-    setShowNotifications(false);
-    setShowProfilePopover(false);
-    setChatOpen(true);
-  };
-
-  // Messages panel collapsed by default; close when switching workspace or chat unavailable.
+  // Leave chat view when workspace is no longer multi-member
   useEffect(() => {
-    if (chatOpenRef.current) {
-      markChatReadRef.current();
+    if (!showWorkspaceChat && currentView === "chat") {
+      setView("home");
+    }
+  }, [showWorkspaceChat, currentView, setView]);
+
+  // Clear home tile chat pulse when user is viewing Chat
+  useEffect(() => {
+    if (currentView === "chat" && showWorkspaceChat) {
       clearWorkspaceUnreadChat(currentWorkspace.id);
     }
-    setChatOpen(false);
-  }, [currentWorkspace.id, showWorkspaceChat, clearWorkspaceUnreadChat]);
+  }, [currentView, showWorkspaceChat, currentWorkspace.id, clearWorkspaceUnreadChat]);
 
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -554,7 +547,7 @@ export default function BadAssTasks() {
   };
 
   const bellPanelNotifications = useMemo(
-    () => getBellPanelNotifications(notifications || [], 20),
+    () => getBellPanelNotifications(notifications || [], 30),
     [notifications]
   );
 
@@ -1067,7 +1060,9 @@ export default function BadAssTasks() {
         : rawView === "files"
           ? "notes"
           : rawView;
-    const validViews = getBottomNavViews(currentWorkspace).map((v) => v.id);
+    const validViews = getBottomNavViews(currentWorkspace, {
+      showChat: isSharedWorkspace(members),
+    }).map((v) => v.id);
     if (
       urlView &&
       validViews.includes(urlView as (typeof validViews)[number]) &&
@@ -1910,7 +1905,7 @@ export default function BadAssTasks() {
         taskStatusFilterMode !== "incomplete" ||
         taskRecurrenceFilterMode !== "all" ||
         taskStarredFilterMode !== "all" ||
-        taskFolderFilterMode !== "all"
+        isFolderFilterActive(taskFolderFilterMode)
     ) ||
     // Incomplete (default) can hide every row when all tasks are done — don't lie with "No tasks yet."
     (filteredTasks.length === 0 && workspaceTaskCount > 0);
@@ -1946,7 +1941,11 @@ export default function BadAssTasks() {
             onRenameFolder={(id, name) => updateTaskFolder(id, { name })}
             onDeleteFolder={async (id) => {
               await deleteTaskFolder(id);
-              if (taskFolderFilterMode === id) setTaskFilter({ folderFilter: "all" });
+              const selected = normalizeFolderFilter(taskFolderFilterMode);
+              if (selected.includes(id)) {
+                const next = selected.filter((token) => token !== id);
+                setTaskFilter({ folderFilter: next.length ? next : "all" });
+              }
             }}
             statusFilter={taskStatusFilterMode}
             onStatusFilterChange={(mode) => setTaskFilter({ statusMode: mode })}
@@ -1972,7 +1971,11 @@ export default function BadAssTasks() {
           onRenameFolder={(id, name) => updateTaskFolder(id, { name })}
           onDeleteFolder={async (id) => {
             await deleteTaskFolder(id);
-            if (taskFolderFilterMode === id) setTaskFilter({ folderFilter: "all" });
+            const selected = normalizeFolderFilter(taskFolderFilterMode);
+            if (selected.includes(id)) {
+              const next = selected.filter((token) => token !== id);
+              setTaskFilter({ folderFilter: next.length ? next : "all" });
+            }
           }}
         />
 
@@ -2195,17 +2198,23 @@ export default function BadAssTasks() {
     fetchNotifications,
   ]);
 
-  // Patch the home pulse directly — do not refetch aggregates (that raced mark-as-read).
+  // Home tile chat pulse mirrors nav unread when not on Chat page
   useEffect(() => {
-    if (!currentWorkspace.id) return;
-    if (workspaceChat.hasUnread) {
+    if (!currentWorkspace.id || !showWorkspaceChat) return;
+    if (currentView === "chat") {
+      clearWorkspaceUnreadChat(currentWorkspace.id);
+      return;
+    }
+    if (chatNavUnread) {
       setWorkspaceUnreadChat(currentWorkspace.id, true);
     } else {
       clearWorkspaceUnreadChat(currentWorkspace.id);
     }
   }, [
-    workspaceChat.hasUnread,
+    chatNavUnread,
+    currentView,
     currentWorkspace.id,
+    showWorkspaceChat,
     setWorkspaceUnreadChat,
     clearWorkspaceUnreadChat,
   ]);
@@ -2284,7 +2293,10 @@ export default function BadAssTasks() {
         unreadNotifications: countWorkspaceBadgeUnread(notifications || [], ws.id),
         unreadChat: stats?.unreadChat ?? false,
         isCurrent: currentWorkspace.id === ws.id,
-        onlineCount: currentWorkspace.id === ws.id ? (onlineUsers || []).length : undefined,
+        onlineCount:
+          currentWorkspace.id === ws.id
+            ? buildMemberOnlineUserIds(onlineUsers || [], members, user?.id).size
+            : undefined,
         listCount: stats?.listCount ?? 0,
         openListItemsCount: stats?.openListItemsCount ?? 0,
         noteCount: stats?.noteCount ?? 0,
@@ -3061,9 +3073,12 @@ export default function BadAssTasks() {
       );
     }
 
-    const teamOnlineUserIds = new Set(
-      (onlineUsers || []).map((u) => u.userId).filter((id): id is string => !!id)
+    const teamOnlineUserIds = buildMemberOnlineUserIds(
+      onlineUsers || [],
+      members,
+      user?.id,
     );
+    const teamOnlineCount = teamOnlineUserIds.size;
 
     return (
       <div className="teams-root">
@@ -3074,7 +3089,7 @@ export default function BadAssTasks() {
               title="Team"
               workspaceName={currentWorkspace.name}
               icon={<Users className="h-6 w-6" />}
-              meta={`${members.length} member${members.length === 1 ? "" : "s"}${onlineUsers.length > 0 ? ` · ${onlineUsers.length} online` : ""}`}
+              meta={`${members.length} member${members.length === 1 ? "" : "s"}${teamOnlineCount > 0 ? ` · ${teamOnlineCount} online` : ""}`}
               hideWorkspaceLabelOnMobile
               hideWorkspaceNameOnMobile
               hideMetaOnMobile
@@ -3098,6 +3113,7 @@ export default function BadAssTasks() {
             onlineUserIds={teamOnlineUserIds}
             currentUserId={user?.id}
             isLoading={isLoadingMembers}
+            recentActivity={recentActivity}
             renderMemberActions={(m, isSelf) => {
               const canActOnThis = canManage && !isSelf;
               if (canActOnThis) {
@@ -3168,10 +3184,10 @@ export default function BadAssTasks() {
             members={members}
             recentActivity={recentActivity}
             currentUserId={user?.id}
-            onlineCount={onlineUsers.length}
+            onlineCount={teamOnlineCount}
             onOpenTasks={() => setView("tasks")}
             onOpenHome={() => setView("home")}
-            onOpenChat={() => setChatOpen(true)}
+            onOpenChat={() => setView("chat")}
           />
 
           {/* Pending Invites (owner/admin only) */}
@@ -3472,6 +3488,17 @@ export default function BadAssTasks() {
         );
       case "lists":
         return renderListsView();
+      case "chat":
+        return showWorkspaceChat ? (
+          <ChatView
+            workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
+            userId={user?.id}
+            members={members}
+          />
+        ) : (
+          renderHomeView()
+        );
       case "health":
         return (
           <HealthView
@@ -3778,187 +3805,41 @@ export default function BadAssTasks() {
               </button>
               <AnimatePresence>
                 {showNotifications && (
-                  <>
-                    <motion.div
-                      key="notifications-backdrop"
-                      className="fixed inset-0 z-[255] overlay-scrim md:bg-surface-elevated"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.15 }}
-                      onClick={() => setShowNotifications(false)}
-                      aria-hidden
+                  <motion.div
+                    key="notifications-panel"
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="notifications-panel-shell z-[260] md:absolute md:right-0 md:top-12 md:left-auto md:w-[min(28rem,calc(100vw-1.5rem))] md:max-h-[min(36rem,calc(100dvh-5rem))]"
+                  >
+                    <NotificationsPanel
+                      notifications={notifications || []}
+                      visibleNotifications={bellPanelNotifications}
+                      unreadCount={unreadNotifCount}
+                      overflowCount={bellUnreadOverflow}
+                      isLoading={isLoadingNotifications}
+                      isUnread={isBellUnread}
+                      onClose={() => setShowNotifications(false)}
+                      onSelect={(n) => {
+                        if (isBellUnread(n)) markNotifRead?.(n.id);
+                        setSelectedNotification(n);
+                        setShowNotifications(false);
+                      }}
+                      onMarkAllRead={() => markAllNotifsRead?.()}
+                      onClearAll={() => setPendingClearNotifications(true)}
+                      onDismiss={(id) => void handleDismissNotification(id)}
+                      onAcceptListShare={(shareId, link) =>
+                        handleHomeAcceptListShare(shareId, link)
+                      }
+                      onDeclineListShare={(shareId) =>
+                        void handleHomeDeclineListShare(shareId)
+                      }
                     />
-                    <motion.div
-                      key="notifications-panel"
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="notifications-panel md:!absolute md:!right-0 md:!top-12 md:!left-auto md:!w-80 md:max-w-[min(20rem,calc(100vw-2rem))] md:glass-strong md:rounded-2xl md:border md:border-border-glass md:shadow-2xl z-[260] overflow-hidden bg-bg-secondary"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="notifications-panel__header px-4 py-3 border-b border-border-glass flex items-center justify-between bg-bg">
-                        <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
-                          <Bell className="h-4 w-4" /> Notifications
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {unreadNotifCount > 0 && (
-                            <button
-                              onClick={() => markAllNotifsRead?.()}
-                              className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-neon-purple"
-                            >
-                              Mark all read
-                            </button>
-                          )}
-                          {notifications.length > 0 && (
-                            <button
-                              onClick={() => setPendingClearNotifications(true)}
-                              className="text-[10px] px-2 py-0.5 rounded bg-surface-elevated hover:bg-surface-elevated text-red-400 hover:text-red-500"
-                            >
-                              Clear all
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setShowNotifications(false)}
-                            className="text-xs font-semibold px-2.5 py-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition shrink-0"
-                          >
-                            Close
-                          </button>
-                        </div>
-                      </div>
-                      <div className="notifications-panel__list max-h-[320px] overflow-auto p-1 text-sm">
-                        {isLoadingNotifications ? (
-                          <div className="p-4 text-center text-text-muted text-xs">LoadingΓÇª</div>
-                        ) : notifications.length === 0 ? (
-                          <div className="p-6 text-center text-text-muted text-xs">
-                            All clear. No notifications yet.
-                            <br />
-                            @mentions, comments &amp; invites will appear here.
-                          </div>
-                        ) : (
-                          bellPanelNotifications.map((n: Notification) => (
-                            <div
-                              key={n.id}
-                              onClick={() => {
-                                if (isBellUnread(n)) markNotifRead?.(n.id);
-                                setSelectedNotification(n);
-                                setShowNotifications(false);
-                              }}
-                              className={cn(
-                                "px-3 py-2.5 rounded-xl m-1 cursor-pointer border border-border-glass bg-bg-panel hover:bg-bg-tertiary flex gap-2 transition-colors",
-                                isBellUnread(n) && "bg-neon-purple/10 border-neon-purple/30"
-                              )}
-                            >
-                              <div className="mt-0.5 text-neon-purple/80 shrink-0">
-                                {n.type === "mention" && <Zap className="h-3.5 w-3.5" />}
-                                {n.type === "comment" && <Star className="h-3.5 w-3.5" />}
-                                {n.type === "invite" && <Users className="h-3.5 w-3.5" />}
-                                {n.type === "list_share" && <ListChecks className="h-3.5 w-3.5" />}
-                                {n.type === "task_assigned" && <Check className="h-3.5 w-3.5" />}
-                                {n.type === "deadline" && <Clock className="h-3.5 w-3.5" />}
-                                {n.type === "activity" && <Zap className="h-3.5 w-3.5" />}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="font-medium text-xs truncate">{n.title}</div>
-                                <div className="text-[11px] text-text-secondary line-clamp-2">
-                                  {n.message}
-                                </div>
-                                {n.type === "list_share" && !n.readAt && (
-                                  <div className="flex gap-1.5 mt-2">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const shareId = n.metadata?.list_share_id as
-                                          | string
-                                          | undefined;
-                                        if (shareId) handleHomeAcceptListShare(shareId, n.link);
-                                      }}
-                                      className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-neon-purple/20 text-neon-purple hover:bg-neon-purple/30"
-                                    >
-                                      Accept
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const shareId = n.metadata?.list_share_id as
-                                          | string
-                                          | undefined;
-                                        if (shareId) void handleHomeDeclineListShare(shareId);
-                                      }}
-                                      className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-border-glass text-text-secondary hover:bg-surface-hover"
-                                    >
-                                      Decline
-                                    </button>
-                                  </div>
-                                )}
-                                <div className="text-[9px] text-text-muted mt-0.5">
-                                  {new Date(n.createdAt).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </div>
-                              </div>
-                              {isBellUnread(n) && (
-                                <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-neon-purple shrink-0" />
-                              )}
-                              {n.type !== "invite" && n.type !== "list_share" && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleDismissNotification(n.id);
-                                  }}
-                                  className="ml-1 p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover"
-                                  aria-label="Remove notification"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      <div className="notifications-panel__footer p-2 border-t border-border-glass bg-bg text-[10px] text-center text-text-muted">
-                        {bellUnreadOverflow > 0
-                          ? `+${bellUnreadOverflow} more unread not shown`
-                          : "Timely • Non-intrusive • Powered by activity logs"}
-                      </div>
-                    </motion.div>
-                  </>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </div>
-
-            {showWorkspaceChat && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowNotifications(false);
-                  setShowProfilePopover(false);
-                  toggleChat();
-                }}
-                className={cn(
-                  "relative flex items-center justify-center h-11 w-11 min-h-[44px] min-w-[44px] rounded-full md:rounded-xl border transition",
-                  chatOpen
-                    ? "border-neon-purple/50 bg-neon-purple/10 text-neon-purple"
-                    : "border-border-glass text-text-secondary hover:text-text-primary hover:border-neon-purple/40 hover:bg-surface-hover"
-                )}
-                title="Messages"
-                aria-label={chatOpen ? "Collapse messages" : "Open messages"}
-                aria-expanded={chatOpen}
-              >
-                <MessageCircle className="h-4 w-4" />
-                {workspaceChat.hasUnread && !chatOpen && (
-                  <span
-                    className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--priority-p0)] ring-2 ring-bg"
-                    aria-label="Unread messages"
-                  />
-                )}
-              </button>
-            )}
 
             {/* Polished Auth + User Area (Phase 1 UX track) */}
             <div ref={profilePopoverRef} className="relative">
@@ -4138,6 +4019,7 @@ export default function BadAssTasks() {
               | "notebooks"
               | "meetings"
               | "lists"
+              | "chat"
               | "health"
               | "teams"
               | "settings"
@@ -4149,12 +4031,15 @@ export default function BadAssTasks() {
           overdueTaskCount={currentWorkspaceTaskCounts.overdueCount}
           reviewCount={pendingReviewCount}
           isSiteAdmin={!!(isSiteAdmin && user)}
+          showChat={showWorkspaceChat}
+          chatUnread={chatNavUnread && currentView !== "chat"}
         />
 
         {/* Main Content — mobile gets extra pb via .main-content + globals.css for bottom nav. a11y: main landmark */}
         <main
           className={cn(
             "main-content relative flex-1 overflow-auto p-6 lg:p-8",
+            currentView === "chat" && "main-content--chat !p-0 lg:!p-0 overflow-hidden flex flex-col",
             pwaStandalone && isMobileViewport && "main-content--pwa-standalone"
           )}
         >
@@ -4342,33 +4227,6 @@ export default function BadAssTasks() {
 
           {currentViewComponent()}
         </main>
-
-        {showWorkspaceChat && (
-          <motion.aside
-            className={cn(
-              "workspace-chat-aside hidden xl:flex flex-col bg-bg min-h-0 overflow-hidden shrink-0",
-              chatOpen && "border-l border-border-glass"
-            )}
-            initial={false}
-            animate={{
-              width: chatOpen ? 320 : 0,
-              opacity: chatOpen ? 1 : 0,
-            }}
-            transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
-            aria-hidden={!chatOpen}
-          >
-            <div className="workspace-chat-panel-inner w-80 h-full p-4 flex flex-col min-h-0">
-              <WorkspaceChatPanel
-                workspaceId={currentWorkspace.id}
-                workspaceName={currentWorkspace.name}
-                userId={user?.id}
-                members={members}
-                chat={workspaceChat}
-                onCollapse={closeChat}
-              />
-            </div>
-          </motion.aside>
-        )}
       </div>
 
       {/* Mobile Bottom Navigation — native iOS/Android style, only <md via CSS + md:hidden
@@ -4428,6 +4286,12 @@ export default function BadAssTasks() {
                   {v.id === "notes" && (
                     <FilesNavIndicator reviewCount={pendingReviewCount} variant="bottom" />
                   )}
+                  {v.id === "chat" && chatNavUnread && currentView !== "chat" && (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--priority-p0)] ring-2 ring-bg"
+                      aria-label="Unread messages"
+                    />
+                  )}
                 </span>
                 <span className="bottom-nav-item__label font-medium tracking-tight">{label}</span>
               </AnimatedBottomNavItemContent>
@@ -4435,18 +4299,6 @@ export default function BadAssTasks() {
           );
         })}
       </nav>
-
-      {showWorkspaceChat && (
-        <ChatDrawer
-          open={chatOpen}
-          onClose={closeChat}
-          chat={workspaceChat}
-          workspaceId={currentWorkspace.id}
-          workspaceName={currentWorkspace.name}
-          userId={user?.id}
-          members={members}
-        />
-      )}
 
       {/* Command Palette */}
       <CommandPalette
