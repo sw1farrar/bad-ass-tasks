@@ -650,6 +650,12 @@ export function nextSortOrderAmongSiblings(
 export type InsertAfterListItemPlacement = {
   parentItemId: string | null;
   sortOrder: number;
+  /**
+   * When the sibling gap is too tight for a unique midpoint, existing siblings
+   * are reindexed to `index * 1000` (new item order is also in that series).
+   * Keys are existing item ids only — the new row is not included.
+   */
+  siblingSortOrders?: Map<string, number>;
 };
 
 /** Place a new sibling directly after an existing item (same parent). */
@@ -678,11 +684,28 @@ export function sortOrderForInsertAfter(
   }
 
   const gap = next.sortOrder - after.sortOrder;
-  if (gap <= 1) {
-    return { parentItemId, sortOrder: after.sortOrder + 1 };
+  if (gap > 1) {
+    return {
+      parentItemId,
+      sortOrder: Math.floor((after.sortOrder + next.sortOrder) / 2),
+    };
   }
 
-  return { parentItemId, sortOrder: Math.floor((after.sortOrder + next.sortOrder) / 2) };
+  // No unique integer between after and next — rebalance the whole sibling group
+  // with a slot for the new item immediately after `after`.
+  const siblingSortOrders = new Map<string, number>();
+  let newSortOrder = 0;
+  let orderIndex = 0;
+  for (let i = 0; i < siblings.length; i++) {
+    siblingSortOrders.set(siblings[i].id, orderIndex * 1000);
+    orderIndex += 1;
+    if (i === index) {
+      newSortOrder = orderIndex * 1000;
+      orderIndex += 1;
+    }
+  }
+
+  return { parentItemId, sortOrder: newSortOrder, siblingSortOrders };
 }
 
 export type MoveListSubtreeUpdate = {

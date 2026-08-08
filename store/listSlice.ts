@@ -342,13 +342,16 @@ export function createListSliceActions(get: Get, set: Set) {
 
       let parentItemId = options?.parentItemId ?? null;
       let sortOrder = firstSortOrderAmongSiblings(allItems, listId, parentItemId);
+      let siblingSortOrders: Map<string, number> | undefined;
 
       if (options?.afterItemId) {
         const placement = sortOrderForInsertAfter(allItems, options.afterItemId);
-        if (placement) {
-          parentItemId = placement.parentItemId;
-          sortOrder = placement.sortOrder;
-        }
+        // Fail closed: never create an empty top-level item when insert-after is requested
+        // but the anchor is missing / not placeable.
+        if (!placement) return null;
+        parentItemId = placement.parentItemId;
+        sortOrder = placement.sortOrder;
+        siblingSortOrders = placement.siblingSortOrders;
       }
 
       const item: ListItem = {
@@ -363,7 +366,13 @@ export function createListSliceActions(get: Get, set: Set) {
         updatedAt: now,
       };
       set((state) => ({
-        listItems: [...state.listItems, item],
+        listItems: [
+          ...state.listItems.map((row) => {
+            if (!siblingSortOrders?.has(row.id)) return row;
+            return { ...row, sortOrder: siblingSortOrders.get(row.id)!, updatedAt: now };
+          }),
+          item,
+        ],
         workspaceLists: state.workspaceLists.map((l) =>
           l.id === listId ? { ...l, updatedAt: now } : l
         ),
@@ -378,6 +387,15 @@ export function createListSliceActions(get: Get, set: Set) {
           sortOrder: item.sortOrder,
           parentItemId: item.parentItemId,
         });
+        if (siblingSortOrders) {
+          for (const [itemId, nextSort] of siblingSortOrders) {
+            const existing = allItems.find((row) => row.id === itemId);
+            if (!existing || existing.sortOrder === nextSort) continue;
+            void updateListItemSupabase(normalizeListEntityId(itemId), workspaceId, {
+              sortOrder: nextSort,
+            });
+          }
+        }
       }
       return item;
     },

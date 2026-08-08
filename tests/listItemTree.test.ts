@@ -122,6 +122,26 @@ describe("sortOrderForInsertAfter", () => {
     const placement = sortOrderForInsertAfter(items, "b");
     expect(placement).toEqual({ parentItemId: null, sortOrder: 2000 });
   });
+
+  it("keeps the same parent for nested siblings", () => {
+    const items = [item("a", 0), item("b", 0, "a"), item("c", 1000, "a")];
+    const placement = sortOrderForInsertAfter(items, "b");
+    expect(placement).toEqual({ parentItemId: "a", sortOrder: 500 });
+  });
+
+  it("returns null when the after item is missing", () => {
+    expect(sortOrderForInsertAfter([item("a", 0)], "missing")).toBeNull();
+  });
+
+  it("rebalances sibling sort orders when the gap is too tight", () => {
+    const items = [item("a", 0), item("b", 1), item("c", 2)];
+    const placement = sortOrderForInsertAfter(items, "a");
+    expect(placement?.parentItemId).toBeNull();
+    expect(placement?.sortOrder).toBe(1000);
+    expect(placement?.siblingSortOrders?.get("a")).toBe(0);
+    expect(placement?.siblingSortOrders?.get("b")).toBe(2000);
+    expect(placement?.siblingSortOrders?.get("c")).toBe(3000);
+  });
 });
 
 describe("indent/outdent", () => {

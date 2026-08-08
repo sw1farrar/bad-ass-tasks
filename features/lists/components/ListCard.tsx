@@ -425,19 +425,47 @@ export function ListCardBody({
     }
   };
 
+  const insertBelowInFlightRef = useRef(false);
+
   const handleInsertBelow = async (afterItemId: string) => {
-    const result = await onAddItem(list.id, "", { afterItemId });
-    const newId = typeof result === "string" ? result : null;
-    if (newId) setFocusItemId(newId);
+    if (insertBelowInFlightRef.current) return;
+    insertBelowInFlightRef.current = true;
+    try {
+      const result = await onAddItem(list.id, "", { afterItemId });
+      const newId =
+        typeof result === "string"
+          ? result
+          : result && typeof result === "object" && "id" in result
+            ? String((result as { id: string }).id)
+            : null;
+      if (newId) {
+        setActiveRowId(newId);
+        setFocusItemId(newId);
+      }
+    } finally {
+      // Keep the lock through the focus handoff so rapid Enter can't stack blanks.
+      requestAnimationFrame(() => {
+        insertBelowInFlightRef.current = false;
+      });
+    }
   };
 
   useEffect(() => {
     if (!focusItemId) return;
     const id = focusItemId;
     setFocusItemId(null);
-    requestAnimationFrame(() => {
-      itemInputRefs.current.get(id)?.focus();
-    });
+    let attempts = 0;
+    const tryFocus = () => {
+      const el = itemInputRefs.current.get(id);
+      if (el) {
+        el.focus();
+        return;
+      }
+      if (attempts++ < 8) {
+        requestAnimationFrame(tryFocus);
+      }
+    };
+    requestAnimationFrame(tryFocus);
   }, [focusItemId, items]);
 
   const familyChromeByItemId = useMemo(
@@ -535,7 +563,7 @@ export function ListCardBody({
         canMoveDown={nudgeTargets?.canMoveDown ?? false}
         onMoveUp={(id) => handleNudgeItem(id, "up")}
         onMoveDown={(id) => handleNudgeItem(id, "down")}
-        insertBelowOnEnter={mobileDetail}
+        insertBelowOnEnter={isDetail && !completedSection && !pendingSection}
         onInsertBelow={(id) => {
           void handleInsertBelow(id);
         }}

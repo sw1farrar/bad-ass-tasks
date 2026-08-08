@@ -6,6 +6,7 @@ import { Check, CirclePause } from "lucide-react";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { cn } from "@/lib/utils";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { resolveListItemEnterAction } from "@/lib/lists/listItemEnter";
 import type { ListItemFamilyChrome } from "@/lib/lists/listDragPreview";
 import type { ListItem } from "@/types";
 import { ListItemActionsMenu } from "./ListItemActionsMenu";
@@ -190,15 +191,30 @@ export function ListItemRow({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      // Don't hijack Enter while an IME composition is in progress.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
       e.preventDefault();
       const input = e.currentTarget;
-      const cursorAtEnd =
-        input.selectionStart === input.value.length &&
-        input.selectionEnd === input.value.length;
-      if (insertBelowOnEnter && cursorAtEnd && onInsertBelow) {
+      const value = input.value;
+      const action = resolveListItemEnterAction({
+        insertEnabled: Boolean(insertBelowOnEnter && onInsertBelow),
+        selectionStart: input.selectionStart ?? 0,
+        selectionEnd: input.selectionEnd ?? 0,
+        value,
+      });
+
+      if (action === "stay") return;
+
+      if (action === "insert" && onInsertBelow) {
+        const trimmed = value.trim();
+        if (trimmed !== item.text) {
+          onTextChange(item.id, trimmed);
+        }
         onInsertBelow(item.id);
         return;
       }
+
       input.blur();
       return;
     }
