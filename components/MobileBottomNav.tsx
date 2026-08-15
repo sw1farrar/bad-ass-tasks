@@ -64,14 +64,14 @@ export function MobileBottomNav({
   const navigateTo = useCallback(
     (view: WorkspaceNavViewId) => {
       const now = Date.now();
-      if (now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
-      lastNavAtRef.current = now;
-      triggerHaptic("light");
       if (view === currentView) {
         scrollMainToTop();
         setMoreOpen(false);
         return;
       }
+      if (now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
+      lastNavAtRef.current = now;
+      triggerHaptic("light");
       onNavigate(view);
       setMoreOpen(false);
     },

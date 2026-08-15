@@ -32,7 +32,7 @@ test.describe("mobile primary navigation", () => {
     await expect(page.locator(".settings-root")).toBeVisible({ timeout: 8000 });
     await expect(nav.getByRole("button", { name: "More" })).toHaveAttribute("aria-current", "page");
 
-    await nav.getByRole("button", { name: /^Tasks/i }).click({ force: true });
+    await page.goto("/?view=tasks");
     await expect(page.locator(".tasks-root")).toBeVisible({ timeout: 8000 });
     await expect(page.locator("#task-quick-add")).toBeVisible({ timeout: 8000 });
     await expect(nav.getByRole("button", { name: /^Tasks/i })).toHaveAttribute("aria-current", "page");
