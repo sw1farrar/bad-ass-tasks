@@ -10,13 +10,13 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
 import {
-  MOBILE_SHEET_HEIGHT_90_CLASS,
+  MOBILE_SHEET_HEIGHT_CLASS,
   SHEET_ENTER_TRANSITION,
   SHEET_SPRING,
 } from "@/lib/motion/sheet";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 import {
-  isListDetailSheetDragTarget,
+  isListDetailBlankDragTarget,
   isListDetailTitleLabelTarget,
 } from "@/lib/motion/sheetDragTarget";
 
@@ -95,6 +95,7 @@ export function ListDetailModal({
   const menuRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const sheetSurfaceRef = useRef<HTMLDivElement>(null);
+  const headerBandRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const openedListIdRef = useRef<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -210,7 +211,6 @@ export function ListDetailModal({
     resetDrag,
     startDrag,
     attachCaptureDragSurface,
-    attachScrollDismiss,
     handleDragEnd,
     handleDrag,
     drag,
@@ -241,7 +241,7 @@ export function ListDetailModal({
     () => ({
       getScrollEl: () => listScrollRef.current,
       scrollGateSelector: ".list-detail-scroll",
-      canStart: isListDetailSheetDragTarget,
+      canStart: isListDetailBlankDragTarget,
       onTapFromTarget: (target: EventTarget) =>
         isListDetailTitleLabelTarget(target) ? enterTitleEdit : undefined,
     }),
@@ -260,18 +260,9 @@ export function ListDetailModal({
 
   useLayoutEffect(() => {
     if (!isMobile || !isOpen || isDismissing || isEntering) return;
-    const cleanupSurface = attachCaptureDragSurface(sheetSurfaceRef.current, {
-      ...sheetDragConfig,
-      scrollDismissSelector: ".list-detail-scroll",
-    });
-    const cleanupScroll = attachScrollDismiss(listScrollRef.current, sheetDragConfig);
-    return () => {
-      cleanupSurface?.();
-      cleanupScroll?.();
-    };
+    return attachCaptureDragSurface(sheetSurfaceRef.current, sheetDragConfig);
   }, [
     attachCaptureDragSurface,
-    attachScrollDismiss,
     sheetDragConfig,
     isMobile,
     isOpen,
@@ -350,7 +341,7 @@ export function ListDetailModal({
             // Mobile: pin to layout top + locked height so the keyboard cannot
             // shrink a fixed inset-0 layer and collapse the sheet.
             isMobile
-              ? "fixed inset-0 flex-col justify-end"
+              ? "fixed inset-0 flex-col"
               : "fixed inset-0 items-center justify-center p-4 sm:p-6",
             isMobile && isDismissing && "pointer-events-none",
           )}
@@ -382,8 +373,8 @@ export function ListDetailModal({
               "list-detail-modal modal-panel relative flex w-full flex-col overflow-hidden border shadow-2xl",
               isMobile
                 ? cn(
-                    "list-detail-sheet list-detail-sheet--mobile mobile-bottom-sheet mobile-bottom-sheet--90 rounded-t-3xl max-w-none",
-                    MOBILE_SHEET_HEIGHT_90_CLASS,
+                    "list-detail-sheet list-detail-sheet--mobile mobile-bottom-sheet keyboard-stable-sheet rounded-t-3xl max-w-none",
+                    MOBILE_SHEET_HEIGHT_CLASS,
                   )
                 : "list-detail-panel min-h-0 max-h-[min(85vh,720px)] max-w-2xl rounded-2xl",
             )}
@@ -426,7 +417,6 @@ export function ListDetailModal({
               ref={sheetSurfaceRef}
               className={cn(
                 "list-detail-modal-surface relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden",
-                isMobile && "list-detail-sheet-drag-zone",
                 isMobile && isDragging && "list-detail-sheet-dragging",
               )}
               style={{
@@ -434,15 +424,26 @@ export function ListDetailModal({
                 ...listColorPresentationStyleVars(colorStyle),
               }}
             >
-            {isMobile && <SheetDragHandle onPointerDown={startDrag} />}
-            <div className="list-header-band shrink-0">
+            <div
+              ref={headerBandRef}
+              className={cn(
+                "list-header-band shrink-0",
+                isMobile && "list-detail-sheet-drag-zone",
+              )}
+            >
+              {isMobile && (
+                <SheetDragHandle
+                  className="list-detail-sheet-handle"
+                  onPointerDown={startDrag}
+                />
+              )}
               <header
                 className={cn(
-                  "list-detail-header flex items-start gap-2",
+                  "list-detail-header flex gap-2",
                   safeX,
                   isMobile
-                    ? "list-detail-header--mobile px-3 pb-2"
-                    : "px-4 py-3.5",
+                    ? "list-detail-header--mobile items-center px-3 pt-0 pb-2"
+                    : "items-start px-4 py-3.5",
                 )}
               >
                 {isMobile && (
@@ -511,7 +512,7 @@ export function ListDetailModal({
                               e.currentTarget.blur();
                             }
                           }}
-                          className="list-header-title list-card-title bg-transparent text-lg font-semibold outline-none"
+                          className="list-header-title list-card-title bg-transparent text-lg font-semibold leading-tight outline-none"
                           style={{
                             width: `${Math.min(Math.max(localTitle.length + 1, 4), 48)}ch`,
                             maxWidth: "100%",
@@ -525,7 +526,7 @@ export function ListDetailModal({
                         id="list-detail-title"
                         role="button"
                         tabIndex={0}
-                        className="list-header-title list-card-title list-detail-title-label text-lg font-semibold"
+                        className="list-header-title list-card-title list-detail-title-label text-lg font-semibold leading-tight"
                         onKeyDown={(e) => {
                           if (e.key !== "Enter" && e.key !== " ") return;
                           e.preventDefault();

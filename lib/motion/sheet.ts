@@ -62,8 +62,8 @@ export function shouldDismissSheet(options: {
   return false;
 }
 
-/** Full-viewport mobile drawer height — edge to edge at top */
+/** Full-viewport mobile drawer height — locked to the layout top. */
 export const MOBILE_SHEET_HEIGHT_CLASS = "h-[100dvh] max-h-[100dvh]";
 
-/** 90% viewport mobile drawer — leaves peek of backdrop (preferred for forms) */
+/** Unused 90% opt-in. Product drawers are full-height. */
 export const MOBILE_SHEET_HEIGHT_90_CLASS = "mobile-bottom-sheet--90";

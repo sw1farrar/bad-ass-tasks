@@ -15,6 +15,7 @@ import {
   MOBILE_SHEET_HEIGHT_CLASS,
   SHEET_SPRING,
 } from "@/lib/motion/sheet";
+import { isSheetBlankDragTarget } from "@/lib/motion/sheetDragTarget";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 export type MobileSheetHeight = "full" | "90";
@@ -34,7 +35,7 @@ export interface BottomSheetProps {
   desktopMaxWidth?: string;
   /** Mobile presentation: bottom sheet (default) or centered dialog */
   mobileLayout?: "sheet" | "centered";
-  /** Mobile sheet height: 90dvh (default) or full viewport */
+  /** Mobile sheet height: full viewport (default) or 90dvh opt-in */
   mobileHeight?: MobileSheetHeight;
   showClose?: boolean;
   showDragHandle?: boolean;
@@ -57,7 +58,7 @@ export function BottomSheet({
   zIndex = 260,
   desktopMaxWidth = "max-w-md",
   mobileLayout = "sheet",
-  mobileHeight = "90",
+  mobileHeight = "full",
   showClose = true,
   showDragHandle = true,
   enableDragDismiss = true,
@@ -68,6 +69,7 @@ export function BottomSheet({
   const isMobile = useIsMobileViewport();
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const openedRef = useRef(false);
 
   const finishClose = useCallback(() => {
@@ -91,7 +93,6 @@ export function BottomSheet({
     resetDrag,
     startDrag,
     attachCaptureDragSurface,
-    attachScrollDismiss,
   } = useMobileSheetDrag({
     enabled: dragEnabled && open,
     onDismiss: finishClose,
@@ -128,30 +129,12 @@ export function BottomSheet({
     if (!open || !useMobileSheet || isDismissing || isEntering) {
       return;
     }
-    const cleanupSurface = attachCaptureDragSurface(panelRef.current, {
+    return attachCaptureDragSurface(panelRef.current, {
       getScrollEl: () => scrollRef.current,
       scrollGateSelector: ".bottom-sheet-scroll-body",
-      scrollDismissSelector: wrapChildrenInScroll ? ".bottom-sheet-scroll-body" : undefined,
+      canStart: isSheetBlankDragTarget,
     });
-    const cleanupScroll = wrapChildrenInScroll
-      ? attachScrollDismiss(scrollRef.current, {
-          getScrollEl: () => scrollRef.current,
-          scrollGateSelector: ".bottom-sheet-scroll-body",
-        })
-      : undefined;
-    return () => {
-      cleanupSurface?.();
-      cleanupScroll?.();
-    };
-  }, [
-    attachCaptureDragSurface,
-    attachScrollDismiss,
-    open,
-    useMobileSheet,
-    wrapChildrenInScroll,
-    isDismissing,
-    isEntering,
-  ]);
+  }, [attachCaptureDragSurface, open, useMobileSheet, isDismissing, isEntering]);
 
   useEffect(() => {
     if (!open) return;
@@ -218,7 +201,7 @@ export function BottomSheet({
           <div
             className={cn(
               "relative z-10 flex h-full w-full pointer-events-none",
-              useMobileSheet ? "items-end justify-center" : "items-center justify-center p-4",
+              useMobileSheet ? "items-stretch justify-center" : "items-center justify-center p-4",
             )}
           >
             <motion.div
@@ -252,6 +235,7 @@ export function BottomSheet({
 
               {(title || showClose) && (
                 <div
+                  ref={headerRef}
                   className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-border-glass"
                   style={
                     useMobileSheet && !showDragHandle

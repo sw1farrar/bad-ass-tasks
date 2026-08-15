@@ -1855,12 +1855,12 @@
 
 .receipt-ledger-drawer__panel {
   position: fixed;
-  top: auto;
-  bottom: 0;
+  top: 0;
+  bottom: auto;
   left: 0;
   width: 100vw;
-  height: 90dvh;
-  max-height: 90dvh;
+  height: 100dvh;
+  max-height: 100dvh;
   max-width: none;
   display: flex;
   flex-direction: column;

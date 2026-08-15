@@ -30,7 +30,8 @@ import {
   applyTaskUpdateSideEffects,
   defaultTaskDueDate,
 } from "@/lib/utils";
-import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
+import { MOBILE_SHEET_HEIGHT_CLASS } from "@/lib/motion/sheet";
+import { isSheetBlankDragTarget } from "@/lib/motion/sheetDragTarget";
 
 interface TaskModalProps {
   task: Task;
@@ -320,6 +321,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
   const mobileTitleRef = useRef<HTMLTextAreaElement>(null);
   const taskScrollRef = useRef<HTMLDivElement>(null);
   const taskPanelRef = useRef<HTMLDivElement>(null);
+  const taskHeaderRef = useRef<HTMLDivElement>(null);
   const taskSheetOpenedRef = useRef(false);
   const openedTaskSnapshotRef = useRef<Task | null>(null);
   const prevIsOpenRef = useRef(false);
@@ -580,7 +582,6 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     resetDrag,
     startDrag,
     attachCaptureDragSurface,
-    attachScrollDismiss,
   } = useMobileSheetDrag({
     enabled: isMobile && isOpen,
     onDismiss: finishClose,
@@ -662,20 +663,12 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
 
   useLayoutEffect(() => {
     if (!isOpen || !isMobile) return;
-    const cleanupSurface = attachCaptureDragSurface(taskPanelRef.current, {
+    return attachCaptureDragSurface(taskPanelRef.current, {
       getScrollEl: () => taskScrollRef.current,
       scrollGateSelector: ".task-sheet-scroll",
-      scrollDismissSelector: ".task-sheet-scroll",
+      canStart: isSheetBlankDragTarget,
     });
-    const cleanupScroll = attachScrollDismiss(taskScrollRef.current, {
-      getScrollEl: () => taskScrollRef.current,
-      scrollGateSelector: ".task-sheet-scroll",
-    });
-    return () => {
-      cleanupSurface?.();
-      cleanupScroll?.();
-    };
-  }, [attachCaptureDragSurface, attachScrollDismiss, isOpen, isMobile]);
+  }, [attachCaptureDragSurface, isOpen, isMobile]);
 
   if (!mounted) return null;
 
@@ -686,7 +679,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
       <div
         className={cn(
           "fixed inset-0 z-[200]",
-          isMobile ? "flex flex-col justify-end" : "flex items-center justify-center p-4"
+          isMobile ? "flex flex-col" : "flex items-center justify-center p-4"
         )}
       >
         <motion.div
@@ -707,8 +700,8 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             "task-detail-modal glass modal-panel w-full overflow-hidden flex flex-col",
             isMobile
               ? cn(
-                  "task-drawer-sheet mobile-bottom-sheet mobile-bottom-sheet--90 relative flex flex-col rounded-t-3xl max-w-none",
-                  MOBILE_SHEET_HEIGHT_90_CLASS,
+                  "task-drawer-sheet mobile-bottom-sheet keyboard-stable-sheet relative flex flex-col rounded-t-3xl max-w-none",
+                  MOBILE_SHEET_HEIGHT_CLASS,
                   isDragging && "bottom-sheet-panel--dragging",
                 )
               : // Fixed desktop size so expanding Repeat / comments doesn't resize the shell
@@ -727,6 +720,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
 
           {/* Header — Revert restores the opening snapshot; Done keeps autosaved edits */}
           <div
+            ref={taskHeaderRef}
             className={cn(
               "shrink-0 flex items-center border-b border-border-glass w-full",
               isMobile ? "task-sheet-header px-4 py-3 gap-2" : "px-5 py-3 gap-2",

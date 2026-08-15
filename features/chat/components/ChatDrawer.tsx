@@ -7,7 +7,9 @@ import { X } from "lucide-react";
 import { triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
-import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
+import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
+import { MOBILE_SHEET_HEIGHT_CLASS } from "@/lib/motion/sheet";
+import { isSheetBlankDragTarget } from "@/lib/motion/sheetDragTarget";
 import type { WorkspaceChatController } from "../hooks/useWorkspaceChat";
 import { WorkspaceChatPanel, type WorkspaceChatPanelProps } from "./WorkspaceChatPanel";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
@@ -21,6 +23,7 @@ export interface ChatDrawerProps extends WorkspaceChatPanelProps {
 export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerProps) {
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const openedRef = useRef(false);
 
   useEffect(() => {
@@ -40,6 +43,7 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
     setDismissTarget,
     resetDrag,
     startDrag,
+    attachCaptureDragSurface,
   } = useMobileSheetDrag({
     enabled: open,
     onDismiss: finishClose,
@@ -48,6 +52,7 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
   });
 
   useScrollLock(open);
+  useVisualViewportInsets(open);
 
   const handleClose = useCallback(() => {
     requestDismiss();
@@ -66,12 +71,21 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
     }
   }, [open, animateEnter, setDismissTarget]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    return attachCaptureDragSurface(panelRef.current, {
+      getScrollEl: () => panelRef.current?.querySelector<HTMLElement>(".chat-message-list") ?? null,
+      scrollGateSelector: ".chat-message-list",
+      canStart: isSheetBlankDragTarget,
+    });
+  }, [attachCaptureDragSurface, open]);
+
   if (!mounted) return null;
 
   return createPortal(
     <AnimatePresence onExitComplete={resetDrag}>
       {open && (
-        <div className="fixed inset-0 z-[200] xl:hidden flex flex-col justify-end">
+        <div className="fixed inset-0 z-[200] xl:hidden flex flex-col">
           <motion.div
             className="absolute inset-0 overlay-scrim backdrop-blur-sm sheet-backdrop"
             initial={false}
@@ -86,14 +100,17 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
             role="dialog"
             aria-modal="true"
             aria-label="Messages"
-            className={`chat-drawer-sheet relative flex flex-col bg-bg border-t border-border-glass rounded-t-3xl overflow-hidden mobile-bottom-sheet mobile-bottom-sheet--90 ${MOBILE_SHEET_HEIGHT_90_CLASS}`}
+            className={`chat-drawer-sheet relative flex flex-col bg-bg border-t border-border-glass rounded-t-3xl overflow-hidden mobile-bottom-sheet keyboard-stable-sheet ${MOBILE_SHEET_HEIGHT_CLASS}`}
             initial={{ opacity: 0.98 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             style={{ y: sheetY }}
           >
             <SheetDragHandle onPointerDown={startDrag} />
-            <div className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0">
+            <div
+              ref={headerRef}
+              className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0"
+            >
               <div className="font-semibold">Messages</div>
               <button
                 type="button"

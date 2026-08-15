@@ -74,7 +74,6 @@ export function AddCompetitorModal({
       open={open}
       onClose={() => !isAdding && onOpenChange(false)}
       title="Add competitor"
-      mobileHeight="90"
       enableDragDismiss={!isAdding}
       zIndex={1000}
       desktopMaxWidth="max-w-md"

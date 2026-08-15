@@ -549,8 +549,8 @@ body > [data-receipt-ledger-portal] {
 
 body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   width: 100vw;
-  height: 90dvh;
-  max-height: 90dvh;
+  height: 100dvh;
+  max-height: 100dvh;
   max-width: none;
 }
 
@@ -1764,12 +1764,13 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
 @media (max-width: 768px) {
   .mobile-bottom-sheet {
     position: fixed !important;
-    bottom: 0 !important;
+    top: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    top: auto !important;
-    height: var(--vvh, 100dvh);
-    max-height: var(--vvh, 100dvh);
+    bottom: auto !important;
+    /* Layout viewport only — never --vvh. Keyboard must not shrink or drop the sheet. */
+    height: 100dvh !important;
+    max-height: 100dvh !important;
     border-radius: 20px 20px 0 0 !important;
     box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
     overflow: hidden;
@@ -1778,17 +1779,14 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 
   .mobile-bottom-sheet--90 {
-    top: auto !important;
-    height: min(90dvh, var(--vvh, 90dvh)) !important;
-    max-height: min(90dvh, var(--vvh, 90dvh)) !important;
+    top: 0 !important;
+    bottom: auto !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
   }
 
   .keyboard-stable-sheet {
-    top: var(--vv-offset-top, 0px) !important;
-  }
-
-  .mobile-bottom-sheet--90.keyboard-stable-sheet {
-    top: auto !important;
+    top: 0 !important;
   }
 
   .bottom-sheet-panel--dragging,
@@ -1844,16 +1842,7 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 
   /* Ensure TaskModal content fills sheet nicely on mobile */
-  .mobile-bottom-sheet:not(.mobile-bottom-sheet--90) .glass {
-    border-radius: 20px 20px 0 0;
-    border: none;
-    height: var(--vvh, 100dvh);
-    max-height: var(--vvh, 100dvh);
-    display: flex;
-    flex-direction: column;
-  }
-
-  .mobile-bottom-sheet--90 .glass {
+  .mobile-bottom-sheet .glass {
     border-radius: 20px 20px 0 0;
     border: none;
     height: 100%;
@@ -1866,8 +1855,13 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
     padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 12px));
   }
 
-  .mobile-bottom-sheet .task-sheet-body {
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 12px));
+  .mobile-bottom-sheet .task-sheet-body,
+  .task-drawer-sheet .task-sheet-scroll {
+    padding-bottom: max(
+      1rem,
+      env(safe-area-inset-bottom, 12px),
+      var(--keyboard-inset, 0px)
+    );
   }
 
   .mobile-bottom-sheet .task-sheet-header {

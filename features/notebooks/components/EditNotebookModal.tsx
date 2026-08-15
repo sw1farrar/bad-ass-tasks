@@ -75,7 +75,6 @@ export function EditNotebookModal({
       open={open}
       onClose={() => !isSaving && onOpenChange(false)}
       title="Edit notebook"
-      mobileHeight="90"
       enableDragDismiss={!isSaving}
       zIndex={1000}
       desktopMaxWidth="max-w-md"

@@ -56,7 +56,6 @@ export function MeetingTopicModal({
       onClose={() => onOpenChange(false)}
       showClose={false}
       wrapChildrenInScroll={false}
-      mobileHeight="90"
       desktopMaxWidth="w-full max-w-3xl"
       zIndex={1000}
       panelClassName="meeting-topic-modal flex flex-col"

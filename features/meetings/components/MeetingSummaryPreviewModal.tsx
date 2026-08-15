@@ -152,7 +152,6 @@ export function MeetingSummaryPreviewModal({
       onClose={() => onOpenChange(false)}
       showClose={false}
       wrapChildrenInScroll={false}
-      mobileHeight="90"
       desktopMaxWidth="max-w-[46.8rem]"
       zIndex={1000}
       panelClassName="meeting-summary-preview-modal flex flex-col"

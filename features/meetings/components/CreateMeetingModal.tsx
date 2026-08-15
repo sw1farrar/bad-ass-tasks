@@ -138,7 +138,6 @@ export function CreateMeetingModal({
       open={open}
       onClose={() => !isSubmitting && onOpenChange(false)}
       title="New meeting"
-      mobileHeight="90"
       enableDragDismiss={!isSubmitting}
       zIndex={1000}
       desktopMaxWidth="max-w-lg"

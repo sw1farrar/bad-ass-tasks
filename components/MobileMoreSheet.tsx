@@ -76,7 +76,6 @@ export function MobileMoreSheet({
       open={open}
       onClose={handleClose}
       ariaLabel="More navigation"
-      mobileHeight="90"
       desktopMaxWidth="max-w-lg"
       wrapChildrenInScroll={false}
       showClose={false}

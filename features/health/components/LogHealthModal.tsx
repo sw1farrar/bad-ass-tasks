@@ -224,7 +224,6 @@ export function LogHealthModal({
       open={open}
       onClose={onClose}
       title="Log health entry"
-      mobileHeight="90"
       enableDragDismiss={!saving}
       zIndex={850}
       panelClassName="log-health-modal"

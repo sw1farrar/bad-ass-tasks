@@ -8,7 +8,8 @@ import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
-import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
+import { MOBILE_SHEET_HEIGHT_CLASS } from "@/lib/motion/sheet";
+import { isSheetBlankDragTarget } from "@/lib/motion/sheetDragTarget";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 interface NoteMobileDrawerProps {
@@ -29,6 +30,7 @@ export function NoteMobileDrawer({
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const openedRef = useRef(false);
 
   useEffect(() => {
@@ -54,7 +56,6 @@ export function NoteMobileDrawer({
     resetDrag,
     startDrag,
     attachCaptureDragSurface,
-    attachScrollDismiss,
   } = useMobileSheetDrag({
     enabled: open,
     onDismiss: finishCancel,
@@ -100,27 +101,19 @@ export function NoteMobileDrawer({
 
   useLayoutEffect(() => {
     if (!open) return;
-    const cleanupSurface = attachCaptureDragSurface(panelRef.current, {
+    return attachCaptureDragSurface(panelRef.current, {
       getScrollEl: () => scrollRef.current,
       scrollGateSelector: ".notes-drawer-body",
-      scrollDismissSelector: ".notes-drawer-body",
+      canStart: isSheetBlankDragTarget,
     });
-    const cleanupScroll = attachScrollDismiss(scrollRef.current, {
-      getScrollEl: () => scrollRef.current,
-      scrollGateSelector: ".notes-drawer-body",
-    });
-    return () => {
-      cleanupSurface?.();
-      cleanupScroll?.();
-    };
-  }, [attachCaptureDragSurface, attachScrollDismiss, open]);
+  }, [attachCaptureDragSurface, open]);
 
   if (!mounted) return null;
 
   return createPortal(
     <AnimatePresence onExitComplete={resetDrag}>
       {open && (
-        <div className="fixed inset-0 z-[200] flex flex-col justify-end">
+        <div className="fixed inset-0 z-[200] flex flex-col">
           <motion.div
             key="note-drawer-backdrop"
             className="absolute inset-0 sheet-backdrop"
@@ -139,8 +132,8 @@ export function NoteMobileDrawer({
             aria-modal="true"
             aria-label="Note editor"
             className={cn(
-              "notes-drawer-sheet mobile-bottom-sheet mobile-bottom-sheet--90 relative flex flex-col",
-              MOBILE_SHEET_HEIGHT_90_CLASS,
+              "notes-drawer-sheet mobile-bottom-sheet keyboard-stable-sheet relative flex flex-col",
+              MOBILE_SHEET_HEIGHT_CLASS,
               "rounded-t-3xl max-w-none w-full overflow-hidden",
               "bg-bg border-t border-border-glass shadow-2xl",
               isDragging && "bottom-sheet-panel--dragging",
@@ -153,7 +146,10 @@ export function NoteMobileDrawer({
           >
             <SheetDragHandle onPointerDown={startDrag} />
 
-            <div className="notes-drawer-chrome shrink-0 flex items-center justify-between gap-3 w-full px-4 py-3 border-b border-border-glass">
+            <div
+              ref={headerRef}
+              className="notes-drawer-chrome shrink-0 flex items-center justify-between gap-3 w-full px-4 py-3 border-b border-border-glass"
+            >
               <button
                 type="button"
                 onClick={handleCancel}
@@ -178,6 +174,10 @@ export function NoteMobileDrawer({
             <div
               ref={scrollRef}
               className="notes-drawer-body flex-1 min-h-0 overflow-y-auto overscroll-contain"
+              style={{
+                paddingBottom:
+                  "max(1rem, env(safe-area-inset-bottom, 12px), var(--keyboard-inset, 0px))",
+              }}
             >
               {children}
             </div>

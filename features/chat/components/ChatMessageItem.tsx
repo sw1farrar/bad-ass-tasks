@@ -60,7 +60,7 @@ export function ChatMessageItem({
   };
 
   return (
-    <div className={cn("flex gap-2", mine ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("chat-message-item flex gap-2", mine ? "flex-row-reverse" : "flex-row")}>
       {showAvatar && (
         <div
           className="chat-message-avatar h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-neon-purple/30 to-neon-purple-dark/20 border border-border-glass flex items-center justify-center text-[10px] font-semibold text-text-primary"

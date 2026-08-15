@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MOBILE_SHEET_HEIGHT_CLASS,
   MOBILE_SHEET_HEIGHT_90_CLASS,
   SHEET_DISMISS_FLICK_MIN_PX,
   SHEET_DISMISS_RATIO,
@@ -61,7 +62,11 @@ describe("shouldDismissSheet", () => {
 });
 
 describe("mobile sheet height token", () => {
-  it("uses the 90% class, not full viewport", () => {
+  it("uses the full viewport class by default", () => {
+    expect(MOBILE_SHEET_HEIGHT_CLASS).toBe("h-[100dvh] max-h-[100dvh]");
+  });
+
+  it("keeps a 90% opt-in token unused by default", () => {
     expect(MOBILE_SHEET_HEIGHT_90_CLASS).toBe("mobile-bottom-sheet--90");
   });
 });

@@ -97,7 +97,6 @@ export function LogStressSheet({ open, onClose, onSubmit }: LogStressSheetProps)
       open={open}
       onClose={onClose}
       title="How stressed are you?"
-      mobileHeight="90"
       enableDragDismiss={!saving}
       zIndex={850}
       panelClassName="log-stress-sheet"

@@ -121,7 +121,7 @@
 }
 
 .meeting-topic-modal {
-  /* Comfortable note-reading width; mobile uses the shared 90% sheet */
+  /* Comfortable note-reading width; mobile uses the shared full-height sheet */
   width: min(100%, 48rem);
   max-width: 48rem !important;
 }
@@ -183,7 +183,7 @@
   }
 
   .meeting-topic-modal,
-  .meeting-topic-modal.mobile-bottom-sheet--90 {
+  .meeting-topic-modal.mobile-bottom-sheet {
     width: 100%;
     max-width: 100% !important;
   }

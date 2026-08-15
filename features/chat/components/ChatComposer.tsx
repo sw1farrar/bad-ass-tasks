@@ -46,7 +46,10 @@ export function ChatComposer({
   return (
     <div
       className="chat-composer border-t border-border-glass bg-bg/95 p-3 shrink-0"
-      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      style={{
+        paddingBottom:
+          "max(0.75rem, env(safe-area-inset-bottom), var(--keyboard-inset, 0px))",
+      }}
     >
       <div className="flex gap-2 items-end min-w-0">
         <EmojiPicker

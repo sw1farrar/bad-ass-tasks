@@ -2061,7 +2061,9 @@
 }
 
 .list-detail-sheet-handle.sheet-drag-handle-zone {
-  padding-bottom: 0.25rem;
+  min-height: 28px;
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-bottom: 4px;
 }
 
 .list-detail-sheet-drag-zone {
@@ -2642,12 +2644,12 @@
 .list-detail-sheet--mobile {
   width: 100%;
   max-width: 100%;
-  height: min(90dvh, var(--vvh, 90dvh));
-  max-height: min(90dvh, var(--vvh, 90dvh));
+  height: 100dvh;
+  max-height: 100dvh;
   min-height: 0;
   margin-left: auto;
   margin-right: auto;
-  margin-top: auto;
+  margin-top: 0;
   will-change: transform;
   backface-visibility: hidden;
 }
@@ -3142,7 +3144,11 @@
   }
 
   .list-detail-modal.list-detail-sheet--mobile .list-detail-header--mobile {
-    padding-top: max(0.375rem, env(safe-area-inset-top, 0px));
+    padding-top: 0;
+  }
+
+  .list-detail-modal.list-detail-sheet--mobile .list-header-title {
+    line-height: 1.2;
   }
 
   .list-detail-modal.list-detail-sheet--mobile .list-detail-title-stack .list-header-badge {

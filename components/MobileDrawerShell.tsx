@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
-import { MOBILE_SHEET_HEIGHT_90_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import { isSheetBlankDragTarget } from "@/lib/motion/sheetDragTarget";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 export interface MobileDrawerShellProps {
@@ -47,7 +48,6 @@ export function MobileDrawerShell({
     resetDrag,
     startDrag,
     attachCaptureDragSurface,
-    attachScrollDismiss,
     isDismissing,
     isEntering,
   } = useMobileSheetDrag({
@@ -86,25 +86,12 @@ export function MobileDrawerShell({
     const panel = panelRef.current;
     const scrollEl =
       panel?.querySelector<HTMLElement>(".overflow-y-auto, .overscroll-contain") ?? null;
-    const cleanupSurface = attachCaptureDragSurface(panel, {
+    return attachCaptureDragSurface(panel, {
       getScrollEl: () => scrollEl,
       scrollGateSelector: ".overflow-y-auto, .overscroll-contain",
+      canStart: isSheetBlankDragTarget,
     });
-    const cleanupScroll = attachScrollDismiss(scrollEl, {
-      getScrollEl: () => scrollEl,
-    });
-    return () => {
-      cleanupSurface?.();
-      cleanupScroll?.();
-    };
-  }, [
-    attachCaptureDragSurface,
-    attachScrollDismiss,
-    open,
-    isMobile,
-    isDismissing,
-    isEntering,
-  ]);
+  }, [attachCaptureDragSurface, open, isMobile, isDismissing, isEntering]);
 
   return (
     <AnimatePresence onExitComplete={resetDrag}>
@@ -112,7 +99,7 @@ export function MobileDrawerShell({
         <motion.div
           className={cn(
             "fixed inset-0 flex p-0 pointer-events-none",
-            isMobile ? "flex-col justify-end" : "items-center justify-center sm:p-3 md:p-4",
+            isMobile ? "flex-col" : "items-center justify-center sm:p-3 md:p-4",
             wrapperClassName,
           )}
           style={{ zIndex }}
@@ -143,8 +130,8 @@ export function MobileDrawerShell({
               "relative flex flex-col w-full border border-border-glass modal-panel bg-bg-panel shadow-2xl overflow-hidden pointer-events-auto",
               isMobile
                 ? cn(
-                    "mobile-bottom-sheet rounded-t-3xl",
-                    MOBILE_SHEET_HEIGHT_90_CLASS,
+                    "mobile-bottom-sheet keyboard-stable-sheet rounded-t-3xl",
+                    MOBILE_SHEET_HEIGHT_CLASS,
                     isDragging && "bottom-sheet-panel--dragging",
                   )
                 : "rounded-t-2xl sm:rounded-2xl max-h-[94vh]",

@@ -90,7 +90,6 @@ export function CompetitorBreakdownModal({
       onClose={() => onOpenChange(false)}
       showClose={false}
       wrapChildrenInScroll={false}
-      mobileHeight="90"
       desktopMaxWidth="max-w-5xl"
       zIndex={1000}
       panelClassName="competitor-breakdown-modal"
