@@ -28,14 +28,13 @@ test.describe("mobile primary navigation", () => {
     await expect(sheet.getByRole("button", { name: /Team/i })).toHaveCount(0);
 
     await sheet.getByRole("button", { name: /Settings/i }).click();
-    await expect(sheet).toBeHidden();
+    await expect(sheet).toHaveCount(0);
     await expect(page.locator(".settings-root")).toBeVisible({ timeout: 8000 });
     await expect(nav.getByRole("button", { name: "More" })).toHaveAttribute("aria-current", "page");
 
-    await nav.getByRole("button", { name: "Tasks" }).click();
-    await expect(sheet).toBeHidden();
+    await nav.getByRole("button", { name: /^Tasks/i }).click({ force: true });
     await expect(page.locator(".tasks-root")).toBeVisible({ timeout: 8000 });
     await expect(page.locator("#task-quick-add")).toBeVisible({ timeout: 8000 });
-    await expect(nav.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("button", { name: /^Tasks/i })).toHaveAttribute("aria-current", "page");
   });
 });

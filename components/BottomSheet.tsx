@@ -198,12 +198,10 @@ export function BottomSheet({
   return createPortal(
     <AnimatePresence onExitComplete={resetDrag}>
       {open && (
-        <motion.div
+        <div
           className={cn("fixed inset-0 pointer-events-none", className)}
           style={{ zIndex }}
           role="presentation"
-          initial={false}
-          exit={{ pointerEvents: "none" }}
         >
           <motion.div
             key="bottom-sheet-backdrop"
@@ -211,7 +209,7 @@ export function BottomSheet({
             initial={useMobileSheet ? false : { opacity: 0 }}
             animate={useMobileSheet ? undefined : { opacity: 1 }}
             style={useMobileSheet ? { opacity: backdropOpacityMotion } : undefined}
-            exit={{ opacity: 0, pointerEvents: "none" }}
+            exit={useMobileSheet ? undefined : { opacity: 0 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={handleClose}
             aria-hidden="true"
@@ -244,7 +242,7 @@ export function BottomSheet({
               onClick={(e) => e.stopPropagation()}
               initial={useMobileSheet ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
               animate={useMobileSheet ? { opacity: 1 } : { scale: 1, opacity: 1 }}
-              exit={useMobileSheet ? { opacity: 0, pointerEvents: "none" } : { scale: 0.96, opacity: 0 }}
+              exit={useMobileSheet ? undefined : { scale: 0.96, opacity: 0 }}
               transition={useMobileSheet ? { duration: 0.18, ease: "easeOut" } : SHEET_SPRING}
               style={useMobileSheet ? { y: sheetY } : undefined}
             >
@@ -284,7 +282,7 @@ export function BottomSheet({
               {scrollBody}
             </motion.div>
           </div>
-        </motion.div>
+        </div>
       )}
     </AnimatePresence>,
     document.body,
