@@ -59,7 +59,7 @@ export function MeetingTopicModal({
       mobileHeight="90"
       desktopMaxWidth="w-full max-w-3xl"
       zIndex={1000}
-      panelClassName="meeting-topic-modal flex flex-col h-[95vh] max-h-[95vh]"
+      panelClassName="meeting-topic-modal flex flex-col"
       ariaLabel={item?.title?.trim() || "Agenda topic"}
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

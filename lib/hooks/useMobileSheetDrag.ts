@@ -9,6 +9,7 @@ import {
   SHEET_ENTER_TRANSITION,
   SHEET_EXIT_TRANSITION,
   SHEET_SNAP_BACK_SPRING,
+  shouldDismissSheet,
 } from "@/lib/motion/sheet";
 import { isSheetDragBlockedTarget } from "@/lib/motion/sheetDragTarget";
 
@@ -38,6 +39,7 @@ type PointerDragState = {
   lastY: number;
   lastT: number;
   velocityY: number;
+  samples: { y: number; t: number }[];
   captureEl: HTMLElement | null;
   getScrollEl?: () => HTMLElement | null;
 };
@@ -59,7 +61,7 @@ export function useMobileSheetDrag(options: {
     enabled,
     onDismiss,
     dragMode = "handle",
-    dragEngine = "framer",
+    dragEngine = "manual",
     offsetThreshold = SHEET_DISMISS_OFFSET,
     velocityThreshold = SHEET_DISMISS_VELOCITY,
   } = options;
@@ -191,7 +193,14 @@ export function useMobileSheetDrag(options: {
   const finishDrag = useCallback(
     (dy: number, velocityY: number) => {
       setIsDragging(false);
-      if (dy > offsetThreshold || velocityY > velocityThreshold) {
+      if (
+        shouldDismissSheet({
+          offsetY: dy,
+          velocityY,
+          sheetHeight: dismissTargetRef.current,
+        }) ||
+        (dy > offsetThreshold && velocityY > velocityThreshold)
+      ) {
         runDismissAnimation(velocityY);
         return;
       }
@@ -260,6 +269,7 @@ export function useMobileSheetDrag(options: {
         lastY: e.clientY,
         lastT: performance.now(),
         velocityY: 0,
+        samples: [{ y: e.clientY, t: performance.now() }],
         captureEl,
         getScrollEl: config.getScrollEl,
       };
@@ -305,6 +315,7 @@ export function useMobileSheetDrag(options: {
             pointerRef.current = null;
             return;
           }
+          if (fingerDy <= DRAG_SLOP_PX) return;
           state.armed = false;
           state.dragging = true;
           stopSheetAnimations();
@@ -336,8 +347,12 @@ export function useMobileSheetDrag(options: {
       if (e.cancelable) e.preventDefault();
 
       const now = performance.now();
-      const dt = Math.max(1, now - state.lastT);
-      state.velocityY = ((e.clientY - state.lastY) / dt) * 1000;
+      state.samples.push({ y: e.clientY, t: now });
+      if (state.samples.length > 5) state.samples.shift();
+      const first = state.samples[0];
+      const last = state.samples[state.samples.length - 1];
+      const sampleDt = last.t - first.t;
+      state.velocityY = sampleDt > 0 ? ((last.y - first.y) / sampleDt) * 1000 : 0;
       state.lastY = e.clientY;
       state.lastT = now;
       setSheetOffset(dy);

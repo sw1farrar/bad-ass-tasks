@@ -209,7 +209,7 @@ export function LoginActivityModal({ open, onOpenChange, enabled = true }: Login
 
   if (isMobile) {
     return (
-      <BottomSheet open={open} onClose={close} ariaLabel="Login activity" className="max-h-[85dvh]">
+      <BottomSheet open={open} onClose={close} ariaLabel="Login activity">
         {body}
       </BottomSheet>
     );

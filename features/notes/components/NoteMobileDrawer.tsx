@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion, type PanInfo, useDragControls } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
-import { MOBILE_SHEET_HEIGHT_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
+import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 
 interface NoteMobileDrawerProps {
@@ -25,25 +26,43 @@ export function NoteMobileDrawer({
   isSaving = false,
 }: NoteMobileDrawerProps) {
   const [mounted, setMounted] = useState(false);
-  const [dragY, setDragY] = useState(0);
-  const dragControls = useDragControls();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const openedRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!open) setDragY(0);
-  }, [open]);
-
-  useEffect(() => {
     if (open) triggerHaptic("light");
   }, [open]);
 
-  const handleCancel = useCallback(() => {
+  const finishCancel = useCallback(() => {
     triggerHaptic("light");
     onCancel();
   }, [onCancel]);
+
+  const {
+    sheetY,
+    backdropOpacityMotion,
+    isDragging,
+    requestDismiss,
+    animateEnter,
+    setDismissTarget,
+    resetDrag,
+    startDrag,
+    attachScrollDismiss,
+  } = useMobileSheetDrag({
+    enabled: open,
+    onDismiss: finishCancel,
+    dragMode: "handle",
+    dragEngine: "manual",
+  });
+
+  const handleCancel = useCallback(() => {
+    requestDismiss();
+  }, [requestDismiss]);
 
   const handleSave = useCallback(() => {
     triggerHaptic("light");
@@ -63,29 +82,38 @@ export function NoteMobileDrawer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, handleCancel]);
 
-  const handleDragEnd = (_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.y > 100 || info.velocity.y > 400) {
-      handleCancel();
-    } else {
-      setDragY(0);
+  useLayoutEffect(() => {
+    if (!open) {
+      openedRef.current = false;
+      return;
     }
-  };
+    const height = panelRef.current?.offsetHeight ?? window.innerHeight;
+    setDismissTarget(height);
+    if (!openedRef.current) {
+      openedRef.current = true;
+      animateEnter();
+    }
+  }, [open, animateEnter, setDismissTarget]);
 
-  const startSheetDrag = (e: React.PointerEvent) => {
-    dragControls.start(e);
-  };
+  useLayoutEffect(() => {
+    if (!open) return;
+    return attachScrollDismiss(scrollRef.current, {
+      getScrollEl: () => scrollRef.current,
+      scrollGateSelector: ".notes-drawer-body",
+    });
+  }, [attachScrollDismiss, open]);
 
   if (!mounted) return null;
 
   return createPortal(
-    <AnimatePresence onExitComplete={() => setDragY(0)}>
+    <AnimatePresence onExitComplete={resetDrag}>
       {open && (
         <div className="fixed inset-0 z-[200] flex flex-col justify-end">
           <motion.div
             key="note-drawer-backdrop"
             className="absolute inset-0 sheet-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={false}
+            style={{ opacity: backdropOpacityMotion }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22, ease: "easeOut" }}
             onClick={handleCancel}
@@ -93,30 +121,25 @@ export function NoteMobileDrawer({
           />
 
           <motion.div
+            ref={panelRef}
             key="note-drawer-panel"
             role="dialog"
             aria-modal="true"
             aria-label="Note editor"
             className={cn(
-              "notes-drawer-sheet mobile-bottom-sheet relative flex flex-col",
-              MOBILE_SHEET_HEIGHT_CLASS,
+              "notes-drawer-sheet mobile-bottom-sheet mobile-bottom-sheet--90 relative flex flex-col",
+              MOBILE_SHEET_HEIGHT_90_CLASS,
               "rounded-t-3xl max-w-none w-full overflow-hidden",
               "bg-bg border-t border-border-glass shadow-2xl",
+              isDragging && "bottom-sheet-panel--dragging",
             )}
             onClick={(e) => e.stopPropagation()}
-            drag="y"
-            dragControls={dragControls}
-            dragListener={false}
-            dragConstraints={{ top: 0, bottom: 500 }}
-            dragElastic={{ top: 0, bottom: 0.2 }}
-            onDragEnd={handleDragEnd}
-            onDrag={(_e, info) => setDragY(Math.max(0, info.offset.y))}
-            initial={{ y: "100%" }}
-            animate={{ y: dragY }}
-            exit={{ y: "100%" }}
-            transition={SHEET_SPRING}
+            initial={{ opacity: 0.98 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{ y: sheetY, touchAction: "pan-y" }}
           >
-            <SheetDragHandle onPointerDown={startSheetDrag} />
+            <SheetDragHandle onPointerDown={startDrag} />
 
             <div className="notes-drawer-chrome shrink-0 flex items-center justify-between gap-3 w-full px-4 py-3 border-b border-border-glass">
               <button
@@ -140,7 +163,10 @@ export function NoteMobileDrawer({
               </button>
             </div>
 
-            <div className="notes-drawer-body flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div
+              ref={scrollRef}
+              className="notes-drawer-body flex-1 min-h-0 overflow-y-auto overscroll-contain"
+            >
               {children}
             </div>
           </motion.div>

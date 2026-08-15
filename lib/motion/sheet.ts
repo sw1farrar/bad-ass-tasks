@@ -43,7 +43,24 @@ export const SHEET_EXIT_TRANSITION = {
 };
 
 export const SHEET_DISMISS_OFFSET = 120;
-export const SHEET_DISMISS_VELOCITY = 520;
+export const SHEET_DISMISS_VELOCITY = 900;
+export const SHEET_DISMISS_RATIO = 0.22;
+export const SHEET_DISMISS_FLICK_MIN_PX = 36;
+
+/** Height-relative dismiss: drag ~22% of the sheet, or a real flick with min travel. */
+export function shouldDismissSheet(options: {
+  offsetY: number;
+  velocityY: number;
+  sheetHeight: number;
+}): boolean {
+  const offsetY = Math.max(0, options.offsetY);
+  const velocityY = options.velocityY;
+  const sheetHeight = Math.max(options.sheetHeight, 1);
+  if (offsetY > sheetHeight * SHEET_DISMISS_RATIO) return true;
+  if (offsetY > SHEET_DISMISS_FLICK_MIN_PX && velocityY > SHEET_DISMISS_VELOCITY) return true;
+  if (offsetY > SHEET_DISMISS_OFFSET && velocityY > 80) return true;
+  return false;
+}
 
 /** Full-viewport mobile drawer height — edge to edge at top */
 export const MOBILE_SHEET_HEIGHT_CLASS = "h-[100dvh] max-h-[100dvh]";

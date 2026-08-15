@@ -121,11 +121,16 @@
 }
 
 .meeting-topic-modal {
-  /* Comfortable note-reading width; tall viewport for agenda + entries */
+  /* Comfortable note-reading width; mobile uses the shared 90% sheet */
   width: min(100%, 48rem);
   max-width: 48rem !important;
-  height: 95vh !important;
-  max-height: 95vh !important;
+}
+
+@media (min-width: 768px) {
+  .meeting-topic-modal {
+    height: 95vh;
+    max-height: 95vh;
+  }
 }
 
 .meeting-topic-modal__body {
@@ -181,8 +186,6 @@
   .meeting-topic-modal.mobile-bottom-sheet--90 {
     width: 100%;
     max-width: 100% !important;
-    height: min(95dvh, var(--vvh, 95dvh)) !important;
-    max-height: min(95dvh, var(--vvh, 95dvh)) !important;
   }
 
   .meeting-summary-view__canvas {

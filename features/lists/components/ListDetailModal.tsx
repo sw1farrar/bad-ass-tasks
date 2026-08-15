@@ -10,9 +10,11 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
 import {
+  MOBILE_SHEET_HEIGHT_90_CLASS,
   SHEET_ENTER_TRANSITION,
   SHEET_SPRING,
 } from "@/lib/motion/sheet";
+import { SheetDragHandle } from "@/components/SheetDragHandle";
 import {
   isListDetailSheetDragTarget,
   isListDetailTitleLabelTarget,
@@ -90,8 +92,6 @@ export function ListDetailModal({
   const [colorOpen, setColorOpen] = useState(false);
   const [titleEditMode, setTitleEditMode] = useState(false);
   const [localTitle, setLocalTitle] = useState(list?.title ?? "");
-  /** Layout viewport height locked on open — ignores keyboard visualViewport shrink. */
-  const [lockedSheetHeight, setLockedSheetHeight] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const sheetSurfaceRef = useRef<HTMLDivElement>(null);
@@ -208,6 +208,7 @@ export function ListDetailModal({
     animateEnter,
     setDismissTarget,
     resetDrag,
+    startDrag,
     attachCaptureDragSurface,
     attachScrollDismiss,
     handleDragEnd,
@@ -225,16 +226,7 @@ export function ListDetailModal({
     dragEngine: "manual",
   });
 
-  // Keep keyboard-inset for scroll padding only; sheet height is locked separately.
   useVisualViewportInsets(isMobile && isOpen);
-
-  useLayoutEffect(() => {
-    if (!isMobile || !isOpen) {
-      setLockedSheetHeight(null);
-      return;
-    }
-    setLockedSheetHeight((prev) => prev ?? window.innerHeight);
-  }, [isMobile, isOpen]);
 
   const handleClose = useCallback(() => {
     if (isMobile) {
@@ -358,18 +350,10 @@ export function ListDetailModal({
             // Mobile: pin to layout top + locked height so the keyboard cannot
             // shrink a fixed inset-0 layer and collapse the sheet.
             isMobile
-              ? "fixed top-0 left-0 right-0 flex-col justify-start"
+              ? "fixed inset-0 flex-col justify-end"
               : "fixed inset-0 items-center justify-center p-4 sm:p-6",
             isMobile && isDismissing && "pointer-events-none",
           )}
-          style={
-            isMobile
-              ? {
-                  height: lockedSheetHeight ?? "100dvh",
-                  maxHeight: lockedSheetHeight ?? "100dvh",
-                }
-              : undefined
-          }
         >
           <motion.div
             key="list-detail-backdrop"
@@ -397,7 +381,10 @@ export function ListDetailModal({
             className={cn(
               "list-detail-modal modal-panel relative flex w-full flex-col overflow-hidden border shadow-2xl",
               isMobile
-                ? "list-detail-sheet list-detail-sheet--mobile rounded-t-3xl max-w-none"
+                ? cn(
+                    "list-detail-sheet list-detail-sheet--mobile mobile-bottom-sheet mobile-bottom-sheet--90 rounded-t-3xl max-w-none",
+                    MOBILE_SHEET_HEIGHT_90_CLASS,
+                  )
                 : "list-detail-panel min-h-0 max-h-[min(85vh,720px)] max-w-2xl rounded-2xl",
             )}
             data-list-color={list.color}
@@ -409,12 +396,6 @@ export function ListDetailModal({
                 ? {
                     y: sheetY,
                     touchAction: "pan-y" as const,
-                    ...(lockedSheetHeight
-                      ? {
-                          height: lockedSheetHeight,
-                          maxHeight: lockedSheetHeight,
-                        }
-                      : {}),
                   }
                 : {}),
             }}
@@ -453,6 +434,7 @@ export function ListDetailModal({
                 ...listColorPresentationStyleVars(colorStyle),
               }}
             >
+            {isMobile && <SheetDragHandle onPointerDown={startDrag} />}
             <div className="list-header-band shrink-0">
               <header
                 className={cn(

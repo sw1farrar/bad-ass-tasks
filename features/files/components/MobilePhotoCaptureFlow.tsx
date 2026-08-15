@@ -140,7 +140,8 @@ export function MobilePhotoCaptureFlow({
       onClose={busy ? () => {} : onClose}
       isMobile
       zIndex={320}
-      panelClassName="mobile-photo-capture-sheet h-[100dvh] max-h-[100dvh] rounded-none border-0"
+      enableDragDismiss={!busy}
+      panelClassName="mobile-photo-capture-sheet"
       ariaLabel="Capture photos for a new note"
     >
       <input

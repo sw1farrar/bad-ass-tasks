@@ -1778,12 +1778,22 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 
   .mobile-bottom-sheet--90 {
+    top: auto !important;
     height: min(90dvh, var(--vvh, 90dvh)) !important;
     max-height: min(90dvh, var(--vvh, 90dvh)) !important;
   }
 
   .keyboard-stable-sheet {
     top: var(--vv-offset-top, 0px) !important;
+  }
+
+  .mobile-bottom-sheet--90.keyboard-stable-sheet {
+    top: auto !important;
+  }
+
+  .bottom-sheet-panel--dragging,
+  .bottom-sheet-panel--dragging .bottom-sheet-scroll-body {
+    touch-action: none;
   }
 
   .bottom-sheet-scroll-body {
@@ -1865,8 +1875,6 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 
   .task-drawer-sheet {
-    height: 100dvh;
-    max-height: 100dvh;
     display: flex;
     flex-direction: column;
   }

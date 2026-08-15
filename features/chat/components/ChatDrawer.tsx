@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion, type PanInfo } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
 import type { WorkspaceChatController } from "../hooks/useWorkspaceChat";
 import { WorkspaceChatPanel, type WorkspaceChatPanelProps } from "./WorkspaceChatPanel";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
@@ -18,51 +20,76 @@ export interface ChatDrawerProps extends WorkspaceChatPanelProps {
 
 export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerProps) {
   const [mounted, setMounted] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const openedRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  useScrollLock(open);
-
-  const handleClose = () => {
+  const finishClose = useCallback(() => {
     triggerHaptic("light");
     onClose();
-  };
+  }, [onClose]);
 
-  const handleDragEnd = (_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.y > 100 || info.velocity.y > 500) {
-      handleClose();
+  const {
+    sheetY,
+    backdropOpacityMotion,
+    requestDismiss,
+    animateEnter,
+    setDismissTarget,
+    resetDrag,
+    startDrag,
+  } = useMobileSheetDrag({
+    enabled: open,
+    onDismiss: finishClose,
+    dragMode: "handle",
+    dragEngine: "manual",
+  });
+
+  useScrollLock(open);
+
+  const handleClose = useCallback(() => {
+    requestDismiss();
+  }, [requestDismiss]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      openedRef.current = false;
+      return;
     }
-  };
+    const height = panelRef.current?.offsetHeight ?? window.innerHeight;
+    setDismissTarget(height);
+    if (!openedRef.current) {
+      openedRef.current = true;
+      animateEnter();
+    }
+  }, [open, animateEnter, setDismissTarget]);
 
   if (!mounted) return null;
 
   return createPortal(
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={resetDrag}>
       {open && (
-        <div className="fixed inset-0 z-[200] xl:hidden flex flex-col">
+        <div className="fixed inset-0 z-[200] xl:hidden flex flex-col justify-end">
           <motion.div
             className="absolute inset-0 overlay-scrim backdrop-blur-sm sheet-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={false}
+            style={{ opacity: backdropOpacityMotion }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={handleClose}
             aria-hidden
           />
           <motion.div
-            className="chat-drawer-sheet relative flex flex-col h-[100dvh] bg-bg border-t border-border-glass rounded-t-3xl overflow-hidden mobile-bottom-sheet"
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ type: "spring", damping: 28, stiffness: 320, mass: 0.85 }}
-            drag="y"
-            dragConstraints={{ top: 0, bottom: 500 }}
-            dragElastic={0.12}
-            onDragEnd={handleDragEnd}
+            ref={panelRef}
+            className={`chat-drawer-sheet relative flex flex-col bg-bg border-t border-border-glass rounded-t-3xl overflow-hidden mobile-bottom-sheet mobile-bottom-sheet--90 ${MOBILE_SHEET_HEIGHT_90_CLASS}`}
+            initial={{ opacity: 0.98 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{ y: sheetY, touchAction: "pan-y" }}
           >
-            <SheetDragHandle />
+            <SheetDragHandle onPointerDown={startDrag} />
             <div className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0">
               <div className="font-semibold">Messages</div>
               <button

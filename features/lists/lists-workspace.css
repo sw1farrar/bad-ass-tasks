@@ -2642,16 +2642,12 @@
 .list-detail-sheet--mobile {
   width: 100%;
   max-width: 100%;
-  /* Layout viewport height — do NOT use --vvh (visual viewport shrinks with keyboard). */
-  height: 100vh;
-  height: 100dvh;
-  height: 100lvh;
-  max-height: 100vh;
-  max-height: 100dvh;
-  max-height: 100lvh;
+  height: min(90dvh, var(--vvh, 90dvh));
+  max-height: min(90dvh, var(--vvh, 90dvh));
   min-height: 0;
   margin-left: auto;
   margin-right: auto;
+  margin-top: auto;
   will-change: transform;
   backface-visibility: hidden;
 }

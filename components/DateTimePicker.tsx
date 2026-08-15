@@ -296,7 +296,7 @@ export function DateTimePicker({
       open={isOpen}
       onClose={close}
       isMobile
-      zIndex={720}
+      zIndex={920}
       panelClassName="date-picker-panel"
       ariaLabel="Choose due date"
     >

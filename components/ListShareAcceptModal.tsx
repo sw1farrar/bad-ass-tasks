@@ -304,7 +304,7 @@ export function ListShareAcceptModal({
 
   if (isMobile) {
     return (
-      <BottomSheet open={open} onClose={close} ariaLabel="Accept shared list" className="max-h-[85dvh]">
+      <BottomSheet open={open} onClose={close} ariaLabel="Accept shared list">
         {body}
       </BottomSheet>
     );

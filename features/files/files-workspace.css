@@ -1606,9 +1606,7 @@
     transform: scale(0.94);
   }
 
-  .mobile-photo-capture-sheet .sheet-drag-handle-zone {
-    display: none;
-  }
+
 
   .mobile-photo-capture {
     background: var(--bg-panel);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { MessageSquare, Trash2, Loader2, Pencil, Check } from "lucide-react";
 import { WorkspaceItemDeepLink } from "./WorkspaceItemDeepLink";
@@ -14,7 +14,7 @@ import { ConfirmationModal } from "./ConfirmationModal";
 import { SheetDragHandle } from "./SheetDragHandle";
 import { toast } from "sonner";
 import { safeFormatDate, safeFormatTimestampIso } from "@/lib/datetime";
-import { motion, AnimatePresence, PanInfo, useDragControls } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useTaskStore } from "@/store/useTaskStore";
 import type { Comment, Task, WorkspaceMember } from "@/types";
 import { getCommentAuthorLabel } from "@/features/tasks/lib/taskCommentIndicators";
@@ -23,11 +23,13 @@ import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
 
 import { triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import {
   cn,
   applyTaskUpdateSideEffects,
   defaultTaskDueDate,
 } from "@/lib/utils";
+import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
 
 interface TaskModalProps {
   task: Task;
@@ -39,8 +41,6 @@ interface TaskModalProps {
     onNavigate: () => void;
   };
 }
-
-const SHEET_SPRING = { type: "spring" as const, damping: 32, stiffness: 380, mass: 0.85 };
 
 function cloneTaskSnapshot(task: Task): Task {
   return {
@@ -316,9 +316,10 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 768,
   );
-  const [dragY, setDragY] = useState(0);
-  const dragControls = useDragControls();
   const mobileTitleRef = useRef<HTMLTextAreaElement>(null);
+  const taskScrollRef = useRef<HTMLDivElement>(null);
+  const taskPanelRef = useRef<HTMLDivElement>(null);
+  const taskSheetOpenedRef = useRef(false);
   const openedTaskSnapshotRef = useRef<Task | null>(null);
   const prevIsOpenRef = useRef(false);
 
@@ -553,12 +554,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     });
   }, []);
 
-  // Keep edits (already autosaved) and close
-  const handleSheetClose = useCallback(() => {
-    if (recurrenceEndIncomplete) {
-      blockCloseForIncompleteEnd();
-      return;
-    }
+  const finishClose = useCallback(() => {
     triggerHaptic("light");
     if (liveBroadcastTimeoutRef.current) {
       clearTimeout(liveBroadcastTimeoutRef.current);
@@ -570,12 +566,42 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     lastBroadcastRef.current = {};
     setShowUnsavedConfirm(false);
     onClose();
+  }, [broadcastLiveTaskEdit, onClose, task.id]);
+
+  const {
+    sheetY,
+    backdropOpacityMotion,
+    isDragging,
+    requestDismiss,
+    animateEnter,
+    setDismissTarget,
+    resetDrag,
+    startDrag,
+    attachScrollDismiss,
+  } = useMobileSheetDrag({
+    enabled: isMobile && isOpen,
+    onDismiss: finishClose,
+    dragMode: "handle",
+    dragEngine: "manual",
+  });
+
+  // Keep edits (already autosaved) and close
+  const handleSheetClose = useCallback(() => {
+    if (recurrenceEndIncomplete) {
+      blockCloseForIncompleteEnd();
+      return;
+    }
+    if (isMobile) {
+      requestDismiss();
+      return;
+    }
+    finishClose();
   }, [
     blockCloseForIncompleteEnd,
-    broadcastLiveTaskEdit,
-    onClose,
+    finishClose,
+    isMobile,
     recurrenceEndIncomplete,
-    task.id,
+    requestDismiss,
   ]);
 
   // Revert all edits made this session and close
@@ -597,35 +623,53 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      e.stopImmediatePropagation();
       if (showUnsavedConfirm) {
+        e.stopImmediatePropagation();
         setShowUnsavedConfirm(false);
         return;
       }
+      if (pendingDeleteCommentId) {
+        e.stopImmediatePropagation();
+        setPendingDeleteCommentId(null);
+        return;
+      }
+      const nestedDialogs = Array.from(
+        document.querySelectorAll('[role="dialog"][aria-modal="true"]'),
+      ).filter((el) => el !== taskPanelRef.current && !taskPanelRef.current?.contains(el));
+      if (nestedDialogs.length > 0) return;
+      e.stopImmediatePropagation();
       handleSheetClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleSheetClose, isOpen, showUnsavedConfirm]);
+  }, [handleSheetClose, isOpen, showUnsavedConfirm, pendingDeleteCommentId]);
 
-  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.y > 120 || info.velocity.y > 600) {
-      setDragY(0);
-      handleSheetClose();
-    } else {
-      setDragY(0);
+  useLayoutEffect(() => {
+    if (!isOpen || !isMobile) {
+      taskSheetOpenedRef.current = false;
+      return;
     }
-  };
+    const height = taskPanelRef.current?.offsetHeight ?? window.innerHeight;
+    setDismissTarget(height);
+    if (!taskSheetOpenedRef.current) {
+      taskSheetOpenedRef.current = true;
+      animateEnter();
+    }
+  }, [isOpen, isMobile, animateEnter, setDismissTarget]);
 
-  const startSheetDrag = (e: React.PointerEvent) => {
-    dragControls.start(e);
-  };
+  useLayoutEffect(() => {
+    if (!isOpen || !isMobile) return;
+    return attachScrollDismiss(taskScrollRef.current, {
+      getScrollEl: () => taskScrollRef.current,
+      scrollGateSelector: ".task-sheet-scroll",
+    });
+  }, [attachScrollDismiss, isOpen, isMobile]);
 
   if (!mounted) return null;
 
   return createPortal(
     <>
-      <AnimatePresence onExitComplete={() => setDragY(0)}>
+      <AnimatePresence onExitComplete={resetDrag}>
       {isOpen && (
       <div
         className={cn(
@@ -636,39 +680,38 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
         <motion.div
           key="task-sheet-backdrop"
           className={cn("absolute inset-0", isMobile ? "sheet-backdrop" : "overlay-scrim")}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+          initial={isMobile ? false : { opacity: 0 }}
+          animate={isMobile ? undefined : { opacity: 1 }}
+          style={isMobile ? { opacity: backdropOpacityMotion } : undefined}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.22, ease: "easeOut" }}
           onClick={handleSheetClose}
           aria-hidden="true"
         />
         <motion.div
+          ref={taskPanelRef}
           key="task-sheet-panel"
           className={cn(
             "task-detail-modal glass modal-panel w-full overflow-hidden flex flex-col",
             isMobile
-              ? "task-drawer-sheet mobile-bottom-sheet relative flex flex-col h-[100dvh] max-h-[100dvh] rounded-t-3xl max-w-none"
+              ? cn(
+                  "task-drawer-sheet mobile-bottom-sheet mobile-bottom-sheet--90 relative flex flex-col rounded-t-3xl max-w-none",
+                  MOBILE_SHEET_HEIGHT_90_CLASS,
+                  isDragging && "bottom-sheet-panel--dragging",
+                )
               : // Fixed desktop size so expanding Repeat / comments doesn't resize the shell
                 "relative w-full max-w-5xl h-[min(92vh,880px)] rounded-2xl"
           )}
           onClick={e => e.stopPropagation()}
-          drag={isMobile ? "y" : false}
-          dragControls={dragControls}
-          dragListener={false}
-          dragConstraints={{ top: 0, bottom: 500 }}
-          dragElastic={{ top: 0, bottom: 0.2 }}
-          onDragEnd={isMobile ? handleDragEnd : undefined}
-          onDrag={(_e, info) => { if (isMobile) setDragY(Math.max(0, info.offset.y)); }}
-          initial={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
-          animate={isMobile ? { y: dragY } : { scale: 1, opacity: 1 }}
-          exit={isMobile ? { y: "100%" } : { scale: 0.96, opacity: 0 }}
-          transition={SHEET_SPRING}
+          initial={isMobile ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
+          animate={isMobile ? { opacity: 1 } : { scale: 1, opacity: 1 }}
+          exit={isMobile ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
+          style={isMobile ? { y: sheetY, touchAction: "pan-y" } : undefined}
           role="dialog"
           aria-modal="true"
           aria-label={`Task: ${localTask.title}`}
         >
-          {isMobile && <SheetDragHandle onPointerDown={startSheetDrag} />}
+          {isMobile && <SheetDragHandle onPointerDown={startDrag} />}
 
           {/* Header — Revert restores the opening snapshot; Done keeps autosaved edits */}
           <div
@@ -716,6 +759,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           </div>
 
         <div
+          ref={taskScrollRef}
           className={cn(
             "task-sheet-scroll flex-1 min-h-0 overscroll-contain",
             isMobile ? "overflow-y-auto" : "overflow-hidden flex flex-col",

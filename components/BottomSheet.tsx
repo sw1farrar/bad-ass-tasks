@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -67,8 +67,10 @@ export function BottomSheet({
   const [mounted] = useState(() => typeof window !== "undefined");
   const isMobile = useIsMobileViewport();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const openedRef = useRef(false);
 
-  const handleClose = useCallback(() => {
+  const finishClose = useCallback(() => {
     triggerHaptic("light");
     onClose();
   }, [onClose]);
@@ -78,25 +80,65 @@ export function BottomSheet({
   const dragEnabled = useMobileSheet && enableDragDismiss;
 
   const {
-    dragY,
+    sheetY,
+    backdropOpacityMotion,
+    isDragging,
+    isDismissing,
+    isEntering,
+    requestDismiss,
+    animateEnter,
+    setDismissTarget,
     resetDrag,
     startDrag,
-    handleDragEnd,
-    handleDrag,
-    drag,
-    dragControlsProp,
-    dragListener,
-    dragConstraints,
-    dragElastic,
+    attachScrollDismiss,
   } = useMobileSheetDrag({
-    enabled: dragEnabled,
-    onDismiss: handleClose,
+    enabled: dragEnabled && open,
+    onDismiss: finishClose,
     dragMode,
+    dragEngine: "manual",
   });
 
-  useScrollLock(open);
+  const handleClose = useCallback(() => {
+    if (useMobileSheet && dragEnabled) {
+      requestDismiss();
+      return;
+    }
+    finishClose();
+  }, [useMobileSheet, dragEnabled, requestDismiss, finishClose]);
+
+  useScrollLock(open && !isDismissing);
   useVisualViewportInsets(open && useMobileSheet);
   useFocusWithinScroll(scrollRef, open && useMobileSheet && wrapChildrenInScroll);
+
+  useLayoutEffect(() => {
+    if (!open || !useMobileSheet) {
+      openedRef.current = false;
+      return;
+    }
+    const height = panelRef.current?.offsetHeight ?? window.innerHeight;
+    setDismissTarget(height);
+    if (!openedRef.current) {
+      openedRef.current = true;
+      animateEnter();
+    }
+  }, [open, useMobileSheet, animateEnter, setDismissTarget]);
+
+  useLayoutEffect(() => {
+    if (!open || !useMobileSheet || !wrapChildrenInScroll || isDismissing || isEntering) {
+      return;
+    }
+    return attachScrollDismiss(scrollRef.current, {
+      getScrollEl: () => scrollRef.current,
+      scrollGateSelector: ".bottom-sheet-scroll-body",
+    });
+  }, [
+    attachScrollDismiss,
+    open,
+    useMobileSheet,
+    wrapChildrenInScroll,
+    isDismissing,
+    isEntering,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -151,8 +193,9 @@ export function BottomSheet({
           <motion.div
             key="bottom-sheet-backdrop"
             className={backdropClasses}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={useMobileSheet ? false : { opacity: 0 }}
+            animate={useMobileSheet ? undefined : { opacity: 1 }}
+            style={useMobileSheet ? { opacity: backdropOpacityMotion } : undefined}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={handleClose}
@@ -166,6 +209,7 @@ export function BottomSheet({
             )}
           >
             <motion.div
+              ref={panelRef}
               role="dialog"
               aria-modal="true"
               aria-label={ariaLabel || title}
@@ -175,6 +219,7 @@ export function BottomSheet({
                   cn(
                     "mobile-bottom-sheet keyboard-stable-sheet rounded-t-3xl",
                     mobileHeightClass,
+                    isDragging && "bottom-sheet-panel--dragging",
                   ),
                 useMobileCentered &&
                   "max-w-[min(20rem,calc(100vw-2rem))] mx-auto rounded-2xl max-h-[min(85dvh,640px)]",
@@ -182,35 +227,14 @@ export function BottomSheet({
                 panelClassName,
               )}
               onClick={(e) => e.stopPropagation()}
-              drag={drag}
-              dragControls={dragControlsProp}
-              dragListener={dragListener}
-              dragConstraints={dragConstraints}
-              dragElastic={dragElastic}
-              onDrag={handleDrag}
-              onDragEnd={handleDragEnd}
-              initial={
-                useMobileSheet
-                  ? { y: "100%" }
-                  : { scale: 0.96, opacity: 0 }
-              }
-              animate={
-                useMobileSheet
-                  ? { y: dragY, opacity: 1 }
-                  : { scale: 1, opacity: 1 }
-              }
-              exit={
-                useMobileSheet
-                  ? { y: "100%", opacity: 0 }
-                  : { scale: 0.96, opacity: 0 }
-              }
-              transition={SHEET_SPRING}
-              style={useMobileSheet ? { touchAction: "pan-y" } : undefined}
+              initial={useMobileSheet ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
+              animate={useMobileSheet ? { opacity: 1 } : { scale: 1, opacity: 1 }}
+              exit={useMobileSheet ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
+              transition={useMobileSheet ? { duration: 0.18, ease: "easeOut" } : SHEET_SPRING}
+              style={useMobileSheet ? { y: sheetY, touchAction: "pan-y" } : undefined}
             >
               {useMobileSheet && showDragHandle && (
-                <SheetDragHandle
-                  onPointerDown={dragMode === "handle" ? startDrag : undefined}
-                />
+                <SheetDragHandle onPointerDown={startDrag} />
               )}
 
               {(title || showClose) && (

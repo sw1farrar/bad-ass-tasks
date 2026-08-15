@@ -131,7 +131,7 @@ export function TasksFolderFilterPicker({
     open && mounted && popoverPosition ? (
       <div
         ref={panelRef}
-        className="tasks-folder-filter-picker__panel fixed z-[80] w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-border-glass bg-bg-card p-2 shadow-2xl"
+        className="tasks-folder-filter-picker__panel fixed z-[960] w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-border-glass bg-bg-card p-2 shadow-2xl"
         style={{
           top: popoverPosition.top,
           left: popoverPosition.left,
