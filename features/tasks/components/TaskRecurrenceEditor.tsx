@@ -8,11 +8,9 @@ import {
   cn,
   formatRecurrenceUntilForInput,
   generateRecurringRule,
-  getNextRecurringDue,
   getRecurrenceEndDescription,
   getRecurringLabel,
   getUpcomingRecurrencesPreview,
-  isDueDatePast,
   normalizeExceptionKey,
   parseRecurringRule,
   resolveRecurrenceSeriesAnchor,
@@ -559,11 +557,9 @@ export function TaskRecurrenceEditor({
               type="button"
               onClick={handleSkipOccurrence}
               className="text-[10px] px-2 py-0.5 rounded bg-neon-purple/10 hover:bg-neon-purple/20 text-neon-purple border border-neon-purple/30 transition"
-              title="Skip the current overdue occurrence or the next future one"
+              title="Skip the visible due date and move one occurrence forward"
             >
-              {localTask.dueDate && isDueDatePast(localTask.dueDate)
-                ? "Skip this occurrence"
-                : "Skip next occurrence"}
+              Skip this occurrence
             </button>
             <span className="text-[9px] text-text-muted">{endDesc}</span>
           </div>

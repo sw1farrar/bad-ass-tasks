@@ -62,8 +62,24 @@ describe('recurrenceTaskState', () => {
     };
     const result = buildSkipOccurrenceUpdates(overdue);
     expect(result).toBeTruthy();
-    expect(result?.updates.exceptionDates?.length).toBe(1);
-    expect(result?.updates.dueDate).toBeTruthy();
+    expect(result?.updates.exceptionDates).toEqual(['2020-01-06']);
+    expect(result?.updates.dueDate ? normalizeExceptionKey(result.updates.dueDate) : '').toBe(
+      '2020-01-13',
+    );
+  });
+
+  it('skip of weekly Saturday due Aug 8 lands on Aug 15, not Aug 22', () => {
+    const task: Task = {
+      ...baseTask,
+      dueDate: '2026-08-08T00:00:00.000Z',
+      recurringRule: 'FREQ=WEEKLY;BYDAY=SA;X-SERIES-ANCHOR=20260808',
+      exceptionDates: undefined,
+    };
+    const result = buildSkipOccurrenceUpdates(task);
+    expect(result?.updates.exceptionDates).toEqual(['2026-08-08']);
+    expect(result?.updates.dueDate ? normalizeExceptionKey(result.updates.dueDate) : '').toBe(
+      '2026-08-15',
+    );
   });
 
   it('mergeRecurrenceTaskState clears recurrence fields together', () => {

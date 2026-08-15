@@ -13,6 +13,7 @@ import {
   isRecurrenceFromCompletion,
   resolveRecurrenceSeriesAnchor,
   getOccurrencesInRange,
+  getUpcomingRecurrencesPreview,
   normalizeExceptionKey,
   toLocalDateString,
   getRecurrenceEndDescription,
@@ -217,14 +218,43 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
       expect(next ? toLocalDateString(next) : '').toBe('2026-07-21');
     });
 
-    it('late fixed daily jumps to first due on/after completion (no leftover overdue)', () => {
-      // Due Jul 14; completed Jul 18 → next Jul 19 (not Jul 15)
+    it('late fixed daily advances one day from due (today ignored)', () => {
+      // Due Jul 14; completed Jul 18 → next Jul 15 (not Jul 19)
       const next = getNextRecurringDueAfterComplete(
         'FREQ=DAILY',
         '2026-07-14',
         '2026-07-18',
       );
-      expect(next ? toLocalDateString(next) : '').toBe('2026-07-19');
+      expect(next ? toLocalDateString(next) : '').toBe('2026-07-15');
+    });
+
+    it('weekly Saturday complete on the next Saturday is that Saturday, not the week after', () => {
+      // Due Sat Aug 8; completed Sat Aug 15 → Aug 15 (not Aug 22)
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;BYDAY=SA',
+        '2026-08-08',
+        '2026-08-15',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-08-15');
+    });
+
+    it('weekly Saturday late complete still advances only one Saturday', () => {
+      // Due Sat Aug 8; completed Sat Aug 29 → still Aug 15
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;BYDAY=SA',
+        '2026-08-08',
+        '2026-08-29',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-08-15');
+    });
+
+    it('every-other-Saturday late complete is +14 from due, not from today', () => {
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;INTERVAL=2;BYDAY=SA',
+        '2026-01-03',
+        '2026-01-20',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-01-17');
     });
 
     it('rolling schedule advances from completion date', () => {
@@ -387,6 +417,24 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
         ex,
       );
       expect(occ.map((d) => toLocalDateString(d))).toEqual(['2026-01-01', '2026-01-03', '2026-01-04']);
+    });
+  });
+
+  describe('getUpcomingRecurrencesPreview', () => {
+    it('lists the next Saturday after due, not the first Saturday after today', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 7, 16, 12, 0, 0));
+      try {
+        const preview = getUpcomingRecurrencesPreview(
+          '2026-08-08',
+          'FREQ=WEEKLY;BYDAY=SA',
+          3,
+        );
+        expect(preview[0]).toBe('Aug 15');
+        expect(preview[1]).toBe('Aug 22');
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

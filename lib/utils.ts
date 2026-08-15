@@ -428,8 +428,8 @@ export function getNextRecurringDue(
 
 /**
  * Next due after completing a recurring task.
- * - Fixed (default): expands from a stable series anchor; late completes jump to the
- *   first occurrence on/after the completion day (no leftover overdue dues).
+ * - Fixed (default): one step from the current due date. Today / completion day
+ *   is ignored so a late check-off does not skip leftover occurrences.
  * - Rolling (`FROMCOMPLETION=TRUE`): re-anchors to the completion day.
  *   When completing early, still advances past the current due (avoids BYDAY no-ops).
  */
@@ -453,9 +453,9 @@ export function getNextRecurringDueAfterComplete(
     return getNextRecurringDue(rule, fromKey, completionKey, exceptionDates);
   }
 
-  // Fixed: stable series seed + from = max(due, completion) so late completes catch up
-  const seriesAnchor = resolveRecurrenceSeriesAnchor(rule, dueDate) ?? completionKey;
-  const fromKey = !dueKey || completionKey >= dueKey ? completionKey : dueKey;
+  // Fixed: one step from the current due; series seed stays for monthly DOM / COUNT
+  const seriesAnchor = resolveRecurrenceSeriesAnchor(rule, dueDate) ?? dueKey ?? completionKey;
+  const fromKey = dueKey ?? completionKey;
   return getNextRecurringDue(rule, fromKey, seriesAnchor, exceptionDates);
 }
 
@@ -623,7 +623,8 @@ export function getOccurrencesInRange(
 }
 
 /** Human preview of next N occurrences (for modal / tooltip).
- *  Updated (Agent 13): optional exceptionDates param passed through (skips honored in previews).
+ *  Starts from the current due and lists dates strictly after it — same cursor as
+ *  a fixed-schedule complete/skip. Today is not used as a catch-up.
  */
 export function getUpcomingRecurrencesPreview(
   anchorDue: string | undefined | null,
@@ -633,9 +634,11 @@ export function getUpcomingRecurrencesPreview(
 ): string[] {
   if (!anchorDue || !rule) return [];
   const seriesAnchor = resolveRecurrenceSeriesAnchor(rule, anchorDue) ?? anchorDue;
-  const now = new Date();
-  const end = addMonths(now, 18); // generous window
-  const dates = getOccurrencesInRange(seriesAnchor, rule, now, end, count + 2, exceptionDates);
+  const fromDue = parseLocalDate(anchorDue) ?? startOfDay(new Date());
+  const dueKey = normalizeCalendarDateKey(anchorDue);
+  const end = addMonths(fromDue, 18);
+  const dates = getOccurrencesInRange(seriesAnchor, rule, fromDue, end, count + 2, exceptionDates)
+    .filter((d) => normalizeCalendarDateKey(d) > dueKey);
   return dates.slice(0, count).map((d) => {
     if (!isValid(d)) return "—";
     if (isToday(d)) return "Today";

@@ -7,7 +7,6 @@ import {
   normalizeExceptionKey,
   parseRecurringRule,
   resolveRecurrenceSeriesAnchor,
-  toLocalDateString,
 } from "@/lib/utils";
 import type { Task } from "@/types";
 
@@ -67,7 +66,7 @@ export function buildRecurringDueDateChange(
   };
 }
 
-/** Skip current (if overdue) or next occurrence; advance due when the visible date was skipped. */
+/** Skip the visible due date and advance exactly one occurrence from that date. */
 export function buildSkipOccurrenceUpdates(task: Task): {
   updates: Partial<Task>;
   skippedKey: string;
@@ -78,9 +77,7 @@ export function buildSkipOccurrenceUpdates(task: Task): {
   const rule = task.recurringRule;
   const seriesSeed = resolveRecurrenceSeriesAnchor(rule, task.dueDate) ?? task.dueDate;
   const isOverdue = isDueDatePast(task.dueDate);
-  const skipTarget = isOverdue
-    ? parseLocalDate(task.dueDate)
-    : getNextRecurringDue(rule, new Date(), seriesSeed, task.exceptionDates);
+  const skipTarget = parseLocalDate(task.dueDate);
   if (!skipTarget) return null;
 
   const skippedKey = normalizeExceptionKey(skipTarget);
@@ -89,22 +86,9 @@ export function buildSkipOccurrenceUpdates(task: Task): {
 
   const nextEx = [...currentEx, skippedKey];
   const updates: Partial<Task> = { exceptionDates: nextEx };
-  const dueMatchesSkip = normalizeExceptionKey(task.dueDate) === skippedKey;
-
-  // Advance the list date whenever the skipped day is what's currently shown (or overdue).
-  if (isOverdue || dueMatchesSkip) {
-    let cursor: string | Date = skipTarget;
-    let nextDue = getNextRecurringDue(rule, cursor, seriesSeed, nextEx);
-    const todayKey = toLocalDateString(new Date());
-    let guard = 0;
-    while (nextDue && normalizeExceptionKey(nextDue) < todayKey && guard < 48) {
-      cursor = nextDue;
-      nextDue = getNextRecurringDue(rule, cursor, seriesSeed, nextEx);
-      guard++;
-    }
-    if (nextDue) {
-      updates.dueDate = toDueDateStorage(nextDue);
-    }
+  const nextDue = getNextRecurringDue(rule, skipTarget, seriesSeed, nextEx);
+  if (nextDue) {
+    updates.dueDate = toDueDateStorage(nextDue);
   }
 
   return { updates, skippedKey, isOverdue };
