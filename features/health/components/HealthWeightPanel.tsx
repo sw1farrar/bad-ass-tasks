@@ -122,12 +122,18 @@ export function HealthWeightPanel({
             </div>
           ) : null}
         </div>
-        <HealthAreaChart
-          series={series}
-          unit={latest?.unit ?? "lb"}
-          goalLine={profile?.weightGoal ?? null}
-          rangeLabel={`${rangeDays}d`}
-        />
+        {series.length > 0 ? (
+          <HealthAreaChart
+            series={series}
+            unit={latest?.unit ?? "lb"}
+            goalLine={profile?.weightGoal ?? null}
+            rangeLabel={`${rangeDays}d`}
+          />
+        ) : (
+          <p className="text-sm text-text-muted text-center py-10">
+            Log a weight to see your trend.
+          </p>
+        )}
       </HealthChartCard>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -146,23 +152,25 @@ export function HealthWeightPanel({
             <input
               type="number"
               step={0.1}
+              inputMode="decimal"
               placeholder={`Goal (${profile?.weightUnit ?? "lb"})`}
               defaultValue={profile?.weightGoal ?? ""}
               onChange={(e) => setGoalInput(e.target.value)}
-              className="w-full rounded-lg border border-border-glass bg-bg px-3 py-2 text-sm"
+              className="w-full min-h-[44px] rounded-lg border border-border-glass bg-bg px-3 py-2 text-base"
             />
             <input
               type="number"
               step={0.1}
+              inputMode="decimal"
               placeholder="Height (cm)"
               defaultValue={profile?.heightCm ?? ""}
               onChange={(e) => setHeightInput(e.target.value)}
-              className="w-full rounded-lg border border-border-glass bg-bg px-3 py-2 text-sm"
+              className="w-full min-h-[44px] rounded-lg border border-border-glass bg-bg px-3 py-2 text-base"
             />
             <button
               type="button"
               onClick={() => void saveProfile()}
-              className="w-full rounded-lg py-2 text-xs font-semibold bg-neon-purple/15 text-neon-purple-tint border border-neon-purple/25"
+              className="w-full min-h-[44px] rounded-lg text-sm font-semibold bg-neon-purple/15 text-neon-purple-tint border border-neon-purple/25"
             >
               Save profile
             </button>

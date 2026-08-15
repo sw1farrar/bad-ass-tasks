@@ -30,6 +30,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
   { type: "steps", label: "Steps", defaultUnit: "count", units: ["count"], tab: "activity", step: 1, placeholder: "8500" },
   { type: "active_minutes", label: "Active minutes", defaultUnit: "min", units: ["min"], tab: "activity", step: 1, placeholder: "45" },
   { type: "calories_burned", label: "Calories burned", defaultUnit: "kcal", units: ["kcal"], tab: "activity", step: 1, placeholder: "450" },
+  { type: "stress", label: "Stress", defaultUnit: "score", units: ["score"], tab: "stress", step: 1, placeholder: "5" },
 ];
 
 export function getHealthMetricDef(type: HealthMetricType): HealthMetricDef {
@@ -42,6 +43,9 @@ export function getMetricsForTab(tab: HealthSectionTab): HealthMetricDef[] {
 
 export function formatHealthValue(value: number, unit: string): string {
   if (unit === "count") return Math.round(value).toLocaleString();
+  if (unit === "score") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
   if (unit === "%" || unit === "hrs") return `${value.toFixed(1)}${unit === "%" ? "%" : " hrs"}`;
   if (unit === "mmHg" || unit === "bpm" || unit === "min" || unit === "kcal") {
     return `${Math.round(value)} ${unit}`;

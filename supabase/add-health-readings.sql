@@ -35,8 +35,15 @@ ALTER TABLE health_profiles ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Workspace members can access health_readings" ON health_readings;
 CREATE POLICY "Workspace members can access health_readings" ON health_readings
-  FOR ALL USING (is_workspace_member(workspace_id, auth.uid()))
-  WITH CHECK (is_workspace_member(workspace_id, auth.uid()));
+  FOR ALL
+  USING (
+    is_workspace_member(workspace_id, auth.uid())
+    AND (metric_type <> 'stress' OR user_id = auth.uid())
+  )
+  WITH CHECK (
+    is_workspace_member(workspace_id, auth.uid())
+    AND (metric_type <> 'stress' OR user_id = auth.uid())
+  );
 
 DROP POLICY IF EXISTS "Workspace members can access health_profiles" ON health_profiles;
 CREATE POLICY "Workspace members can access health_profiles" ON health_profiles

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export const workspaceNameEase = [0.22, 1, 0.36, 1] as const;
@@ -19,7 +19,19 @@ export function WorkspaceSwitchEffects({
   variant = "sidebar",
   className,
 }: WorkspaceSwitchEffectsProps) {
+  const reduceMotion = useReducedMotion();
+
   if (variant === "bottom-nav") {
+    if (reduceMotion) {
+      return (
+        <div
+          className={cn("absolute inset-0 pointer-events-none overflow-hidden z-0", className)}
+          aria-hidden
+        >
+          <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-neon-purple to-transparent" />
+        </div>
+      );
+    }
     return (
       <div
         className={cn("absolute inset-0 pointer-events-none overflow-hidden z-0", className)}
@@ -119,26 +131,25 @@ interface AnimatedBottomNavItemContentProps {
 }
 
 export function AnimatedBottomNavItemContent({
-  workspaceId,
   itemId,
-  index,
   children,
   className,
 }: AnimatedBottomNavItemContentProps) {
+  const reduceMotion = useReducedMotion();
+  const bodyClass = cn(
+    "bottom-nav-item__body flex flex-col items-center justify-center w-full min-h-0 min-w-0",
+    className,
+  );
+
+  if (reduceMotion) {
+    return <div className={bodyClass}>{children}</div>;
+  }
+
   return (
     <motion.div
-      key={`${workspaceId}-${itemId}`}
-      initial={{ opacity: 0.15, y: 10, scale: 0.84, filter: "blur(6px)" }}
-      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-      transition={{
-        delay: 0.05 + index * 0.065,
-        duration: 0.52,
-        ease: workspaceNameEase,
-      }}
-      className={cn(
-        "bottom-nav-item__body flex flex-col items-center justify-center w-full min-h-0 min-w-0",
-        className,
-      )}
+      key={itemId}
+      initial={false}
+      className={bodyClass}
     >
       {children}
     </motion.div>

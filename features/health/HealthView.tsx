@@ -8,6 +8,7 @@ import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { memberColorMap } from "@/lib/health/healthAggregates";
+import { isSharedWorkspace } from "@/lib/assignee";
 import type { HealthSectionTab } from "@/lib/health/healthSections";
 import type { HealthMetricType, HealthProfile, HealthReading, WorkspaceMember } from "@/types";
 import { HealthSectionMenu } from "./components/HealthSectionMenu";
@@ -18,6 +19,8 @@ import { HealthWeightPanel } from "./components/HealthWeightPanel";
 import { HealthBodyPanel } from "./components/HealthBodyPanel";
 import { HealthVitalsPanel } from "./components/HealthVitalsPanel";
 import { HealthActivityPanel } from "./components/HealthActivityPanel";
+import { HealthStressPanel } from "./components/HealthStressPanel";
+import { LogStressSheet } from "./components/LogStressSheet";
 import "./health-workspace.css";
 
 export interface HealthViewProps {
@@ -64,6 +67,8 @@ export function HealthView({
   const isMobile = useIsMobileViewport();
   const [logOpen, setLogOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const isStressTab = activeTab === "stress";
+  const showMemberFilter = !isStressTab && isSharedWorkspace(members);
 
   const filteredReadings = useMemo(() => {
     const list = [...readings].sort(
@@ -89,7 +94,7 @@ export function HealthView({
         recordedAt: input.recordedAt,
       });
       if (res) {
-        toast.success("Health entry logged");
+        toast.success(input.metricType === "stress" ? "Stress check-in saved" : "Health entry logged");
       } else {
         toast.error("Could not save entry");
       }
@@ -116,10 +121,22 @@ export function HealthView({
             ? "steps"
             : undefined;
 
+  const pendingDelete = pendingDeleteId
+    ? readings.find((r) => r.id === pendingDeleteId)
+    : undefined;
+
+  const openLog = () => setLogOpen(true);
+
+  const changeTab = (tab: typeof activeTab) => {
+    setLogOpen(false);
+    onTabChange(tab);
+  };
+
   return (
-    <div className="health-root flex flex-col flex-1 min-h-0">
-    <div className="health-workspace flex flex-col h-full min-h-0 bg-bg">
-      <div className="px-3 md:px-4 pt-3 md:pt-4 shrink-0">
+    <div className="health-root">
+    <div className="health-workspace bg-bg">
+      <div className="health-workspace__chrome shrink-0">
+      <div className="px-3 md:px-4 pt-3 md:pt-4">
       <WorkspaceViewHeader
         title="Health"
         workspaceName={workspaceName ?? ""}
@@ -128,55 +145,64 @@ export function HealthView({
         description={
           isMobile
             ? undefined
-            : "Shared workspace tracking — all members can log and view readings"
+            : isStressTab
+              ? "Private to you — teammates never see scores or comments"
+              : "Shared workspace tracking — all members can log and view readings"
         }
         variant="inline"
         actions={
           !isMobile ? (
             <button
               type="button"
-              onClick={() => setLogOpen(true)}
+              onClick={openLog}
               className="inline-flex items-center gap-2 min-h-[44px] rounded-xl bg-neon-purple px-3 py-2 text-xs font-semibold text-white hover:opacity-90 transition"
             >
               <Plus className="h-4 w-4" />
-              Log entry
+              {isStressTab ? "Log stress" : "Log entry"}
             </button>
           ) : undefined
         }
       />
       </div>
 
-      <HealthMemberFilter
-        members={members}
-        selectedId={selectedMemberId}
-        onChange={onMemberChange}
-        colorMap={colorMap}
-      />
+      {showMemberFilter ? (
+        <HealthMemberFilter
+          members={members}
+          selectedId={selectedMemberId}
+          onChange={onMemberChange}
+          colorMap={colorMap}
+        />
+      ) : null}
 
-      <HealthSectionMenu activeTab={activeTab} onTabChange={onTabChange} />
+      <HealthSectionMenu activeTab={activeTab} onTabChange={changeTab} />
+      </div>
 
-      {isMobile ? (
+      {isMobile && !logOpen ? (
         <button
           type="button"
-          onClick={() => setLogOpen(true)}
+          onClick={openLog}
           className={cn(
-            "health-fab fixed right-4 z-50 flex items-center justify-center",
+            "health-fab fixed z-[55] flex items-center justify-center",
             "h-12 w-12 rounded-full bg-neon-purple text-white shadow-lg active:scale-95 transition",
           )}
-          style={{ bottom: "calc(6.5rem + env(safe-area-inset-bottom, 10px))" }}
-          aria-label="Log health entry"
+          style={{
+            right: "max(1rem, env(safe-area-inset-right, 16px))",
+            bottom: "calc(6.5rem + env(safe-area-inset-bottom, 10px))",
+          }}
+          aria-label={isStressTab ? "Log stress" : "Log health entry"}
         >
           <Plus className="h-5 w-5" />
         </button>
       ) : null}
 
-      <div className="health-workspace__content flex-1 min-h-0 overflow-y-auto max-md:overscroll-contain">
+      <div className="health-workspace__content">
         {activeTab === "overview" ? (
           <HealthOverviewPanel
             readings={filteredReadings}
             profiles={profiles}
             members={members}
             selectedMemberId={selectedMemberId}
+            currentUserId={currentUserId}
             onDeleteReading={setPendingDeleteId}
           />
         ) : null}
@@ -215,21 +241,52 @@ export function HealthView({
             onDeleteReading={setPendingDeleteId}
           />
         ) : null}
+        {activeTab === "stress" ? (
+          <HealthStressPanel
+            readings={
+              currentUserId
+                ? readings.filter((r) => r.userId === currentUserId)
+                : readings
+            }
+            onDeleteReading={setPendingDeleteId}
+          />
+        ) : null}
       </div>
 
-      <LogHealthModal
-        open={logOpen}
-        onClose={() => setLogOpen(false)}
-        defaultTab={activeTab}
-        defaultMetric={defaultMetric}
-        onSubmit={handleLog}
-      />
+      {isStressTab ? (
+        <LogStressSheet
+          open={logOpen}
+          onClose={() => setLogOpen(false)}
+          onSubmit={async (input) => {
+            await handleLog({
+              metricType: "stress",
+              value: input.value,
+              unit: "score",
+              recordedAt: input.recordedAt,
+              note: input.note,
+              metadata: input.drivers.length ? { drivers: input.drivers } : undefined,
+            });
+          }}
+        />
+      ) : (
+        <LogHealthModal
+          open={logOpen}
+          onClose={() => setLogOpen(false)}
+          defaultTab={activeTab}
+          defaultMetric={defaultMetric}
+          onSubmit={handleLog}
+        />
+      )}
 
       <ConfirmationModal
         open={!!pendingDeleteId}
         onOpenChange={(open) => !open && setPendingDeleteId(null)}
-        title="Delete health entry?"
-        description="This measurement will be permanently removed for everyone in the workspace."
+        title={pendingDelete?.metricType === "stress" ? "Delete this check-in?" : "Delete health entry?"}
+        description={
+          pendingDelete?.metricType === "stress"
+            ? "This stress check-in will be removed. Only you can see these."
+            : "This measurement will be permanently removed for everyone in the workspace."
+        }
         confirmText="Delete entry"
         variant="destructive"
         onConfirm={() => void confirmDelete()}

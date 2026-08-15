@@ -2,7 +2,7 @@
 
 import React, { useId, useMemo } from "react";
 import { motion } from "framer-motion";
-import type { PlatformAnalytics, PlatformStats } from "@/lib/admin/platformData";
+import type { PlatformAnalytics, PlatformStats } from "@/lib/admin/platformTypes";
 import { cn } from "@/lib/utils";
 
 const CHART_WIDTH = 320;

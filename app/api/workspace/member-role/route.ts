@@ -77,6 +77,7 @@ export async function POST(request: Request) {
     workspaceId,
     targetUserId,
     newRole,
+    callerRole: callerRole as WorkspaceRole,
   });
 
   if (!result.ok) {

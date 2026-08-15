@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { isBrevoConfigured, sendVerificationEmail } from "@/lib/brevo";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
+import { checkRateLimit } from "@/lib/auth/rateLimit";
+import { getClientIp } from "@/lib/auth/clientIp";
 
 type SignupBody = {
   email?: string;
@@ -41,6 +43,20 @@ export async function POST(request: Request) {
       { error: "A valid email and password (min 6 characters) are required." },
       { status: 400 },
     );
+  }
+
+  const ip = getClientIp(request) ?? "unknown";
+  for (const key of [`signup:${email}`, `signup-ip:${ip}`]) {
+    const rate = checkRateLimit(key, 5, 60 * 60 * 1000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        },
+      );
+    }
   }
 
   const admin = createAdminSupabaseClient();

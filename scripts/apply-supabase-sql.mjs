@@ -44,29 +44,23 @@ function databaseUrlFromPassword(projectRef, password) {
 }
 
 async function applyViaManagementApi(sql, projectRef, token) {
-  const statements = sql
-    .split(/;\s*(?:\r?\n|$)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
+  // Prefer one full-script query so PL/pgSQL function bodies (with internal `;`)
+  // are not split incorrectly.
+  console.log("Applying SQL via Supabase Management API (single batch)…");
+  const res = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query: sql }),
+  });
 
-  console.log(`Applying ${statements.length} statement(s) via Supabase Management API…`);
-
-  for (const [index, query] of statements.entries()) {
-    const res = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    const body = await res.text();
-    if (!res.ok) {
-      throw new Error(`Statement ${index + 1} failed (${res.status}): ${body}`);
-    }
-    console.log(`  ✓ ${index + 1}/${statements.length}`);
+  const body = await res.text();
+  if (!res.ok) {
+    throw new Error(`SQL apply failed (${res.status}): ${body}`);
   }
+  console.log("✓ SQL applied via Supabase Management API");
 }
 
 async function applyViaPg(sql, databaseUrl) {

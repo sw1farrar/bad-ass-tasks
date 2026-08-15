@@ -7,7 +7,6 @@ import {
   Plus,
   Command,
   Users,
-  Settings,
   ChevronDown,
   Clock,
   Star,
@@ -71,12 +70,14 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { ListShareAcceptModal } from "@/components/ListShareAcceptModal";
 import { LoginActivityModal } from "@/components/LoginActivityModal";
-import { isValidListShareId } from "@/lib/list-share/getListSharePreview";
+import { isValidListShareId } from "@/lib/list-share/isValidListShareId";
 import { FilesView } from "@/features/files";
 import { NotebooksView } from "@/features/notebooks";
 import { MeetingsView } from "@/features/meetings";
 import { HealthView } from "@/features/health";
+import { MapsView } from "@/features/maps";
 import { getBottomNavViews } from "@/lib/nav/workspaceViews";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 import {
   CaptureFileModal,
   type CaptureFileInput,
@@ -92,14 +93,11 @@ import { ListDetailModal } from "@/features/lists/components/ListDetailModal";
 import { getIncompleteSubtreeItems } from "@/lib/lists/listItemTree";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import {
-  AnimatedBottomNavItemContent,
   AnimatedWorkspaceName,
   WorkspaceSwitchEffects,
 } from "@/components/WorkspaceSwitchEffects";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { ThemeToggleSegmented } from "@/components/ThemeToggle";
-import { TasksNavIndicator } from "@/components/TasksNavIndicator";
-import { FilesNavIndicator } from "@/components/FilesNavIndicator";
 import { filterPendingReview, sortFiledNotes } from "@/lib/files/fileFilters";
 import {
   getWorkspaceNavTaskCounts,
@@ -417,11 +415,6 @@ export default function BadAssTasks() {
     enabled: showWorkspaceChat,
     suppress: currentView === "chat",
   });
-  const bottomNavViews = useMemo(
-    () => getBottomNavViews(currentWorkspace, { showChat: showWorkspaceChat }),
-    [currentWorkspace, showWorkspaceChat],
-  );
-
   const [isLiveBootstrapping, setIsLiveBootstrapping] = useState(false);
   const [liveBootstrapFinished, setLiveBootstrapFinished] = useState(false);
 
@@ -2726,7 +2719,6 @@ export default function BadAssTasks() {
               >
                 <option value="member">Member (default)</option>
                 <option value="admin">Admin</option>
-                <option value="owner">Owner</option>
               </select>
             </div>
             <div className="pt-2 flex flex-col-reverse sm:flex-row gap-3">
@@ -3127,7 +3119,6 @@ export default function BadAssTasks() {
                     >
                       <option value="member">Member</option>
                       <option value="admin">Admin</option>
-                      <option value="owner">Owner</option>
                     </select>
                     <button
                       onClick={() => {
@@ -3515,6 +3506,13 @@ export default function BadAssTasks() {
             onAddReading={addHealthReading}
             onDeleteReading={deleteHealthReading}
             onUpdateProfile={upsertHealthProfile}
+          />
+        );
+      case "map":
+        return (
+          <MapsView
+            workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
           />
         );
       case "teams":
@@ -4040,6 +4038,7 @@ export default function BadAssTasks() {
           className={cn(
             "main-content relative flex-1 overflow-auto p-6 lg:p-8",
             currentView === "chat" && "main-content--chat !p-0 lg:!p-0 overflow-hidden flex flex-col",
+            currentView === "health" && "main-content--health !p-0 lg:!p-0 overflow-hidden flex flex-col min-h-0",
             pwaStandalone && isMobileViewport && "main-content--pwa-standalone"
           )}
         >
@@ -4229,76 +4228,17 @@ export default function BadAssTasks() {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation — native iOS/Android style, only <md via CSS + md:hidden
-          Reuses existing VIEWS + setView from store. No desktop impact. Touch-optimized via globals.css
-      */}
-      <nav
-        className="bottom-nav md:hidden border-t border-border-glass"
-        aria-label="Primary navigation"
-      >
-        <WorkspaceSwitchEffects workspaceId={currentWorkspace.id} variant="bottom-nav" />
-        {bottomNavViews.map((v, navIndex) => {
-          const navMeta =
-            v.id === "settings"
-              ? { label: "Settings", Icon: Settings }
-              : { label: v.label, Icon: v.icon };
-          const Icon = navMeta.Icon;
-          const isActive = currentView === v.id;
-          const label = navMeta.label;
-          return (
-            <div
-              key={v.id}
-              role="button"
-              tabIndex={0}
-              aria-current={isActive ? "page" : undefined}
-              onClick={() => {
-                triggerHaptic("light");
-                setView(v.id as any);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  triggerHaptic("light");
-                  setView(v.id as any);
-                }
-              }}
-              className={cn(
-                "bottom-nav-item relative z-[1]",
-                v.id === "home" && "bottom-nav-item--home",
-                v.id === "lists" && "bottom-nav-item--lists",
-                isActive && "active"
-              )}
-            >
-              <AnimatedBottomNavItemContent
-                workspaceId={currentWorkspace.id}
-                itemId={v.id}
-                index={navIndex}
-              >
-                <span className="bottom-nav-item__icon-wrap">
-                  <Icon className="icon" />
-                  {v.id === "tasks" && (
-                    <TasksNavIndicator
-                      openCount={currentWorkspaceTaskCounts.openCount}
-                      overdueCount={currentWorkspaceTaskCounts.overdueCount}
-                      variant="bottom"
-                    />
-                  )}
-                  {v.id === "notes" && (
-                    <FilesNavIndicator reviewCount={pendingReviewCount} variant="bottom" />
-                  )}
-                  {v.id === "chat" && chatNavUnread && currentView !== "chat" && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--priority-p0)] ring-2 ring-bg"
-                      aria-label="Unread messages"
-                    />
-                  )}
-                </span>
-                <span className="bottom-nav-item__label font-medium tracking-tight">{label}</span>
-              </AnimatedBottomNavItemContent>
-            </div>
-          );
-        })}
-      </nav>
+      <MobileBottomNav
+        currentView={currentView}
+        onNavigate={(view) => setView(view as typeof currentView)}
+        workspace={currentWorkspace}
+        showChat={showWorkspaceChat}
+        isSiteAdmin={!!(isSiteAdmin && user)}
+        openTaskCount={currentWorkspaceTaskCounts.openCount}
+        overdueTaskCount={currentWorkspaceTaskCounts.overdueCount}
+        reviewCount={pendingReviewCount}
+        chatUnread={chatNavUnread && currentView !== "chat"}
+      />
 
       {/* Command Palette */}
       <CommandPalette

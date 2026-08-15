@@ -59,12 +59,18 @@ export function HealthActivityPanel({
       </div>
 
       <HealthChartCard title="Steps by weekday" subtitle="Average steps per day of week">
-        <HealthBarChart
-          labels={WEEKDAY_LABELS}
-          values={weekdaySteps}
-          unit="count"
-          color="#34d399"
-        />
+        {weekdaySteps.some((v) => v > 0) ? (
+          <HealthBarChart
+            labels={WEEKDAY_LABELS}
+            values={weekdaySteps}
+            unit="count"
+            color="#34d399"
+          />
+        ) : (
+          <p className="text-sm text-text-muted text-center py-10">
+            Log steps to see your weekday pattern.
+          </p>
+        )}
       </HealthChartCard>
 
       <HealthChartCard title="Activity log">

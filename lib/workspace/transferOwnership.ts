@@ -1,5 +1,5 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
-import { toDbRole, type WorkspaceRole } from "@/lib/roles";
+import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
 
 export type TransferOwnershipResult =
   | { ok: true }
@@ -77,8 +77,10 @@ export async function executeUpdateMemberRole(params: {
   workspaceId: string;
   targetUserId: string;
   newRole: WorkspaceRole;
+  /** Caller's role in the workspace (from session membership check). */
+  callerRole?: WorkspaceRole;
 }): Promise<UpdateMemberRoleResult> {
-  const { workspaceId, targetUserId, newRole } = params;
+  const { workspaceId, targetUserId, newRole, callerRole } = params;
 
   if (newRole === "owner") {
     return {
@@ -104,19 +106,24 @@ export async function executeUpdateMemberRole(params: {
     return { ok: false, error: "Member not found", status: 404 };
   }
 
-  const targetRole = (target as { role?: string }).role;
-  if (targetRole === "owner") {
-    const { count, error: countErr } = await admin
-      .from("workspace_members")
-      .select("user_id", { count: "exact", head: true })
-      .eq("workspace_id", workspaceId)
-      .eq("role", "owner");
+  const targetRole = fromDbRole((target as { role?: string }).role);
 
-    if (countErr) {
-      return { ok: false, error: countErr.message || "Could not verify owner count", status: 500 };
+  // Owner role changes only via transfer ownership. Never demote owners here.
+  if (targetRole === "owner") {
+    return {
+      ok: false,
+      error: "Use transfer ownership to change the owner",
+      status: 403,
+    };
+  }
+
+  // Admins may only manage regular members (not other admins).
+  if (callerRole === "admin") {
+    if (targetRole === "admin") {
+      return { ok: false, error: "Only the owner can change admin roles", status: 403 };
     }
-    if ((count ?? 0) <= 1) {
-      return { ok: false, error: "Cannot demote the last owner of the workspace", status: 409 };
+    if (newRole === "admin") {
+      return { ok: false, error: "Only the owner may grant admin", status: 403 };
     }
   }
 

@@ -70,6 +70,14 @@ DECLARE
   v_target_role user_role;
   v_owner_count INT;
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF p_new_role = 'owner' THEN
+    RAISE EXCEPTION 'Use transfer_workspace_ownership to assign owner';
+  END IF;
+
   SELECT role INTO v_caller_role
   FROM workspace_members
   WHERE workspace_id = p_workspace_id AND user_id = auth.uid()
@@ -92,6 +100,15 @@ BEGIN
     RETURN FALSE;
   END IF;
 
+  IF v_caller_role = 'admin' THEN
+    IF v_target_role IN ('owner', 'admin') THEN
+      RAISE EXCEPTION 'Admins cannot change owner or admin roles';
+    END IF;
+    IF p_new_role = 'admin' THEN
+      RAISE EXCEPTION 'Only owners may grant admin';
+    END IF;
+  END IF;
+
   IF v_target_role = 'owner' AND p_new_role <> 'owner' THEN
     SELECT COUNT(*) INTO v_owner_count
     FROM workspace_members
@@ -111,4 +128,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION update_member_role IS
-  'Owner/admin updates another member role with last-owner protection.';
+  'Owner/admin updates another member role. Owner role only via transfer_workspace_ownership.';

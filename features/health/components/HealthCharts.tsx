@@ -305,7 +305,7 @@ export function HealthSparklineGrid({
 }) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      {cards.map((card) => {
+      {cards.map((card, index) => {
         const uid = useId().replace(/:/g, "");
         const values = card.series.map((p) => p.value);
         const points = chartPoints(values, 120, 40);
@@ -313,7 +313,10 @@ export function HealthSparklineGrid({
         return (
           <div
             key={card.title}
-            className="rounded-xl border border-border-glass bg-bg-secondary/40 p-3"
+            className={cn(
+              "rounded-xl border border-border-glass bg-bg-secondary/40 p-3",
+              cards.length % 2 === 1 && index === cards.length - 1 && "col-span-2",
+            )}
           >
             <p className="text-[10px] uppercase tracking-wider text-text-muted">{card.title}</p>
             <p className="text-lg font-bold text-text-primary tabular-nums mt-0.5">{card.value}</p>
@@ -383,9 +386,9 @@ export function HealthTeamStrip({
         const pct = row.max > 0 ? (row.value / row.max) * 100 : 0;
         return (
           <div key={row.id}>
-            <div className="flex justify-between text-xs mb-1">
-              <span className="font-medium text-text-primary">{row.label}</span>
-              <span className="text-text-muted tabular-nums">{row.sublabel}</span>
+            <div className="flex justify-between gap-2 text-xs mb-1 min-w-0">
+              <span className="font-medium text-text-primary truncate min-w-0">{row.label}</span>
+              <span className="text-text-muted tabular-nums shrink-0">{row.sublabel}</span>
             </div>
             <div className="h-2.5 rounded-full bg-bg-secondary border border-border-glass overflow-hidden">
               <div
@@ -443,6 +446,120 @@ export function HealthDualLineChart({
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-sky-400" /> {labelB}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function HealthStressTrendChart({
+  raw,
+  rolling,
+  rangeLabel,
+}: {
+  raw: SparklinePoint[];
+  rolling: SparklinePoint[];
+  rangeLabel: string;
+}) {
+  const uid = useId().replace(/:/g, "");
+  const rawPoints = useMemo(
+    () => chartPoints(raw.map((p) => p.value), CHART_WIDTH, CHART_HEIGHT, 1, 10),
+    [raw],
+  );
+  const rollingPoints = useMemo(
+    () => chartPoints(rolling.map((p) => p.value), CHART_WIDTH, CHART_HEIGHT, 1, 10),
+    [rolling],
+  );
+  const rawPath = buildSmoothPath(rawPoints);
+  const rollingPath = buildSmoothPath(rollingPoints);
+  const areaPath = buildAreaPath(rollingPoints, CHART_HEIGHT);
+
+  if (rolling.length === 0) {
+    return (
+      <p className="text-sm text-text-muted text-center py-8">
+        Log how stressed you are to see your rolling average.
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        className="w-full h-36 md:h-40"
+        role="img"
+        aria-label={`Stress trend over ${rangeLabel}`}
+      >
+        <defs>
+          <linearGradient id={`${uid}-stress-area`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--neon-purple)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--neon-purple)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[1, 4, 7, 10].map((tick) => {
+          const y = PADDING_Y + ((CHART_HEIGHT - PADDING_Y * 2) * (10 - tick)) / 9;
+          return (
+            <g key={tick}>
+              <line
+                x1={PADDING_X}
+                x2={CHART_WIDTH - PADDING_X}
+                y1={y}
+                y2={y}
+                stroke="var(--border-glass)"
+                strokeWidth="1"
+              />
+              <text
+                x={4}
+                y={y + 3}
+                fill="var(--text-muted)"
+                fontSize="8"
+              >
+                {tick}
+              </text>
+            </g>
+          );
+        })}
+        {areaPath ? <path d={areaPath} fill={`url(#${uid}-stress-area)`} /> : null}
+        {rawPath ? (
+          <path
+            d={rawPath}
+            fill="none"
+            stroke="var(--text-muted)"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeDasharray="4 4"
+            opacity="0.7"
+          />
+        ) : null}
+        {rollingPath ? (
+          <path
+            d={rollingPath}
+            fill="none"
+            stroke="var(--neon-purple)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+        ) : null}
+      </svg>
+      <div className="flex flex-col gap-1.5 text-[10px] text-text-muted mt-1 px-1 sm:flex-row sm:justify-between sm:items-center">
+        <span>
+          {new Date(`${rolling[0].date}T12:00:00`).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })}
+          {" – "}
+          {new Date(`${rolling[rolling.length - 1].date}T12:00:00`).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })}
+        </span>
+        <span className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1">
+            <span className="h-px w-3 border-t border-dashed border-text-muted" /> Daily
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-0.5 w-3 rounded bg-neon-purple" /> 7-day avg
+          </span>
         </span>
       </div>
     </div>

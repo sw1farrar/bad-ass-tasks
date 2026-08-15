@@ -4701,8 +4701,9 @@ export async function searchPotentialTeammates(
 ): Promise<Array<{ id: string; fullName?: string; username?: string; location?: string; email?: string; avatarUrl?: string }>> {
   if (!isSupabaseLive()) return [];
   const q = (query || "").trim();
-  if (!q || q.length < 1) return [];
-  if (currentWorkspaceId && ["w1", "w2"].includes(currentWorkspaceId)) return [];
+  // RPC requires min length 2 + workspace owner/admin context
+  if (!q || q.length < 2) return [];
+  if (!currentWorkspaceId || ["w1", "w2"].includes(currentWorkspaceId)) return [];
 
   const supabase = getClient();
   if (!supabase) return [];

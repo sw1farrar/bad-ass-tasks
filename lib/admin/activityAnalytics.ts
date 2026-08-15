@@ -1,4 +1,4 @@
-import type { PlatformActivityRow, PlatformAnalytics } from "@/lib/admin/platformData";
+import type { PlatformActivityRow, PlatformAnalytics } from "@/lib/admin/platformTypes";
 
 export const EXCLUDED_ACTIVITY_ACTION_TYPES = ["workspace.switched"] as const;
 

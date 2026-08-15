@@ -775,6 +775,121 @@ export interface Database {
           processed_at?: string
         }
       }
+      map_stores: {
+        Row: {
+          id: string
+          workspace_id: string
+          name: string
+          store_number: string | null
+          address: string
+          city: string | null
+          state: string | null
+          postal_code: string | null
+          country: string | null
+          latitude: number | null
+          longitude: number | null
+          location: unknown | null
+          mission_types: string[]
+          notes: string | null
+          status: string
+          created_at: string
+          updated_at: string
+          created_by: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          name: string
+          store_number?: string | null
+          address: string
+          city?: string | null
+          state?: string | null
+          postal_code?: string | null
+          country?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          location?: unknown | null
+          mission_types?: string[]
+          notes?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          name?: string
+          store_number?: string | null
+          address?: string
+          city?: string | null
+          state?: string | null
+          postal_code?: string | null
+          country?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          location?: unknown | null
+          mission_types?: string[]
+          notes?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+          updated_by?: string | null
+        }
+      }
+      map_territories: {
+        Row: {
+          id: string
+          workspace_id: string
+          name: string
+          territory_type: string
+          geometry: unknown
+          geojson: Json
+          color: string | null
+          notes: string | null
+          status: string
+          assigned_person: string | null
+          created_at: string
+          updated_at: string
+          created_by: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          name: string
+          territory_type: string
+          geometry?: unknown
+          geojson: Json
+          color?: string | null
+          notes?: string | null
+          status?: string
+          assigned_person?: string | null
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          name?: string
+          territory_type?: string
+          geometry?: unknown
+          geojson?: Json
+          color?: string | null
+          notes?: string | null
+          status?: string
+          assigned_person?: string | null
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+          updated_by?: string | null
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -814,6 +929,99 @@ export interface Database {
           p_workspace_id: string
         }
         Returns: boolean
+      }
+      check_map_territory_overlap: {
+        Args: {
+          p_workspace_id: string
+          p_geojson: Json
+          p_territory_type: string
+          p_exclude_id?: string | null
+        }
+        Returns: {
+          id: string
+          name: string
+          territory_type: string
+        }[]
+      }
+      map_stores_in_territory: {
+        Args: {
+          p_territory_id: string
+        }
+        Returns: {
+          id: string
+          workspace_id: string
+          name: string
+          store_number: string | null
+          address: string
+          city: string | null
+          state: string | null
+          postal_code: string | null
+          country: string | null
+          latitude: number | null
+          longitude: number | null
+          location: unknown | null
+          mission_types: string[]
+          notes: string | null
+          status: string
+          created_at: string
+          updated_at: string
+          created_by: string | null
+          updated_by: string | null
+        }[]
+      }
+      map_stores_in_geojson: {
+        Args: {
+          p_workspace_id: string
+          p_geojson: Json
+        }
+        Returns: {
+          id: string
+          workspace_id: string
+          name: string
+          store_number: string | null
+          address: string
+          city: string | null
+          state: string | null
+          postal_code: string | null
+          country: string | null
+          latitude: number | null
+          longitude: number | null
+          location: unknown | null
+          mission_types: string[]
+          notes: string | null
+          status: string
+          created_at: string
+          updated_at: string
+          created_by: string | null
+          updated_by: string | null
+        }[]
+      }
+      search_map_stores: {
+        Args: {
+          p_workspace_id: string
+          p_query: string
+        }
+        Returns: {
+          id: string
+          workspace_id: string
+          name: string
+          store_number: string | null
+          address: string
+          city: string | null
+          state: string | null
+          postal_code: string | null
+          country: string | null
+          latitude: number | null
+          longitude: number | null
+          location: unknown | null
+          mission_types: string[]
+          notes: string | null
+          status: string
+          created_at: string
+          updated_at: string
+          created_by: string | null
+          updated_by: string | null
+        }[]
       }
     }
     Enums: {

@@ -68,7 +68,11 @@ export function computeTrendDelta(
   }
   const delta = latest.value - previous.value;
   const def = getHealthMetricDef(latest.metricType);
-  const lowerIsBetter = def.type === "weight" || def.type === "body_fat" || def.type === "waist";
+  const lowerIsBetter =
+    def.type === "weight" ||
+    def.type === "body_fat" ||
+    def.type === "waist" ||
+    def.type === "stress";
   const direction = Math.abs(delta) < 0.05 ? "flat" : delta > 0 ? "up" : "down";
   const sign = delta > 0 ? "+" : "";
   const label =

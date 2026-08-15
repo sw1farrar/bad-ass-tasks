@@ -204,7 +204,8 @@ export type HealthMetricType =
   | "sleep_hours"
   | "steps"
   | "active_minutes"
-  | "calories_burned";
+  | "calories_burned"
+  | "stress";
 
 export interface HealthReading {
   id: string;

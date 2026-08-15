@@ -18,6 +18,8 @@ export function HealthMemberFilter({
   onChange,
   colorMap,
 }: HealthMemberFilterProps) {
+  if (members.length <= 1) return null;
+
   return (
     <div className="health-member-filter flex flex-wrap md:flex-wrap items-center gap-2 px-3 py-2 max-md:overflow-x-auto max-md:flex-nowrap max-md:snap-x max-md:touch-pan-x">
       <button

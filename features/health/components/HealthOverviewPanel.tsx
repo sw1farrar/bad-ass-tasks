@@ -10,6 +10,7 @@ import {
   memberColorMap,
 } from "@/lib/health/healthAggregates";
 import { formatHealthValue } from "@/lib/health/healthMetrics";
+import { currentAndPriorWindowAverages, dailyStressMeans } from "@/lib/health/stressStats";
 import type { HealthProfile, HealthReading, WorkspaceMember } from "@/types";
 import {
   HealthChartCard,
@@ -25,6 +26,7 @@ interface HealthOverviewPanelProps {
   profiles: HealthProfile[];
   members: WorkspaceMember[];
   selectedMemberId: string | "all";
+  currentUserId?: string;
   onDeleteReading: (id: string) => void;
 }
 
@@ -33,6 +35,7 @@ export function HealthOverviewPanel({
   profiles,
   members,
   selectedMemberId,
+  currentUserId,
   onDeleteReading,
 }: HealthOverviewPanelProps) {
   const colorMap = useMemo(() => memberColorMap(members), [members]);
@@ -91,6 +94,12 @@ export function HealthOverviewPanel({
     sublabel?: string;
   }>;
 
+  const myStress = readings.filter(
+    (r) => r.metricType === "stress" && (!currentUserId || r.userId === currentUserId),
+  );
+  const stressWindows = currentAndPriorWindowAverages(dailyStressMeans(myStress));
+  const stressSeries = dailyStressMeans(myStress).slice(-14);
+
   const gridCards = (["weight", "sleep_hours", "steps", "resting_hr"] as const).map((metric) => {
     const filtered = readings.filter(
       (r) =>
@@ -105,6 +114,18 @@ export function HealthOverviewPanel({
       series,
     };
   });
+
+  const snapshotCards = [
+    ...gridCards,
+    {
+      title: "Stress",
+      value:
+        stressWindows.current != null
+          ? formatHealthValue(stressWindows.current, "score")
+          : "—",
+      series: stressSeries,
+    },
+  ];
 
   return (
     <div className="health-overview-panel space-y-4 p-3 md:p-4">
@@ -135,7 +156,7 @@ export function HealthOverviewPanel({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <HealthChartCard title="14-day snapshot" subtitle="Key metrics at a glance">
-          <HealthSparklineGrid cards={gridCards} />
+          <HealthSparklineGrid cards={snapshotCards} />
         </HealthChartCard>
         {teamRows.length > 0 ? (
           <HealthChartCard title="Team weights" subtitle="Latest reading per member">
@@ -146,7 +167,7 @@ export function HealthOverviewPanel({
 
       <HealthChartCard title="Recent activity" subtitle="Shared workspace log">
         <HealthRecentEntries
-          readings={readings}
+          readings={readings.filter((r) => r.metricType !== "stress")}
           members={members}
           colorMap={colorMap}
           onDelete={onDeleteReading}

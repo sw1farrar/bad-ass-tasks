@@ -33,8 +33,8 @@ export function LogHealthModal({
 }: LogHealthModalProps) {
   const isMobile = useIsMobileViewport();
   const tabMetrics = useMemo(() => {
-    if (defaultTab === "overview") return HEALTH_METRICS;
-    return getMetricsForTab(defaultTab);
+    const list = defaultTab === "overview" ? HEALTH_METRICS : getMetricsForTab(defaultTab);
+    return list.filter((m) => m.type !== "stress");
   }, [defaultTab]);
 
   const [metricType, setMetricType] = useState<HealthMetricType>(

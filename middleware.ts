@@ -92,13 +92,15 @@ export async function middleware(request: NextRequest) {
     pathname === "/favicon.svg" ||
     pathname.startsWith("/icon-");
 
+  // Exact-match sensitive auth routes so "/api/auth/login-activity" is NOT exempt.
+  // Password change requires dual-auth when dual-auth is enforced (stolen session hardening).
   const isDualAuthExemptApi =
     pathname.startsWith("/api/auth/dual-auth") ||
-    pathname.startsWith("/api/auth/login") ||
+    pathname === "/api/auth/login" ||
+    pathname.startsWith("/api/auth/login/") ||
     pathname.startsWith("/api/auth/signup") ||
     pathname.startsWith("/api/auth/resend-verification") ||
     pathname.startsWith("/api/auth/reset-password") ||
-    pathname.startsWith("/api/auth/change-password") ||
     pathname.startsWith("/api/webhooks/brevo-inbound") ||
     pathname.startsWith("/api/invite/") ||
     pathname.startsWith("/api/list-share/");

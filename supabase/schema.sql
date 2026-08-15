@@ -441,10 +441,18 @@ CREATE OR REPLACE FUNCTION create_workspace_for_user(
   workspace_name TEXT,
   workspace_slug TEXT
 )
-RETURNS UUID AS $$
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
   new_workspace_id UUID;
 BEGIN
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM user_id THEN
+    RAISE EXCEPTION 'Not authorized to create workspace for this user';
+  END IF;
+
   -- Create profile first (critical for FK on workspace_members)
   INSERT INTO profiles (id, full_name, email)
   SELECT user_id, raw_user_meta_data->>'full_name', email
@@ -460,7 +468,7 @@ BEGIN
 
   RETURN new_workspace_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- =====================================================================
 -- PROFILE FIELDS (name, username, location) - REQUIRED FOR EDITING IN UI
@@ -572,6 +580,14 @@ BEGIN
     RAISE EXCEPTION 'Insufficient permissions: only workspace owners and admins may send invites';
   END IF;
 
+  IF p_role = 'owner' THEN
+    RAISE EXCEPTION 'Cannot invite as owner; use transfer ownership';
+  END IF;
+
+  IF p_role = 'admin' AND v_caller_role <> 'owner' THEN
+    RAISE EXCEPTION 'Only owners may invite admins';
+  END IF;
+
   INSERT INTO workspace_invites (workspace_id, email, role, invited_by)
   VALUES (p_workspace_id, p_email, p_role, auth.uid())
   RETURNING id INTO v_invite_id;
@@ -606,6 +622,10 @@ BEGIN
     RAISE EXCEPTION 'Invite not found, already accepted, or expired';
   END IF;
 
+  IF v_invite.role = 'owner' THEN
+    RAISE EXCEPTION 'Invalid invite role';
+  END IF;
+
   IF v_invite.invited_user_id IS NOT NULL AND v_invite.invited_user_id <> auth.uid() THEN
     RAISE EXCEPTION 'This invite was sent to a different user';
   END IF;
@@ -626,9 +646,10 @@ BEGIN
 
   v_ws_id := v_invite.workspace_id;
 
+  -- Never elevate an existing member via re-accept
   INSERT INTO workspace_members (workspace_id, user_id, role, invited_by)
   VALUES (v_ws_id, auth.uid(), v_invite.role, v_invite.invited_by)
-  ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role;
+  ON CONFLICT (workspace_id, user_id) DO NOTHING;
 
   UPDATE workspace_invites SET accepted_at = NOW() WHERE id = p_invite_id;
 

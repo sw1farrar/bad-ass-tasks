@@ -31,13 +31,15 @@ BEGIN
     RAISE EXCEPTION 'Share invite not found, declined, revoked, or expired';
   END IF;
 
-  IF v_invite.invited_user_id <> auth.uid()
-    AND (
-      v_invite.recipient_email IS NULL
-      OR v_caller_email IS NULL
-      OR lower(v_caller_email) <> lower(v_invite.recipient_email)
+  -- NULL-safe: NULL <> uuid is NULL in SQL and would incorrectly authorize.
+  IF NOT (
+    (v_invite.invited_user_id IS NOT NULL AND v_invite.invited_user_id = auth.uid())
+    OR (
+      v_invite.recipient_email IS NOT NULL
+      AND v_caller_email IS NOT NULL
+      AND lower(v_caller_email) = lower(v_invite.recipient_email)
     )
-  THEN
+  ) THEN
     RAISE EXCEPTION 'Not authorized to accept this share';
   END IF;
 
@@ -110,13 +112,14 @@ BEGIN
 
   IF NOT FOUND THEN RETURN FALSE; END IF;
 
-  IF v_invite.invited_user_id <> auth.uid()
-    AND (
-      v_invite.recipient_email IS NULL
-      OR v_caller_email IS NULL
-      OR lower(v_caller_email) <> lower(v_invite.recipient_email)
+  IF NOT (
+    (v_invite.invited_user_id IS NOT NULL AND v_invite.invited_user_id = auth.uid())
+    OR (
+      v_invite.recipient_email IS NOT NULL
+      AND v_caller_email IS NOT NULL
+      AND lower(v_caller_email) = lower(v_invite.recipient_email)
     )
-  THEN
+  ) THEN
     RAISE EXCEPTION 'Not authorized to decline this share';
   END IF;
 
@@ -150,13 +153,14 @@ BEGIN
   SELECT * INTO v_invite FROM list_share_invites WHERE id = p_invite_id;
   IF NOT FOUND THEN RETURN; END IF;
 
-  IF v_invite.invited_user_id <> auth.uid()
-    AND (
-      v_invite.recipient_email IS NULL
-      OR v_caller_email IS NULL
-      OR lower(v_caller_email) <> lower(v_invite.recipient_email)
+  IF NOT (
+    (v_invite.invited_user_id IS NOT NULL AND v_invite.invited_user_id = auth.uid())
+    OR (
+      v_invite.recipient_email IS NOT NULL
+      AND v_caller_email IS NOT NULL
+      AND lower(v_caller_email) = lower(v_invite.recipient_email)
     )
-  THEN
+  ) THEN
     RETURN;
   END IF;
 

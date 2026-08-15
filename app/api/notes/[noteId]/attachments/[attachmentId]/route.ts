@@ -4,6 +4,10 @@ import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supa
 import { NOTE_ATTACHMENTS_BUCKET } from "@/lib/storage/noteAttachments";
 import { refreshNoteSearchDocument } from "@/lib/notes/refreshNoteSearchDocument";
 import { parsePdfAnnotations } from "@/lib/pdf/annotations";
+import {
+  assertAttachmentStoragePath,
+  attachmentContentHeaders,
+} from "@/lib/notes/attachmentResponse";
 type RouteContext = { params: Promise<{ noteId: string; attachmentId: string }> };
 
 async function assertNoteAccess(noteId: string, userId: string) {
@@ -47,11 +51,11 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   try {
-    await assertNoteAccess(noteId, user.id);
+    const { workspaceId } = await assertNoteAccess(noteId, user.id);
 
     const admin = createAdminSupabaseClient();
     const { data: attachment, error: fetchError } = await (admin.from("note_attachments") as any)
-      .select("id, storage_path, mime_type, file_name")
+      .select("id, storage_path, mime_type, file_name, workspace_id")
       .eq("id", attachmentId)
       .eq("note_id", noteId)
       .maybeSingle();
@@ -60,10 +64,20 @@ export async function GET(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: "attachment_not_found" }, { status: 404 });
     }
 
-    const storagePath = (attachment as { storage_path: string }).storage_path;
-    const mimeType =
-      (attachment as { mime_type?: string }).mime_type || "application/octet-stream";
-    const fileName = (attachment as { file_name?: string }).file_name || "attachment";
+    const row = attachment as {
+      storage_path: string;
+      mime_type?: string;
+      file_name?: string;
+      workspace_id?: string;
+    };
+    if (row.workspace_id && row.workspace_id !== workspaceId) {
+      return NextResponse.json({ error: "attachment_not_found" }, { status: 404 });
+    }
+
+    const storagePath = row.storage_path;
+    assertAttachmentStoragePath(storagePath, workspaceId);
+    const mimeType = row.mime_type || "application/octet-stream";
+    const fileName = row.file_name || "attachment";
 
     const { data: blob, error: downloadError } = await admin.storage
       .from(NOTE_ATTACHMENTS_BUCKET)
@@ -78,17 +92,22 @@ export async function GET(_request: Request, context: RouteContext) {
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        "Content-Type": mimeType,
+        ...attachmentContentHeaders(mimeType, fileName),
         "Content-Length": String(buffer.length),
-        "Cache-Control": "private, max-age=3600",
-        "Content-Disposition": `inline; filename="${encodeURIComponent(fileName)}"`,
       },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "file_download_failed";
     const status =
-      message === "not_a_member" ? 403 : message === "note_not_found" ? 404 : 500;
-    return NextResponse.json({ error: message }, { status });
+      message === "not_a_member"
+        ? 403
+        : message === "note_not_found" || message === "attachment_path_mismatch"
+          ? 404
+          : 500;
+    return NextResponse.json(
+      { error: message === "attachment_path_mismatch" ? "attachment_not_found" : message },
+      { status },
+    );
   }
 }
 
@@ -192,7 +211,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
   }
 
   const { data: attachment, error: fetchError } = await (supabase.from("note_attachments") as any)
-    .select("id, storage_path")
+    .select("id, storage_path, workspace_id")
     .eq("id", attachmentId)
     .eq("note_id", noteId)
     .maybeSingle();
@@ -202,6 +221,11 @@ export async function DELETE(_request: Request, context: RouteContext) {
   }
 
   const storagePath = (attachment as { storage_path: string }).storage_path;
+  try {
+    assertAttachmentStoragePath(storagePath, workspaceId);
+  } catch {
+    return NextResponse.json({ error: "attachment_not_found" }, { status: 404 });
+  }
   const admin = createAdminSupabaseClient();
   await admin.storage.from(NOTE_ATTACHMENTS_BUCKET).remove([storagePath]);
 

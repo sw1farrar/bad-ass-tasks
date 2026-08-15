@@ -9,6 +9,7 @@ import {
   parseWorkspaceSettings,
   mergeWorkspaceSettings,
   isHealthFeatureEnabled,
+  isMapsFeatureEnabled,
   isNotesFeatureEnabled,
 } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
@@ -75,6 +76,7 @@ import {
   type HealthSliceActions,
 } from "@/store/healthSlice";
 import { DEFAULT_HEALTH_SECTION_TAB, type HealthSectionTab } from "@/lib/health/healthSections";
+import { filterVisibleHealthReadings } from "@/lib/health/stressPrivacy";
 import {
   TASK_ASSIGNEE_ALL_LABEL,
   buildAssigneeBreakdown,
@@ -464,7 +466,7 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "health" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "health" | "map" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
 
@@ -1364,6 +1366,11 @@ export const useTaskStore = create<TaskState>()(
           get().updatePresenceMeta({ view: "home" });
           return;
         }
+        if (resolved === "map" && !isMapsFeatureEnabled(get().currentWorkspace.settings)) {
+          set({ currentView: "home" });
+          get().updatePresenceMeta({ view: "home" });
+          return;
+        }
         set({
           currentView: resolved,
           ...(resolved === "tasks"
@@ -1939,7 +1946,10 @@ export const useTaskStore = create<TaskState>()(
             const competitor = get().notebookCompetitors.find((c) => c.id === n.competitorId);
             return competitor && competitor.workspaceId !== workspaceId;
           });
-          let nextHealthReadings = healthBundle.readings;
+          let nextHealthReadings = filterVisibleHealthReadings(
+            healthBundle.readings,
+            get().user?.id ?? null,
+          );
           let nextHealthProfiles = healthBundle.profiles;
           if (!areHealthTablesReady()) {
             nextHealthReadings = keptHealthReadings;
@@ -5490,6 +5500,12 @@ export const useTaskStore = create<TaskState>()(
             ) {
               get().setView("home");
             }
+            if (
+              get().currentView === "map" &&
+              !isMapsFeatureEnabled(updated.settings)
+            ) {
+              get().setView("home");
+            }
           }
 
           toast.success("Workspace updated");
@@ -6721,6 +6737,12 @@ if (typeof window !== "undefined") {
     if (
       persistedView === "health" &&
       !isHealthFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
+    ) {
+      useTaskStore.setState({ currentView: "home" });
+    }
+    if (
+      persistedView === "map" &&
+      !isMapsFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
     ) {
       useTaskStore.setState({ currentView: "home" });
     }

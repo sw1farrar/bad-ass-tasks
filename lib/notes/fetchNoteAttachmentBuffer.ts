@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
 import { NOTE_ATTACHMENTS_BUCKET } from "@/lib/storage/noteAttachments";
+import { assertAttachmentStoragePath } from "@/lib/notes/attachmentResponse";
 
 export type NoteAttachmentBuffer = {
   buffer: Buffer;
@@ -27,6 +28,7 @@ async function assertNoteAccess(noteId: string, userId: string) {
     .maybeSingle();
 
   if (!membership) throw new Error("not_a_member");
+  return workspaceId;
 }
 
 export async function fetchNoteAttachmentBuffer(
@@ -38,11 +40,11 @@ export async function fetchNoteAttachmentBuffer(
     throw new Error("file_not_configured");
   }
 
-  await assertNoteAccess(noteId, userId);
+  const workspaceId = await assertNoteAccess(noteId, userId);
 
   const admin = createAdminSupabaseClient();
   const { data: attachment, error: fetchError } = await (admin.from("note_attachments") as any)
-    .select("id, storage_path, mime_type, file_name")
+    .select("id, storage_path, mime_type, file_name, workspace_id")
     .eq("id", attachmentId)
     .eq("note_id", noteId)
     .maybeSingle();
@@ -51,10 +53,20 @@ export async function fetchNoteAttachmentBuffer(
     throw new Error("attachment_not_found");
   }
 
-  const storagePath = (attachment as { storage_path: string }).storage_path;
-  const mimeType =
-    (attachment as { mime_type?: string }).mime_type || "application/octet-stream";
-  const fileName = (attachment as { file_name?: string }).file_name || "attachment";
+  const row = attachment as {
+    storage_path: string;
+    mime_type?: string;
+    file_name?: string;
+    workspace_id?: string;
+  };
+  if (row.workspace_id && row.workspace_id !== workspaceId) {
+    throw new Error("attachment_not_found");
+  }
+
+  const storagePath = row.storage_path;
+  assertAttachmentStoragePath(storagePath, workspaceId);
+  const mimeType = row.mime_type || "application/octet-stream";
+  const fileName = row.file_name || "attachment";
 
   const { data: blob, error: downloadError } = await admin.storage
     .from(NOTE_ATTACHMENTS_BUCKET)

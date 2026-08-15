@@ -8,11 +8,19 @@ async function dismissSupabaseBanner(page: Page) {
   }
 }
 
-/** Works on desktop sidebar and mobile bottom nav (role=button divs). */
+/** Desktop sidebar, or mobile primary tabs, or overflow via More. */
 async function tapNav(page: Page, name: string) {
   const bottomNav = page.getByRole('navigation', { name: 'Primary navigation' });
   if (await bottomNav.isVisible()) {
-    await bottomNav.getByRole('button', { name: new RegExp(name, 'i') }).click({ force: true });
+    const primary = bottomNav.getByRole('button', { name: new RegExp(`^${name}$`, 'i') });
+    if (await primary.count()) {
+      await primary.click({ force: true });
+    } else {
+      await bottomNav.getByRole('button', { name: /^More$/i }).click({ force: true });
+      const sheet = page.getByRole('dialog', { name: /More navigation/i });
+      await sheet.waitFor({ state: 'visible', timeout: 4000 });
+      await sheet.getByRole('button', { name: new RegExp(name, 'i') }).click({ force: true });
+    }
   } else {
     await page
       .getByRole('complementary', { name: /Workspace navigation/i })

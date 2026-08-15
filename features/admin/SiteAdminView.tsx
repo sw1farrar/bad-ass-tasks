@@ -23,15 +23,14 @@ import {
   formatPlatformActivityDetail,
   formatPlatformActivityHeadline,
 } from "@/lib/admin/activityAnalytics";
-import { formatLoginEventDetail } from "@/lib/auth/loginActivityShared";
-import {
-  formatLoginEventLabel,
-  type PlatformActivityRow,
-  type PlatformAnalytics,
-  type PlatformLoginEventRow,
-  type PlatformStats,
-  type PlatformUserRow,
-} from "@/lib/admin/platformData";
+import { formatLoginEventDetail, formatLoginEventLabel } from "@/lib/auth/loginActivityShared";
+import type {
+  PlatformActivityRow,
+  PlatformAnalytics,
+  PlatformLoginEventRow,
+  PlatformStats,
+  PlatformUserRow,
+} from "@/lib/admin/platformTypes";
 import {
   AdminActivityMixDonut,
   AdminActivityTrendChart,

@@ -42,4 +42,24 @@ describe("isBrevoInboundWebhookAuthorized", () => {
     expect(isBrevoInboundWebhookAuthorized(ok)).toBe(true);
     expect(isBrevoInboundWebhookAuthorized(bad)).toBe(false);
   });
+
+  it("rejects query-string secrets in production", () => {
+    process.env.BREVO_INBOUND_WEBHOOK_SECRET = "test-secret-value";
+    vi.stubEnv("NODE_ENV", "production");
+    const viaQuery = new Request(
+      "http://localhost:3000/api/webhooks/brevo-inbound?secret=test-secret-value",
+      { method: "POST" },
+    );
+    expect(isBrevoInboundWebhookAuthorized(viaQuery)).toBe(false);
+  });
+
+  it("allows query-string secrets outside production", () => {
+    process.env.BREVO_INBOUND_WEBHOOK_SECRET = "test-secret-value";
+    vi.stubEnv("NODE_ENV", "development");
+    const viaQuery = new Request(
+      "http://localhost:3000/api/webhooks/brevo-inbound?secret=test-secret-value",
+      { method: "POST" },
+    );
+    expect(isBrevoInboundWebhookAuthorized(viaQuery)).toBe(true);
+  });
 });

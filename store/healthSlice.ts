@@ -10,6 +10,7 @@ import {
   upsertHealthProfile as upsertProfileDb,
 } from "@/lib/data/healthStore";
 import type { HealthSectionTab } from "@/lib/health/healthSections";
+import { filterVisibleHealthReadings } from "@/lib/health/stressPrivacy";
 
 function newId(workspaceId: string): string {
   return isLiveWorkspace(workspaceId) ? generateClientId() : generateId();
@@ -74,7 +75,11 @@ export function createHealthSliceActions(get: Get, set: Set): HealthSliceActions
   return {
     getHealthReadings: (opts) => {
       const workspaceId = wsId();
-      let list = get().healthReadings.filter((r) => r.workspaceId === workspaceId);
+      const viewerId = get().user?.id ?? null;
+      let list = filterVisibleHealthReadings(
+        get().healthReadings.filter((r) => r.workspaceId === workspaceId),
+        viewerId,
+      );
       if (opts?.userId && opts.userId !== "all") {
         list = list.filter((r) => r.userId === opts.userId);
       }

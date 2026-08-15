@@ -1,0 +1,25 @@
+/* Maps workspace — fill main content area under BAT chrome */
+.maps-workspace {
+  min-height: 0;
+  height: 100%;
+}
+
+.maps-workspace .mapboxgl-map {
+  font-family: inherit;
+}
+
+.maps-workspace .mapboxgl-ctrl-group {
+  background: color-mix(in srgb, var(--bg-secondary, #1a1a24) 92%, transparent);
+  border: 1px solid color-mix(in srgb, white 12%, transparent);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.maps-workspace .mapboxgl-ctrl-group button {
+  border-color: color-mix(in srgb, white 10%, transparent);
+}
+
+.maps-workspace .mapboxgl-ctrl-attrib {
+  font-size: 10px;
+  opacity: 0.85;
+}

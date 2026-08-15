@@ -3,6 +3,8 @@ import {
   DEFAULT_NOTEBOOK_SECTIONS,
   DEFAULT_WORKSPACE_SETTINGS,
   getEnabledNotebookSections,
+  isHealthFeatureEnabled,
+  isMapsFeatureEnabled,
   isNotebookSectionEnabled,
   isNotesFeatureEnabled,
   mergeWorkspaceSettings,
@@ -15,9 +17,21 @@ describe("workspaceSettings", () => {
     expect(isNotesFeatureEnabled(parseWorkspaceSettings({}))).toBe(false);
   });
 
+  it("defaults healthEnabled and mapsEnabled to false", () => {
+    const parsed = parseWorkspaceSettings({});
+    expect(isHealthFeatureEnabled(parsed)).toBe(false);
+    expect(isMapsFeatureEnabled(parsed)).toBe(false);
+    expect(parsed.features?.mapsEnabled).toBe(false);
+  });
+
   it("reads notesEnabled from persisted JSON", () => {
     const parsed = parseWorkspaceSettings({ features: { notesEnabled: true } });
     expect(isNotesFeatureEnabled(parsed)).toBe(true);
+  });
+
+  it("reads mapsEnabled from persisted JSON", () => {
+    const parsed = parseWorkspaceSettings({ features: { mapsEnabled: true } });
+    expect(isMapsFeatureEnabled(parsed)).toBe(true);
   });
 
   it("merges partial settings patches", () => {
@@ -26,6 +40,16 @@ describe("workspaceSettings", () => {
       { features: { notesEnabled: true } },
     );
     expect(merged.features?.notesEnabled).toBe(true);
+  });
+
+  it("merges mapsEnabled without wiping other flags", () => {
+    const merged = mergeWorkspaceSettings(
+      { features: { notesEnabled: true, healthEnabled: true, mapsEnabled: false } },
+      { features: { mapsEnabled: true } },
+    );
+    expect(merged.features?.mapsEnabled).toBe(true);
+    expect(merged.features?.notesEnabled).toBe(true);
+    expect(merged.features?.healthEnabled).toBe(true);
   });
 
   it("defaults all notebook sections to enabled when unset", () => {
