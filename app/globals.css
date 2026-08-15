@@ -1774,7 +1774,7 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
     box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
     overflow: hidden;
     will-change: transform;
-    touch-action: pan-y;
+    touch-action: none;
   }
 
   .mobile-bottom-sheet--90 {
@@ -1798,7 +1798,8 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
 
   .bottom-sheet-scroll-body {
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    overscroll-behavior: none;
+    touch-action: pan-y;
   }
 
   .keyboard-stable-sheet__footer {
@@ -1958,48 +1959,12 @@ body > [data-receipt-ledger-portal] .receipt-ledger-drawer__panel {
   }
 }
 
-/* Agent 27: Pull-to-refresh (mobile lists) — native feel spinner + threshold */
-.pull-to-refresh-indicator {
-  position: absolute;
-  top: -60px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: rgba(17,17,20,0.95);
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  opacity: 0;
-  transition: opacity 0.1s, transform 0.1s;
-  pointer-events: none;
-  white-space: nowrap;
+html.scroll-locked,
+html.scroll-locked body {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  overscroll-behavior-y: none !important;
 }
-.pull-to-refresh-indicator.visible {
-  opacity: 1;
-  top: max(8px, env(safe-area-inset-top, 8px));
-}
-.pull-to-refresh-indicator.refreshing {
-  top: max(8px, env(safe-area-inset-top, 8px));
-  opacity: 1;
-}
-
-.main-content--pwa-standalone {
-  overscroll-behavior-y: contain;
-}
-.pull-to-refresh-indicator .spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--neon-purple);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============================================
    M2 Notes Surface Polish: Mobile + Keyboard Accessibility

@@ -17,6 +17,7 @@ import {
   LogOut,
   X,
   Bell,
+  RefreshCw,
   Home,
 
   Zap,
@@ -45,8 +46,6 @@ import {
 } from "@/features/lists/lib/listItemCompletionFeedback";
 import { apiFetch, registerDualAuthRequiredHandler } from "@/lib/api/apiFetch";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
-import { usePullToRefresh } from "@/lib/hooks/usePullToRefresh";
-import { isStandalonePwa } from "@/lib/pwa/isStandalonePwa";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { isDueDatePast } from "@/lib/datetime";
 import { formatRoleLabel, type WorkspaceRole } from "@/lib/roles";
@@ -710,8 +709,7 @@ export default function BadAssTasks() {
     setSyncDisplay({ isOnline, isSyncing, pendingSyncCount });
   }, [isOnline, isSyncing, pendingSyncCount]);
 
-  const listDetailOpenRef = useRef(false);
-  const [pwaStandalone, setPwaStandalone] = useState(false);
+  const [isWorkspaceRefreshing, setIsWorkspaceRefreshing] = useState(false);
 
   // Phase 2 collaboration UI state (inline, no new files)
   const [showInviteDialog, setShowInviteDialog] = useState(false);
@@ -1102,15 +1100,9 @@ export default function BadAssTasks() {
     liveBootstrapFinished,
   ]);
 
-  useEffect(() => {
-    listDetailOpenRef.current = !!listDetailTarget;
-  }, [listDetailTarget]);
-
-  useEffect(() => {
-    setPwaStandalone(isStandalonePwa());
-  }, []);
-
-  const handlePullRefresh = useCallback(async () => {
+  const handleWorkspaceRefresh = useCallback(async () => {
+    if (isWorkspaceRefreshing) return;
+    setIsWorkspaceRefreshing(true);
     triggerHaptic("medium");
     const store = useTaskStore.getState();
     try {
@@ -1126,21 +1118,10 @@ export default function BadAssTasks() {
       toast.success("Refreshed", { description: "Your workspace data is up to date." });
     } catch {
       toast.error("Could not refresh");
+    } finally {
+      setIsWorkspaceRefreshing(false);
     }
-  }, [currentView]);
-
-  const canStartPullToRefresh = useCallback(() => {
-    if (listDetailOpenRef.current) return false;
-    if (filesCaptureOpen) return false;
-    if (showFullTaskModal) return false;
-    return true;
-  }, [filesCaptureOpen, showFullTaskModal]);
-
-  const { pullDistance, isRefreshing: isPullRefreshing } = usePullToRefresh({
-    enabled: isMobileViewport && pwaStandalone,
-    onRefresh: handlePullRefresh,
-    canStartPull: canStartPullToRefresh,
-  });
+  }, [currentView, isWorkspaceRefreshing]);
 
   const isConfigured = isSupabaseConfigured();
   const isTrulyLive = isConfigured && !!user && dualAuthVerified;
@@ -3780,6 +3761,17 @@ export default function BadAssTasks() {
           </div>
 
           <div className="top-bar-actions flex items-center gap-1.5 md:gap-3 text-sm shrink-0 flex-nowrap">
+            <button
+              type="button"
+              onClick={() => void handleWorkspaceRefresh()}
+              disabled={isWorkspaceRefreshing}
+              className="btn btn-ghost h-11 w-11 min-h-[44px] min-w-[44px] p-0 flex items-center justify-center rounded-full hover:bg-surface-hover border border-border-glass relative transition disabled:opacity-50"
+              title="Refresh workspace"
+              aria-label="Refresh workspace"
+              aria-busy={isWorkspaceRefreshing}
+            >
+              <RefreshCw className={cn("h-4 w-4", isWorkspaceRefreshing && "animate-spin")} />
+            </button>
             {/* Agent 31: Notification bell (non-intrusive, timely badge + dropdown) */}
             <div ref={notificationsRef} className="relative">
               <button
@@ -4038,34 +4030,9 @@ export default function BadAssTasks() {
           className={cn(
             "main-content relative flex-1 overflow-auto p-6 lg:p-8",
             currentView === "chat" && "main-content--chat !p-0 lg:!p-0 overflow-hidden flex flex-col",
-            currentView === "health" && "main-content--health !p-0 lg:!p-0 overflow-hidden flex flex-col min-h-0",
-            pwaStandalone && isMobileViewport && "main-content--pwa-standalone"
+            currentView === "health" && "main-content--health !p-0 lg:!p-0 overflow-hidden flex flex-col min-h-0"
           )}
         >
-          {(pullDistance > 4 || isPullRefreshing) && (
-            <div
-              className={cn(
-                "pull-to-refresh-indicator",
-                (pullDistance > 4 || isPullRefreshing) && "visible",
-                isPullRefreshing && "refreshing"
-              )}
-              style={{
-                transform: `translateX(-50%) translateY(${Math.min(pullDistance * 0.6, 18)}px)`,
-              }}
-              aria-live="polite"
-            >
-              {isPullRefreshing ? (
-                <>
-                  <span className="spinner" /> Refreshing…
-                </>
-              ) : pullDistance > 52 ? (
-                "Release to refresh"
-              ) : (
-                "Pull to refresh"
-              )}
-            </div>
-          )}
-
           {/* Persistent received workspace invite banner (distinct from bell notifications).
              - Cannot be dismissed or marked read from here (only Accept/Decline removes it).
              - Shows full "Name (@username) invited you to join 'Workspace Name'".

@@ -4,14 +4,12 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { animate, useDragControls, useMotionValue, useTransform, type PanInfo } from "framer-motion";
 import {
   SHEET_DISMISS_EXIT_SPRING,
-  SHEET_DISMISS_OFFSET,
-  SHEET_DISMISS_VELOCITY,
   SHEET_ENTER_TRANSITION,
   SHEET_EXIT_TRANSITION,
   SHEET_SNAP_BACK_SPRING,
   shouldDismissSheet,
 } from "@/lib/motion/sheet";
-import { isSheetDragBlockedTarget } from "@/lib/motion/sheetDragTarget";
+import { isFocusedSheetEditor } from "@/lib/motion/sheetDragTarget";
 
 const TAP_SLOP_PX = 10;
 const DRAG_SLOP_PX = 8;
@@ -54,16 +52,12 @@ export function useMobileSheetDrag(options: {
   dragMode?: "handle" | "panel";
   /** manual: 1:1 finger tracking (best for scrollable sheets). framer: legacy drag controls. */
   dragEngine?: "manual" | "framer";
-  offsetThreshold?: number;
-  velocityThreshold?: number;
 }) {
   const {
     enabled,
     onDismiss,
     dragMode = "handle",
     dragEngine = "manual",
-    offsetThreshold = SHEET_DISMISS_OFFSET,
-    velocityThreshold = SHEET_DISMISS_VELOCITY,
   } = options;
 
   const [dragY, setDragY] = useState(0);
@@ -196,17 +190,16 @@ export function useMobileSheetDrag(options: {
       if (
         shouldDismissSheet({
           offsetY: dy,
-          velocityY,
+          velocityY: Math.max(0, velocityY),
           sheetHeight: dismissTargetRef.current,
-        }) ||
-        (dy > offsetThreshold && velocityY > velocityThreshold)
+        })
       ) {
         runDismissAnimation(velocityY);
         return;
       }
       runSnapBackAnimation();
     },
-    [offsetThreshold, velocityThreshold, runDismissAnimation, runSnapBackAnimation],
+    [runDismissAnimation, runSnapBackAnimation],
   );
 
   const handleDragEnd = useCallback(
@@ -237,15 +230,14 @@ export function useMobileSheetDrag(options: {
       },
     ) => {
       if (!enabled || e.button !== 0) return;
+      if (isDismissing) return;
+      if (pointerRef.current && pointerRef.current.pointerId !== e.pointerId) return;
+      if (!config.immediate && isFocusedSheetEditor(e.target)) return;
+      if (!config.immediate && config.canStart && (!e.target || !config.canStart(e.target))) {
+        return;
+      }
       stopSheetAnimations();
       setIsEntering(false);
-      if (!config.immediate && !config.armAtScrollTop) {
-        if (isSheetDragBlockedTarget(e.target)) return;
-        if (config.canStart && (!e.target || !config.canStart(e.target))) return;
-      } else if (!config.immediate) {
-        if (isSheetDragBlockedTarget(e.target)) return;
-        if (config.canStart && (!e.target || !config.canStart(e.target))) return;
-      }
 
       const target = e.target;
       const inScrollGate =
@@ -283,7 +275,7 @@ export function useMobileSheetDrag(options: {
       // Arm-only: do not capture yet — capturing + preventDefault at scrollTop 0
       // blocks native list scrolling and item taps. Capture starts when drag begins.
     },
-    [enabled, stopSheetAnimations, sheetY],
+    [enabled, isDismissing, stopSheetAnimations, sheetY],
   );
 
   const movePointerDrag = useCallback(
@@ -297,30 +289,32 @@ export function useMobileSheetDrag(options: {
 
       if (!state.dragging) {
         if (state.armed) {
-          if (fingerDy <= 0) {
-            // Upward scroll intent — release capture so the list can pan.
+          if (fingerDy < -DRAG_SLOP_PX) {
             releaseCapture(state, e.pointerId);
             pointerRef.current = null;
             return;
           }
+          if (Math.abs(dx) > Math.abs(fingerDy) * 1.2 && Math.abs(dx) > DRAG_SLOP_PX) {
+            releaseCapture(state, e.pointerId);
+            pointerRef.current = null;
+            return;
+          }
+          if (fingerDy <= DRAG_SLOP_PX) return;
           const liveScrollTop = readScrollTop(state.getScrollEl, state.scrollTop);
           if (liveScrollTop > SCROLL_TOP_EPSILON) {
             releaseCapture(state, e.pointerId);
             pointerRef.current = null;
             return;
           }
-          // Dominant horizontal move — don't steal the gesture.
-          if (Math.abs(dx) > Math.abs(fingerDy) && Math.abs(dx) > DRAG_SLOP_PX) {
-            releaseCapture(state, e.pointerId);
-            pointerRef.current = null;
-            return;
-          }
-          if (fingerDy <= DRAG_SLOP_PX) return;
           state.armed = false;
           state.dragging = true;
           stopSheetAnimations();
           setIsDragging(true);
-          state.captureEl?.setPointerCapture?.(e.pointerId);
+          if (state.captureEl) {
+            state.captureEl.style.touchAction = "none";
+            state.captureEl.setPointerCapture?.(e.pointerId);
+          }
+          if (e.cancelable) e.preventDefault();
         } else {
           if (Math.abs(fingerDy) <= DRAG_SLOP_PX && Math.abs(dx) <= DRAG_SLOP_PX) return;
           if (Math.abs(fingerDy) < Math.abs(dx)) {
@@ -399,12 +393,18 @@ export function useMobileSheetDrag(options: {
     (e: PointerEvent) => {
       const state = pointerRef.current;
       if (state?.pointerId !== e.pointerId) return;
-      releaseCapture(state, e.pointerId);
+      const fingerDy = e.clientY - state.startY;
+      const dy = Math.max(0, state.startSheetY + fingerDy);
       pointerRef.current = null;
+      releaseCapture(state, e.pointerId);
+      if (state.dragging) {
+        finishDrag(dy, state.velocityY);
+        return;
+      }
       setIsDragging(false);
       runSnapBackAnimation();
     },
-    [releaseCapture, runSnapBackAnimation],
+    [finishDrag, releaseCapture, runSnapBackAnimation],
   );
 
   const startDrag = useCallback(
@@ -551,7 +551,7 @@ export function useMobileSheetDrag(options: {
         if (!(e.target instanceof Element)) return;
         if (e.button !== 0) return;
         if (scrollEl.scrollTop > SCROLL_TOP_EPSILON) return;
-        if (isSheetDragBlockedTarget(e.target)) return;
+        if (isFocusedSheetEditor(e.target)) return;
         if (config.canStart && !config.canStart(e.target)) return;
 
         beginPointerDrag(e, {

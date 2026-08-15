@@ -4,6 +4,8 @@ import React, { useCallback, useLayoutEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { useScrollLock } from "@/lib/hooks/useScrollLock";
+import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
 import { MOBILE_SHEET_HEIGHT_90_CLASS, SHEET_SPRING } from "@/lib/motion/sheet";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 
@@ -44,12 +46,19 @@ export function MobileDrawerShell({
     setDismissTarget,
     resetDrag,
     startDrag,
+    attachCaptureDragSurface,
+    attachScrollDismiss,
+    isDismissing,
+    isEntering,
   } = useMobileSheetDrag({
     enabled: isMobile && open && enableDragDismiss,
     onDismiss: onClose,
     dragMode: "handle",
     dragEngine: "manual",
   });
+
+  useScrollLock(open);
+  useVisualViewportInsets(isMobile && open);
 
   const handleClose = useCallback(() => {
     if (isMobile) {
@@ -72,26 +81,53 @@ export function MobileDrawerShell({
     }
   }, [open, isMobile, animateEnter, setDismissTarget]);
 
+  useLayoutEffect(() => {
+    if (!open || !isMobile || isDismissing || isEntering) return;
+    const panel = panelRef.current;
+    const scrollEl =
+      panel?.querySelector<HTMLElement>(".overflow-y-auto, .overscroll-contain") ?? null;
+    const cleanupSurface = attachCaptureDragSurface(panel, {
+      getScrollEl: () => scrollEl,
+      scrollGateSelector: ".overflow-y-auto, .overscroll-contain",
+    });
+    const cleanupScroll = attachScrollDismiss(scrollEl, {
+      getScrollEl: () => scrollEl,
+    });
+    return () => {
+      cleanupSurface?.();
+      cleanupScroll?.();
+    };
+  }, [
+    attachCaptureDragSurface,
+    attachScrollDismiss,
+    open,
+    isMobile,
+    isDismissing,
+    isEntering,
+  ]);
+
   return (
     <AnimatePresence onExitComplete={resetDrag}>
       {open && (
-        <div
+        <motion.div
           className={cn(
-            "fixed inset-0 flex p-0",
+            "fixed inset-0 flex p-0 pointer-events-none",
             isMobile ? "flex-col justify-end" : "items-center justify-center sm:p-3 md:p-4",
             wrapperClassName,
           )}
           style={{ zIndex }}
+          initial={false}
+          exit={{ pointerEvents: "none" }}
         >
           <motion.div
             className={cn(
-              "absolute inset-0",
+              "absolute inset-0 pointer-events-auto",
               isMobile ? "sheet-backdrop" : "overlay-scrim backdrop-blur-sm",
             )}
             initial={isMobile ? false : { opacity: 0 }}
             animate={isMobile ? undefined : { opacity: 1 }}
             style={isMobile ? { opacity: backdropOpacityMotion } : undefined}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, pointerEvents: "none" }}
             transition={{ duration: 0.2 }}
             onClick={handleClose}
             aria-hidden="true"
@@ -104,7 +140,7 @@ export function MobileDrawerShell({
             aria-labelledby={ariaLabelledBy}
             aria-label={ariaLabel}
             className={cn(
-              "relative flex flex-col w-full border border-border-glass modal-panel bg-bg-panel shadow-2xl overflow-hidden",
+              "relative flex flex-col w-full border border-border-glass modal-panel bg-bg-panel shadow-2xl overflow-hidden pointer-events-auto",
               isMobile
                 ? cn(
                     "mobile-bottom-sheet rounded-t-3xl",
@@ -117,14 +153,14 @@ export function MobileDrawerShell({
             onClick={(e) => e.stopPropagation()}
             initial={isMobile ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
             animate={isMobile ? { opacity: 1 } : { scale: 1, opacity: 1 }}
-            exit={isMobile ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
+            exit={isMobile ? { opacity: 0, pointerEvents: "none" } : { scale: 0.96, opacity: 0 }}
             transition={isMobile ? { duration: 0.18, ease: "easeOut" } : SHEET_SPRING}
-            style={isMobile ? { y: sheetY, touchAction: "pan-y" } : undefined}
+            style={isMobile ? { y: sheetY } : undefined}
           >
             {isMobile && <SheetDragHandle onPointerDown={startDrag} />}
             {children}
           </motion.div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

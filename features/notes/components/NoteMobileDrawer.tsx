@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { cn, triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
 import { MOBILE_SHEET_HEIGHT_90_CLASS } from "@/lib/motion/sheet";
 import { SheetDragHandle } from "@/components/SheetDragHandle";
 
@@ -52,6 +53,7 @@ export function NoteMobileDrawer({
     setDismissTarget,
     resetDrag,
     startDrag,
+    attachCaptureDragSurface,
     attachScrollDismiss,
   } = useMobileSheetDrag({
     enabled: open,
@@ -70,6 +72,7 @@ export function NoteMobileDrawer({
   }, [onSave]);
 
   useScrollLock(open);
+  useVisualViewportInsets(open);
 
   useEffect(() => {
     if (!open) return;
@@ -97,11 +100,20 @@ export function NoteMobileDrawer({
 
   useLayoutEffect(() => {
     if (!open) return;
-    return attachScrollDismiss(scrollRef.current, {
+    const cleanupSurface = attachCaptureDragSurface(panelRef.current, {
+      getScrollEl: () => scrollRef.current,
+      scrollGateSelector: ".notes-drawer-body",
+      scrollDismissSelector: ".notes-drawer-body",
+    });
+    const cleanupScroll = attachScrollDismiss(scrollRef.current, {
       getScrollEl: () => scrollRef.current,
       scrollGateSelector: ".notes-drawer-body",
     });
-  }, [attachScrollDismiss, open]);
+    return () => {
+      cleanupSurface?.();
+      cleanupScroll?.();
+    };
+  }, [attachCaptureDragSurface, attachScrollDismiss, open]);
 
   if (!mounted) return null;
 
@@ -137,7 +149,7 @@ export function NoteMobileDrawer({
             initial={{ opacity: 0.98 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            style={{ y: sheetY, touchAction: "pan-y" }}
+            style={{ y: sheetY }}
           >
             <SheetDragHandle onPointerDown={startDrag} />
 

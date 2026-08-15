@@ -84,7 +84,6 @@ export function MobileBottomNav({
         className="bottom-nav md:hidden border-t border-border-glass"
         aria-label="Primary navigation"
         data-mobile-bottom-nav
-        data-pull-refresh-ignore
         style={{ touchAction: "manipulation" }}
       >
         <WorkspaceSwitchEffects workspaceId={workspace.id} variant="bottom-nav" />

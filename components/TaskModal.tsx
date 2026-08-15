@@ -24,6 +24,7 @@ import { TaskStarButton } from "@/features/tasks/components/TaskStarButton";
 import { triggerHaptic } from "@/lib/utils";
 import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
+import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
 import {
   cn,
   applyTaskUpdateSideEffects,
@@ -370,6 +371,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
   }, [isOpen, isMobile]);
 
   useScrollLock(isOpen);
+  useVisualViewportInsets(isMobile && isOpen);
 
   // Cleanup any pending live broadcast debounce when modal closes
   useEffect(() => {
@@ -577,6 +579,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     setDismissTarget,
     resetDrag,
     startDrag,
+    attachCaptureDragSurface,
     attachScrollDismiss,
   } = useMobileSheetDrag({
     enabled: isMobile && isOpen,
@@ -659,11 +662,20 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
 
   useLayoutEffect(() => {
     if (!isOpen || !isMobile) return;
-    return attachScrollDismiss(taskScrollRef.current, {
+    const cleanupSurface = attachCaptureDragSurface(taskPanelRef.current, {
+      getScrollEl: () => taskScrollRef.current,
+      scrollGateSelector: ".task-sheet-scroll",
+      scrollDismissSelector: ".task-sheet-scroll",
+    });
+    const cleanupScroll = attachScrollDismiss(taskScrollRef.current, {
       getScrollEl: () => taskScrollRef.current,
       scrollGateSelector: ".task-sheet-scroll",
     });
-  }, [attachScrollDismiss, isOpen, isMobile]);
+    return () => {
+      cleanupSurface?.();
+      cleanupScroll?.();
+    };
+  }, [attachCaptureDragSurface, attachScrollDismiss, isOpen, isMobile]);
 
   if (!mounted) return null;
 
@@ -706,7 +718,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
           initial={isMobile ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
           animate={isMobile ? { opacity: 1 } : { scale: 1, opacity: 1 }}
           exit={isMobile ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
-          style={isMobile ? { y: sheetY, touchAction: "pan-y" } : undefined}
+          style={isMobile ? { y: sheetY } : undefined}
           role="dialog"
           aria-modal="true"
           aria-label={`Task: ${localTask.title}`}

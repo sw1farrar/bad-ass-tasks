@@ -103,6 +103,19 @@ describe("sheetDragTarget", () => {
     expect(isSheetDragBlockedTarget(textarea)).toBe(false);
   });
 
+  it("allows display-clickable list titles as a drag surface", () => {
+    const sheet = el(`
+      <div class="list-detail-modal-surface">
+        <div class="list-detail-scroll">
+          <span class="list-item-text list-item-text--display-clickable">Buy milk</span>
+        </div>
+      </div>
+    `);
+    const text = sheet.querySelector(".list-item-text")!;
+    expect(isSheetDragBlockedTarget(text)).toBe(false);
+    expect(isListDetailSheetDragTarget(text)).toBe(true);
+  });
+
   it("rejects interactive controls anywhere on the sheet surface", () => {
     const sheet = el(`
       <div class="list-detail-modal-surface">

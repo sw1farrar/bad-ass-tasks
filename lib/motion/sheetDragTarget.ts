@@ -9,14 +9,23 @@ export const SHEET_DRAG_BLOCKER_SELECTOR = [
   ".list-item-check",
   ".list-item-menu",
   ".list-item-pending-btn",
-  ".list-item-text--display-clickable",
   '[data-sheet-drag-block="true"]',
 ].join(", ");
 
 export function isSheetDragBlockedTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return true;
-  if (target.closest('textarea[readonly].list-item-text--editable')) return false;
-  return Boolean(target.closest(SHEET_DRAG_BLOCKER_SELECTOR));
+  const el = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  if (!el) return true;
+  if (el.closest('textarea[readonly].list-item-text--editable')) return false;
+  return Boolean(el.closest(SHEET_DRAG_BLOCKER_SELECTOR));
+}
+
+/** Only a focused text field should refuse to arm a sheet drag. */
+export function isFocusedSheetEditor(target: EventTarget | null): boolean {
+  const el = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  if (!el) return false;
+  const field = el.closest("input, textarea:not([readonly]), [contenteditable='true']");
+  if (!(field instanceof HTMLElement)) return false;
+  return document.activeElement === field || field.contains(document.activeElement);
 }
 
 /** Open-item list body in the mobile list detail drawer — excludes toolbar, add row, completed section. */

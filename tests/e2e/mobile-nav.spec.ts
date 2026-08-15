@@ -33,6 +33,8 @@ test.describe("mobile primary navigation", () => {
     await expect(nav.getByRole("button", { name: "More" })).toHaveAttribute("aria-current", "page");
 
     await nav.getByRole("button", { name: "Tasks" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(page.locator(".tasks-root")).toBeVisible({ timeout: 8000 });
     await expect(page.locator("#task-quick-add")).toBeVisible({ timeout: 8000 });
     await expect(nav.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
   });

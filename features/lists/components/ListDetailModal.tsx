@@ -310,7 +310,7 @@ export function ListDetailModal({
     if (isDragging) blurSheetInputs();
   }, [isDragging, blurSheetInputs]);
 
-  useScrollLock(isMobile ? isOpen && !isDismissing : isOpen);
+  useScrollLock(isOpen);
 
   useEffect(() => {
     if (!isOpen) {

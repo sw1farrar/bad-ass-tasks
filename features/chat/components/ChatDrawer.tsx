@@ -83,11 +83,14 @@ export function ChatDrawer({ open, onClose, chat, ...panelProps }: ChatDrawerPro
           />
           <motion.div
             ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Messages"
             className={`chat-drawer-sheet relative flex flex-col bg-bg border-t border-border-glass rounded-t-3xl overflow-hidden mobile-bottom-sheet mobile-bottom-sheet--90 ${MOBILE_SHEET_HEIGHT_90_CLASS}`}
             initial={{ opacity: 0.98 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            style={{ y: sheetY, touchAction: "pan-y" }}
+            style={{ y: sheetY }}
           >
             <SheetDragHandle onPointerDown={startDrag} />
             <div className="chat-drawer-header flex items-center justify-between px-4 py-2 border-b border-border-glass shrink-0">

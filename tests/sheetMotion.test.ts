@@ -9,10 +9,20 @@ import {
 describe("shouldDismissSheet", () => {
   const sheetHeight = 700;
 
-  it("dismisses after dragging about 22% of the sheet height", () => {
+  it("dismisses after dragging about 15% of the sheet height", () => {
     expect(
       shouldDismissSheet({
         offsetY: sheetHeight * SHEET_DISMISS_RATIO + 1,
+        velocityY: 0,
+        sheetHeight,
+      }),
+    ).toBe(true);
+  });
+
+  it("dismisses a clear slow pull even if the finger stops", () => {
+    expect(
+      shouldDismissSheet({
+        offsetY: 81,
         velocityY: 0,
         sheetHeight,
       }),

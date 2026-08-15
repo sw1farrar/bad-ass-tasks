@@ -90,6 +90,7 @@ export function BottomSheet({
     setDismissTarget,
     resetDrag,
     startDrag,
+    attachCaptureDragSurface,
     attachScrollDismiss,
   } = useMobileSheetDrag({
     enabled: dragEnabled && open,
@@ -106,7 +107,7 @@ export function BottomSheet({
     finishClose();
   }, [useMobileSheet, dragEnabled, requestDismiss, finishClose]);
 
-  useScrollLock(open && !isDismissing);
+  useScrollLock(open);
   useVisualViewportInsets(open && useMobileSheet);
   useFocusWithinScroll(scrollRef, open && useMobileSheet && wrapChildrenInScroll);
 
@@ -124,14 +125,26 @@ export function BottomSheet({
   }, [open, useMobileSheet, animateEnter, setDismissTarget]);
 
   useLayoutEffect(() => {
-    if (!open || !useMobileSheet || !wrapChildrenInScroll || isDismissing || isEntering) {
+    if (!open || !useMobileSheet || isDismissing || isEntering) {
       return;
     }
-    return attachScrollDismiss(scrollRef.current, {
+    const cleanupSurface = attachCaptureDragSurface(panelRef.current, {
       getScrollEl: () => scrollRef.current,
       scrollGateSelector: ".bottom-sheet-scroll-body",
+      scrollDismissSelector: wrapChildrenInScroll ? ".bottom-sheet-scroll-body" : undefined,
     });
+    const cleanupScroll = wrapChildrenInScroll
+      ? attachScrollDismiss(scrollRef.current, {
+          getScrollEl: () => scrollRef.current,
+          scrollGateSelector: ".bottom-sheet-scroll-body",
+        })
+      : undefined;
+    return () => {
+      cleanupSurface?.();
+      cleanupScroll?.();
+    };
   }, [
+    attachCaptureDragSurface,
     attachScrollDismiss,
     open,
     useMobileSheet,
@@ -185,18 +198,20 @@ export function BottomSheet({
   return createPortal(
     <AnimatePresence onExitComplete={resetDrag}>
       {open && (
-        <div
-          className={cn("fixed inset-0", className)}
+        <motion.div
+          className={cn("fixed inset-0 pointer-events-none", className)}
           style={{ zIndex }}
           role="presentation"
+          initial={false}
+          exit={{ pointerEvents: "none" }}
         >
           <motion.div
             key="bottom-sheet-backdrop"
-            className={backdropClasses}
+            className={cn(backdropClasses, "pointer-events-auto")}
             initial={useMobileSheet ? false : { opacity: 0 }}
             animate={useMobileSheet ? undefined : { opacity: 1 }}
             style={useMobileSheet ? { opacity: backdropOpacityMotion } : undefined}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, pointerEvents: "none" }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={handleClose}
             aria-hidden="true"
@@ -229,9 +244,9 @@ export function BottomSheet({
               onClick={(e) => e.stopPropagation()}
               initial={useMobileSheet ? { opacity: 0.98 } : { scale: 0.96, opacity: 0 }}
               animate={useMobileSheet ? { opacity: 1 } : { scale: 1, opacity: 1 }}
-              exit={useMobileSheet ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
+              exit={useMobileSheet ? { opacity: 0, pointerEvents: "none" } : { scale: 0.96, opacity: 0 }}
               transition={useMobileSheet ? { duration: 0.18, ease: "easeOut" } : SHEET_SPRING}
-              style={useMobileSheet ? { y: sheetY, touchAction: "pan-y" } : undefined}
+              style={useMobileSheet ? { y: sheetY } : undefined}
             >
               {useMobileSheet && showDragHandle && (
                 <SheetDragHandle onPointerDown={startDrag} />
@@ -269,7 +284,7 @@ export function BottomSheet({
               {scrollBody}
             </motion.div>
           </div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>,
     document.body,

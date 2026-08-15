@@ -42,12 +42,12 @@ export const SHEET_EXIT_TRANSITION = {
   ease: [0.4, 0, 1, 1] as const,
 };
 
-export const SHEET_DISMISS_OFFSET = 120;
-export const SHEET_DISMISS_VELOCITY = 900;
-export const SHEET_DISMISS_RATIO = 0.22;
-export const SHEET_DISMISS_FLICK_MIN_PX = 36;
+export const SHEET_DISMISS_OFFSET = 80;
+export const SHEET_DISMISS_VELOCITY = 700;
+export const SHEET_DISMISS_RATIO = 0.15;
+export const SHEET_DISMISS_FLICK_MIN_PX = 24;
 
-/** Height-relative dismiss: drag ~22% of the sheet, or a real flick with min travel. */
+/** Clear downward pull always finishes; short tugs snap back. */
 export function shouldDismissSheet(options: {
   offsetY: number;
   velocityY: number;
@@ -57,8 +57,8 @@ export function shouldDismissSheet(options: {
   const velocityY = options.velocityY;
   const sheetHeight = Math.max(options.sheetHeight, 1);
   if (offsetY > sheetHeight * SHEET_DISMISS_RATIO) return true;
+  if (offsetY > SHEET_DISMISS_OFFSET) return true;
   if (offsetY > SHEET_DISMISS_FLICK_MIN_PX && velocityY > SHEET_DISMISS_VELOCITY) return true;
-  if (offsetY > SHEET_DISMISS_OFFSET && velocityY > 80) return true;
   return false;
 }
 

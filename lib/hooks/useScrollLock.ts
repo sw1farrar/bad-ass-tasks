@@ -10,6 +10,9 @@ type SavedOverflow = { el: HTMLElement; overflow: string };
 
 let lockCount = 0;
 let previousBodyOverflow: string | null = null;
+let previousHtmlOverflow: string | null = null;
+let previousHtmlOverscroll: string | null = null;
+let previousBodyOverscroll: string | null = null;
 let innerSaved: SavedOverflow[] = [];
 
 function lockInnerScrollContainers() {
@@ -33,7 +36,14 @@ function acquireScrollLock() {
   if (typeof document === "undefined") return;
   if (lockCount === 0) {
     previousBodyOverflow = document.body.style.overflow;
+    previousHtmlOverflow = document.documentElement.style.overflow;
+    previousHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+    previousBodyOverscroll = document.body.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+    document.documentElement.classList.add("scroll-locked");
     document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
     lockInnerScrollContainers();
   }
   lockCount += 1;
@@ -44,7 +54,14 @@ function releaseScrollLock() {
   lockCount = Math.max(0, lockCount - 1);
   if (lockCount === 0) {
     document.body.style.overflow = previousBodyOverflow ?? "";
+    document.body.style.overscrollBehavior = previousBodyOverscroll ?? "";
+    document.documentElement.style.overflow = previousHtmlOverflow ?? "";
+    document.documentElement.style.overscrollBehavior = previousHtmlOverscroll ?? "";
+    document.documentElement.classList.remove("scroll-locked");
     previousBodyOverflow = null;
+    previousHtmlOverflow = null;
+    previousHtmlOverscroll = null;
+    previousBodyOverscroll = null;
     unlockInnerScrollContainers();
   }
 }
