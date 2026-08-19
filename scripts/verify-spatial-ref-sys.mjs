@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/**
+ * Confirm PostGIS spatial_ref_sys is not in public (so Security Advisor
+ * rls_disabled_in_public will not email about it).
+ * Usage: node scripts/verify-spatial-ref-sys.mjs
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,9 +23,11 @@ if (fs.existsSync(envPath)) {
 }
 
 const ref = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(
-  /https:\/\/([^.]+)\.supabase\.co/
+  /https:\/\/([^.]+)\.supabase\.co/,
 )?.[1];
 const token = process.env.SUPABASE_ACCESS_TOKEN;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 async function q(label, sql) {
   const r = await fetch(
@@ -32,63 +39,55 @@ async function q(label, sql) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query: sql }),
-    }
+    },
   );
   const body = await r.text();
   console.log(`\n[${label}] ${r.status}`);
   console.log(body);
-  return { ok: r.ok, body };
+  if (!r.ok) throw new Error(`${label} failed: ${body}`);
+  return JSON.parse(body);
 }
 
-await q(
-  "triggers",
-  `SELECT tgname, tgenabled
-   FROM pg_trigger
-   WHERE tgrelid = 'public.spatial_ref_sys'::regclass
-     AND NOT tgisinternal
-   ORDER BY tgname;`
+const loc = await q(
+  "spatial_ref_sys location",
+  `SELECT n.nspname AS schema, c.relname, c.relrowsecurity
+   FROM pg_class c
+   JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.relname = 'spatial_ref_sys' AND c.relkind = 'r';`,
 );
-
-await q(
-  "function exists",
-  `SELECT EXISTS (
-     SELECT 1 FROM pg_proc p
-     JOIN pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public' AND p.proname = 'block_spatial_ref_sys_mutation'
-   ) AS fn_exists;`
-);
-
-// Mutation should fail (trigger or privilege)
-const insert = await q(
-  "blocked insert (expect error)",
-  `INSERT INTO public.spatial_ref_sys (srid, auth_name, auth_srid, srtext, proj4text)
-   VALUES (-999998, 'TEST', -999998, 'TEST', 'TEST');`
-);
-if (insert.ok) {
-  console.log("\nWARNING: INSERT succeeded — cleaning up and investigating");
-  await q(
-    "cleanup test row",
-    `DELETE FROM public.spatial_ref_sys WHERE srid = -999998;`
-  );
-} else {
-  console.log("\nOK: writes to spatial_ref_sys are blocked.");
+if (loc.some((r) => r.schema === "public")) {
+  throw new Error("FAIL: spatial_ref_sys is still in public");
 }
+if (!loc.some((r) => r.schema === "extensions")) {
+  throw new Error("FAIL: spatial_ref_sys missing from extensions");
+}
+console.log("OK: spatial_ref_sys is in extensions, not public.");
 
-// SELECT should still work (reference data)
-await q(
-  "select sample",
-  `SELECT srid, auth_name FROM public.spatial_ref_sys WHERE srid = 4326 LIMIT 1;`
-);
-
-// Confirm app tables all have RLS
-await q(
-  "app tables missing RLS (exclude spatial_ref_sys)",
+const missing = await q(
+  "public tables missing RLS",
   `SELECT c.relname
    FROM pg_class c
    JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'public'
-     AND c.relkind = 'r'
-     AND NOT c.relrowsecurity
-     AND c.relname <> 'spatial_ref_sys'
-   ORDER BY 1;`
+   WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity
+   ORDER BY 1;`,
 );
+if (missing.length) {
+  throw new Error(`FAIL: public tables without RLS: ${missing.map((r) => r.relname).join(", ")}`);
+}
+console.log("OK: every public table has RLS enabled.");
+
+await q(
+  "srid 4326",
+  `SELECT srid, auth_name FROM extensions.spatial_ref_sys WHERE srid = 4326 LIMIT 1;`,
+);
+
+const rest = await fetch(`${url}/rest/v1/spatial_ref_sys?select=srid&limit=1`, {
+  headers: { apikey: anon, Authorization: `Bearer ${anon}` },
+});
+const restBody = await rest.text();
+console.log(`\n[REST spatial_ref_sys] ${rest.status}`);
+console.log(restBody);
+if (rest.status !== 404) {
+  throw new Error(`FAIL: Data API still exposes spatial_ref_sys (${rest.status})`);
+}
+console.log("OK: Data API does not expose spatial_ref_sys.");

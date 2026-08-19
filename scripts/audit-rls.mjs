@@ -95,15 +95,13 @@ if (missing.length) {
   console.log("All public tables have RLS enabled.");
 }
 
-// Also check mutation-blocking triggers on spatial_ref_sys
-const trigSql = `
-SELECT tgname, tgenabled
-FROM pg_trigger
-WHERE tgrelid = 'public.spatial_ref_sys'::regclass
-  AND NOT tgisinternal
-ORDER BY tgname;
+const locSql = `
+SELECT n.nspname AS schema, c.relname, c.relrowsecurity
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relname = 'spatial_ref_sys' AND c.relkind = 'r';
 `;
-const trigRes = await fetch(
+const locRes = await fetch(
   `https://api.supabase.com/v1/projects/${projectRef}/database/query`,
   {
     method: "POST",
@@ -111,13 +109,13 @@ const trigRes = await fetch(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ query: trigSql }),
+    body: JSON.stringify({ query: locSql }),
   }
 );
-const trigBody = await trigRes.text();
-if (trigRes.ok) {
-  console.log("\n=== spatial_ref_sys triggers ===");
-  console.log(trigBody);
+const locBody = await locRes.text();
+if (locRes.ok) {
+  console.log("\n=== spatial_ref_sys location ===");
+  console.log(locBody);
 } else {
-  console.log("\nCould not list spatial_ref_sys triggers:", trigBody);
+  console.log("\nCould not locate spatial_ref_sys:", locBody);
 }

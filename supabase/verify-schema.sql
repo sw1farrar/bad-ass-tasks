@@ -90,12 +90,40 @@ function_checks AS (
     END AS status,
     'function' AS kind
   FROM required_functions rf
+),
+rls_checks AS (
+  SELECT
+    c.relname AS object_name,
+    CASE WHEN c.relrowsecurity THEN 'OK' ELSE 'MISSING' END AS status,
+    'rls' AS kind
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind = 'r'
+),
+spatial_ref_sys_check AS (
+  SELECT
+    'spatial_ref_sys_not_in_public' AS object_name,
+    CASE WHEN EXISTS (
+      SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = 'spatial_ref_sys'
+        AND c.relkind = 'r'
+    ) THEN 'MISSING'
+    ELSE 'OK'
+    END AS status,
+    'security' AS kind
 )
 SELECT * FROM table_checks
 UNION ALL
 SELECT * FROM column_checks
 UNION ALL
 SELECT * FROM function_checks
+UNION ALL
+SELECT * FROM rls_checks
+UNION ALL
+SELECT * FROM spatial_ref_sys_check
 ORDER BY kind, object_name;
 
 -- Summary row count (run separately if you want a quick pass/fail):

@@ -3,7 +3,9 @@
 -- to avoid clashing with generic table names.
 -- Apply: node scripts/apply-supabase-sql.mjs supabase/add-maps-territories-stores.sql
 
-CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA extensions;
+GRANT USAGE ON SCHEMA extensions TO postgres, anon, authenticated, service_role;
 
 -- Shared updated_at helper (safe if already present)
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -92,7 +94,10 @@ CREATE TRIGGER map_territories_updated_at
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE OR REPLACE FUNCTION map_sync_store_location()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, extensions
+AS $$
 BEGIN
   IF NEW.latitude IS NOT NULL AND NEW.longitude IS NOT NULL THEN
     NEW.location = ST_SetSRID(ST_MakePoint(NEW.longitude, NEW.latitude), 4326)::geography;
@@ -101,7 +106,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS map_stores_sync_location ON map_stores;
 CREATE TRIGGER map_stores_sync_location
@@ -109,12 +114,15 @@ CREATE TRIGGER map_stores_sync_location
   FOR EACH ROW EXECUTE FUNCTION map_sync_store_location();
 
 CREATE OR REPLACE FUNCTION map_sync_territory_geometry()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, extensions
+AS $$
 BEGIN
   NEW.geometry = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(NEW.geojson::text), 4326))::geography;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS map_territories_sync_geometry ON map_territories;
 CREATE TRIGGER map_territories_sync_geometry
@@ -160,7 +168,7 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET search_path = public;
+SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION map_stores_in_territory(p_territory_id UUID)
 RETURNS SETOF map_stores AS $$
@@ -184,7 +192,7 @@ BEGIN
     AND ST_Covers(t.geometry, s.location);
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET search_path = public;
+SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION map_stores_in_geojson(
   p_workspace_id UUID,
@@ -207,7 +215,7 @@ BEGIN
     AND ST_Covers(g, s.location);
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET search_path = public;
+SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION search_map_stores(
   p_workspace_id UUID,
@@ -233,7 +241,7 @@ BEGIN
   LIMIT 50;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET search_path = public;
+SET search_path = public, extensions;
 
 -- ---------------------------------------------------------------------------
 -- RLS: workspace members can CRUD
@@ -262,34 +270,7 @@ GRANT EXECUTE ON FUNCTION map_stores_in_territory(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION map_stores_in_geojson(UUID, JSONB) TO authenticated;
 GRANT EXECUTE ON FUNCTION search_map_stores(UUID, TEXT) TO authenticated;
 
--- ---------------------------------------------------------------------------
--- PostGIS spatial_ref_sys: cannot enable RLS (owned by supabase_admin).
--- Block mutations so anon/authenticated cannot corrupt CRS reference data.
--- See supabase/fix-spatial-ref-sys-rls.sql and github.com/supabase/supabase/issues/47206
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.block_spatial_ref_sys_mutation()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = public
-AS $$
-BEGIN
-  RAISE EXCEPTION 'public.spatial_ref_sys is read-only (PostGIS reference data)';
-END;
-$$;
-
-DROP TRIGGER IF EXISTS spatial_ref_sys_block_mutations ON public.spatial_ref_sys;
-CREATE TRIGGER spatial_ref_sys_block_mutations
-  BEFORE INSERT OR UPDATE OR DELETE
-  ON public.spatial_ref_sys
-  FOR EACH ROW
-  EXECUTE FUNCTION public.block_spatial_ref_sys_mutation();
-
-DROP TRIGGER IF EXISTS spatial_ref_sys_block_truncate ON public.spatial_ref_sys;
-CREATE TRIGGER spatial_ref_sys_block_truncate
-  BEFORE TRUNCATE
-  ON public.spatial_ref_sys
-  FOR EACH STATEMENT
-  EXECUTE FUNCTION public.block_spatial_ref_sys_mutation();
+-- PostGIS lives in the extensions schema (not public) so spatial_ref_sys is
+-- not exposed by the Data API. See supabase/move-postgis-to-extensions.sql.
 
 NOTIFY pgrst, 'reload schema';

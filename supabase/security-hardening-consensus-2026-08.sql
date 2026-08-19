@@ -35,7 +35,7 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
   IF auth.uid() IS NULL OR NOT is_workspace_member(p_workspace_id, auth.uid()) THEN
@@ -65,7 +65,7 @@ RETURNS SETOF map_stores
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_ws UUID;
@@ -100,7 +100,7 @@ RETURNS SETOF map_stores
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   g geography;
@@ -127,7 +127,7 @@ RETURNS SETOF map_stores
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
   IF auth.uid() IS NULL OR NOT is_workspace_member(p_workspace_id, auth.uid()) THEN

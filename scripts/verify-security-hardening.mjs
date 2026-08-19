@@ -82,8 +82,7 @@ WHERE n.nspname = 'public'
     'profiles_protect_admin_fields',
     'workspace_list_shares_protect_columns',
     'list_share_invites_protect_recipient',
-    'trg_note_attachments_storage_path',
-    'spatial_ref_sys_block_mutations'
+    'trg_note_attachments_storage_path'
   )
 ORDER BY tgname;
 `);
