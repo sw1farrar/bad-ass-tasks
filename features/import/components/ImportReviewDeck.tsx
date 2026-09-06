@@ -29,6 +29,12 @@ import "../import.css";
 
 const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
 
+function fitAutoGrow(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "0px";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 interface ImportReviewDeckProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -89,6 +95,7 @@ export function ImportReviewDeck({ open, onOpenChange }: ImportReviewDeckProps) 
   const draftsRef = useRef<Map<string, Task>>(importReviewDrafts);
   const resumeAppliedRef = useRef(false);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setMounted(true), []);
   useScrollLock(open);
@@ -143,11 +150,9 @@ export function ImportReviewDeck({ open, onOpenChange }: ImportReviewDeckProps) 
   }, [current?.id]);
 
   useEffect(() => {
-    const el = titleRef.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [draft?.id, draft?.title, open]);
+    fitAutoGrow(titleRef.current);
+    fitAutoGrow(notesRef.current);
+  }, [draft?.id, draft?.title, draft?.description, open]);
 
   useEffect(() => {
     if (open && pending.length === 0) onOpenChange(false);
@@ -333,11 +338,12 @@ export function ImportReviewDeck({ open, onOpenChange }: ImportReviewDeckProps) 
                   aria-label="Task title"
                 />
                 <textarea
+                  ref={notesRef}
                   value={draft.description}
                   onChange={(e) => saveDraft({ description: e.target.value })}
                   placeholder="Notes"
-                  rows={6}
-                  className="input w-full min-h-[8rem] px-3 py-2.5 rounded-xl text-sm resize-y"
+                  rows={1}
+                  className="input import-review-card__notes w-full rounded-xl text-sm"
                 />
                 <DateTimePicker
                   label="Due date"
