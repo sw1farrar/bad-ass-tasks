@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { fromDbRole } from "@/lib/roles";
 import {
-  IMPORT_CHUNK_MAX,
   importSchemaMissingMessage,
   runImportChunk,
   type ImportChunkRequest,
@@ -67,5 +66,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json(result.result);
 }
-
-export { IMPORT_CHUNK_MAX };
