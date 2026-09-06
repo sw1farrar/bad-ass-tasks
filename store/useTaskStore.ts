@@ -29,6 +29,10 @@ import {
   type TaskListPageState,
 } from "@/features/tasks/lib/taskListPage";
 import {
+  buildCompletedOccurrenceSnapshot,
+  latestCompletedOccurrenceId,
+} from "@/features/tasks/lib/recurrenceCompletion";
+import {
   DEFAULT_NOTIFICATION_PREFS,
   mergeNotificationTypePrefs,
 } from "@/lib/notifications/notificationPrefs";
@@ -3750,8 +3754,7 @@ export const useTaskStore = create<TaskState>()(
         const prevTask = resolveTaskInStore(get(), id);
         if (!prevTask || prevTask.status === "done" || get().taskLoadingStates[id]) return null;
 
-        // Recurring: advance due date instead of marking done (unless series has ended)
-        // Fixed (default): next from original/current due date. Rolling (FROMCOMPLETION): from completion day.
+        // Recurring: keep this occurrence as a completed row, then advance the live series.
         if (prevTask.recurringRule) {
           const next = getNextRecurringDueAfterComplete(
             prevTask.recurringRule,
@@ -3761,16 +3764,68 @@ export const useTaskStore = create<TaskState>()(
           );
           if (next) {
             const completedOn = toLocalDateString(startOfLocalToday());
+            const completedAt = new Date().toISOString();
+            const snapshotId = isSupabaseLive() ? generateClientId() : generateId();
+            const snapshot = buildCompletedOccurrenceSnapshot(prevTask, completedAt, snapshotId);
             const advanceUpdates = buildRecurrenceAdvanceUpdates(prevTask.recurringRule, next, {
               previousDueDate: prevTask.dueDate,
               completedOn,
             });
+
+            set((state) => {
+              const statusMode = resolveTaskStatusMode(state.taskFilter);
+              const showCompleted = statusMode === "completed" || statusMode === "all";
+              const page = state.taskListPage;
+              return {
+                tasks: [snapshot, ...state.tasks.filter((t) => t.id !== snapshot.id)],
+                taskListPage: showCompleted
+                  ? {
+                      ...page,
+                      rows: [snapshot, ...page.rows.filter((t) => t.id !== snapshot.id)],
+                      total: page.total != null ? page.total + 1 : page.total,
+                    }
+                  : page,
+              };
+            });
+
+            if (isSupabaseLive()) {
+              void createTaskSupabase({
+                workspaceId: snapshot.workspaceId,
+                id: snapshot.id,
+                title: snapshot.title,
+                description: snapshot.description,
+                status: "done",
+                priority: snapshot.priority,
+                dueDate: snapshot.dueDate ?? undefined,
+                tags: snapshot.tags,
+                completedAt: snapshot.completedAt,
+                starred: snapshot.starred,
+                folderId: snapshot.folderId,
+                parentTaskId: snapshot.parentTaskId,
+                assigneeIds: snapshot.assigneeIds,
+              } as any);
+            }
+
             const ok = await get().updateTask(id, {
               ...advanceUpdates,
               status: "todo",
               completedAt: undefined,
             });
-            return ok ? "advanced" : null;
+            if (!ok) {
+              set((state) => ({
+                tasks: state.tasks.filter((t) => t.id !== snapshot.id),
+                taskListPage: {
+                  ...state.taskListPage,
+                  rows: state.taskListPage.rows.filter((t) => t.id !== snapshot.id),
+                  total:
+                    state.taskListPage.total != null
+                      ? Math.max(0, state.taskListPage.total - 1)
+                      : state.taskListPage.total,
+                },
+              }));
+              return null;
+            }
+            return "advanced";
           }
           // Series exhausted — fall through to terminal complete + clear recurrence
           const now = new Date().toISOString();
@@ -3946,6 +4001,20 @@ export const useTaskStore = create<TaskState>()(
           }
           if (fallback.task.recurringRule) {
             revertPatch.recurringRule = fallback.task.recurringRule;
+            const occurrenceId = latestCompletedOccurrenceId(get().tasks, id);
+            if (occurrenceId) {
+              await get().deleteTask(occurrenceId);
+              set((state) => ({
+                taskListPage: {
+                  ...state.taskListPage,
+                  rows: state.taskListPage.rows.filter((t) => t.id !== occurrenceId),
+                  total:
+                    state.taskListPage.total != null
+                      ? Math.max(0, state.taskListPage.total - 1)
+                      : state.taskListPage.total,
+                },
+              }));
+            }
           }
           if (fallback.task.exceptionDates) {
             revertPatch.exceptionDates = [...fallback.task.exceptionDates];

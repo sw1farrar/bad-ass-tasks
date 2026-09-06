@@ -85,7 +85,7 @@ describe("taskCompletionFeedback", () => {
 
     expect(triggerCelebration).toHaveBeenCalledOnce();
     expect(toast.success).toHaveBeenCalledWith(
-      "Recurrence advanced",
+      "Completed",
       expect.objectContaining({
         duration: 10000,
         action: expect.objectContaining({ label: "Undo" }),

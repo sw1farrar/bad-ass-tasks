@@ -363,6 +363,25 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       expect(mockHybrid.updateTask).not.toHaveBeenCalled();
     });
 
+    it('completeTask recurring (demo): retains a done occurrence and advances the series', async () => {
+      const task = await useTaskStore.getState().addTask('Water plants');
+      const id = task!.id;
+      await useTaskStore.getState().updateTask(id, {
+        recurringRule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=WE,SA;X-SERIES-ANCHOR=2026-09-05',
+        dueDate: '2026-09-05T00:00:00.000Z',
+      });
+      const result = await useTaskStore.getState().completeTask(id);
+      expect(result).toBe('advanced');
+      const live = useTaskStore.getState().tasks.find((t) => t.id === id);
+      expect(live?.status).not.toBe('done');
+      expect(live?.recurringRule).toContain('FREQ=WEEKLY');
+      const done = useTaskStore.getState().tasks.filter((t) => t.status === 'done' && t.parentTaskId === id);
+      expect(done).toHaveLength(1);
+      expect(done[0].title).toBe('Water plants');
+      expect(done[0].recurringRule).toBeNull();
+      expect(done[0].completedAt).toBeTruthy();
+    });
+
     it('deleteTask (demo): removes from local state, no hybrid delete call', async () => {
       const task = await useTaskStore.getState().addTask('To be deleted');
       const id = task!.id;

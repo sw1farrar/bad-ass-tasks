@@ -50,8 +50,8 @@ export function showTaskCompletionFeedback(
     const nextLabel = opts.advancedTask?.dueDate
       ? formatLocalDateShort(opts.advancedTask.dueDate)
       : "";
-    toast.success("Recurrence advanced", {
-      description: `${taskBeforeComplete.title}${nextLabel ? ` → next due ${nextLabel}` : ""}`,
+    toast.success("Completed", {
+      description: `${taskBeforeComplete.title} saved to Completed${nextLabel ? ` · next ${nextLabel}` : ""}`,
       duration: 10000,
       action: undoAction,
     });
