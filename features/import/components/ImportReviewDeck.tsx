@@ -88,6 +88,7 @@ export function ImportReviewDeck({ open, onOpenChange }: ImportReviewDeckProps) 
   const undoRef = useRef<Task | null>(null);
   const draftsRef = useRef<Map<string, Task>>(importReviewDrafts);
   const resumeAppliedRef = useRef(false);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setMounted(true), []);
   useScrollLock(open);
@@ -140,6 +141,13 @@ export function ImportReviewDeck({ open, onOpenChange }: ImportReviewDeckProps) 
     const saved = draftsRef.current.get(current.id);
     setDraft(cloneTask(saved ?? current));
   }, [current?.id]);
+
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft?.id, draft?.title, open]);
 
   useEffect(() => {
     if (open && pending.length === 0) onOpenChange(false);
@@ -313,10 +321,15 @@ export function ImportReviewDeck({ open, onOpenChange }: ImportReviewDeckProps) 
               onDragEnd={handleDragEnd}
             >
               <div className="import-review-card__scroll space-y-3">
-                <input
+                <textarea
+                  ref={titleRef}
                   value={draft.title}
+                  rows={1}
                   onChange={(e) => saveDraft({ title: e.target.value })}
-                  className="input w-full text-lg font-semibold px-3 py-2.5 rounded-xl"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) e.preventDefault();
+                  }}
+                  className="input import-review-card__title w-full font-semibold rounded-xl"
                   aria-label="Task title"
                 />
                 <textarea

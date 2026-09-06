@@ -70,6 +70,19 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.import-review-card__title {
+  display: block;
+  min-height: 2rem !important;
+  max-height: 6.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 1rem;
+  line-height: 1.35;
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  field-sizing: content;
+}
+
 .import-review-card__footer {
   display: flex;
   align-items: center;
