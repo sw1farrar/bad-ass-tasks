@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Settings, Trash2, Bell, Mail, Pencil, Check, X, Notebook, HeartPulse, MapPinned } from "lucide-react";
+import { Settings, Trash2, Bell, Mail, Pencil, Check, X, Notebook, HeartPulse, MapPinned, KeyRound, Upload } from "lucide-react";
 import {
   getEnabledNotebookSections,
   isHealthFeatureEnabled,
@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 import { WorkspaceViewHeader } from "@/components/WorkspaceViewHeader";
 import { NoteEmailInboxesPanel } from "./components/NoteEmailInboxesPanel";
 import { TaskEmailInboxesPanel } from "./components/TaskEmailInboxesPanel";
+import { McpAccessTokensPanel } from "./components/McpAccessTokensPanel";
+import { ImportWizardModal, ImportReviewBanner, ImportReviewDeck } from "@/features/import";
 import { toast } from "sonner";
 import { useTaskStore } from "@/store/useTaskStore";
 import { canDeleteWorkspace } from "@/lib/workspaceGuards";
@@ -86,6 +88,16 @@ export function WorkspaceSettingsView() {
     }
   };
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importReviewOpen, setImportReviewOpen] = useState(false);
+  const pendingImportCount = useTaskStore((s) =>
+    s.tasks.filter(
+      (t) =>
+        t.workspaceId === s.currentWorkspace.id &&
+        t.importStatus === "pending_review" &&
+        t.status !== "done",
+    ).length,
+  );
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
 
@@ -402,6 +414,28 @@ export function WorkspaceSettingsView() {
         </div>
       </div>
 
+      {(isOwner || myRole === "admin") && (
+        <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3">
+          <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
+            <Upload className="h-4 w-4 text-neon-purple shrink-0" />
+            Import
+          </div>
+          <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
+            Bring tasks from Toodledo. Open items go through a review deck; completed history lands as done.
+          </p>
+          <ImportReviewBanner count={pendingImportCount} onReview={() => setImportReviewOpen(true)} />
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="btn btn-secondary w-full min-h-[44px]"
+          >
+            Import from another app
+          </button>
+          <ImportWizardModal open={importOpen} onOpenChange={setImportOpen} />
+          <ImportReviewDeck open={importReviewOpen} onOpenChange={setImportReviewOpen} />
+        </div>
+      )}
+
       <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3 md:space-y-4">
         <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
           <Mail className="h-4 w-4 text-neon-purple shrink-0" />
@@ -420,6 +454,14 @@ export function WorkspaceSettingsView() {
           <span className="truncate">Task from email</span>
         </div>
         <TaskEmailInboxesPanel />
+      </div>
+
+      <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3 md:space-y-4">
+        <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
+          <KeyRound className="h-4 w-4 text-neon-purple shrink-0" />
+          <span className="truncate">Grok bot token</span>
+        </div>
+        <McpAccessTokensPanel />
       </div>
 
       {/* Danger zone */}

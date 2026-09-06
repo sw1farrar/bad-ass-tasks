@@ -21,6 +21,14 @@ import {
 } from "@/features/tasks/lib/folderFilter";
 export type { TasksFolderFilterMode } from "@/features/tasks/lib/folderFilter";
 import {
+  EMPTY_TASK_LIST_PAGE,
+  TASK_LIST_PAGE_SIZE,
+  buildTaskListQueryKey,
+  resolveTaskRecurrenceMode,
+  resolveTaskStatusMode,
+  type TaskListPageState,
+} from "@/features/tasks/lib/taskListPage";
+import {
   DEFAULT_NOTIFICATION_PREFS,
   mergeNotificationTypePrefs,
 } from "@/lib/notifications/notificationPrefs";
@@ -164,6 +172,10 @@ import {
   createTask as createTaskSupabase,
   updateTask as updateTaskSupabase,
   deleteTask as deleteTaskSupabase,
+  queryWorkspaceTasks,
+  countWorkspaceTasks,
+  approvePendingImportedTasks,
+  discardPendingImportedTasks,
 
   getNotes,
   getNoteById,
@@ -233,8 +245,7 @@ import {
   clearAllNotifications,
   getUserNotificationPrefs,
   updateUserNotificationPrefs,
-  fetchWorkspaceMessages,
-  fetchWorkspaceMessageReactions,
+  fetchWorkspaceMessagesForInbox,
   mapCommentRow,
   mapWorkspaceListRow,
   mapListItemRow,
@@ -253,7 +264,7 @@ import {
   ensureHealthPersistenceReady,
   getHealthBundle,
 } from "@/lib/data/healthStore";
-import { hasUnreadChatActivity } from "@/lib/chatReadState";
+import { hasUnreadChatInbox } from "@/lib/chatReadState";
 import {
   markBroadcastChannelReady,
   sendChannelBroadcast,
@@ -524,6 +535,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
     starred?: TasksStarredFilterMode;
     folderFilter?: TasksFolderFilterMode;
   };
+  /** Non-persisted completed/All history pages. Open tasks stay in `tasks`. */
+  taskListPage: TaskListPageState;
   selectedTaskId: string | null;
   selectedNoteId: string | null;
   selectedNotebookId: string | null;
@@ -638,6 +651,13 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   setRecurringRule: (id: string, recurringRule: string | null) => Promise<boolean | null>;
   toggleTaskStarred: (id: string) => Promise<boolean | null>;
   setTaskFolder: (taskId: string, folderId: string | null) => Promise<boolean | null>;
+  mergeImportedTasks: (tasks: Task[]) => void;
+  approveImportedTask: (id: string, patch?: Partial<Task>) => Promise<boolean | null>;
+  approveRemainingImported: () => Promise<number>;
+  discardImportedTask: (id: string) => Promise<boolean | null>;
+  discardRemainingImported: () => Promise<number>;
+  fetchCompletedTasks: (options?: { reset?: boolean }) => Promise<void>;
+  fetchTaskList: (options?: { reset?: boolean }) => Promise<void>;
 
   // Actions - Notes (now wired through hybrid layer, mirroring tasks)
   addNote: (
@@ -1172,6 +1192,7 @@ export const useTaskStore = create<TaskState>()(
         starred: "all",
         folderFilter: "all",
       },
+      taskListPage: EMPTY_TASK_LIST_PAGE,
       selectedTaskId: null,
       selectedNoteId: null,
       selectedNotebookId: null,
@@ -1344,6 +1365,162 @@ export const useTaskStore = create<TaskState>()(
         return await get().updateTask(id, { recurringRule });
       },
 
+      mergeImportedTasks: (incoming) => {
+        if (!incoming.length) return;
+        const workspaceId = get().currentWorkspace.id;
+        set((state) => {
+          const existing = new Set(state.tasks.map((t) => t.id));
+          const next = incoming.filter((t) => t.workspaceId === workspaceId && !existing.has(t.id));
+          if (!next.length) return {};
+          return { tasks: [...next, ...state.tasks] };
+        });
+      },
+
+      approveImportedTask: async (id, patch = {}) => {
+        return await get().updateTask(
+          id,
+          { ...patch, importStatus: null },
+          { silent: true },
+        );
+      },
+
+      approveRemainingImported: async () => {
+        const workspaceId = get().currentWorkspace.id;
+        const pending = get().tasks.filter(
+          (t) => t.workspaceId === workspaceId && t.importStatus === "pending_review",
+        );
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.workspaceId === workspaceId && t.importStatus === "pending_review"
+              ? { ...t, importStatus: null }
+              : t,
+          ),
+        }));
+        if (isSupabaseLive()) {
+          const n = await approvePendingImportedTasks(workspaceId);
+          return n || pending.length;
+        }
+        return pending.length;
+      },
+
+      discardImportedTask: async (id) => {
+        const task = resolveTaskInStore(get(), id);
+        if (!task) return null;
+        if (task.workspaceId !== get().currentWorkspace.id) return null;
+        if (task.importStatus !== "pending_review") return null;
+        return await get().deleteTask(id);
+      },
+
+      discardRemainingImported: async () => {
+        const workspaceId = get().currentWorkspace.id;
+        const pendingIds = new Set(
+          get()
+            .tasks.filter((t) => t.workspaceId === workspaceId && t.importStatus === "pending_review")
+            .map((t) => t.id),
+        );
+        set((state) => ({
+          tasks: state.tasks.filter((t) => !pendingIds.has(t.id)),
+        }));
+        if (isSupabaseLive()) {
+          return await discardPendingImportedTasks(workspaceId);
+        }
+        return pendingIds.size;
+      },
+
+      fetchTaskList: async (options) => {
+        const workspaceId = get().currentWorkspace.id;
+        const filter = get().taskFilter;
+        const statusMode = resolveTaskStatusMode(filter);
+        const recurrence = resolveTaskRecurrenceMode(filter);
+        const search = filter.search || "";
+        const starred = filter.starred ?? "all";
+        const folderIds = normalizeFolderFilter(filter.folderFilter);
+        const queryKey = buildTaskListQueryKey({
+          workspaceId,
+          statusMode,
+          search,
+          starred,
+          recurrence,
+          folderFilter: filter.folderFilter,
+        });
+
+        if (statusMode === "incomplete") {
+          if (get().taskListPage.queryKey) set({ taskListPage: EMPTY_TASK_LIST_PAGE });
+          return;
+        }
+
+        if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) {
+          set({
+            taskListPage: { ...EMPTY_TASK_LIST_PAGE, queryKey, hasMore: false, loading: false },
+          });
+          return;
+        }
+
+        const reset = !!options?.reset || get().taskListPage.queryKey !== queryKey;
+        const page = get().taskListPage;
+        if (!reset && (page.loading || !page.hasMore)) return;
+
+        const requestKey = queryKey;
+        set({
+          taskListPage: reset
+            ? { ...EMPTY_TASK_LIST_PAGE, queryKey, loading: true, hasMore: true }
+            : { ...page, loading: true },
+        });
+
+        const before = reset ? null : get().taskListPage.cursor;
+        const result = await queryWorkspaceTasks({
+          workspaceId,
+          statusMode,
+          search,
+          starred,
+          recurrence,
+          folderIds,
+          before,
+          limit: TASK_LIST_PAGE_SIZE,
+        });
+
+        if (get().taskListPage.queryKey !== requestKey) return;
+
+        let total = reset ? null : get().taskListPage.total;
+        if (reset || total == null) {
+          total = await countWorkspaceTasks({
+            workspaceId,
+            statusMode,
+            search,
+            starred,
+            recurrence,
+            folderIds,
+          });
+        }
+        if (get().taskListPage.queryKey !== requestKey) return;
+
+        set((state) => {
+          if (state.taskListPage.queryKey !== requestKey) return {};
+          const existingIds = new Set(reset ? [] : state.taskListPage.rows.map((t) => t.id));
+          const incoming = result.rows.filter((t) => !existingIds.has(t.id));
+          const rows = reset ? incoming : [...state.taskListPage.rows, ...incoming];
+          return {
+            taskListPage: {
+              rows,
+              cursor: result.cursor,
+              hasMore: result.hasMore,
+              total,
+              loading: false,
+              queryKey: requestKey,
+            },
+          };
+        });
+      },
+
+      fetchCompletedTasks: async (options) => {
+        const statusMode = resolveTaskStatusMode(get().taskFilter);
+        if (statusMode !== "completed" && statusMode !== "all") {
+          if (options?.reset) set({ taskListPage: EMPTY_TASK_LIST_PAGE });
+          return;
+        }
+        await get().fetchTaskList({ reset: options?.reset ?? false });
+      },
+
       setView: (view) => {
         const raw = view as string;
         const resolved =
@@ -1458,6 +1635,7 @@ export const useTaskStore = create<TaskState>()(
             folderFilter: "all",
             ...(onTasksView ? { statusMode: "incomplete" as const } : {}),
           },
+          taskListPage: EMPTY_TASK_LIST_PAGE,
         });
         saveLastWorkspaceId(get().user?.id, id);
         // Await so deep links / PWA bookmarks don't strip context before tasks land.
@@ -1505,6 +1683,8 @@ export const useTaskStore = create<TaskState>()(
             : taskFilter.recurring === "none"
               ? "none"
               : "all");
+
+        result = result.filter((t) => t.importStatus !== "pending_review");
 
         if (statusMode === "completed") {
           result = result.filter((t) => t.status === "done");
@@ -2886,10 +3066,7 @@ export const useTaskStore = create<TaskState>()(
           const aggregatedItems: ListItem[] = [];
           const chatSnapshots: Record<
             string,
-            {
-              messages: Array<{ userId: string; createdAt: string }>;
-              reactions: Array<{ userId: string; createdAt: string }>;
-            }
+            Array<{ userId: string; createdAt: string }>
           > = {};
 
           for (const ws of wss.slice(0, 6)) {
@@ -2910,20 +3087,9 @@ export const useTaskStore = create<TaskState>()(
               let unreadChat = false;
               if (wsMembers.length > 1 && userId) {
                 try {
-                  const [chatMessages, chatReactions] = await Promise.all([
-                    fetchWorkspaceMessages(ws.id, 50),
-                    fetchWorkspaceMessageReactions(ws.id),
-                  ]);
-                  chatSnapshots[ws.id] = {
-                    messages: chatMessages,
-                    reactions: chatReactions,
-                  };
-                  unreadChat = hasUnreadChatActivity(
-                    userId,
-                    ws.id,
-                    chatMessages,
-                    chatReactions,
-                  );
+                  const chatMessages = await fetchWorkspaceMessagesForInbox(ws.id, 80);
+                  chatSnapshots[ws.id] = chatMessages;
+                  unreadChat = hasUnreadChatInbox(userId, ws.id, chatMessages);
                 } catch {
                   /* non-fatal */
                 }
@@ -2961,12 +3127,7 @@ export const useTaskStore = create<TaskState>()(
               if (!row) continue;
               statsByWs[wsId] = {
                 ...row,
-                unreadChat: hasUnreadChatActivity(
-                  userId,
-                  wsId,
-                  snap.messages,
-                  snap.reactions,
-                ),
+                unreadChat: hasUnreadChatInbox(userId, wsId, snap),
               };
             }
           }
@@ -5602,6 +5763,7 @@ export const useTaskStore = create<TaskState>()(
             const { eventType, new: newRow, old: oldRow } = payload;
             const currentTasks = get().tasks;
             if (eventType === "INSERT" && newRow) {
+              if (newRow.status === "done") return;
               // Avoid dupes
               if (!currentTasks.some((t) => t.id === newRow.id)) {
                 // Map lightly (reuse hybrid mapper logic via import? simple here)
@@ -5627,6 +5789,12 @@ export const useTaskStore = create<TaskState>()(
                   recurringRule: newRow.recurring_rule ?? undefined,
                   exceptionDates: mapRealtimeExceptionDates(newRow.exception_dates),
                   parentTaskId: newRow.parent_task_id ?? undefined,
+                  starred: newRow.starred ?? false,
+                  folderId: newRow.folder_id ?? undefined,
+                  importStatus: newRow.import_status ?? null,
+                  importBatchId: newRow.import_batch_id ?? null,
+                  importSource: newRow.import_source ?? null,
+                  importFingerprint: newRow.import_fingerprint ?? null,
                 } as Task;
                 set({ tasks: [mapped, ...currentTasks] });
               }
@@ -5690,6 +5858,15 @@ export const useTaskStore = create<TaskState>()(
                 }
                 if (Object.prototype.hasOwnProperty.call(newRow, "time_estimate")) {
                   next.timeEstimate = newRow.time_estimate ?? undefined;
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "starred")) {
+                  next.starred = newRow.starred ?? false;
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "folder_id")) {
+                  next.folderId = newRow.folder_id ?? undefined;
+                }
+                if (Object.prototype.hasOwnProperty.call(newRow, "import_status")) {
+                  next.importStatus = newRow.import_status ?? null;
                 }
                 return next;
               };

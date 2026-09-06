@@ -199,10 +199,64 @@ export function generateId() {
 export type RecurrenceFreq = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
 export type WeekDay = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
 
+export const WEEKDAY_MAP: Record<WeekDay, number> = {
+  SU: 0,
+  MO: 1,
+  TU: 2,
+  WE: 3,
+  TH: 4,
+  FR: 5,
+  SA: 6,
+};
+
+const WEEKDAY_SHORT: Record<WeekDay, string> = {
+  MO: "Mon",
+  TU: "Tue",
+  WE: "Wed",
+  TH: "Thu",
+  FR: "Fri",
+  SA: "Sat",
+  SU: "Sun",
+};
+
+export function weekdayShortLabel(day: WeekDay): string {
+  return WEEKDAY_SHORT[day];
+}
+
+export function monthNthLabel(nth: number): string {
+  if (nth === -1) return "last";
+  if (nth === 1) return "1st";
+  if (nth === 2) return "2nd";
+  if (nth === 3) return "3rd";
+  if (nth === 4) return "4th";
+  return String(nth);
+}
+
+/** Nth (or last) weekday of a local calendar month. Returns null if that week does not exist (e.g. 5th). */
+export function nthWeekdayOfMonth(year: number, monthIndex: number, weekday: number, nth: number): Date | null {
+  if (nth === -1) {
+    const last = new Date(year, monthIndex + 1, 0);
+    const delta = (last.getDay() - weekday + 7) % 7;
+    return startOfDay(new Date(year, monthIndex, last.getDate() - delta));
+  }
+  if (nth < 1 || nth > 4) return null;
+  const first = new Date(year, monthIndex, 1);
+  const delta = (weekday - first.getDay() + 7) % 7;
+  const day = 1 + delta + (nth - 1) * 7;
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  if (day > lastDay) return null;
+  return startOfDay(new Date(year, monthIndex, day));
+}
+
 export interface RecurrencePattern {
   freq: RecurrenceFreq;
   interval: number;           // >=1
-  byDay?: WeekDay[];          // only meaningful for WEEKLY (and some monthly extensions)
+  byDay?: WeekDay[];          // weekly multi-day, or monthly nth-weekday with byMonthNth
+  /**
+   * Monthly ordinal for BYDAY (RFC 5545): 1–4 = 1st–4th, -1 = last.
+   * Stored as BYDAY=2SU / BYDAY=-1TU. Ignored unless FREQ=MONTHLY.
+   */
+  byMonthNth?: number;
   until?: string;             // optional series end (UNTIL); always normalized to 'YYYY-MM-DD'
   count?: number;             // optional: ends after N total occurrences (RRULE COUNT; mutually exclusive with until in strict RRULE)
   /** When true, next due advances from completion day (rolling); default false = fixed from due date. */
@@ -246,6 +300,7 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
   let freq: RecurrenceFreq | null = null;
   let interval = 1;
   let byDay: WeekDay[] = [];
+  let byMonthNth: number | undefined;
   let until: string | undefined;
   let count: number | undefined;
   let fromCompletion = false;
@@ -271,12 +326,19 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
     }
     if (part.startsWith("BYDAY=")) {
       sawByDay = true;
-      const days = part
-        .slice(6)
-        .split(",")
-        .map((d) => d.trim() as WeekDay)
-        .filter((d) => ["MO", "TU", "WE", "TH", "FR", "SA", "SU"].includes(d));
-      if (days.length) byDay = days;
+      const parsedDays: WeekDay[] = [];
+      for (const raw of part.slice(6).split(",")) {
+        const token = raw.trim();
+        const match = token.match(/^(-?[1-4])?(MO|TU|WE|TH|FR|SA|SU)$/);
+        if (!match) continue;
+        const nth = match[1] ? parseInt(match[1], 10) : undefined;
+        const day = match[2] as WeekDay;
+        parsedDays.push(day);
+        if (nth === 1 || nth === 2 || nth === 3 || nth === 4 || nth === -1) {
+          if (byMonthNth == null) byMonthNth = nth;
+        }
+      }
+      if (parsedDays.length) byDay = parsedDays;
     }
     if (part.startsWith("UNTIL=")) {
       // Robust parse: YYYYMMDD, YYYY-MM-DD, full ISO -> normalize to YYYY-MM-DD
@@ -304,6 +366,7 @@ export function parseRecurringRule(rule: string | null | undefined): RecurrenceP
   if (sawByDay && freq === "WEEKLY" && byDay.length === 0) return null;
 
   const pat: RecurrencePattern = { freq, interval, byDay: byDay.length ? byDay : undefined };
+  if (freq === "MONTHLY" && byMonthNth && byDay.length) pat.byMonthNth = byMonthNth;
   if (until) pat.until = until;
   if (count) pat.count = count;
   if (fromCompletion) pat.fromCompletion = true;
@@ -315,7 +378,11 @@ export function generateRecurringRule(pattern: RecurrencePattern): string {
   let rule = `FREQ=${pattern.freq}`;
   if (pattern.interval > 1) rule += `;INTERVAL=${pattern.interval}`;
   if (pattern.byDay && pattern.byDay.length > 0) {
-    rule += `;BYDAY=${pattern.byDay.join(",")}`;
+    const nth = pattern.freq === "MONTHLY" ? pattern.byMonthNth : undefined;
+    const tokens = nth
+      ? pattern.byDay.map((d) => `${nth}${d}`)
+      : pattern.byDay;
+    rule += `;BYDAY=${tokens.join(",")}`;
   }
   // RRULE: UNTIL and COUNT are mutually exclusive; UI should present as alternative end conditions
   if (pattern.until) {
@@ -366,8 +433,12 @@ export function getRecurringLabel(rule?: string | null): string {
     base = `Every ${interval} ${unit}`;
   }
   if (byDay && byDay.length) {
-    const pretty = byDay.map((d) => d === "MO" ? "Mon" : d === "TU" ? "Tue" : d === "WE" ? "Wed" : d === "TH" ? "Thu" : d === "FR" ? "Fri" : d === "SA" ? "Sat" : "Sun").join(", ");
-    base += ` (${pretty})`;
+    const pretty = byDay.map((d) => weekdayShortLabel(d)).join(", ");
+    if (p.freq === "MONTHLY" && p.byMonthNth) {
+      base += ` (${monthNthLabel(p.byMonthNth)} ${pretty})`;
+    } else {
+      base += ` (${pretty})`;
+    }
   }
   if (p.until) {
     base += ` (until ${p.until})`;
@@ -421,8 +492,8 @@ export function getNextRecurringDue(
   const fromKey = normalizeCalendarDateKey(from);
   const fromDate = typeof from === "string" ? parseLocalDate(from) ?? anchor : from instanceof Date ? from : anchor;
   const rangeEnd = addYears(startOfDay(fromDate), 5);
-  const maxOcc = pattern.count && pattern.count > 0 ? pattern.count + 2 : 120;
-  const occ = getOccurrencesInRange(anchorIso, rule, anchor, rangeEnd, maxOcc, exceptionDates);
+  const maxOcc = pattern.count && pattern.count > 0 ? pattern.count + 2 : 16;
+  const occ = getOccurrencesInRange(anchorIso, rule, fromDate, rangeEnd, maxOcc, exceptionDates);
   return occ.find((d) => normalizeCalendarDateKey(d) > fromKey) ?? null;
 }
 
@@ -561,16 +632,27 @@ export function getOccurrencesInRange(
   const untilD = pattern.until ? parseLocalDate(pattern.until) ?? null : null;
   const maxSeries = pattern.count && pattern.count > 0 ? pattern.count : Infinity;
   const isByDayWeekly = pattern.freq === "WEEKLY" && pattern.byDay && pattern.byDay.length > 0;
-  const WEEKDAY_MAP: Record<WeekDay, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  const isMonthlyNth =
+    pattern.freq === "MONTHLY" &&
+    !!pattern.byMonthNth &&
+    !!pattern.byDay &&
+    pattern.byDay.length > 0;
   const targetWeekdays = isByDayWeekly ? pattern.byDay!.map((d) => WEEKDAY_MAP[d]) : null;
 
   const occ: Date[] = [];
   let seriesOccCounter = 0;
   let safety = 0;
-  const maxSafety = maxCount * 4 + 200;
+  const maxSafety = Math.max(
+    maxCount * 4 + 200,
+    Math.ceil((addDays(rEnd, 3).getTime() - addDays(anchor, -30).getTime()) / 86400000) + 16,
+  );
 
   if (isByDayWeekly && targetWeekdays) {
-    let current = addDays(anchor, -30);
+    const needsFullWalk = !!(pattern.count && pattern.count > 0);
+    let current = needsFullWalk
+      ? addDays(anchor, -30)
+      : addDays(rStart > anchor ? rStart : anchor, -8);
+    if (current < addDays(anchor, -30)) current = addDays(anchor, -30);
     while (safety < maxSafety && current <= addDays(rEnd, 2)) {
       safety++;
       let include = false;
@@ -594,6 +676,29 @@ export function getOccurrencesInRange(
         }
       }
       current = addDays(current, 1);
+    }
+  } else if (isMonthlyNth) {
+    const weekday = WEEKDAY_MAP[pattern.byDay![0]];
+    const nth = pattern.byMonthNth!;
+    const startMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    let cursor = new Date(startMonth.getTime());
+    while (safety < maxSafety) {
+      safety++;
+      const candidate = nthWeekdayOfMonth(cursor.getFullYear(), cursor.getMonth(), weekday, nth);
+      if (candidate) {
+        if (untilD && candidate > untilD) break;
+        const skipped = isOccurrenceException(candidate, exceptionDates);
+        if (candidate >= anchor && !skipped) {
+          seriesOccCounter++;
+          if (seriesOccCounter > maxSeries) break;
+        }
+        if (candidate >= anchor && candidate >= rStart && candidate <= rEnd && !skipped) {
+          occ.push(new Date(candidate));
+          if (occ.length >= maxCount) break;
+        }
+      }
+      if (cursor > addMonths(rEnd, 2)) break;
+      cursor = addMonths(cursor, pattern.interval);
     }
   } else {
     let current = new Date(anchor.getTime());

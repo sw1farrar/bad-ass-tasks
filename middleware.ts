@@ -78,12 +78,20 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/invite") ||
     pathname.startsWith("/list-share");
 
+  const isMcpOAuthPublic =
+    pathname.startsWith("/.well-known/") ||
+    pathname === "/oauth/token" ||
+    pathname === "/oauth/register";
+
   const isPublicApi =
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/invite/") ||
     pathname.startsWith("/api/list-share/") ||
-    pathname === "/api/profile/check-username";
+    pathname === "/api/profile/check-username" ||
+    pathname === "/api/mcp" ||
+    pathname.startsWith("/api/mcp/") ||
+    isMcpOAuthPublic;
 
   /** PWA + static assets must stay reachable before sign-in (manifest, SW, icons). */
   const isPublicAsset =
@@ -103,7 +111,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/auth/reset-password") ||
     pathname.startsWith("/api/webhooks/brevo-inbound") ||
     pathname.startsWith("/api/invite/") ||
-    pathname.startsWith("/api/list-share/");
+    pathname.startsWith("/api/list-share/") ||
+    pathname === "/api/mcp" ||
+    pathname.startsWith("/api/mcp/");
 
   // Block paused users (platform admin can pause accounts)
   if (user && !isAuthPage) {
@@ -183,6 +193,7 @@ export async function middleware(request: NextRequest) {
     !user &&
     !isAuthPage &&
     !isPublicAsset &&
+    !isMcpOAuthPublic &&
     pathname !== "/" &&
     !pathname.startsWith("/api/")
   ) {

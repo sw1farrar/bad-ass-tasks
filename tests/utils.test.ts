@@ -332,6 +332,66 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
       expect(resolveRecurrenceSeriesAnchor(rule, '2026-02-28')).toBe('2026-01-31');
     });
 
+    it('round-trips monthly nth weekday BYDAY=2SU', () => {
+      const rule = 'FREQ=MONTHLY;BYDAY=2SU';
+      const parsed = parseRecurringRule(rule);
+      expect(parsed?.freq).toBe('MONTHLY');
+      expect(parsed?.byDay).toEqual(['SU']);
+      expect(parsed?.byMonthNth).toBe(2);
+      expect(generateRecurringRule(parsed!)).toBe(rule);
+      expect(getRecurringLabel(rule)).toContain('2nd Sun');
+    });
+
+    it('round-trips last weekday BYDAY=-1TU', () => {
+      const parsed = parseRecurringRule('FREQ=MONTHLY;BYDAY=-1TU');
+      expect(parsed?.byDay).toEqual(['TU']);
+      expect(parsed?.byMonthNth).toBe(-1);
+      expect(generateRecurringRule(parsed!)).toBe('FREQ=MONTHLY;BYDAY=-1TU');
+      expect(getRecurringLabel('FREQ=MONTHLY;BYDAY=-1TU')).toContain('last Tue');
+    });
+
+    it('advances 2nd Sunday of each month from 2026-09-13 to 2026-10-11', () => {
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=MONTHLY;BYDAY=2SU',
+        '2026-09-13',
+        '2026-09-13',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-10-11');
+    });
+
+    it('advances last Tuesday of each month from 2026-09-29 to 2026-10-27', () => {
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=MONTHLY;BYDAY=-1TU',
+        '2026-09-29',
+        '2026-09-29',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-10-27');
+    });
+
+    it('weekly multi-day WE,SA advances Wednesday to Saturday', () => {
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;BYDAY=WE,SA',
+        '2026-09-02',
+        '2026-09-02',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-09-05');
+    });
+
+    it('open weekly series still advances years after the import seed', () => {
+      const rule = 'FREQ=WEEKLY;BYDAY=TH;X-SERIES-ANCHOR=2026-09-10';
+      const next = getNextRecurringDueAfterComplete(rule, '2028-09-07', '2028-09-07');
+      expect(next ? toLocalDateString(next) : '').toBe('2028-09-14');
+    });
+
+    it('Every Wed, Sat from Saturday 2026-09-05 goes to Wednesday 2026-09-09', () => {
+      const next = getNextRecurringDueAfterComplete(
+        'FREQ=WEEKLY;BYDAY=WE,SA;X-SERIES-ANCHOR=2026-09-05',
+        '2026-09-05',
+        '2026-09-05',
+      );
+      expect(next ? toLocalDateString(next) : '').toBe('2026-09-09');
+    });
+
     it('rolling advance clears exception dates in advance payload', () => {
       const next = getNextRecurringDueAfterComplete(
         'FREQ=WEEKLY;FROMCOMPLETION=TRUE',
@@ -453,6 +513,13 @@ describe('utils — recurring engine (production reliability + edge cases)', () 
       const { parseLocalDate, toDueDateStorage, toLocalDateString } = await import('@/lib/datetime');
       const stored = toDueDateStorage(new Date(2026, 5, 15));
       expect(toLocalDateString(parseLocalDate(stored)!)).toBe('2026-06-15');
+    });
+
+    it('parseLocalDate uses local day of an instant, not the UTC YYYY-MM-DD prefix', async () => {
+      const { parseLocalDate, toLocalDateString } = await import('@/lib/datetime');
+      const iso = '2026-09-04T22:00:00.000Z';
+      const instant = new Date(iso);
+      expect(toLocalDateString(parseLocalDate(iso)!)).toBe(toLocalDateString(instant));
     });
 
     it('dueDateFromUserInput round-trips YYYY-MM-DD', async () => {

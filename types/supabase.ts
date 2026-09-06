@@ -568,6 +568,64 @@ export interface Database {
           updated_at?: string
         }
       },
+      mcp_access_tokens: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          token_hash: string
+          token_prefix: string
+          last_used_at: string | null
+          created_at: string
+          revoked_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          token_hash: string
+          token_prefix: string
+          last_used_at?: string | null
+          created_at?: string
+          revoked_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          token_hash?: string
+          token_prefix?: string
+          last_used_at?: string | null
+          created_at?: string
+          revoked_at?: string | null
+        }
+      },
+      mcp_oauth_jtis: {
+        Row: {
+          jti: string
+          kind: "auth_code" | "refresh_token"
+          user_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+        }
+        Insert: {
+          jti: string
+          kind: "auth_code" | "refresh_token"
+          user_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+        }
+        Update: {
+          jti?: string
+          kind?: "auth_code" | "refresh_token"
+          user_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+        }
+      },
       dual_auth_challenges: {
         Row: {
           id: string

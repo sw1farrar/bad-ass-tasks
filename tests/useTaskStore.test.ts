@@ -153,6 +153,14 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       activeConflicts: {},
       currentView: 'home',
       taskFilter: { search: '' },
+      taskListPage: {
+        rows: [],
+        cursor: null,
+        hasMore: false,
+        total: null,
+        loading: false,
+        queryKey: '',
+      },
       selectedTaskId: null,
       isCommandPaletteOpen: false,
       isKeyboardCheatsheetOpen: false,
@@ -361,6 +369,33 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       await useTaskStore.getState().deleteTask(id);
       expect(useTaskStore.getState().tasks.find(t => t.id === id)).toBeUndefined();
       expect(mockHybrid.deleteTask).not.toHaveBeenCalled();
+    });
+
+    it('fetchTaskList (demo): does not page completed into the live task array', async () => {
+      const open = await useTaskStore.getState().addTask('Open task');
+      const done = await useTaskStore.getState().addTask('Done task');
+      await useTaskStore.getState().updateTask(done!.id, { status: 'done', completedAt: new Date().toISOString() }, { silent: true });
+      useTaskStore.setState({
+        taskFilter: { search: '', statusMode: 'completed', recurrenceMode: 'all', starred: 'all', folderFilter: 'all' },
+      });
+      await useTaskStore.getState().fetchTaskList({ reset: true });
+      expect(useTaskStore.getState().tasks.find((t) => t.id === open!.id)).toBeTruthy();
+      expect(useTaskStore.getState().taskListPage.hasMore).toBe(false);
+      expect(useTaskStore.getState().taskListPage.loading).toBe(false);
+    });
+
+    it('discardImportedTask (demo): deletes only pending_review imports', async () => {
+      const pending = await useTaskStore.getState().addTask('Imported pending');
+      const kept = await useTaskStore.getState().addTask('Normal task');
+      expect(pending && kept).toBeTruthy();
+      await useTaskStore.getState().updateTask(pending!.id, { importStatus: 'pending_review' }, { silent: true });
+      const skipped = await useTaskStore.getState().discardImportedTask(kept!.id);
+      expect(skipped).toBeNull();
+      expect(useTaskStore.getState().tasks.find((t) => t.id === kept!.id)).toBeTruthy();
+      const discarded = await useTaskStore.getState().discardImportedTask(pending!.id);
+      expect(discarded).toBe(true);
+      expect(useTaskStore.getState().tasks.find((t) => t.id === pending!.id)).toBeUndefined();
+      expect(useTaskStore.getState().tasks.find((t) => t.id === kept!.id)).toBeTruthy();
     });
 
     it('switchWorkspace (demo): updates currentWorkspace + workspaces list preserved, blocks realtime', () => {

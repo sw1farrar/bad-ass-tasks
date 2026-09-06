@@ -36,6 +36,7 @@ const REQUIRED_TABLES = [
   "workspace_list_shares",
   "notebooks",
   "workspace_receipt_items",
+  "task_import_batches",
 ] as const;
 
 const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
@@ -49,6 +50,9 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "profiles", column: "access_paused" },
   { table: "profiles", column: "access_paused_at" },
   { table: "profiles", column: "access_paused_reason" },
+  { table: "tasks", column: "import_status" },
+  { table: "tasks", column: "import_fingerprint" },
+  { table: "task_import_batches", column: "source" },
 ];
 
 const REQUIRED_FUNCTIONS = {

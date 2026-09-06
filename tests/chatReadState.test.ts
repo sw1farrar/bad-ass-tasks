@@ -4,6 +4,8 @@ import {
   getChatLastReadAt,
   setChatLastReadAt,
   hasUnreadChatActivity,
+  hasUnreadChatInbox,
+  markChatInboxSeen,
 } from "@/lib/chatReadState";
 
 describe("chatReadState", () => {
@@ -60,6 +62,22 @@ describe("chatReadState", () => {
 
   it("does not invent a watermark for empty activity", () => {
     expect(computeChatReadWatermark([], [])).toBeNull();
+  });
+
+  it("clears the nav inbox badge after Chat is opened", () => {
+    const messages = [
+      { userId: "other", createdAt: "2026-06-05T13:00:00.000Z" },
+      { userId: "me", createdAt: "2026-06-05T13:01:00.000Z" },
+    ];
+    expect(hasUnreadChatInbox("me", "ws-1", messages)).toBe(true);
+    markChatInboxSeen("me", "ws-1", messages);
+    expect(hasUnreadChatInbox("me", "ws-1", messages)).toBe(false);
+    expect(
+      hasUnreadChatInbox("me", "ws-1", [
+        ...messages,
+        { userId: "other", createdAt: "2026-06-05T14:00:00.000Z" },
+      ]),
+    ).toBe(true);
   });
 
   it("tracks channel watermarks separately from general", () => {

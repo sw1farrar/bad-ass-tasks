@@ -11,10 +11,12 @@ import {
   getRecurrenceEndDescription,
   getRecurringLabel,
   getUpcomingRecurrencesPreview,
+  monthNthLabel,
   normalizeExceptionKey,
   parseRecurringRule,
   resolveRecurrenceSeriesAnchor,
   toDueDateStorage,
+  weekdayShortLabel,
   type RecurrenceFreq,
   type RecurrencePattern,
   type WeekDay,
@@ -53,6 +55,7 @@ export function TaskRecurrenceEditor({
   const freq = currentPattern?.freq ?? "WEEKLY";
   const interval = currentPattern?.interval ?? 1;
   const byDays = currentPattern?.byDay || [];
+  const byMonthNth = currentPattern?.byMonthNth;
   const currentUntil = currentPattern?.until || "";
   const currentCount = currentPattern?.count || 0;
   const fromCompletion = !!currentPattern?.fromCompletion;
@@ -92,6 +95,13 @@ export function TaskRecurrenceEditor({
     // Lock series seed when creating/editing so monthly DOM + COUNT survive advances
     if (seriesAnchor) next.seriesAnchor = seriesAnchor;
     else delete next.seriesAnchor;
+    if (next.freq !== "MONTHLY") {
+      delete next.byMonthNth;
+    } else if (!next.byMonthNth && byMonthNth && next.byDay?.length) {
+      next.byMonthNth = byMonthNth;
+    } else if (!next.byDay?.length) {
+      delete next.byMonthNth;
+    }
     return next;
   };
 
@@ -99,7 +109,10 @@ export function TaskRecurrenceEditor({
     const base: Omit<RecurrencePattern, "until" | "count"> = {
       freq: freq as RecurrenceFreq,
       interval: Math.max(1, interval),
-      byDay: freq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
+      byDay:
+        freq === "WEEKLY" || (freq === "MONTHLY" && byMonthNth)
+          ? (byDays.length ? byDays : undefined)
+          : undefined,
     };
     let newPat: RecurrencePattern;
     if (mode === "count" && (countVal || localCount) > 0) {
@@ -132,10 +145,17 @@ export function TaskRecurrenceEditor({
       toast.info("Set a due date first", { description: "Recurrence needs an anchor date." });
       return;
     }
+    if (newFreq === freq && localTask.recurringRule) return;
     const newPattern: RecurrencePattern = {
       freq: newFreq,
       interval: Math.max(1, interval),
-      byDay: newFreq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
+      byDay:
+        newFreq === "WEEKLY"
+          ? (byDays.length ? byDays : undefined)
+          : newFreq === "MONTHLY" && byMonthNth && byDays.length
+            ? byDays
+            : undefined,
+      ...(newFreq === "MONTHLY" && byMonthNth && byDays.length ? { byMonthNth } : {}),
       ...(endMode === "until" && localUntil ? { until: formatRecurrenceUntilForInput(localUntil) } : {}),
       ...(endMode === "count" ? { count: localCount } : {}),
     };
@@ -147,7 +167,22 @@ export function TaskRecurrenceEditor({
     const newPattern: RecurrencePattern = {
       freq: freq as RecurrenceFreq,
       interval: safe,
-      byDay: freq === "WEEKLY" ? (byDays.length ? byDays : undefined) : undefined,
+      byDay:
+        freq === "WEEKLY" || (freq === "MONTHLY" && byMonthNth)
+          ? (byDays.length ? byDays : undefined)
+          : undefined,
+      ...(endMode === "until" && localUntil ? { until: formatRecurrenceUntilForInput(localUntil) } : {}),
+      ...(endMode === "count" ? { count: localCount } : {}),
+    };
+    save({ recurringRule: generateRecurringRule(withRuleMeta(newPattern)) });
+  };
+
+  const persistMonthlyPattern = (nextNth: number | undefined, nextDays: WeekDay[]) => {
+    const newPattern: RecurrencePattern = {
+      freq: "MONTHLY",
+      interval: Math.max(1, interval),
+      byDay: nextDays.length ? nextDays : undefined,
+      ...(nextNth && nextDays.length ? { byMonthNth: nextNth } : {}),
       ...(endMode === "until" && localUntil ? { until: formatRecurrenceUntilForInput(localUntil) } : {}),
       ...(endMode === "count" ? { count: localCount } : {}),
     };
@@ -160,6 +195,7 @@ export function TaskRecurrenceEditor({
       freq: currentPattern.freq,
       interval: Math.max(1, currentPattern.interval),
       byDay: currentPattern.byDay,
+      ...(currentPattern.byMonthNth ? { byMonthNth: currentPattern.byMonthNth } : {}),
       ...(currentPattern.until ? { until: currentPattern.until } : {}),
       ...(currentPattern.count ? { count: currentPattern.count } : {}),
     };
@@ -310,6 +346,75 @@ export function TaskRecurrenceEditor({
                   {weekLabels[i]}
                 </button>
               ))}
+            </div>
+          ) : null}
+
+          {freq === "MONTHLY" ? (
+            <div className="space-y-1.5">
+              <div className="flex w-full rounded-xl border border-border-glass overflow-hidden text-xs">
+                <button
+                  type="button"
+                  aria-pressed={!byMonthNth}
+                  onClick={() => persistMonthlyPattern(undefined, [])}
+                  className={cn(
+                    "flex-1 min-w-0 px-2 py-2 font-medium whitespace-nowrap transition text-center",
+                    !byMonthNth
+                      ? "bg-neon-purple text-[var(--on-accent)]"
+                      : "hover:bg-surface-hover text-text-secondary",
+                  )}
+                >
+                  On this date
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!!byMonthNth}
+                  onClick={() =>
+                    persistMonthlyPattern(byMonthNth ?? 1, byDays.length ? byDays : ["MO"])
+                  }
+                  className={cn(
+                    "flex-1 min-w-0 px-2 py-2 font-medium whitespace-nowrap transition text-center",
+                    byMonthNth
+                      ? "bg-neon-purple text-[var(--on-accent)]"
+                      : "hover:bg-surface-hover text-text-secondary",
+                  )}
+                >
+                  On the weekday
+                </button>
+              </div>
+              {byMonthNth ? (
+                <div className="flex flex-wrap items-center gap-1">
+                  {([-1, 1, 2, 3, 4] as const).map((nth) => (
+                    <button
+                      key={nth}
+                      type="button"
+                      onClick={() => persistMonthlyPattern(nth, byDays.length ? byDays : ["MO"])}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full border transition capitalize",
+                        byMonthNth === nth
+                          ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
+                          : "border-border-glass hover:bg-surface-hover text-text-secondary",
+                      )}
+                    >
+                      {monthNthLabel(nth)}
+                    </button>
+                  ))}
+                  {weekDays.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => persistMonthlyPattern(byMonthNth, [day])}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full border transition min-w-[34px]",
+                        byDays[0] === day
+                          ? "bg-neon-purple text-[var(--on-accent)] border-neon-purple"
+                          : "border-border-glass hover:bg-surface-hover text-text-secondary",
+                      )}
+                    >
+                      {weekdayShortLabel(day)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

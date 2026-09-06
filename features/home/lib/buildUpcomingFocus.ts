@@ -6,6 +6,7 @@ import {
   parseLocalDate,
   startOfLocalToday,
 } from "@/lib/datetime";
+import { isPendingImportReview } from "@/features/import/lib/pendingReview";
 import type { HomeFocusItem } from "./buildAttentionItems";
 
 const PRIORITY_RANK: Record<Priority, number> = {
@@ -139,7 +140,7 @@ export function pickDueAttentionTasksFromWorkspace(
 ): HomeFocusItem[] {
   return tasks
     .filter((t) => {
-      if (t.status === "done" || !t.dueDate) return false;
+      if (t.status === "done" || isPendingImportReview(t) || !t.dueDate) return false;
       return isTaskOverdueTodayOrTomorrow(t.dueDate, reference);
     })
     .map((t) => ({ task: t, workspaceId, workspaceName }));
@@ -152,7 +153,7 @@ export function pickAllOpenTasksFromWorkspace(
   workspaceName: string,
 ): HomeFocusItem[] {
   return tasks
-    .filter((t) => t.status !== "done")
+    .filter((t) => t.status !== "done" && !isPendingImportReview(t))
     .map((t) => ({ task: t, workspaceId, workspaceName }));
 }
 

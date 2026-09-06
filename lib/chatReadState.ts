@@ -19,6 +19,11 @@ function storageKey(
   return `${PREFIX}${userId}_${workspaceId}_${cKey}`;
 }
 
+/** Workspace-level "I opened Chat" watermark for the nav badge (not per-thread dots). */
+function inboxSeenKey(userId: string, workspaceId: string): string {
+  return `${PREFIX}inbox_${userId}_${workspaceId}`;
+}
+
 export function getChatLastReadAt(
   userId: string,
   workspaceId: string,
@@ -71,6 +76,63 @@ export function computeChatReadWatermark(
   }
   if (!Number.isFinite(maxMs) || maxMs < 0) return null;
   return new Date(maxMs + 1).toISOString();
+}
+
+export function getChatInboxSeenAt(userId: string, workspaceId: string): string | null {
+  if (typeof window === "undefined" || !userId || !workspaceId) return null;
+  try {
+    return localStorage.getItem(inboxSeenKey(userId, workspaceId));
+  } catch {
+    return null;
+  }
+}
+
+export function setChatInboxSeenAt(userId: string, workspaceId: string, iso: string): void {
+  if (typeof window === "undefined" || !userId || !workspaceId) return;
+  try {
+    const key = inboxSeenKey(userId, workspaceId);
+    const prev = localStorage.getItem(key);
+    if (prev && new Date(prev).getTime() >= new Date(iso).getTime()) return;
+    localStorage.setItem(key, iso);
+    window.dispatchEvent(
+      new CustomEvent(CHAT_READ_EVENT, {
+        detail: { userId, workspaceId, iso, inbox: true },
+      }),
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+/** Mark the Chat nav badge current through the latest loaded inbox activity. */
+export function markChatInboxSeen(
+  userId: string | undefined,
+  workspaceId: string,
+  messages: Array<{ createdAt: string }>,
+): void {
+  if (!userId || !workspaceId) return;
+  const watermark = computeChatReadWatermark(messages, []);
+  if (watermark) {
+    setChatInboxSeenAt(userId, workspaceId, watermark);
+    return;
+  }
+  if (!getChatInboxSeenAt(userId, workspaceId)) {
+    setChatInboxSeenAt(userId, workspaceId, new Date().toISOString());
+  }
+}
+
+/** Nav / home pulse: activity from others after the last time the user opened Chat. */
+export function hasUnreadChatInbox(
+  userId: string | undefined,
+  workspaceId: string,
+  messages: Array<{ userId: string; createdAt: string }>,
+): boolean {
+  if (!userId || !workspaceId) return false;
+  const lastSeen = getChatInboxSeenAt(userId, workspaceId);
+  const cutoff = lastSeen ? new Date(lastSeen).getTime() : 0;
+  return messages.some(
+    (m) => m.userId !== userId && new Date(m.createdAt).getTime() > cutoff,
+  );
 }
 
 export function hasUnreadChatActivity(

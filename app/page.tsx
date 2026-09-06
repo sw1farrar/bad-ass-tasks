@@ -71,6 +71,7 @@ import { ListShareAcceptModal } from "@/components/ListShareAcceptModal";
 import { LoginActivityModal } from "@/components/LoginActivityModal";
 import { isValidListShareId } from "@/lib/list-share/isValidListShareId";
 import { FilesView } from "@/features/files";
+import { ImportReviewBanner, ImportReviewDeck } from "@/features/import";
 import { NotebooksView } from "@/features/notebooks";
 import { MeetingsView } from "@/features/meetings";
 import { HealthView } from "@/features/health";
@@ -142,6 +143,11 @@ import {
   normalizeFolderFilter,
 } from "@/features/tasks/lib/folderFilter";
 import {
+  buildTaskListQueryKey,
+  mergeTaskListRows,
+  resolveTaskStatusMode,
+} from "@/features/tasks/lib/taskListPage";
+import {
   findWorkspaceByRef,
   getPreferredWorkspaceRefFromUrl,
   workspaceUrlRef,
@@ -202,6 +208,8 @@ export default function BadAssTasks() {
     addTaskFolder,
     updateTaskFolder,
     deleteTaskFolder,
+    fetchTaskList,
+    taskListPage,
     switchWorkspace,
     addNote,
     updateNote,
@@ -436,6 +444,24 @@ export default function BadAssTasks() {
   const [showProfilePopover, setShowProfilePopover] = useState(false);
   const [showLoginActivity, setShowLoginActivity] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [importReviewOpen, setImportReviewOpen] = useState(false);
+
+  useEffect(() => {
+    const statusMode = resolveTaskStatusMode(taskFilter);
+    if (statusMode === "incomplete") return;
+    const handle = window.setTimeout(() => {
+      void fetchTaskList({ reset: true });
+    }, 200);
+    return () => window.clearTimeout(handle);
+  }, [
+    taskFilter.statusMode,
+    taskFilter.search,
+    taskFilter.recurrenceMode,
+    taskFilter.starred,
+    taskFilter.folderFilter,
+    currentWorkspace.id,
+    fetchTaskList,
+  ]);
   const isMobileViewport = useIsMobileViewport();
   useScrollLock((showNotifications || showProfilePopover) && isMobileViewport);
   const [showFullTaskModal, setShowFullTaskModal] = useState(false);
@@ -766,6 +792,11 @@ export default function BadAssTasks() {
     () => getFilteredTasks(),
     [getFilteredTasks, tasks, notebookTasks, notebooks, taskFilter, currentWorkspace.id]
   );
+  const taskListStatusMode = resolveTaskStatusMode(taskFilter);
+  const displayTasks = useMemo(() => {
+    if (taskListStatusMode === "incomplete") return filteredTasks;
+    return mergeTaskListRows(filteredTasks, taskListPage.rows);
+  }, [taskListStatusMode, filteredTasks, taskListPage.rows]);
 
   const currentWorkspaceTaskCounts = useMemo(
     () =>
@@ -1871,7 +1902,10 @@ export default function BadAssTasks() {
   const taskStarredFilterMode = taskFilter.starred ?? "all";
   const taskFolderFilterMode = taskFilter.folderFilter ?? "all";
   const workspaceTaskCount = tasks.filter(
-    (t) => t.workspaceId === currentWorkspace.id
+    (t) => t.workspaceId === currentWorkspace.id && t.importStatus !== "pending_review"
+  ).length;
+  const pendingImportCount = tasks.filter(
+    (t) => t.workspaceId === currentWorkspace.id && t.importStatus === "pending_review" && t.status !== "done"
   ).length;
   const hasActiveTaskFilters =
     Boolean(
@@ -1894,7 +1928,7 @@ export default function BadAssTasks() {
           icon={<Check className="h-6 w-6" />}
           hideWorkspaceLabelOnMobile
           hideWorkspaceNameOnMobile
-          className="tasks-desktop-page-header mb-1"
+          className="tasks-desktop-page-header mb-1 md:hidden"
         />
 
         {/* Mobile — search + compact filter trigger (status/type/folders open on demand) */}
@@ -1951,20 +1985,46 @@ export default function BadAssTasks() {
               setTaskFilter({ folderFilter: next.length ? next : "all" });
             }
           }}
+          searchValue={taskFilter.search || ""}
+          onSearchChange={(search) => setTaskFilter({ search })}
+          resultCount={displayTasks.length}
+          resultTotal={
+            taskListStatusMode === "incomplete"
+              ? displayTasks.length
+              : taskListPage.total == null
+                ? null
+                : taskListStatusMode === "all"
+                  ? displayTasks.filter((t) => t.status !== "done").length + taskListPage.total
+                  : Math.max(taskListPage.total, displayTasks.length)
+          }
         />
 
+        <ImportReviewBanner count={pendingImportCount} onReview={() => setImportReviewOpen(true)} />
         <TasksTable
           className="tasks-table-host"
-          tasks={filteredTasks}
+          tasks={displayTasks}
           taskLoadingStates={taskLoadingStates}
           onOpenTask={openTask}
           onComplete={handleComplete}
           onAddTask={addTask}
           showAssignee={isSharedWorkspace(members)}
-          searchValue={taskFilter.search || ""}
-          onSearchChange={(search) => setTaskFilter({ search })}
-          resultCount={filteredTasks.length}
-          isLoading={isInitializing}
+          isLoading={
+            isInitializing ||
+            (taskListStatusMode !== "incomplete" &&
+              taskListPage.loading &&
+              displayTasks.length === 0)
+          }
+          listResetKey={buildTaskListQueryKey({
+            workspaceId: currentWorkspace.id,
+            statusMode: taskListStatusMode,
+            search: taskFilter.search,
+            starred: taskStarredFilterMode,
+            recurrence: taskRecurrenceFilterMode,
+            folderFilter: taskFolderFilterMode,
+          })}
+          hasMore={taskListStatusMode !== "incomplete" && taskListPage.hasMore}
+          isLoadingMore={taskListPage.loading && displayTasks.length > 0}
+          onLoadMore={() => void fetchTaskList({ reset: false })}
           hasActiveFilters={hasActiveTaskFilters}
           onClearFilters={() =>
             setTaskFilter({
@@ -4238,6 +4298,8 @@ export default function BadAssTasks() {
 
       {/* Supabase connection helper (self-gating; only renders in !live demo mode) */}
       <SupabaseSetupBanner />
+
+      <ImportReviewDeck open={importReviewOpen} onOpenChange={setImportReviewOpen} />
 
       {selectedTask && (
         <TaskModal

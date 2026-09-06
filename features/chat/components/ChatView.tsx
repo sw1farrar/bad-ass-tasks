@@ -23,7 +23,7 @@ import {
   upsertConversationPref,
 } from "@/lib/data/hybridStore";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { CHAT_READ_EVENT, hasUnreadChatActivity } from "@/lib/chatReadState";
+import { CHAT_READ_EVENT, hasUnreadChatActivity, markChatInboxSeen } from "@/lib/chatReadState";
 import {
   buildConversationList,
   channelConversation,
@@ -153,6 +153,11 @@ export function ChatView({
   }, [workspaceId]);
 
   const hasSelection = selected != null;
+
+  useEffect(() => {
+    if (!metaReady || !userId || !workspaceId) return;
+    markChatInboxSeen(userId, workspaceId, inboxMessages);
+  }, [metaReady, userId, workspaceId, inboxMessages]);
 
   const chat = useWorkspaceChat({
     workspaceId,

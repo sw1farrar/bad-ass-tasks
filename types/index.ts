@@ -41,6 +41,11 @@ export interface Task {
   starred?: boolean;
   /** Workspace task folder (organizational grouping) */
   folderId?: string | null;
+  /** Imported row awaiting approve-deck review. Hidden from the main Tasks list. */
+  importStatus?: "pending_review" | null;
+  importBatchId?: string | null;
+  importSource?: string | null;
+  importFingerprint?: string | null;
   /**
    * When set, this row is a notebook task surfaced on the workspace Tasks page
    * (not a native workspace task row).

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Loader2, MessageSquare, Notebook, Search, StickyNote } from "lucide-react";
+import { Check, Loader2, MessageSquare, Notebook, StickyNote } from "lucide-react";
 import { cn, formatDueDate, triggerHaptic } from "@/lib/utils";
 import type { Task } from "@/types";
 import { TaskRow } from "./TaskRow";
@@ -21,6 +21,7 @@ import { TaskTableFolderCell } from "./TaskTableFolderCell";
 import { TaskTableRepeatCell } from "./TaskTableRepeatCell";
 import { getTaskCommentIndicatorState } from "@/features/tasks/lib/taskCommentIndicators";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import { useTaskListWindow } from "@/features/tasks/hooks/useTaskListWindow";
 import { useTaskStore } from "@/store/useTaskStore";
 
 export interface TasksTableProps {
@@ -35,12 +36,70 @@ export interface TasksTableProps {
   getWorkspaceName?: (task: Task) => string | undefined;
   rowIdPrefix?: string;
   className?: string;
-  searchValue?: string;
-  onSearchChange?: (value: string) => void;
-  resultCount?: number;
   hasActiveFilters?: boolean;
   onClearFilters?: () => void;
   isLoading?: boolean;
+  listResetKey?: string;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
+}
+
+function LoadMoreSentinel({
+  enabled,
+  loading,
+  onVisible,
+  as = "div",
+  colSpan,
+}: {
+  enabled: boolean;
+  loading?: boolean;
+  onVisible: () => void;
+  as?: "div" | "tr";
+  colSpan?: number;
+}) {
+  const nodeRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!enabled || loading) return;
+    const el = nodeRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onVisible();
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [enabled, loading, onVisible]);
+
+  if (!enabled && !loading) return null;
+
+  const inner = loading ? (
+    <Loader2 className="h-4 w-4 animate-spin text-text-muted" aria-label="Loading more tasks" />
+  ) : (
+    <span className="sr-only">Load more</span>
+  );
+  const setNode = (node: HTMLElement | null) => {
+    nodeRef.current = node;
+  };
+
+  if (as === "tr") {
+    return (
+      <tr ref={setNode} className="tasks-desktop-table__sentinel">
+        <td colSpan={colSpan ?? 8} className="py-3 text-center">
+          {inner}
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <div ref={setNode} className="flex justify-center py-3">
+      {inner}
+    </div>
+  );
 }
 
 /** Column header with a fixed tooltip below the cell (never under the cursor). */
@@ -104,12 +163,13 @@ export function TasksTable({
   getWorkspaceName,
   rowIdPrefix = "task-row",
   className,
-  searchValue = "",
-  onSearchChange,
-  resultCount,
   hasActiveFilters = false,
   onClearFilters,
   isLoading = false,
+  listResetKey = "",
+  hasMore: hasMoreRemote = false,
+  onLoadMore,
+  isLoadingMore = false,
 }: TasksTableProps) {
   const [quickTitle, setQuickTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -137,9 +197,13 @@ export function TasksTable({
     : undefined;
   const showQuickAddButton =
     showQuickAdd && onAddTask && isMobile && (quickTitle.length > 0 || isAdding);
-  const showDesktopToolbar = Boolean(onSearchChange);
   const showWorkspaceColumn = Boolean(getWorkspaceName);
   const showNotebookColumn = tasks.some((t) => !!t.notebookId);
+  const { visibleItems, hasMore, loadMore } = useTaskListWindow(tasks, listResetKey, {
+    hasMoreRemote,
+    onLoadMore,
+    isLoadingMore,
+  });
 
   const focusQuickAdd = () => {
     window.requestAnimationFrame(() => {
@@ -156,15 +220,20 @@ export function TasksTable({
   const tableColSpan =
     8 + (showWorkspaceColumn ? 1 : 0) + (showNotebookColumn ? 1 : 0) + (showAssignee ? 1 : 0);
 
-  const submitQuickAdd = async () => {
+  const submitQuickAdd = async (options?: { openEditor?: boolean }) => {
     const title = quickTitle.trim();
     if (!title || isAdding || !onAddTask) return;
     setIsAdding(true);
     const titleToAdd = title;
     setQuickTitle("");
+    const openEditor = !!options?.openEditor;
     try {
-      const created = (await onAddTask(titleToAdd)) as { id?: string } | null;
+      const created = (await onAddTask(titleToAdd)) as Task | null;
       if (created?.id) {
+        if (openEditor) {
+          onOpenTask(created);
+          return;
+        }
         setHighlightTaskId(created.id);
         triggerHaptic("light");
         window.setTimeout(() => setHighlightTaskId(null), 2200);
@@ -176,7 +245,7 @@ export function TasksTable({
         }, 0);
       }
     } finally {
-      refocusQuickAddRef.current = true;
+      if (!openEditor) refocusQuickAddRef.current = true;
       setIsAdding(false);
     }
   };
@@ -187,7 +256,13 @@ export function TasksTable({
   };
 
   const handleQuickAddKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "Tab" && !e.shiftKey && quickTitle.trim()) {
+      e.preventDefault();
+      void submitQuickAdd({ openEditor: true });
+      return;
+    }
+    if (e.key !== "Enter" || e.shiftKey) return;
     e.preventDefault();
     void submitQuickAdd();
   };
@@ -209,45 +284,10 @@ export function TasksTable({
   return (
     <div className={cn("tasks-table-root flex flex-col gap-3 md:gap-0 min-h-0", className)}>
       {showQuickAdd && onAddTask ? (
-        <div
-          className={cn(
-            "tasks-quick-add flex flex-col sm:flex-row gap-2 md:px-4 md:py-3.5 md:gap-3",
-            showDesktopToolbar && "tasks-table-toolbar md:flex-row md:items-center md:gap-3"
-          )}
-        >
-          {showDesktopToolbar ? (
-            <div className="tasks-table-toolbar__search-group hidden md:flex min-w-0 items-center gap-2">
-              <div className="tasks-table-toolbar__search flex flex-1 min-w-0 items-center">
-                <Search
-                  className="tasks-table-toolbar__search-icon h-4 w-4 shrink-0"
-                  strokeWidth={2}
-                  aria-hidden
-                />
-                <input
-                  value={searchValue}
-                  onChange={(e) => onSearchChange?.(e.target.value)}
-                  placeholder="Search tasks…"
-                  className="tasks-table-toolbar__search-input text-sm w-full min-h-[2.5rem]"
-                  aria-label="Search tasks"
-                />
-              </div>
-              {resultCount !== undefined ? (
-                <span
-                  className="tasks-table-toolbar__count shrink-0 tabular-nums"
-                  aria-label={`${resultCount} tasks shown`}
-                >
-                  {resultCount} shown
-                </span>
-              ) : null}
-            </div>
-          ) : null}
+        <div className="tasks-quick-add flex flex-col sm:flex-row gap-2 md:px-4 md:py-3.5 md:gap-3">
           <form
             onSubmit={handleQuickAdd}
-            className={cn(
-              "flex min-w-0 flex-1 flex-col gap-2 sm:flex-row md:gap-3",
-              showDesktopToolbar && "tasks-table-toolbar__quick-add-form",
-              !showDesktopToolbar && "w-full"
-            )}
+            className="flex min-w-0 w-full flex-1 flex-col gap-2 sm:flex-row md:gap-3"
           >
             <input
               ref={quickAddInputRef}
@@ -257,10 +297,7 @@ export function TasksTable({
               onKeyDown={handleQuickAddKeyDown}
               placeholder="Add a task…"
               disabled={isAdding}
-              className={cn(
-                "input w-full flex-1 px-3 py-2.5 text-sm min-h-[44px] md:px-4",
-                showDesktopToolbar && "tasks-table-toolbar__quick-add"
-              )}
+              className="input w-full flex-1 px-3 py-2.5 text-sm min-h-[44px] md:px-4"
               aria-label="Quick add task"
             />
             {showQuickAddButton ? (
@@ -313,29 +350,32 @@ export function TasksTable({
             )}
           </div>
         ) : (
-          tasks.map((task) => {
-            const due = formatDueDate(task.dueDate ?? undefined);
-            const isDone = task.status === "done";
-            const loading = !!taskLoadingStates?.[task.id];
-            return (
-              <TaskRow
-                key={task.id}
-                rowId={`${rowIdPrefix}-${task.id}`}
-                task={task}
-                isDone={isDone}
-                isOpLoading={loading}
-                isHighlighted={highlightTaskId === task.id}
-                due={due}
-                workspaceName={getWorkspaceName?.(task)}
-                showAssignee={showAssignee}
-                commentWorkspaceId={task.workspaceId}
-                onOpen={onOpenTask}
-                onComplete={onComplete}
-                showOrganize
-                onOpenLinkedFile={handleOpenLinkedFile}
-              />
-            );
-          })
+          <>
+            {visibleItems.map((task) => {
+              const due = formatDueDate(task.dueDate ?? undefined);
+              const isDone = task.status === "done";
+              const loading = !!taskLoadingStates?.[task.id];
+              return (
+                <TaskRow
+                  key={task.id}
+                  rowId={`${rowIdPrefix}-${task.id}`}
+                  task={task}
+                  isDone={isDone}
+                  isOpLoading={loading}
+                  isHighlighted={highlightTaskId === task.id}
+                  due={due}
+                  workspaceName={getWorkspaceName?.(task)}
+                  showAssignee={showAssignee}
+                  commentWorkspaceId={task.workspaceId}
+                  onOpen={onOpenTask}
+                  onComplete={onComplete}
+                  showOrganize
+                  onOpenLinkedFile={handleOpenLinkedFile}
+                />
+              );
+            })}
+            <LoadMoreSentinel enabled={hasMore} loading={isLoadingMore} onVisible={loadMore} />
+          </>
         )}
       </div>
 
@@ -455,7 +495,7 @@ export function TasksTable({
                   </tr>
                 )
               ) : (
-                tasks.map((task) => {
+                visibleItems.map((task) => {
                   const isDone = task.status === "done";
                   const loading = !!taskLoadingStates?.[task.id];
                   const isNotebookTask = !!task.notebookId;
@@ -633,6 +673,15 @@ export function TasksTable({
                   );
                 })
               )}
+              {tasks.length > 0 ? (
+                <LoadMoreSentinel
+                  as="tr"
+                  colSpan={tableColSpan}
+                  enabled={hasMore}
+                  loading={isLoadingMore}
+                  onVisible={loadMore}
+                />
+              ) : null}
             </tbody>
           </table>
         </div>

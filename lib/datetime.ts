@@ -31,11 +31,8 @@ export function parseLocalDate(input?: string | null): Date | undefined {
     const [y, m, d] = trimmed.split("-").map(Number);
     return toValidLocalDate(y, m, d);
   }
-  const isoPrefix = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (isoPrefix) {
-    const [y, m, d] = isoPrefix[1].split("-").map(Number);
-    return toValidLocalDate(y, m, d);
-  }
+  // Instants (…T…Z) must use the local calendar day of that moment, not the UTC
+  // YYYY-MM-DD prefix — local midnight in UTC+ stores as the previous UTC date.
   const parsed = new Date(trimmed);
   if (!isValid(parsed)) return undefined;
   return toValidLocalDate(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());

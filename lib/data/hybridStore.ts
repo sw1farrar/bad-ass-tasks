@@ -620,6 +620,10 @@ function mapTaskRow(row: TaskRow): Task {
     parentTaskId: row.parent_task_id ?? undefined,
     starred: (row as { starred?: boolean }).starred ?? false,
     folderId: (row as { folder_id?: string | null }).folder_id ?? undefined,
+    importStatus: (row as { import_status?: "pending_review" | null }).import_status ?? null,
+    importBatchId: (row as { import_batch_id?: string | null }).import_batch_id ?? null,
+    importSource: (row as { import_source?: string | null }).import_source ?? null,
+    importFingerprint: (row as { import_fingerprint?: string | null }).import_fingerprint ?? null,
   };
 }
 
@@ -917,6 +921,10 @@ function buildTaskDbPayload(source: any): any {
     time_spent: source.timeSpent ?? source.time_spent ?? 0,
     starred: source.starred ?? false,
     folder_id: source.folderId ?? source.folder_id ?? null,
+    import_status: source.importStatus ?? source.import_status ?? null,
+    import_batch_id: source.importBatchId ?? source.import_batch_id ?? null,
+    import_source: source.importSource ?? source.import_source ?? null,
+    import_fingerprint: source.importFingerprint ?? source.import_fingerprint ?? null,
   });
 }
 
@@ -1449,6 +1457,8 @@ export function getPendingEntityTargetIds(
 export type SyncFetchOptions = {
   /** ISO timestamp — only return rows with updated_at >= this (resume catch-up). */
   updatedSince?: string | null;
+  /** Include status=done rows. Default false so large completed history stays off the client. */
+  includeCompleted?: boolean;
 };
 
 function readSyncCursorMap(): Record<string, string> {
@@ -2317,6 +2327,9 @@ export async function getTasks(
       .select("*")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false });
+    if (!options?.includeCompleted) {
+      query = query.neq("status", "done");
+    }
     if (options?.updatedSince) {
       query = query.gte("updated_at", options.updatedSince);
     }
@@ -2333,6 +2346,218 @@ export async function getTasks(
     // Treat network errors gracefully for offline resilience
     logHybridError("getTasks", err);
     return [];
+  }
+}
+
+export async function approvePendingImportedTasks(workspaceId: string): Promise<number> {
+  if (!isSupabaseLive() || !workspaceId || ["w1", "w2"].includes(workspaceId)) return 0;
+  const supabase = getClient();
+  if (!supabase) return 0;
+  const { data, error } = await (supabase.from("tasks") as any)
+    .update({ import_status: null })
+    .eq("workspace_id", workspaceId)
+    .eq("import_status", "pending_review")
+    .select("id");
+  if (error) {
+    logHybridError("approvePendingImportedTasks", error);
+    return 0;
+  }
+  return data?.length ?? 0;
+}
+
+export async function discardPendingImportedTasks(workspaceId: string): Promise<number> {
+  if (!isSupabaseLive() || !workspaceId || ["w1", "w2"].includes(workspaceId)) return 0;
+  const supabase = getClient();
+  if (!supabase) return 0;
+  const { data, error } = await (supabase.from("tasks") as any)
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("import_status", "pending_review")
+    .select("id");
+  if (error) {
+    logHybridError("discardPendingImportedTasks", error);
+    return 0;
+  }
+  return data?.length ?? 0;
+}
+
+export async function getCompletedTasks(
+  workspaceId: string,
+  options?: { offset?: number; limit?: number; before?: string | null },
+): Promise<Task[]> {
+  if (!isSupabaseLive()) return [];
+  if (!workspaceId || ["", "w1", "w2"].includes(workspaceId)) return [];
+  if (!isCurrentlyOnline()) return [];
+
+  const supabase = getClient();
+  if (!supabase) return [];
+
+  const offset = Math.max(0, options?.offset ?? 0);
+  const limit = Math.min(200, Math.max(1, options?.limit ?? 100));
+
+  try {
+    let query = supabase
+      .from("tasks")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "done")
+      .order("completed_at", { ascending: false });
+    if (options?.before) {
+      query = query.lt("completed_at", options.before);
+    } else if (offset > 0) {
+      query = query.range(offset, offset + limit - 1);
+    } else {
+      query = query.limit(limit);
+    }
+    if (options?.before) {
+      query = query.limit(limit);
+    }
+    const { data, error } = await query;
+
+    if (error) {
+      logHybridError("getCompletedTasks", error);
+      return [];
+    }
+    return (data ?? []).map(mapTaskRow);
+  } catch (err) {
+    logHybridError("getCompletedTasks", err);
+    return [];
+  }
+}
+
+export type WorkspaceTaskListQuery = {
+  workspaceId: string;
+  /** Completed history pages. `"all"` still pages `status=done` (open rows come from memory). */
+  statusMode: "all" | "incomplete" | "completed";
+  search?: string;
+  starred?: "all" | "only";
+  recurrence?: "all" | "only" | "none";
+  folderIds?: string[];
+  before?: string | null;
+  limit?: number;
+};
+
+export type WorkspaceTaskListPage = {
+  rows: Task[];
+  cursor: string | null;
+  hasMore: boolean;
+};
+
+function applyWorkspaceTaskListFilters(
+  query: any,
+  options: WorkspaceTaskListQuery,
+): any {
+  let next = query
+    .eq("workspace_id", options.workspaceId)
+    .eq("status", "done")
+    .or("import_status.is.null,import_status.neq.pending_review");
+
+  const search = (options.search ?? "").trim();
+  if (search) {
+    const pattern = `%${search.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
+    const quoted = `"${pattern.replace(/"/g, '\\"')}"`;
+    next = next.or(`title.ilike.${quoted},description.ilike.${quoted}`);
+  }
+
+  if (options.starred === "only") {
+    next = next.eq("starred", true);
+  }
+
+  if (options.recurrence === "only") {
+    next = next.not("recurring_rule", "is", null);
+  } else if (options.recurrence === "none") {
+    next = next.is("recurring_rule", null);
+  }
+
+  const folderIds = options.folderIds ?? [];
+  if (folderIds.length > 0) {
+    const unfiled = folderIds.includes("none");
+    const ids = folderIds.filter((id) => id && id !== "none");
+    if (unfiled && ids.length) {
+      next = next.or(`folder_id.is.null,folder_id.in.(${ids.join(",")})`);
+    } else if (unfiled) {
+      next = next.is("folder_id", null);
+    } else if (ids.length) {
+      next = next.in("folder_id", ids);
+    }
+  }
+
+  return next;
+}
+
+/** Page completed history (and the done half of All) with the Tasks organize-bar filters. */
+export async function queryWorkspaceTasks(
+  options: WorkspaceTaskListQuery,
+): Promise<WorkspaceTaskListPage> {
+  if (!isSupabaseLive()) return { rows: [], cursor: null, hasMore: false };
+  if (!options.workspaceId || ["", "w1", "w2"].includes(options.workspaceId)) {
+    return { rows: [], cursor: null, hasMore: false };
+  }
+  if (options.statusMode === "incomplete") {
+    return { rows: [], cursor: null, hasMore: false };
+  }
+  if (!isCurrentlyOnline()) return { rows: [], cursor: null, hasMore: false };
+
+  const supabase = getClient();
+  if (!supabase) return { rows: [], cursor: null, hasMore: false };
+
+  const limit = Math.min(200, Math.max(1, options.limit ?? 100));
+
+  try {
+    let query = applyWorkspaceTaskListFilters(
+      supabase.from("tasks").select("*"),
+      options,
+    ).order("completed_at", { ascending: false, nullsFirst: false });
+
+    if (options.before) {
+      query = query.lt("completed_at", options.before);
+    }
+    query = query.limit(limit + 1);
+
+    const { data, error } = await query;
+    if (error) {
+      logHybridError("queryWorkspaceTasks", error);
+      return { rows: [], cursor: null, hasMore: false };
+    }
+
+    const mapped = (data ?? []).map(mapTaskRow);
+    const hasMore = mapped.length > limit;
+    const rows = hasMore ? mapped.slice(0, limit) : mapped;
+    const last = rows[rows.length - 1];
+    return {
+      rows,
+      cursor: last?.completedAt ?? last?.createdAt ?? null,
+      hasMore,
+    };
+  } catch (err) {
+    logHybridError("queryWorkspaceTasks", err);
+    return { rows: [], cursor: null, hasMore: false };
+  }
+}
+
+export async function countWorkspaceTasks(options: WorkspaceTaskListQuery): Promise<number | null> {
+  if (!isSupabaseLive()) return null;
+  if (!options.workspaceId || ["", "w1", "w2"].includes(options.workspaceId)) return null;
+  if (options.statusMode === "incomplete") return null;
+  if (!isCurrentlyOnline()) return null;
+
+  const supabase = getClient();
+  if (!supabase) return null;
+
+  try {
+    const query = applyWorkspaceTaskListFilters(
+      supabase.from("tasks").select("id", { count: "exact", head: true }),
+      options,
+    );
+    const { count, error } = await query;
+    if (error) {
+      logHybridError("countWorkspaceTasks", error);
+      return null;
+    }
+    return typeof count === "number" ? count : null;
+  } catch (err) {
+    logHybridError("countWorkspaceTasks", err);
+    return null;
   }
 }
 
@@ -2513,6 +2738,13 @@ export async function updateTask(
     const folderId =
       anyUpdates.folderId !== undefined ? anyUpdates.folderId : anyUpdates.folder_id;
     (payload as { folder_id?: string | null }).folder_id = folderId ?? null;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(anyUpdates, "importStatus") ||
+    Object.prototype.hasOwnProperty.call(anyUpdates, "import_status")
+  ) {
+    (payload as { import_status?: string | null }).import_status =
+      anyUpdates.importStatus !== undefined ? anyUpdates.importStatus : anyUpdates.import_status;
   }
 
   const workspaceId = String((updates as any).workspaceId || "").trim();

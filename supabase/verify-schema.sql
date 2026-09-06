@@ -23,7 +23,9 @@ WITH required_tables AS (
     'note_email_inboxes',
     'task_email_inboxes',
     'note_attachments',
-    'inbound_email_events'
+    'inbound_email_events',
+    'mcp_oauth_jtis',
+    'mcp_access_tokens'
   ]) AS object_name
 ),
 table_checks AS (
