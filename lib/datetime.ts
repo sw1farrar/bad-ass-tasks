@@ -107,6 +107,26 @@ export function isDueDateToday(dueDateIso: string, reference: Date = startOfLoca
   return due.getTime() === reference.getTime();
 }
 
+export function isDueDateTomorrow(dueDateIso: string, reference: Date = startOfLocalToday()): boolean {
+  const due = parseLocalDate(dueDateIso);
+  if (!due) return false;
+  return due.getTime() === addDays(reference, 1).getTime();
+}
+
+/** Past due, due today, or due tomorrow — the Tasks hot-list window. */
+export function isDueDateHotList(dueDateIso: string, reference: Date = startOfLocalToday()): boolean {
+  return (
+    isDueDatePast(dueDateIso, reference) ||
+    isDueDateToday(dueDateIso, reference) ||
+    isDueDateTomorrow(dueDateIso, reference)
+  );
+}
+
+/** Exclusive ISO upper bound for hot-list due dates (start of the day after tomorrow). */
+export function hotListDueDateExclusiveEnd(reference: Date = startOfLocalToday()): string {
+  return toDueDateStorage(addDays(reference, 2));
+}
+
 export function isDueDateOnOrBefore(dueDateIso: string, reference: Date = startOfLocalToday()): boolean {
   const due = parseLocalDate(dueDateIso);
   if (!due) return false;

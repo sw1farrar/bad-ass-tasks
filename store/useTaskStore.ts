@@ -113,7 +113,7 @@ import {
   toDueDateStorage,
   applyTaskUpdateSideEffects,
 } from "@/lib/utils";
-import { defaultTaskDueDate, startOfLocalToday, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, normalizeCalendarDateKey, parseLocalDate, toLocalDateString } from "@/lib/datetime";
+import { defaultTaskDueDate, startOfLocalToday, isDueDateHotList, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, normalizeCalendarDateKey, parseLocalDate, toLocalDateString } from "@/lib/datetime";
 
 function mapRealtimeExceptionDates(
   exceptionDates: string[] | null | undefined,
@@ -484,6 +484,7 @@ function getUserColor(userIdOrEmail: string): string {
 type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "health" | "map" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
+export type TasksHotListFilterMode = "all" | "only";
 
 interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions, HealthSliceActions {
   // Data
@@ -537,6 +538,8 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
     /** @deprecated Migrated to statusMode + recurrenceMode on rehydrate */
     recurring?: "all" | "incomplete" | "only" | "none" | "completed";
     starred?: TasksStarredFilterMode;
+    /** Past due, due today, or due tomorrow */
+    hotList?: TasksHotListFilterMode;
     folderFilter?: TasksFolderFilterMode;
   };
   /** Non-persisted completed/All history pages. Open tasks stay in `tasks`. */
@@ -1194,6 +1197,7 @@ export const useTaskStore = create<TaskState>()(
         statusMode: "incomplete",
         recurrenceMode: "all",
         starred: "all",
+        hotList: "all",
         folderFilter: "all",
       },
       taskListPage: EMPTY_TASK_LIST_PAGE,
@@ -1438,12 +1442,14 @@ export const useTaskStore = create<TaskState>()(
         const recurrence = resolveTaskRecurrenceMode(filter);
         const search = filter.search || "";
         const starred = filter.starred ?? "all";
+        const hotList = filter.hotList ?? "all";
         const folderIds = normalizeFolderFilter(filter.folderFilter);
         const queryKey = buildTaskListQueryKey({
           workspaceId,
           statusMode,
           search,
           starred,
+          hotList,
           recurrence,
           folderFilter: filter.folderFilter,
         });
@@ -1477,6 +1483,7 @@ export const useTaskStore = create<TaskState>()(
           statusMode,
           search,
           starred,
+          hotList,
           recurrence,
           folderIds,
           before,
@@ -1492,6 +1499,7 @@ export const useTaskStore = create<TaskState>()(
             statusMode,
             search,
             starred,
+            hotList,
             recurrence,
             folderIds,
           });
@@ -1501,7 +1509,11 @@ export const useTaskStore = create<TaskState>()(
         set((state) => {
           if (state.taskListPage.queryKey !== requestKey) return {};
           const existingIds = new Set(reset ? [] : state.taskListPage.rows.map((t) => t.id));
-          const incoming = result.rows.filter((t) => !existingIds.has(t.id));
+          const incoming = result.rows.filter((t) => {
+            if (existingIds.has(t.id)) return false;
+            if (hotList === "only") return !!t.dueDate && isDueDateHotList(t.dueDate);
+            return true;
+          });
           const rows = reset ? incoming : [...state.taskListPage.rows, ...incoming];
           return {
             taskListPage: {
@@ -1706,6 +1718,10 @@ export const useTaskStore = create<TaskState>()(
           result = result.filter((t) => !!t.starred);
         }
 
+        if (taskFilter.hotList === "only") {
+          result = result.filter((t) => !!t.dueDate && isDueDateHotList(t.dueDate));
+        }
+
         const folderSelection = normalizeFolderFilter(taskFilter.folderFilter);
         if (folderSelection.length > 0) {
           result = result.filter((t) => taskMatchesFolderFilter(t, folderSelection));
@@ -1715,6 +1731,7 @@ export const useTaskStore = create<TaskState>()(
         const includeNotebookRows =
           recurrenceMode !== "only" &&
           taskFilter.starred !== "only" &&
+          taskFilter.hotList !== "only" &&
           includeNotebookRowsForFolderFilter(folderSelection);
 
         if (includeNotebookRows) {

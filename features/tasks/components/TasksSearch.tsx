@@ -90,7 +90,13 @@ export function TasksSearch({
           <button
             onClick={() => {
               setGlobalSearchQuery("");
-              setTaskFilter({ search: "", statusMode: "incomplete", recurrenceMode: "all" });
+              setTaskFilter({
+                search: "",
+                statusMode: "incomplete",
+                recurrenceMode: "all",
+                starred: "all",
+                hotList: "all",
+              });
               setSearchResultType('all');
             }}
             className="px-2 py-1 text-text-muted hover:text-text-primary shrink-0"

@@ -21,9 +21,10 @@ export function TasksNavIndicator({
   const hasOverdue = overdueCount > 0;
   const display = openCount > 99 ? "99+" : String(openCount);
 
-  const ariaLabel = hasOverdue
-    ? `${openCount} open task${openCount === 1 ? "" : "s"}, ${overdueCount} overdue`
-    : `${openCount} open task${openCount === 1 ? "" : "s"}`;
+  const ariaLabel =
+    openCount === 1
+      ? "1 task past due, today, or tomorrow"
+      : `${openCount} tasks past due, today, or tomorrow`;
 
   if (variant === "bottom") {
     return (

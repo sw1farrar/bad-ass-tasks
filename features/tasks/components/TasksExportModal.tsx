@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, Star, X } from "lucide-react";
+import { Download, Flame, Star, X } from "lucide-react";
 import { toast } from "sonner";
 import { BottomSheet } from "@/components/BottomSheet";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
@@ -121,11 +121,37 @@ function ExportBody({
             <button
               type="button"
               onClick={() =>
+                onChange({ hotList: filters.hotList === "only" ? "all" : "only" })
+              }
+              aria-pressed={filters.hotList === "only"}
+              aria-label="Hot list"
+              title="Past due, today, or tomorrow"
+              className={cn(
+                folderChipClass(filters.hotList === "only"),
+                "justify-center px-2",
+                filters.hotList === "only" &&
+                  "text-orange-400 border-orange-400/40 bg-orange-400/10",
+              )}
+            >
+              <Flame
+                className={cn(
+                  "h-3.5 w-3.5",
+                  filters.hotList === "only" && "fill-current text-orange-400",
+                )}
+                strokeWidth={filters.hotList === "only" ? 0 : 2}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
                 onChange({ starred: filters.starred === "only" ? "all" : "only" })
               }
               aria-pressed={filters.starred === "only"}
+              aria-label="Important"
+              title="Important"
               className={cn(
                 folderChipClass(filters.starred === "only"),
+                "justify-center px-2",
                 filters.starred === "only" &&
                   "text-amber-300 border-amber-400/40 bg-amber-400/10",
               )}
@@ -137,7 +163,6 @@ function ExportBody({
                 )}
                 strokeWidth={filters.starred === "only" ? 0 : 2}
               />
-              Important
             </button>
             <TasksFolderFilterPicker
               folders={folders}
@@ -186,6 +211,7 @@ export function TasksExportModal({ open, onOpenChange }: TasksExportModalProps) 
   const statusMode = useTaskStore((s) => s.taskFilter.statusMode);
   const recurrenceMode = useTaskStore((s) => s.taskFilter.recurrenceMode);
   const starred = useTaskStore((s) => s.taskFilter.starred);
+  const hotList = useTaskStore((s) => s.taskFilter.hotList);
   const folderFilter = useTaskStore((s) => s.taskFilter.folderFilter);
   const search = useTaskStore((s) => s.taskFilter.search);
   const currentWorkspace = useTaskStore((s) => s.currentWorkspace);
@@ -212,11 +238,12 @@ export function TasksExportModal({ open, onOpenChange }: TasksExportModalProps) 
         statusMode: (statusMode as TasksExportFilters["statusMode"]) ?? "incomplete",
         recurrenceMode: (recurrenceMode as TasksExportFilters["recurrenceMode"]) ?? "all",
         starred: starred ?? "all",
+        hotList: hotList ?? "all",
         folderFilter: folderFilter ?? "all",
         search: search ?? "",
       }),
     );
-  }, [open, statusMode, recurrenceMode, starred, folderFilter, search]);
+  }, [open, statusMode, recurrenceMode, starred, hotList, folderFilter, search]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
   useScrollLock(open && !isMobile);

@@ -2,11 +2,11 @@
 
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, Search, Star, Upload } from "lucide-react";
+import { Download, Flame, Search, Star, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatTaskListCount } from "@/features/tasks/lib/taskListPage";
 import type { TaskFolder } from "@/types";
-import { useTaskStore, type TasksFolderFilterMode, type TasksStarredFilterMode } from "@/store/useTaskStore";
+import { useTaskStore, type TasksFolderFilterMode, type TasksHotListFilterMode, type TasksStarredFilterMode } from "@/store/useTaskStore";
 import { TasksExportModal } from "./TasksExportModal";
 import { ImportWizardModal } from "@/features/import";
 import { TasksFolderFilterPicker } from "./TasksFolderFilterPicker";
@@ -114,8 +114,10 @@ function ActionIconButton({
 interface TasksOrganizeBarProps {
   folders: TaskFolder[];
   starredFilter: TasksStarredFilterMode;
+  hotListFilter: TasksHotListFilterMode;
   folderFilter: TasksFolderFilterMode;
   onStarredFilterChange: (mode: TasksStarredFilterMode) => void;
+  onHotListFilterChange: (mode: TasksHotListFilterMode) => void;
   onFolderFilterChange: (mode: TasksFolderFilterMode) => void;
   onAddFolder: (name: string) => Promise<unknown>;
   onRenameFolder: (id: string, name: string) => Promise<unknown>;
@@ -136,8 +138,10 @@ interface TasksOrganizeBarProps {
 export function TasksOrganizeBar({
   folders,
   starredFilter,
+  hotListFilter,
   folderFilter,
   onStarredFilterChange,
+  onHotListFilterChange,
   onFolderFilterChange,
   onAddFolder,
   onRenameFolder,
@@ -197,11 +201,37 @@ export function TasksOrganizeBar({
             <button
               type="button"
               onClick={() =>
+                onHotListFilterChange(hotListFilter === "only" ? "all" : "only")
+              }
+              aria-pressed={hotListFilter === "only"}
+              aria-label="Hot list"
+              title="Past due, today, or tomorrow"
+              className={cn(
+                chipClass(hotListFilter === "only"),
+                "tasks-folder-chip--icon justify-center px-1.5",
+                hotListFilter === "only" &&
+                  "text-orange-400 border-orange-400/40 bg-orange-400/10",
+              )}
+            >
+              <Flame
+                className={cn(
+                  "h-3 w-3",
+                  hotListFilter === "only" && "fill-current text-orange-400",
+                )}
+                strokeWidth={hotListFilter === "only" ? 0 : 2}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
                 onStarredFilterChange(starredFilter === "only" ? "all" : "only")
               }
               aria-pressed={starredFilter === "only"}
+              aria-label="Important"
+              title="Important"
               className={cn(
                 chipClass(starredFilter === "only"),
+                "tasks-folder-chip--icon justify-center px-1.5",
                 starredFilter === "only" &&
                   "text-amber-300 border-amber-400/40 bg-amber-400/10",
               )}
@@ -213,7 +243,6 @@ export function TasksOrganizeBar({
                 )}
                 strokeWidth={starredFilter === "only" ? 0 : 2}
               />
-              Important
             </button>
 
             <TasksFolderFilterPicker

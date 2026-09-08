@@ -4,7 +4,8 @@ import { getRecurringLabel } from "@/lib/utils";
 import type { Task, TaskFolder, TaskCommentSummary } from "@/types";
 import type { TasksStatusFilterMode } from "@/features/tasks/components/TasksStatusFilter";
 import type { TasksRecurrenceFilterMode } from "@/features/tasks/components/TasksRecurrenceFilter";
-import type { TasksStarredFilterMode } from "@/store/useTaskStore";
+import type { TasksHotListFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
+import { isDueDateHotList } from "@/lib/datetime";
 import {
   normalizeFolderFilter,
   taskMatchesFolderFilter,
@@ -15,6 +16,7 @@ export type TasksExportFilters = {
   statusMode: TasksStatusFilterMode;
   recurrenceMode: TasksRecurrenceFilterMode;
   starred: TasksStarredFilterMode;
+  hotList: TasksHotListFilterMode;
   folderFilter: TasksFolderFilterMode;
   search: string;
 };
@@ -26,6 +28,7 @@ export function createDefaultTasksExportFilters(
     statusMode: seed?.statusMode ?? "incomplete",
     recurrenceMode: seed?.recurrenceMode ?? "all",
     starred: seed?.starred ?? "all",
+    hotList: seed?.hotList ?? "all",
     folderFilter: seed?.folderFilter ?? "all",
     search: seed?.search ?? "",
   };
@@ -60,6 +63,10 @@ export function filterTasksForExport(
 
   if (filters.starred === "only") {
     result = result.filter((t) => !!t.starred);
+  }
+
+  if (filters.hotList === "only") {
+    result = result.filter((t) => !!t.dueDate && isDueDateHotList(t.dueDate));
   }
 
   const folderSelection = normalizeFolderFilter(filters.folderFilter);

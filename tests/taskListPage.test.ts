@@ -41,6 +41,7 @@ describe("task list paging helpers", () => {
     };
     expect(buildTaskListQueryKey({ ...base, search: "mail" })).not.toBe(buildTaskListQueryKey(base));
     expect(buildTaskListQueryKey({ ...base, starred: "only" })).not.toBe(buildTaskListQueryKey(base));
+    expect(buildTaskListQueryKey({ ...base, hotList: "only" })).not.toBe(buildTaskListQueryKey(base));
   });
 
   it("merges remote pages without duplicating local rows", () => {

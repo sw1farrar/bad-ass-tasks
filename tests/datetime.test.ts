@@ -1,14 +1,18 @@
 import { describe, it, expect } from "vitest";
+import { addDays } from "date-fns";
 import {
   defaultTaskDueDate,
   defaultTaskDueDateInput,
+  isDueDateHotList,
   isDueDateToday,
+  isDueDateTomorrow,
   parseLocalDate,
   safeFormatDate,
   safeFormatTimestampIso,
   safeFormatDistanceToNow,
   formatLocalDateShort,
   startOfLocalToday,
+  toDueDateStorage,
 } from "@/lib/datetime";
 
 describe("datetime safety helpers", () => {
@@ -46,5 +50,14 @@ describe("datetime safety helpers", () => {
     expect(safeFormatTimestampIso("")).toBe("");
     expect(safeFormatTimestampIso("not-a-date", "MMM d, yyyy", "—")).toBe("—");
     expect(safeFormatTimestampIso(new Date().toISOString(), "MMM d, yyyy")).not.toBe("");
+  });
+
+  it("isDueDateHotList matches past due, today, and tomorrow", () => {
+    const today = startOfLocalToday();
+    expect(isDueDateTomorrow(toDueDateStorage(addDays(today, 1)), today)).toBe(true);
+    expect(isDueDateHotList(toDueDateStorage(addDays(today, -1)), today)).toBe(true);
+    expect(isDueDateHotList(toDueDateStorage(today), today)).toBe(true);
+    expect(isDueDateHotList(toDueDateStorage(addDays(today, 1)), today)).toBe(true);
+    expect(isDueDateHotList(toDueDateStorage(addDays(today, 2)), today)).toBe(false);
   });
 });

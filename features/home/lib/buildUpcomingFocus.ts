@@ -1,8 +1,10 @@
 import { addDays } from "date-fns";
 import type { Priority, Task } from "@/types";
 import {
+  isDueDateHotList,
   isDueDatePast,
   isDueDateToday,
+  isDueDateTomorrow,
   parseLocalDate,
   startOfLocalToday,
 } from "@/lib/datetime";
@@ -16,15 +18,7 @@ const PRIORITY_RANK: Record<Priority, number> = {
   P3: 3,
 };
 
-export function isDueDateTomorrow(
-  dueDateIso: string,
-  reference: Date = startOfLocalToday(),
-): boolean {
-  const due = parseLocalDate(dueDateIso);
-  if (!due) return false;
-  const tomorrow = addDays(reference, 1);
-  return due.getTime() === tomorrow.getTime();
-}
+export { isDueDateTomorrow };
 
 export function isTaskDueTodayOrTomorrow(
   dueDateIso: string,
@@ -38,11 +32,7 @@ export function isTaskOverdueTodayOrTomorrow(
   dueDateIso: string,
   reference: Date = startOfLocalToday(),
 ): boolean {
-  return (
-    isDueDatePast(dueDateIso, reference) ||
-    isDueDateToday(dueDateIso, reference) ||
-    isDueDateTomorrow(dueDateIso, reference)
-  );
+  return isDueDateHotList(dueDateIso, reference);
 }
 
 export function sortUpcomingFocusItems(items: HomeFocusItem[]): HomeFocusItem[] {

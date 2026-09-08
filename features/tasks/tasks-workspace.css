@@ -119,6 +119,12 @@
     font-size: 11px;
   }
 
+  .tasks-root .tasks-mobile-organize__bar .tasks-folder-chip--icon {
+    width: 30px;
+    padding: 0.25rem 0;
+    justify-content: center;
+  }
+
   .tasks-root .tasks-mobile-organize__bar .tasks-organize-bar__actions {
     width: auto;
     justify-content: flex-end;
@@ -329,6 +335,11 @@
     height: 1.5rem;
     padding-inline: 0.5rem;
     font-size: 11px;
+  }
+
+  .tasks-root .tasks-organize-bar--desktop .tasks-folder-chip--icon {
+    width: 1.5rem;
+    padding-inline: 0;
   }
 
   .tasks-root .tasks-organize-bar--desktop .task-recurring-filters__track {

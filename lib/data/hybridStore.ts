@@ -29,9 +29,8 @@ import { parseFileAiSuggestion } from "@/lib/files/fileAiSuggestion";
 import type { Database, Json } from "@/types/supabase";
 import { logger, logError } from "@/lib/logger";
 import { templateToTaskPayload, templateToNotePayload } from "@/lib/utils";
-import { normalizeCalendarDateKey } from "@/lib/datetime";
 import { TASK_ASSIGNEE_ALL_LABEL } from "@/lib/assignee";
-import { isDueDatePast } from "@/lib/datetime";
+import { hotListDueDateExclusiveEnd, isDueDatePast, normalizeCalendarDateKey } from "@/lib/datetime";
 import {
   DEFAULT_NOTIFICATION_PREFS,
   normalizeNotificationPrefs,
@@ -2431,6 +2430,7 @@ export type WorkspaceTaskListQuery = {
   statusMode: "all" | "incomplete" | "completed";
   search?: string;
   starred?: "all" | "only";
+  hotList?: "all" | "only";
   recurrence?: "all" | "only" | "none";
   folderIds?: string[];
   before?: string | null;
@@ -2461,6 +2461,10 @@ function applyWorkspaceTaskListFilters(
 
   if (options.starred === "only") {
     next = next.eq("starred", true);
+  }
+
+  if (options.hotList === "only") {
+    next = next.not("due_date", "is", null).lt("due_date", hotListDueDateExclusiveEnd());
   }
 
   if (options.recurrence === "only") {

@@ -1,9 +1,11 @@
+import { addDays } from "date-fns";
 import { describe, expect, it } from "vitest";
 import {
   buildTasksExportRows,
   createDefaultTasksExportFilters,
   filterTasksForExport,
 } from "@/features/tasks/lib/exportTasksExcel";
+import { startOfLocalToday, toDueDateStorage } from "@/lib/datetime";
 import type { Task, TaskFolder } from "@/types";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -73,6 +75,25 @@ describe("filterTasksForExport", () => {
       }),
     );
     expect(filed.map((t) => t.id)).toEqual(["c"]);
+  });
+
+  it("filters hot list to past due, today, and tomorrow", () => {
+    const today = startOfLocalToday();
+    const dated = [
+      makeTask({ id: "overdue", dueDate: toDueDateStorage(addDays(today, -1)) }),
+      makeTask({ id: "today", dueDate: toDueDateStorage(today) }),
+      makeTask({ id: "tomorrow", dueDate: toDueDateStorage(addDays(today, 1)) }),
+      makeTask({ id: "later", dueDate: toDueDateStorage(addDays(today, 4)) }),
+      makeTask({ id: "undated" }),
+    ];
+    const result = filterTasksForExport(
+      dated,
+      createDefaultTasksExportFilters({
+        statusMode: "all",
+        hotList: "only",
+      }),
+    );
+    expect(result.map((t) => t.id)).toEqual(["overdue", "today", "tomorrow"]);
   });
 });
 

@@ -493,6 +493,21 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
       expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id).sort()).toEqual(['s1', 's2']);
     });
 
+    it('getFilteredTasks: hot-list filter keeps past due, today, and tomorrow', () => {
+      const today = startOfLocalToday();
+      useTaskStore.setState({
+        tasks: [
+          { id: 'h1', status: 'todo', priority: 'P2', title: 'Overdue', workspaceId: 'w1', dueDate: toDueDateStorage(addDays(today, -2)) } as any,
+          { id: 'h2', status: 'todo', priority: 'P2', title: 'Today', workspaceId: 'w1', dueDate: toDueDateStorage(today) } as any,
+          { id: 'h3', status: 'todo', priority: 'P2', title: 'Tomorrow', workspaceId: 'w1', dueDate: toDueDateStorage(addDays(today, 1)) } as any,
+          { id: 'h4', status: 'todo', priority: 'P2', title: 'Later', workspaceId: 'w1', dueDate: toDueDateStorage(addDays(today, 3)) } as any,
+          { id: 'h5', status: 'todo', priority: 'P2', title: 'No date', workspaceId: 'w1' } as any,
+        ],
+        taskFilter: { search: '', statusMode: 'incomplete', recurrenceMode: 'all', starred: 'all', hotList: 'only', folderFilter: 'all' },
+      });
+      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id).sort()).toEqual(['h1', 'h2', 'h3']);
+    });
+
     it('toggleTaskStarred + task folders CRUD (demo)', async () => {
       useTaskStore.setState({
         tasks: [

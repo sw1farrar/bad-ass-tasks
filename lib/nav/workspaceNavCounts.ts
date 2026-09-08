@@ -40,7 +40,7 @@ export function getWorkspaceNavTaskCounts(input: {
    * When false (still booting), fall back to aggregate stats if local slices are empty.
    */
   preferLocalTasks?: boolean;
-}): { openCount: number; overdueCount: number } {
+}): { openCount: number; overdueCount: number; hotListCount: number } {
   const wsTasks = mergeWorkspaceTasksForNavCounts(
     input.workspaceId,
     input.tasks,
@@ -51,9 +51,13 @@ export function getWorkspaceNavTaskCounts(input: {
     return countOpenAndOverdueTasks(wsTasks);
   }
   const stats = input.globalWorkspaceStats?.[input.workspaceId];
+  const overdueCount = stats?.overdueCount ?? 0;
+  const dueTodayCount = stats?.dueTodayCount ?? 0;
   return {
     openCount: stats?.openCount ?? 0,
-    overdueCount: stats?.overdueCount ?? 0,
+    overdueCount,
+    // Boot fallback: tomorrow is not in aggregate stats, so this is overdue + today.
+    hotListCount: overdueCount + dueTodayCount,
   };
 }
 

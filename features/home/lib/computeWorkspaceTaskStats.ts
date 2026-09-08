@@ -1,18 +1,21 @@
 import { buildAssigneeBreakdown } from "@/lib/assignee";
-import { isDueDatePast, isDueDateToday, startOfLocalToday } from "@/lib/datetime";
+import { isDueDateHotList, isDueDatePast, isDueDateToday, startOfLocalToday } from "@/lib/datetime";
 import { isPendingImportReview } from "@/features/import/lib/pendingReview";
 import type { Task, WorkspaceMember, WorkspaceTaskStats } from "@/types";
 
 export function countOpenAndOverdueTasks(
   wsTasks: Task[],
   today: Date = startOfLocalToday(),
-): { openCount: number; overdueCount: number } {
+): { openCount: number; overdueCount: number; hotListCount: number } {
   const open = wsTasks.filter((t) => t.status !== "done" && !isPendingImportReview(t));
   let overdueCount = 0;
+  let hotListCount = 0;
   for (const t of open) {
-    if (t.dueDate && isDueDatePast(t.dueDate, today)) overdueCount += 1;
+    if (!t.dueDate) continue;
+    if (isDueDatePast(t.dueDate, today)) overdueCount += 1;
+    if (isDueDateHotList(t.dueDate, today)) hotListCount += 1;
   }
-  return { openCount: open.length, overdueCount };
+  return { openCount: open.length, overdueCount, hotListCount };
 }
 
 export function computeWorkspaceTaskStats(

@@ -53,6 +53,7 @@ export function buildTaskListQueryKey(input: {
   statusMode: TaskListStatusMode;
   search?: string;
   starred?: "all" | "only";
+  hotList?: "all" | "only";
   recurrence?: TaskListRecurrenceMode;
   folderFilter?: TasksFolderFilterMode;
 }): string {
@@ -62,6 +63,7 @@ export function buildTaskListQueryKey(input: {
     input.statusMode,
     (input.search ?? "").trim().toLowerCase(),
     input.starred ?? "all",
+    input.hotList ?? "all",
     input.recurrence ?? "all",
     folders.join(","),
   ].join("|");

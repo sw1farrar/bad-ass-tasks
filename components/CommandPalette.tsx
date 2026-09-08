@@ -194,6 +194,7 @@ export function CommandPalette({ open, onOpenChange, onOpenTask }: CommandPalett
       statusMode: "incomplete",
       recurrenceMode: "all",
       starred: "all",
+      hotList: "all",
       folderFilter: "all",
     });
     toast("Filters cleared");

@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
-import type { TasksFolderFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
+import type { TasksFolderFilterMode, TasksHotListFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
 import {
   folderFilterSummary,
   isFolderFilterActive,
@@ -20,8 +20,10 @@ import {
 interface TasksMobileOrganizeDisclosureProps {
   folders: TaskFolder[];
   starredFilter: TasksStarredFilterMode;
+  hotListFilter: TasksHotListFilterMode;
   folderFilter: TasksFolderFilterMode;
   onStarredFilterChange: (mode: TasksStarredFilterMode) => void;
+  onHotListFilterChange: (mode: TasksHotListFilterMode) => void;
   onFolderFilterChange: (mode: TasksFolderFilterMode) => void;
   onAddFolder: (name: string) => Promise<unknown>;
   onRenameFolder: (id: string, name: string) => Promise<unknown>;
@@ -47,8 +49,10 @@ function recurrenceShortLabel(mode: TasksRecurrenceFilterMode): string | null {
 export function TasksMobileOrganizeDisclosure({
   folders,
   starredFilter,
+  hotListFilter,
   folderFilter,
   onStarredFilterChange,
+  onHotListFilterChange,
   onFolderFilterChange,
   onAddFolder,
   onRenameFolder,
@@ -65,20 +69,22 @@ export function TasksMobileOrganizeDisclosure({
     if (statusFilter !== "incomplete") n += 1;
     if (recurrenceFilter !== "all") n += 1;
     if (starredFilter === "only") n += 1;
+    if (hotListFilter === "only") n += 1;
     if (isFolderFilterActive(folderFilter)) n += 1;
     return n;
-  }, [statusFilter, recurrenceFilter, starredFilter, folderFilter]);
+  }, [statusFilter, recurrenceFilter, starredFilter, hotListFilter, folderFilter]);
 
   const summary = useMemo(() => {
     const parts = [statusShortLabel(statusFilter)];
     const recurrence = recurrenceShortLabel(recurrenceFilter);
     if (recurrence) parts.push(recurrence);
+    if (hotListFilter === "only") parts.push("Hot list");
     if (starredFilter === "only") parts.push("Important");
     if (isFolderFilterActive(folderFilter)) {
       parts.push(folderFilterSummary(normalizeFolderFilter(folderFilter), folders));
     }
     return parts.join(" · ");
-  }, [statusFilter, recurrenceFilter, starredFilter, folderFilter, folders]);
+  }, [statusFilter, recurrenceFilter, starredFilter, hotListFilter, folderFilter, folders]);
 
   return (
     // `contents` lets the trigger + panel participate in the parent toolbar grid.
@@ -134,8 +140,10 @@ export function TasksMobileOrganizeDisclosure({
           <TasksOrganizeBar
             folders={folders}
             starredFilter={starredFilter}
+            hotListFilter={hotListFilter}
             folderFilter={folderFilter}
             onStarredFilterChange={onStarredFilterChange}
+            onHotListFilterChange={onHotListFilterChange}
             onFolderFilterChange={onFolderFilterChange}
             onAddFolder={onAddFolder}
             onRenameFolder={onRenameFolder}

@@ -1,9 +1,11 @@
+import { addDays } from "date-fns";
 import { describe, expect, it } from "vitest";
 import {
   getWorkspaceNavTaskCounts,
   getWorkspacePendingReviewCount,
   mergeWorkspaceTasksForNavCounts,
 } from "@/lib/nav/workspaceNavCounts";
+import { startOfLocalToday, toDueDateStorage } from "@/lib/datetime";
 import type { Note, Task } from "@/types";
 
 function task(partial: Partial<Task> & { id: string; workspaceId: string }): Task {
@@ -65,6 +67,7 @@ describe("workspaceNavCounts", () => {
       },
     });
     expect(counts.openCount).toBe(1);
+    expect(counts.hotListCount).toBe(0);
   });
 
   it("clears counts instantly when local tasks are empty after hydrate", () => {
@@ -85,7 +88,7 @@ describe("workspaceNavCounts", () => {
         },
       },
     });
-    expect(counts).toEqual({ openCount: 0, overdueCount: 0 });
+    expect(counts).toEqual({ openCount: 0, overdueCount: 0, hotListCount: 0 });
   });
 
   it("falls back to aggregate stats before local tasks hydrate", () => {
@@ -106,7 +109,28 @@ describe("workspaceNavCounts", () => {
         },
       },
     });
-    expect(counts).toEqual({ openCount: 4, overdueCount: 2 });
+    expect(counts).toEqual({ openCount: 4, overdueCount: 2, hotListCount: 3 });
+  });
+
+  it("counts hot-list tasks as past due, today, and tomorrow", () => {
+    const today = startOfLocalToday();
+    const counts = getWorkspaceNavTaskCounts({
+      workspaceId: "ws-1",
+      preferLocalTasks: true,
+      tasks: [
+        task({ id: "overdue", workspaceId: "ws-1", dueDate: toDueDateStorage(addDays(today, -2)) }),
+        task({ id: "today", workspaceId: "ws-1", dueDate: toDueDateStorage(today) }),
+        task({ id: "tomorrow", workspaceId: "ws-1", dueDate: toDueDateStorage(addDays(today, 1)) }),
+        task({ id: "later", workspaceId: "ws-1", dueDate: toDueDateStorage(addDays(today, 5)) }),
+        task({ id: "undated", workspaceId: "ws-1" }),
+        task({ id: "done", workspaceId: "ws-1", status: "done", dueDate: toDueDateStorage(today) }),
+      ],
+      globalTodayFocus: [],
+      globalOpenTaskFocus: [],
+    });
+    expect(counts.openCount).toBe(5);
+    expect(counts.overdueCount).toBe(1);
+    expect(counts.hotListCount).toBe(3);
   });
 
   it("counts pending review files for nav badge", () => {

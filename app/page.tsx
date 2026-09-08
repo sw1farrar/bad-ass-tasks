@@ -458,6 +458,7 @@ export default function BadAssTasks() {
     taskFilter.search,
     taskFilter.recurrenceMode,
     taskFilter.starred,
+    taskFilter.hotList,
     taskFilter.folderFilter,
     currentWorkspace.id,
     fetchTaskList,
@@ -1900,6 +1901,7 @@ export default function BadAssTasks() {
         ? "none"
         : "all")) as TasksRecurrenceFilterMode;
   const taskStarredFilterMode = taskFilter.starred ?? "all";
+  const taskHotListFilterMode = taskFilter.hotList ?? "all";
   const taskFolderFilterMode = taskFilter.folderFilter ?? "all";
   const workspaceTaskCount = tasks.filter(
     (t) => t.workspaceId === currentWorkspace.id && t.importStatus !== "pending_review"
@@ -1913,6 +1915,7 @@ export default function BadAssTasks() {
         taskStatusFilterMode !== "incomplete" ||
         taskRecurrenceFilterMode !== "all" ||
         taskStarredFilterMode !== "all" ||
+        taskHotListFilterMode !== "all" ||
         isFolderFilterActive(taskFolderFilterMode)
     ) ||
     // Incomplete (default) can hide every row when all tasks are done — don't lie with "No tasks yet."
@@ -1942,8 +1945,10 @@ export default function BadAssTasks() {
           <TasksMobileOrganizeDisclosure
             folders={taskFolders}
             starredFilter={taskStarredFilterMode}
+            hotListFilter={taskHotListFilterMode}
             folderFilter={taskFolderFilterMode}
             onStarredFilterChange={(starred) => setTaskFilter({ starred })}
+            onHotListFilterChange={(hotList) => setTaskFilter({ hotList })}
             onFolderFilterChange={(folderFilter) => setTaskFilter({ folderFilter })}
             onAddFolder={(name) => addTaskFolder(name)}
             onRenameFolder={(id, name) => updateTaskFolder(id, { name })}
@@ -1972,8 +1977,10 @@ export default function BadAssTasks() {
           onRecurrenceFilterChange={(mode) => setTaskFilter({ recurrenceMode: mode })}
           folders={taskFolders}
           starredFilter={taskStarredFilterMode}
+          hotListFilter={taskHotListFilterMode}
           folderFilter={taskFolderFilterMode}
           onStarredFilterChange={(starred) => setTaskFilter({ starred })}
+          onHotListFilterChange={(hotList) => setTaskFilter({ hotList })}
           onFolderFilterChange={(folderFilter) => setTaskFilter({ folderFilter })}
           onAddFolder={(name) => addTaskFolder(name)}
           onRenameFolder={(id, name) => updateTaskFolder(id, { name })}
@@ -2019,6 +2026,7 @@ export default function BadAssTasks() {
             statusMode: taskListStatusMode,
             search: taskFilter.search,
             starred: taskStarredFilterMode,
+            hotList: taskHotListFilterMode,
             recurrence: taskRecurrenceFilterMode,
             folderFilter: taskFolderFilterMode,
           })}
@@ -2032,6 +2040,7 @@ export default function BadAssTasks() {
               statusMode: "incomplete",
               recurrenceMode: "all",
               starred: "all",
+              hotList: "all",
               folderFilter: "all",
             })
           }
@@ -4077,7 +4086,7 @@ export default function BadAssTasks() {
           }
           onNavigate={(view) => setView(view as typeof currentView)}
           workspace={currentWorkspace}
-          openTaskCount={currentWorkspaceTaskCounts.openCount}
+          openTaskCount={currentWorkspaceTaskCounts.hotListCount}
           overdueTaskCount={currentWorkspaceTaskCounts.overdueCount}
           reviewCount={pendingReviewCount}
           isSiteAdmin={!!(isSiteAdmin && user)}
@@ -4261,7 +4270,7 @@ export default function BadAssTasks() {
         workspace={currentWorkspace}
         showChat={showWorkspaceChat}
         isSiteAdmin={!!(isSiteAdmin && user)}
-        openTaskCount={currentWorkspaceTaskCounts.openCount}
+        openTaskCount={currentWorkspaceTaskCounts.hotListCount}
         overdueTaskCount={currentWorkspaceTaskCounts.overdueCount}
         reviewCount={pendingReviewCount}
         chatUnread={chatNavUnread && currentView !== "chat"}
