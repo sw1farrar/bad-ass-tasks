@@ -113,7 +113,7 @@ import {
   toDueDateStorage,
   applyTaskUpdateSideEffects,
 } from "@/lib/utils";
-import { defaultTaskDueDate, startOfLocalToday, isDueDateHotList, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, normalizeCalendarDateKey, parseLocalDate, toLocalDateString } from "@/lib/datetime";
+import { defaultTaskDueDate, startOfLocalToday, isHotListTask, isDueDateOnOrBefore, isDueDatePast, isDueDateToday, normalizeCalendarDateKey, parseLocalDate, toLocalDateString } from "@/lib/datetime";
 
 function mapRealtimeExceptionDates(
   exceptionDates: string[] | null | undefined,
@@ -538,7 +538,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
     /** @deprecated Migrated to statusMode + recurrenceMode on rehydrate */
     recurring?: "all" | "incomplete" | "only" | "none" | "completed";
     starred?: TasksStarredFilterMode;
-    /** Past due, due today, or due tomorrow */
+    /** Past due, due today, due tomorrow, or starred */
     hotList?: TasksHotListFilterMode;
     folderFilter?: TasksFolderFilterMode;
   };
@@ -1511,7 +1511,7 @@ export const useTaskStore = create<TaskState>()(
           const existingIds = new Set(reset ? [] : state.taskListPage.rows.map((t) => t.id));
           const incoming = result.rows.filter((t) => {
             if (existingIds.has(t.id)) return false;
-            if (hotList === "only") return !!t.dueDate && isDueDateHotList(t.dueDate);
+            if (hotList === "only") return isHotListTask(t);
             return true;
           });
           const rows = reset ? incoming : [...state.taskListPage.rows, ...incoming];
@@ -1719,7 +1719,7 @@ export const useTaskStore = create<TaskState>()(
         }
 
         if (taskFilter.hotList === "only") {
-          result = result.filter((t) => !!t.dueDate && isDueDateHotList(t.dueDate));
+          result = result.filter((t) => isHotListTask(t));
         }
 
         const folderSelection = normalizeFolderFilter(taskFilter.folderFilter);

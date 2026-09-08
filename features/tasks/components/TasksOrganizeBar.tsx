@@ -205,7 +205,7 @@ export function TasksOrganizeBar({
               }
               aria-pressed={hotListFilter === "only"}
               aria-label="Hot list"
-              title="Past due, today, or tomorrow"
+              title="Past due, today, tomorrow, or starred"
               className={cn(
                 chipClass(hotListFilter === "only"),
                 "tasks-folder-chip--icon justify-center px-1.5",

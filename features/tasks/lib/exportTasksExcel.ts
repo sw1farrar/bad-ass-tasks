@@ -5,7 +5,7 @@ import type { Task, TaskFolder, TaskCommentSummary } from "@/types";
 import type { TasksStatusFilterMode } from "@/features/tasks/components/TasksStatusFilter";
 import type { TasksRecurrenceFilterMode } from "@/features/tasks/components/TasksRecurrenceFilter";
 import type { TasksHotListFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
-import { isDueDateHotList } from "@/lib/datetime";
+import { isHotListTask } from "@/lib/datetime";
 import {
   normalizeFolderFilter,
   taskMatchesFolderFilter,
@@ -66,7 +66,7 @@ export function filterTasksForExport(
   }
 
   if (filters.hotList === "only") {
-    result = result.filter((t) => !!t.dueDate && isDueDateHotList(t.dueDate));
+    result = result.filter((t) => isHotListTask(t));
   }
 
   const folderSelection = normalizeFolderFilter(filters.folderFilter);

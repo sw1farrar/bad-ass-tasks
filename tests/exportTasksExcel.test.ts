@@ -85,6 +85,7 @@ describe("filterTasksForExport", () => {
       makeTask({ id: "tomorrow", dueDate: toDueDateStorage(addDays(today, 1)) }),
       makeTask({ id: "later", dueDate: toDueDateStorage(addDays(today, 4)) }),
       makeTask({ id: "undated" }),
+      makeTask({ id: "starred", starred: true }),
     ];
     const result = filterTasksForExport(
       dated,
@@ -93,7 +94,7 @@ describe("filterTasksForExport", () => {
         hotList: "only",
       }),
     );
-    expect(result.map((t) => t.id)).toEqual(["overdue", "today", "tomorrow"]);
+    expect(result.map((t) => t.id)).toEqual(["overdue", "today", "tomorrow", "starred"]);
   });
 });
 

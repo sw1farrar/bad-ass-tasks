@@ -125,7 +125,7 @@ function ExportBody({
               }
               aria-pressed={filters.hotList === "only"}
               aria-label="Hot list"
-              title="Past due, today, or tomorrow"
+              title="Past due, today, tomorrow, or starred"
               className={cn(
                 folderChipClass(filters.hotList === "only"),
                 "justify-center px-2",

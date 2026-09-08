@@ -123,14 +123,15 @@ describe("workspaceNavCounts", () => {
         task({ id: "tomorrow", workspaceId: "ws-1", dueDate: toDueDateStorage(addDays(today, 1)) }),
         task({ id: "later", workspaceId: "ws-1", dueDate: toDueDateStorage(addDays(today, 5)) }),
         task({ id: "undated", workspaceId: "ws-1" }),
+        task({ id: "starred", workspaceId: "ws-1", starred: true }),
         task({ id: "done", workspaceId: "ws-1", status: "done", dueDate: toDueDateStorage(today) }),
       ],
       globalTodayFocus: [],
       globalOpenTaskFocus: [],
     });
-    expect(counts.openCount).toBe(5);
+    expect(counts.openCount).toBe(6);
     expect(counts.overdueCount).toBe(1);
-    expect(counts.hotListCount).toBe(3);
+    expect(counts.hotListCount).toBe(4);
   });
 
   it("counts pending review files for nav badge", () => {

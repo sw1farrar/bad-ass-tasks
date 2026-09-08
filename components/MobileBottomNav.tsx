@@ -94,7 +94,7 @@ export function MobileBottomNav({
           const label = view.shortLabel ?? view.label;
           const ariaLabel =
             view.id === "tasks" && openTaskCount > 0
-              ? `${label}, ${openTaskCount} past due, today, or tomorrow`
+              ? `${label}, ${openTaskCount} past due, today, tomorrow, or starred`
               : view.id === "notes" && reviewCount > 0
                 ? `${label}, ${reviewCount} in Review`
                 : label;

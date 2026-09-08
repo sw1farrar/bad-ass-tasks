@@ -2464,7 +2464,8 @@ function applyWorkspaceTaskListFilters(
   }
 
   if (options.hotList === "only") {
-    next = next.not("due_date", "is", null).lt("due_date", hotListDueDateExclusiveEnd());
+    const cap = hotListDueDateExclusiveEnd();
+    next = next.or(`starred.eq.true,due_date.lt.${cap}`);
   }
 
   if (options.recurrence === "only") {

@@ -23,8 +23,8 @@ export function TasksNavIndicator({
 
   const ariaLabel =
     openCount === 1
-      ? "1 task past due, today, or tomorrow"
-      : `${openCount} tasks past due, today, or tomorrow`;
+      ? "1 task past due, today, tomorrow, or starred"
+      : `${openCount} tasks past due, today, tomorrow, or starred`;
 
   if (variant === "bottom") {
     return (

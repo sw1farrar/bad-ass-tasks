@@ -502,10 +502,12 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
           { id: 'h3', status: 'todo', priority: 'P2', title: 'Tomorrow', workspaceId: 'w1', dueDate: toDueDateStorage(addDays(today, 1)) } as any,
           { id: 'h4', status: 'todo', priority: 'P2', title: 'Later', workspaceId: 'w1', dueDate: toDueDateStorage(addDays(today, 3)) } as any,
           { id: 'h5', status: 'todo', priority: 'P2', title: 'No date', workspaceId: 'w1' } as any,
+          { id: 'h6', status: 'todo', priority: 'P2', title: 'Starred later', workspaceId: 'w1', dueDate: toDueDateStorage(addDays(today, 8)), starred: true } as any,
+          { id: 'h7', status: 'todo', priority: 'P2', title: 'Starred undated', workspaceId: 'w1', starred: true } as any,
         ],
         taskFilter: { search: '', statusMode: 'incomplete', recurrenceMode: 'all', starred: 'all', hotList: 'only', folderFilter: 'all' },
       });
-      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id).sort()).toEqual(['h1', 'h2', 'h3']);
+      expect(useTaskStore.getState().getFilteredTasks().map((t) => t.id).sort()).toEqual(['h1', 'h2', 'h3', 'h6', 'h7']);
     });
 
     it('toggleTaskStarred + task folders CRUD (demo)', async () => {

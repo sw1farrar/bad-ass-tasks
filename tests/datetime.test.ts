@@ -6,6 +6,7 @@ import {
   isDueDateHotList,
   isDueDateToday,
   isDueDateTomorrow,
+  isHotListTask,
   parseLocalDate,
   safeFormatDate,
   safeFormatTimestampIso,
@@ -59,5 +60,14 @@ describe("datetime safety helpers", () => {
     expect(isDueDateHotList(toDueDateStorage(today), today)).toBe(true);
     expect(isDueDateHotList(toDueDateStorage(addDays(today, 1)), today)).toBe(true);
     expect(isDueDateHotList(toDueDateStorage(addDays(today, 2)), today)).toBe(false);
+  });
+
+  it("isHotListTask includes starred tasks outside the due window", () => {
+    const today = startOfLocalToday();
+    expect(isHotListTask({ starred: true })).toBe(true);
+    expect(isHotListTask({ starred: true, dueDate: toDueDateStorage(addDays(today, 10)) }, today)).toBe(true);
+    expect(isHotListTask({ starred: false, dueDate: toDueDateStorage(today) }, today)).toBe(true);
+    expect(isHotListTask({ starred: false, dueDate: toDueDateStorage(addDays(today, 10)) }, today)).toBe(false);
+    expect(isHotListTask({ starred: false })).toBe(false);
   });
 });

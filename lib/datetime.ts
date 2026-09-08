@@ -113,13 +113,22 @@ export function isDueDateTomorrow(dueDateIso: string, reference: Date = startOfL
   return due.getTime() === addDays(reference, 1).getTime();
 }
 
-/** Past due, due today, or due tomorrow — the Tasks hot-list window. */
+/** Past due, due today, or due tomorrow — the Tasks hot-list due window. */
 export function isDueDateHotList(dueDateIso: string, reference: Date = startOfLocalToday()): boolean {
   return (
     isDueDatePast(dueDateIso, reference) ||
     isDueDateToday(dueDateIso, reference) ||
     isDueDateTomorrow(dueDateIso, reference)
   );
+}
+
+/** Hot list: starred, or due in the past / today / tomorrow. */
+export function isHotListTask(
+  task: { dueDate?: string | null; starred?: boolean },
+  reference: Date = startOfLocalToday(),
+): boolean {
+  if (task.starred) return true;
+  return !!task.dueDate && isDueDateHotList(task.dueDate, reference);
 }
 
 /** Exclusive ISO upper bound for hot-list due dates (start of the day after tomorrow). */
