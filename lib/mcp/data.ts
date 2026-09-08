@@ -30,7 +30,7 @@ export type McpWhoami = {
 const TASK_STATUSES: TaskStatus[] = ["backlog", "todo", "doing", "done"];
 const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
 
-function admin() {
+export function admin() {
   if (!isSupabaseAdminConfigured()) {
     throw new McpToolError("Badazz Tasks is not connected to live data.");
   }
@@ -43,17 +43,27 @@ function isUuid(value: string): boolean {
   );
 }
 
-function clampLimit(limit: number | undefined, fallback = 25, max = 50): number {
-  if (typeof limit !== "number" || !Number.isFinite(limit)) return fallback;
-  return Math.min(max, Math.max(1, Math.floor(limit)));
-}
-
-function requireId(value: string | undefined, label: string): string {
+export function requireId(value: string | undefined, label: string): string {
   const id = value?.trim() ?? "";
   if (!isUuid(id)) {
     throw new McpToolError(`${label} must be a valid id.`);
   }
   return id;
+}
+
+/** undefined = omit; null/empty = clear; otherwise a UUID. */
+export function optionalUuid(
+  value: string | undefined | null,
+  label: string,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || (typeof value === "string" && value.trim() === "")) return null;
+  return requireId(String(value), label);
+}
+
+export function clampLimit(limit: number | undefined, fallback = 25, max = 50): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return fallback;
+  return Math.min(max, Math.max(1, Math.floor(limit)));
 }
 
 function parseStatus(value: string | undefined, fallback: TaskStatus): TaskStatus {
@@ -218,7 +228,10 @@ export async function resolveWorkspace(
   return (owned[0] ?? workspaces[0]) as McpWorkspace;
 }
 
-async function requireWorkspaceMember(userId: string, workspaceId: string): Promise<McpWorkspace> {
+export async function requireWorkspaceMember(
+  userId: string,
+  workspaceId: string,
+): Promise<McpWorkspace> {
   return resolveWorkspace(userId, workspaceId);
 }
 
@@ -233,6 +246,11 @@ function mapTask(row: Record<string, unknown>) {
     due_date: (row.due_date as string | null) ?? null,
     tags: Array.isArray(row.tags) ? row.tags : [],
     starred: Boolean(row.starred),
+    folder_id: row.folder_id ? String(row.folder_id) : null,
+    parent_task_id: row.parent_task_id ? String(row.parent_task_id) : null,
+    assignee_ids: Array.isArray(row.assignee_ids) ? row.assignee_ids : [],
+    recurring_rule: typeof row.recurring_rule === "string" ? row.recurring_rule : null,
+    linked_note_ids: Array.isArray(row.linked_note_ids) ? row.linked_note_ids : [],
     created_at: row.created_at ? String(row.created_at) : "",
     updated_at: row.updated_at ? String(row.updated_at) : null,
     completed_at: row.completed_at ? String(row.completed_at) : null,
@@ -246,6 +264,8 @@ export async function listTasks(
     status?: string;
     query?: string;
     limit?: number;
+    folder_id?: string | null;
+    starred?: boolean;
   },
 ) {
   const workspace = await resolveWorkspace(userId, input.workspace_id);
@@ -253,7 +273,7 @@ export async function listTasks(
   let query = supabase
     .from("tasks")
     .select(
-      "id, workspace_id, title, description, status, priority, due_date, tags, created_at, updated_at, completed_at",
+      "id, workspace_id, title, description, status, priority, due_date, tags, starred, folder_id, parent_task_id, assignee_ids, recurring_rule, linked_note_ids, created_at, updated_at, completed_at",
     )
     .eq("workspace_id", workspace.id)
     .order("created_at", { ascending: false })
@@ -264,6 +284,13 @@ export async function listTasks(
   }
   if (input.query?.trim()) {
     query = query.ilike("title", `%${input.query.trim()}%`);
+  }
+  if (input.starred === true) {
+    query = query.eq("starred", true);
+  }
+  if (input.folder_id !== undefined) {
+    const folderId = optionalUuid(input.folder_id, "folder_id");
+    query = folderId ? query.eq("folder_id", folderId) : query.is("folder_id", null);
   }
 
   const { data, error } = await query;
@@ -295,13 +322,18 @@ export async function createTask(
     priority?: string;
     due_date?: string;
     tags?: string[];
+    starred?: boolean;
+    folder_id?: string | null;
+    parent_task_id?: string | null;
+    assignee_ids?: string[];
+    recurring_rule?: string | null;
   },
 ) {
   const title = input.title?.trim();
   if (!title) throw new McpToolError("title is required.");
   const workspace = await resolveWorkspace(userId, input.workspace_id);
   const supabase = admin();
-  const payload = {
+  const payload: Record<string, unknown> = {
     workspace_id: workspace.id,
     title,
     description: input.description?.trim() || null,
@@ -310,10 +342,31 @@ export async function createTask(
     due_date: normalizeDueDate(input.due_date) ?? null,
     tags: normalizeTags(input.tags, "from-grok"),
     linked_note_ids: [] as string[],
-    assignee_ids: [] as string[],
+    assignee_ids: (input.assignee_ids ?? []).filter((id) => isUuid(id)),
     created_by: userId,
+    starred: input.starred === true,
+    folder_id: optionalUuid(input.folder_id ?? undefined, "folder_id") ?? null,
+    parent_task_id: optionalUuid(input.parent_task_id ?? undefined, "parent_task_id") ?? null,
+    recurring_rule: input.recurring_rule?.trim() || null,
   };
-  const { data, error } = await (supabase.from("tasks") as any).insert(payload).select("*").single();
+  let { data, error } = await (supabase.from("tasks") as any).insert(payload).select("*").single();
+  if (error) {
+    const fallback = {
+      workspace_id: workspace.id,
+      title,
+      description: payload.description,
+      status: payload.status,
+      priority: payload.priority,
+      due_date: payload.due_date,
+      tags: payload.tags,
+      linked_note_ids: [],
+      assignee_ids: payload.assignee_ids,
+      created_by: userId,
+    };
+    const retry = await (supabase.from("tasks") as any).insert(fallback).select("*").single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error || !data) {
     throw new McpToolError("Could not create the task.");
   }
@@ -331,6 +384,11 @@ export async function updateTask(
     due_date?: string | null;
     tags?: string[];
     starred?: boolean;
+    folder_id?: string | null;
+    parent_task_id?: string | null;
+    assignee_ids?: string[];
+    recurring_rule?: string | null;
+    linked_note_ids?: string[];
   },
 ) {
   const existing = await getTask(userId, input.task_id);
@@ -352,6 +410,19 @@ export async function updateTask(
   if (input.due_date !== undefined) payload.due_date = normalizeDueDate(input.due_date);
   if (input.tags !== undefined) payload.tags = normalizeTags(input.tags);
   if (input.starred !== undefined) payload.starred = input.starred;
+  if (input.folder_id !== undefined) payload.folder_id = optionalUuid(input.folder_id, "folder_id");
+  if (input.parent_task_id !== undefined) {
+    payload.parent_task_id = optionalUuid(input.parent_task_id, "parent_task_id");
+  }
+  if (input.assignee_ids !== undefined) {
+    payload.assignee_ids = input.assignee_ids.filter((id) => isUuid(id));
+  }
+  if (input.recurring_rule !== undefined) {
+    payload.recurring_rule = input.recurring_rule?.trim() || null;
+  }
+  if (input.linked_note_ids !== undefined) {
+    payload.linked_note_ids = input.linked_note_ids.filter((id) => isUuid(id));
+  }
 
   if (Object.keys(payload).length === 0) return existing;
 
@@ -387,25 +458,43 @@ function mapNote(row: Record<string, unknown>, includeBody: boolean) {
     updated_at: row.updated_at ? String(row.updated_at) : "",
     created_at: row.created_at ? String(row.created_at) : "",
     notebook_id: row.notebook_id ? String(row.notebook_id) : null,
+    is_archived: Boolean(row.is_archived),
+    bookmarked: Boolean(row.bookmarked),
+    review_status: row.review_status ? String(row.review_status) : null,
+    record_type: row.record_type ? String(row.record_type) : null,
     ...(includeBody ? { content: content?.slice(0, 8000) ?? "" } : {}),
   };
 }
 
 export async function listNotes(
   userId: string,
-  input: { workspace_id?: string; query?: string; limit?: number },
+  input: {
+    workspace_id?: string;
+    query?: string;
+    limit?: number;
+    notebook_id?: string | null;
+    include_archived?: boolean;
+  },
 ) {
   const workspace = await resolveWorkspace(userId, input.workspace_id);
   const supabase = admin();
   let query = supabase
     .from("notes")
-    .select("id, workspace_id, title, tags, created_at, updated_at, notebook_id, is_archived")
+    .select(
+      "id, workspace_id, title, tags, created_at, updated_at, notebook_id, is_archived, bookmarked, review_status, record_type",
+    )
     .eq("workspace_id", workspace.id)
-    .eq("is_archived", false)
     .order("updated_at", { ascending: false })
     .limit(clampLimit(input.limit));
+  if (!input.include_archived) {
+    query = query.eq("is_archived", false);
+  }
   if (input.query?.trim()) {
     query = query.ilike("title", `%${input.query.trim()}%`);
+  }
+  if (input.notebook_id !== undefined) {
+    const notebookId = optionalUuid(input.notebook_id, "notebook_id");
+    query = notebookId ? query.eq("notebook_id", notebookId) : query.is("notebook_id", null);
   }
   const { data, error } = await query;
   if (error) throw new McpToolError("Could not list notes.");
@@ -428,7 +517,13 @@ export async function getNote(userId: string, noteId: string) {
 
 export async function createNote(
   userId: string,
-  input: { title: string; content?: string; workspace_id?: string; tags?: string[] },
+  input: {
+    title: string;
+    content?: string;
+    workspace_id?: string;
+    tags?: string[];
+    notebook_id?: string | null;
+  },
 ) {
   const title = input.title?.trim();
   if (!title) throw new McpToolError("title is required.");
@@ -450,6 +545,7 @@ export async function createNote(
     filed_at: new Date().toISOString(),
     search_plain: searchPlain,
     search_document: buildSearchDocument({ title, content: contentText, tags }),
+    notebook_id: optionalUuid(input.notebook_id ?? undefined, "notebook_id") ?? null,
   };
   let { data, error } = await (supabase.from("notes") as any).insert(payload).select("*").single();
   if (error) {
@@ -471,7 +567,15 @@ export async function createNote(
 
 export async function updateNote(
   userId: string,
-  input: { note_id: string; title?: string; content?: string; tags?: string[] },
+  input: {
+    note_id: string;
+    title?: string;
+    content?: string;
+    tags?: string[];
+    notebook_id?: string | null;
+    archived?: boolean;
+    bookmarked?: boolean;
+  },
 ) {
   const existing = await getNote(userId, input.note_id);
   const payload: Record<string, unknown> = {};
@@ -485,6 +589,11 @@ export async function updateNote(
     payload.search_plain = [payload.title ?? existing.title, input.content].join(" ");
   }
   if (input.tags !== undefined) payload.tags = normalizeTags(input.tags);
+  if (input.notebook_id !== undefined) {
+    payload.notebook_id = optionalUuid(input.notebook_id, "notebook_id");
+  }
+  if (input.archived !== undefined) payload.is_archived = input.archived;
+  if (input.bookmarked !== undefined) payload.bookmarked = input.bookmarked;
   if (Object.keys(payload).length === 0) return existing;
 
   const supabase = admin();
@@ -502,7 +611,7 @@ export async function listLists(userId: string, workspaceId?: string) {
   const supabase = admin();
   const { data, error } = await supabase
     .from("workspace_lists")
-    .select("id, workspace_id, title, archived, pinned, updated_at")
+    .select("id, workspace_id, title, color, archived, pinned, updated_at")
     .eq("workspace_id", workspace.id)
     .eq("archived", false)
     .order("sort_order", { ascending: true });
@@ -526,7 +635,7 @@ export async function listListItems(userId: string, listId: string) {
   const workspace = await requireWorkspaceMember(userId, String((list as { workspace_id: string }).workspace_id));
   const { data, error } = await supabase
     .from("list_items")
-    .select("id, list_id, text, completed, sort_order, parent_item_id")
+    .select("id, list_id, text, completed, pending, sort_order, parent_item_id, completed_at")
     .eq("list_id", id)
     .eq("workspace_id", workspace.id)
     .order("sort_order", { ascending: true });
@@ -539,23 +648,34 @@ export async function listListItems(userId: string, listId: string) {
 
 export async function addListItem(
   userId: string,
-  input: { list_id: string; text: string },
+  input: { list_id: string; text: string; parent_item_id?: string | null },
 ) {
   const text = input.text?.trim();
   if (!text) throw new McpToolError("text is required.");
   const list = await listListItems(userId, input.list_id);
   const supabase = admin();
   const nextOrder = list.items.length;
-  const { data, error } = await (supabase.from("list_items") as any)
-    .insert({
-      list_id: list.list.id,
-      workspace_id: list.list.workspace_id,
-      text,
-      sort_order: nextOrder,
-      completed: false,
-    })
-    .select("id, list_id, text, completed, sort_order")
+  const payload: Record<string, unknown> = {
+    list_id: list.list.id,
+    workspace_id: list.list.workspace_id,
+    text,
+    sort_order: nextOrder,
+    completed: false,
+    parent_item_id: optionalUuid(input.parent_item_id ?? undefined, "parent_item_id") ?? null,
+  };
+  let { data, error } = await (supabase.from("list_items") as any)
+    .insert(payload)
+    .select("id, list_id, text, completed, pending, sort_order, parent_item_id")
     .single();
+  if (error) {
+    const { parent_item_id: _parent, ...fallback } = payload;
+    const retry = await (supabase.from("list_items") as any)
+      .insert(fallback)
+      .select("id, list_id, text, completed, sort_order")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error || !data) throw new McpToolError("Could not add the list item.");
   return data;
 }

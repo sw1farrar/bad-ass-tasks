@@ -22,8 +22,8 @@ describe("mcp protocol", () => {
     );
     expect(response?.result).toMatchObject({
       protocolVersion: "2025-03-26",
-      serverInfo: { name: "badazz-tasks" },
-      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "badazz-tasks", version: "0.2.0" },
+      capabilities: { tools: { listChanged: true } },
     });
   });
 
@@ -33,17 +33,30 @@ describe("mcp protocol", () => {
       expect.arrayContaining([
         "whoami",
         "list_workspaces",
+        "list_members",
+        "search_workspace",
         "list_tasks",
         "create_task",
         "update_task",
         "complete_task",
         "delete_task",
+        "create_task_folder",
         "create_note",
         "update_note",
+        "delete_note",
+        "create_notebook",
+        "create_list",
         "add_list_item",
+        "update_list_item",
         "complete_list_item",
+        "create_meeting",
+        "add_agenda_item",
+        "log_health_reading",
+        "create_store",
       ]),
     );
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.length).toBeGreaterThan(40);
   });
 
   it("returns an error result for unknown tools", async () => {

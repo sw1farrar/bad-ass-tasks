@@ -40,5 +40,5 @@ export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export const MCP_SERVER_NAME = "badazz-tasks";
-export const MCP_SERVER_VERSION = "0.1.0";
+export const MCP_SERVER_VERSION = "0.2.0";
 export const MCP_RESOURCE_NAME = "Badazz Tasks";
