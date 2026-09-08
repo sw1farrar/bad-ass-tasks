@@ -1,11 +1,13 @@
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { getRecurringLabel } from "@/lib/utils";
-import type { Task, TaskFolder, TaskCommentSummary } from "@/types";
+import type { Note, Task, TaskFolder, TaskCommentSummary } from "@/types";
 import type { TasksStatusFilterMode } from "@/features/tasks/components/TasksStatusFilter";
 import type { TasksRecurrenceFilterMode } from "@/features/tasks/components/TasksRecurrenceFilter";
 import type { TasksHotListFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
 import { isHotListTask } from "@/lib/datetime";
+import { getTaskPriorityLabel } from "@/features/tasks/lib/taskTableMeta";
+import { getTaskLinkedFileNotes } from "@/features/tasks/lib/taskLinkedFiles";
 import {
   normalizeFolderFilter,
   taskMatchesFolderFilter,
@@ -102,72 +104,117 @@ function statusLabel(status: Task["status"]): string {
 }
 
 export type TasksExportRow = {
-  Important: string;
+  Id: string;
   Title: string;
+  Notes: string;
   Status: string;
+  Priority: string;
+  Important: string;
   Folder: string;
   Due: string;
+  Created: string;
+  Completed: string;
   Repeat: string;
-  Notes: string;
-  Comments: number;
+  "Repeat rule": string;
+  "Skipped dates": string;
   Assignee: string;
+  "Assignee IDs": string;
+  Tags: string;
+  "Linked files": string;
+  Comments: number;
+  "Time estimate": string | number;
+  "Parent task": string;
+  Notebook: string;
 };
+
+function joinList(values?: string[] | null): string {
+  return (values ?? []).filter(Boolean).join("; ");
+}
+
+function linkedFilesLabel(task: Task, notes: Note[]): string {
+  const linked = getTaskLinkedFileNotes(task, notes);
+  const foundIds = new Set(linked.map((n) => n.id));
+  const titles = linked.map((n) => n.title?.trim() || n.id);
+  const missing = (task.linkedNoteIds ?? []).filter((id) => !foundIds.has(id));
+  return [...titles, ...missing].join("; ");
+}
 
 export function buildTasksExportRows(
   tasks: Task[],
   folders: TaskFolder[],
   commentSummaries: Record<string, TaskCommentSummary>,
-  options?: { includeAssignee?: boolean },
+  options?: { includeAssignee?: boolean; notes?: Note[] },
 ): TasksExportRow[] {
   const includeAssignee = options?.includeAssignee ?? true;
+  const notes = options?.notes ?? [];
   return tasks.map((task) => {
     const row: TasksExportRow = {
-      Important: task.starred ? "Yes" : "",
+      Id: task.id,
       Title: task.title,
+      Notes: task.description?.trim() ?? "",
       Status: statusLabel(task.status),
+      Priority: getTaskPriorityLabel(task.priority),
+      Important: task.starred ? "Yes" : "",
       Folder: folderName(folders, task.folderId),
       Due: task.dueDate ? task.dueDate.slice(0, 10) : "",
+      Created: task.createdAt || "",
+      Completed: task.completedAt || "",
       Repeat: task.recurringRule ? getRecurringLabel(task.recurringRule) : "",
-      Notes: task.description?.trim() ?? "",
-      Comments: commentSummaries[task.id]?.count ?? 0,
+      "Repeat rule": task.recurringRule ?? "",
+      "Skipped dates": joinList(task.exceptionDates),
       Assignee: includeAssignee ? task.assignee || "Anyone" : "",
+      "Assignee IDs": includeAssignee ? joinList(task.assigneeIds) : "",
+      Tags: joinList(task.tags),
+      "Linked files": linkedFilesLabel(task, notes),
+      Comments: commentSummaries[task.id]?.count ?? 0,
+      "Time estimate": task.timeEstimate ?? "",
+      "Parent task": task.parentTaskId ?? "",
+      Notebook: task.notebookName ?? "",
     };
     return row;
   });
 }
+
+const EXPORT_COLUMNS: { key: keyof TasksExportRow; wch: number; assigneeOnly?: boolean }[] = [
+  { key: "Id", wch: 18 },
+  { key: "Title", wch: 40 },
+  { key: "Notes", wch: 40 },
+  { key: "Status", wch: 12 },
+  { key: "Priority", wch: 10 },
+  { key: "Important", wch: 10 },
+  { key: "Folder", wch: 18 },
+  { key: "Due", wch: 12 },
+  { key: "Created", wch: 22 },
+  { key: "Completed", wch: 22 },
+  { key: "Repeat", wch: 22 },
+  { key: "Repeat rule", wch: 28 },
+  { key: "Skipped dates", wch: 22 },
+  { key: "Assignee", wch: 18, assigneeOnly: true },
+  { key: "Assignee IDs", wch: 22, assigneeOnly: true },
+  { key: "Tags", wch: 20 },
+  { key: "Linked files", wch: 28 },
+  { key: "Comments", wch: 10 },
+  { key: "Time estimate", wch: 14 },
+  { key: "Parent task", wch: 18 },
+  { key: "Notebook", wch: 18 },
+];
 
 export function downloadTasksExcel(
   rows: TasksExportRow[],
   options?: { workspaceName?: string; includeAssignee?: boolean },
 ): void {
   const includeAssignee = options?.includeAssignee ?? true;
+  const columns = EXPORT_COLUMNS.filter((col) => includeAssignee || !col.assigneeOnly);
   const sheetRows = rows.map((row) => {
-    const out: Record<string, string | number> = {
-      Important: row.Important,
-      Title: row.Title,
-      Status: row.Status,
-      Folder: row.Folder,
-      Due: row.Due,
-      Repeat: row.Repeat,
-      Notes: row.Notes,
-      Comments: row.Comments,
-    };
-    if (includeAssignee) out.Assignee = row.Assignee;
+    const out: Record<string, string | number> = {};
+    for (const col of columns) {
+      out[col.key] = row[col.key];
+    }
     return out;
   });
 
   const worksheet = XLSX.utils.json_to_sheet(sheetRows);
-  worksheet["!cols"] = [
-    { wch: 10 },
-    { wch: 40 },
-    { wch: 12 },
-    { wch: 18 },
-    { wch: 12 },
-    { wch: 18 },
-    { wch: 40 },
-    { wch: 10 },
-    ...(includeAssignee ? [{ wch: 18 }] : []),
-  ];
+  worksheet["!cols"] = columns.map((col) => ({ wch: col.wch }));
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Tasks");

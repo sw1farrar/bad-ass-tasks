@@ -6468,7 +6468,7 @@ export async function getWorkspaceStats(workspaceId: string): Promise<WorkspaceS
 export async function exportWorkspaceData(workspaceId: string, workspaceMeta: { name: string; slug: string }) {
   if (!isSupabaseLive() || ["w1", "w2"].includes(workspaceId)) return null;
   const [tasks, notes, members, activity] = await Promise.all([
-    getTasks(workspaceId),
+    getTasks(workspaceId, { includeCompleted: true }),
     getNotesFull(workspaceId),
     getWorkspaceMembers(workspaceId),
     getRecentActivity(workspaceId, 500),

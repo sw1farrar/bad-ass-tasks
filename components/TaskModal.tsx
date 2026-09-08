@@ -298,7 +298,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
   const { 
     updateTask, deleteTask, taskLoadingStates, 
     comments, isLoadingComments, fetchComments, addComment, updateComment, deleteComment, markTaskCommentsRead, addTask,
-    activeConflicts, resolveConflict, members,
+    members,
     liveEditing, broadcastLiveTaskEdit, user,
     setView, setFilesSelectNoteId,
   } = useTaskStore();
@@ -319,6 +319,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     () => typeof window !== "undefined" && window.innerWidth < 768,
   );
   const mobileTitleRef = useRef<HTMLTextAreaElement>(null);
+  const mobileNotesRef = useRef<HTMLTextAreaElement>(null);
   const taskScrollRef = useRef<HTMLDivElement>(null);
   const taskPanelRef = useRef<HTMLDivElement>(null);
   const taskHeaderRef = useRef<HTMLDivElement>(null);
@@ -331,6 +332,13 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  const resizeMobileNotes = useCallback(() => {
+    const el = mobileNotesRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(el.scrollHeight, 120)}px`;
   }, []);
 
   // State for the modern delete confirmation modal (house-cleaning item)
@@ -428,6 +436,11 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     if (!isOpen || !isMobile) return;
     requestAnimationFrame(resizeMobileTitle);
   }, [isOpen, isMobile, localTask.title, resizeMobileTitle]);
+
+  useEffect(() => {
+    if (!isOpen || !isMobile) return;
+    requestAnimationFrame(resizeMobileNotes);
+  }, [isOpen, isMobile, localTask.description, resizeMobileNotes]);
 
   const taskComments = [...comments]
     .filter((c: { taskId?: string }) => c.taskId === task.id)
@@ -805,20 +818,17 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
             </div>
           )}
 
-          {activeConflicts && activeConflicts[localTask.id] && (
-            <div className="glass px-3 py-2 rounded-xl border border-amber-500/40 text-amber-400 text-xs flex flex-wrap items-center gap-2">
-              <span>Conflict with {activeConflicts[localTask.id].remoteUser || "teammate"}</span>
-              <button onClick={() => resolveConflict(localTask.id, false)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Theirs</button>
-              <button onClick={() => resolveConflict(localTask.id, true)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Mine</button>
-            </div>
-          )}
-
           <textarea
+            ref={mobileNotesRef}
             value={localTask.description}
-            onChange={(e) => save({ description: e.target.value })}
+            onChange={(e) => {
+              save({ description: e.target.value });
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.max(e.target.scrollHeight, 120)}px`;
+            }}
             placeholder="Add notes…"
-            className="input w-full min-h-[64px] max-h-[120px] p-3 text-sm resize-y outline-none"
-            rows={2}
+            className="input w-full min-h-[120px] p-3 text-sm resize-none overflow-hidden outline-none"
+            rows={4}
           />
 
           <div className="grid grid-cols-1 gap-3">
@@ -924,42 +934,35 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
         ) : (
         <div className="p-5 flex flex-col gap-5 min-h-0 h-full">
           <div className="flex flex-col lg:flex-row gap-5 min-h-0 flex-1 overflow-hidden">
-          <div className="flex-1 min-w-0 min-h-0 overflow-y-auto space-y-4 pr-0.5">
+          <div className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col gap-4 pr-0.5">
             <input
               value={localTask.title}
               onChange={(e) => save({ title: e.target.value })}
               onFocus={(e) => e.currentTarget.select()}
               className={cn(
-                "w-full min-w-0 bg-transparent text-2xl font-semibold tracking-tight outline-none",
+                "w-full min-w-0 shrink-0 bg-transparent text-2xl font-semibold tracking-tight outline-none",
                 localTask.status === "done" && "line-through text-text-muted",
               )}
               aria-label="Task title"
             />
 
             {liveEditing?.[localTask.id] && liveEditing[localTask.id].userId !== (user?.id || "me") && (
-              <div className="text-[10px] text-emerald-400/80 flex items-center gap-1.5 -mt-2">
+              <div className="text-[10px] text-emerald-400/80 flex items-center gap-1.5 -mt-2 shrink-0">
                 <span className="inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                 {liveEditing[localTask.id].email?.split("@")[0] || "Someone"} is typing…
               </div>
             )}
 
-            {activeConflicts && activeConflicts[localTask.id] && (
-              <div className="glass px-3 py-2 rounded-xl border border-amber-500/40 text-amber-400 text-xs flex flex-wrap items-center gap-2">
-                <span>Edited by {activeConflicts[localTask.id].remoteUser || "teammate"}</span>
-                <button onClick={() => resolveConflict(localTask.id, false)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Theirs</button>
-                <button onClick={() => resolveConflict(localTask.id, true)} className="px-2 py-0.5 bg-surface-hover rounded text-[10px]">Mine</button>
-              </div>
-            )}
+            <div className="flex-1 min-h-0 flex flex-col">
+              <textarea
+                value={localTask.description}
+                onChange={(e) => save({ description: e.target.value })}
+                placeholder="Add notes…"
+                className="input w-full h-full min-h-[64px] p-3 text-sm overflow-y-auto resize-none outline-none"
+              />
+            </div>
 
-            <textarea
-              value={localTask.description}
-              onChange={(e) => save({ description: e.target.value })}
-              placeholder="Add notes…"
-              className="input w-full min-h-[64px] max-h-[120px] p-3 text-sm resize-y outline-none"
-              rows={2}
-            />
-
-            <div className="pt-3 border-t border-border-glass space-y-2">
+            <div className="shrink-0 pt-3 border-t border-border-glass space-y-2">
               <div className="flex items-center gap-2 text-xs font-medium text-text-secondary">
                 <MessageSquare className="h-3.5 w-3.5" />
                 Comments

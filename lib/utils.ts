@@ -844,36 +844,62 @@ export function downloadFile(filename: string, content: string, mimeType = "text
   URL.revokeObjectURL(url);
 }
 
+const TASK_CSV_HEADERS = [
+  "id",
+  "title",
+  "description",
+  "status",
+  "priority",
+  "dueDate",
+  "createdAt",
+  "completedAt",
+  "starred",
+  "folderId",
+  "assignee",
+  "assigneeIds",
+  "tags",
+  "recurringRule",
+  "exceptionDates",
+  "linkedNoteIds",
+  "timeEstimate",
+  "parentTaskId",
+  "notebookId",
+  "notebookName",
+] as const;
+
 /** Tasks → CSV (headers + rows, quote-safe for Excel/Google Sheets). */
 export function tasksToCSV(tasks: Task[]): string {
+  const safe = (s?: string | number | boolean | null) =>
+    `"${String(s ?? "").replace(/"/g, '""').replace(/\n/g, " ")}"`;
+  const list = (values?: string[] | null) => `"${(values || []).join(";")}"`;
+  const headers = [...TASK_CSV_HEADERS];
   if (tasks.length === 0) {
-    return "id,title,status,priority,dueDate,tags,recurringRule,exceptionDates,description\n";
+    return `${headers.join(",")}\n`;
   }
-  const headers = [
-    "id",
-    "title",
-    "status",
-    "priority",
-    "dueDate",
-    "tags",
-    "recurringRule",
-    "exceptionDates",
-    "description",
-  ];
-  const rows = tasks.map((t) => {
-    const safe = (s?: string) => `"${(s || "").replace(/"/g, '""').replace(/\n/g, " ")}"`;
-    return [
+  const rows = tasks.map((t) =>
+    [
       t.id,
       safe(t.title),
+      safe(t.description),
       t.status,
       t.priority,
       t.dueDate || "",
-      `"${(t.tags || []).join(";")}"`,
+      t.createdAt || "",
+      t.completedAt || "",
+      t.starred ? "true" : "false",
+      t.folderId || "",
+      safe(t.assignee),
+      list(t.assigneeIds),
+      list(t.tags),
       safe(t.recurringRule ?? undefined),
-      `"${(t.exceptionDates || []).join(";")}"`,
-      safe(t.description),
-    ].join(",");
-  });
+      list(t.exceptionDates),
+      list(t.linkedNoteIds),
+      t.timeEstimate ?? "",
+      t.parentTaskId || "",
+      t.notebookId || "",
+      safe(t.notebookName),
+    ].join(","),
+  );
   return [headers.join(","), ...rows].join("\n");
 }
 
@@ -936,10 +962,19 @@ export function exportToMarkdown(workspaceName: string, tasks: Task[], notes: No
   let md = `# ${workspaceName} — Export\n\n**Exported:** ${new Date().toLocaleString()}\n\n## Tasks\n\n`;
   tasks.forEach((t) => {
     const done = t.status === "done" ? "x" : " ";
-    md += `- [${done}] **${t.title}** [${t.priority}] ${t.dueDate ? `(due ${new Date(t.dueDate).toLocaleDateString()})` : ""}\n`;
+    md += `- [${done}] **${t.title}** [${t.priority}] ${t.status}${t.dueDate ? ` (due ${new Date(t.dueDate).toLocaleDateString()})` : ""}\n`;
     if (t.description) md += `  ${t.description.replace(/\n/g, "\n  ")}\n`;
+    if (t.starred) md += `  _Important:_ yes\n`;
+    if (t.assignee) md += `  _Assignee:_ ${t.assignee}\n`;
+    if (t.folderId) md += `  _Folder ID:_ ${t.folderId}\n`;
     if (t.tags?.length) md += `  _Tags:_ ${t.tags.join(", ")}\n`;
     if (t.recurringRule) md += `  _Recurring:_ ${t.recurringRule}\n`;
+    if (t.exceptionDates?.length) md += `  _Skipped:_ ${t.exceptionDates.join(", ")}\n`;
+    if (t.linkedNoteIds?.length) md += `  _Linked files:_ ${t.linkedNoteIds.join(", ")}\n`;
+    if (t.timeEstimate) md += `  _Time estimate:_ ${t.timeEstimate}\n`;
+    if (t.completedAt) md += `  _Completed:_ ${t.completedAt}\n`;
+    if (t.notebookName) md += `  _Notebook:_ ${t.notebookName}\n`;
+    if (t.parentTaskId) md += `  _Parent task:_ ${t.parentTaskId}\n`;
     md += "\n";
   });
   md += "## Notes\n\n";
@@ -1008,6 +1043,13 @@ export function parseJSONImport(jsonStr: string): { tasks: Partial<Task>[]; note
   }
 }
 
+function splitCsvList(value: string): string[] {
+  return value
+    .split(/;|,/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 /** Very basic CSV→tasks parser (matches our export format or simple title,status lists). */
 export function parseCSVToTasks(csv: string): Partial<Task>[] {
   const lines = csv.trim().split(/\r?\n/);
@@ -1018,15 +1060,30 @@ export function parseCSVToTasks(csv: string): Partial<Task>[] {
     const obj: Partial<Task> & { tags: string[] } = { tags: [] };
     headers.forEach((h, i) => {
       const v = (vals[i] || "").trim();
-      if (h.includes("title")) obj.title = v;
-      else if (h.includes("status")) obj.status = (v || "todo") as TaskStatus;
-      else if (h.includes("priority")) obj.priority = (v || "P2") as Priority;
-      else if (h.includes("due")) obj.dueDate = v || undefined;
-      else if (h.includes("tag")) obj.tags = v ? v.split(/;|,/) : [];
-      else if (h.includes("recurr")) obj.recurringRule = v || undefined;
-      else if (h.includes("exception")) {
-        obj.exceptionDates = v ? v.split(/;|,/).map((d) => d.trim()).filter(Boolean) : [];
-      } else if (h.includes("desc")) obj.description = v;
+      if (h === "id") obj.id = v || undefined;
+      else if (h === "title" || h.includes("title")) obj.title = v;
+      else if (h === "description" || h.includes("desc")) obj.description = v;
+      else if (h === "status" || h.includes("status")) obj.status = (v || "todo") as TaskStatus;
+      else if (h === "priority" || h.includes("priority")) obj.priority = (v || "P2") as Priority;
+      else if (h === "duedate" || h === "due" || (h.includes("due") && !h.includes("id"))) obj.dueDate = v || undefined;
+      else if (h === "createdat") obj.createdAt = v || undefined;
+      else if (h === "completedat") obj.completedAt = v || undefined;
+      else if (h === "starred") obj.starred = v === "true" || v === "yes" || v === "1";
+      else if (h === "folderid") obj.folderId = v || null;
+      else if (h === "assigneeids") obj.assigneeIds = v ? splitCsvList(v) : [];
+      else if (h === "assignee") obj.assignee = v || undefined;
+      else if (h === "tags" || h.includes("tag")) obj.tags = v ? splitCsvList(v) : [];
+      else if (h === "recurringrule" || h.includes("recurr")) obj.recurringRule = v || undefined;
+      else if (h === "exceptiondates" || h.includes("exception")) {
+        obj.exceptionDates = v ? splitCsvList(v) : [];
+      } else if (h === "linkednoteids") obj.linkedNoteIds = v ? splitCsvList(v) : [];
+      else if (h === "timeestimate") {
+        const n = Number(v);
+        obj.timeEstimate = v && Number.isFinite(n) ? n : undefined;
+      }
+      else if (h === "parenttaskid") obj.parentTaskId = v || null;
+      else if (h === "notebookid") obj.notebookId = v || null;
+      else if (h === "notebookname") obj.notebookName = v || undefined;
     });
     return obj.title ? (obj as Partial<Task>) : null;
   }).filter(Boolean) as Partial<Task>[];

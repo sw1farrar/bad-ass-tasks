@@ -218,6 +218,7 @@ export function TasksExportModal({ open, onOpenChange }: TasksExportModalProps) 
   const taskFolders = useTaskStore((s) => s.taskFolders);
   const taskCommentSummaries = useTaskStore((s) => s.taskCommentSummaries);
   const members = useTaskStore((s) => s.members);
+  const notes = useTaskStore((s) => s.notes);
 
   const exportFolders = useMemo(
     () =>
@@ -276,7 +277,7 @@ export function TasksExportModal({ open, onOpenChange }: TasksExportModalProps) 
         matchedTasks,
         exportFolders,
         taskCommentSummaries,
-        { includeAssignee },
+        { includeAssignee, notes },
       );
       downloadTasksExcel(rows, {
         workspaceName: currentWorkspace.name,

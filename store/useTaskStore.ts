@@ -5885,27 +5885,8 @@ export const useTaskStore = create<TaskState>()(
                 set({ tasks: [mapped, ...currentTasks] });
               }
             } else if (eventType === "UPDATE" && newRow) {
-              // Agent 30: live conflict detection for concurrent edits (if selected/editing this item right now)
-              const st = get();
-              const isSelected = st.selectedTaskId === newRow.id;
-              const isEditing = st.onlineUsers?.some(u => u.editingItemId === newRow.id && u.userId !== (st.user?.id || 'me')) || isSelected;
               const existing = currentTasks.find(t => t.id === newRow.id);
               const prevStatus = existing?.status;
-              const remotePreview = newRow.title || '';
-
-              // Live collab polish: if we have a recent liveEditing signal for this task, the lightweight broadcast is already flowing — suppress the heavier conflict banner
-              const liveEdit = st.liveEditing?.[newRow.id];
-              const hasRecentLive = liveEdit && (Date.now() - new Date(liveEdit.lastUpdatedAt).getTime() < 8000);
-
-              if (isEditing && existing && !hasRecentLive && (existing.title !== (newRow.title || '') || existing.description !== (newRow.description || ''))) {
-                // Surface conflict UI (non blocking)
-                set((s) => ({
-                  activeConflicts: {
-                    ...s.activeConflicts,
-                    [newRow.id]: { itemId: newRow.id, itemType: 'task', remoteUser: 'collaborator', remoteUpdatedAt: newRow.updated_at || new Date().toISOString(), remotePreview }
-                  }
-                }));
-              }
               const mergeRemoteTask = (t: Task): Task => {
                 const next = {
                   ...t,
@@ -6873,13 +6854,7 @@ export const useTaskStore = create<TaskState>()(
             const fakeCursor = { userId: demoUsers[0].userId, email: demoUsers[0].email, itemId: selNote.id, itemType: 'note' as const, from: 10 + (tick%40), to: 12 + (tick%40), color: getUserColor(demoUsers[0].userId) };
             set((s) => ({ remoteCursors: [fakeCursor] }));
           }
-          // Occasionally fake a conflict for polish demo (rare)
-          if (tick % 12 === 0 && stNow.selectedTaskId && get().tasks.find(t=>t.id===stNow.selectedTaskId)) {
-            // only surface if not already
-            if (!get().activeConflicts[stNow.selectedTaskId]) {
-              set((s) => ({ activeConflicts: { ...s.activeConflicts, [stNow.selectedTaskId!]: { itemId: stNow.selectedTaskId!, itemType: 'task', remoteUser: 'Alice Chen', remoteUpdatedAt: new Date().toISOString(), remotePreview: 'Updated title + desc' } } }));
-            }
-          }
+
         }, 2800); // smooth live feel, not spammy
         (get() as any)._demoPresenceTimer = timer;
         // Seed initial
