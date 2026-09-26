@@ -1773,7 +1773,7 @@ async function processPendingOperationsInner(): Promise<PendingProcessResult> {
   let synced = 0;
   let skippedConflicts = 0;
   let failed = 0;
-  let dropped = 0;
+  const dropped = 0;
 
   const remaining: PendingOperation[] = [];
 
