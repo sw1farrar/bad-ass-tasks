@@ -724,7 +724,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   refreshRecentActivity: () => Promise<void>;
 
   // Offline / sync controls (exposed for future UI status badges, manual "Sync now", etc.)
-  syncPendingWrites: () => Promise<void>;
+  syncPendingWrites: (opts?: { notify?: boolean }) => Promise<void>;
   refreshOfflineStatus: () => void;
 
   // Phase 2: Collaboration actions (members, invites, realtime wiring)
@@ -2192,9 +2192,27 @@ export const useTaskStore = create<TaskState>()(
             );
           }
 
+          const pendingNoteIds = new Set(
+            getPendingOperations()
+              .filter(
+                (op) =>
+                  op.entityType === "note" &&
+                  (op.type === "create" || op.type === "update") &&
+                  op.workspaceId === workspaceId,
+              )
+              .map((op) => op.targetId),
+          );
+          const serverNoteIds = new Set(realNotes.map((n) => n.id));
+          const localPendingNotes = get().notes.filter(
+            (n) =>
+              n.workspaceId === workspaceId &&
+              !serverNoteIds.has(n.id) &&
+              pendingNoteIds.has(n.id),
+          );
+
           set({
             tasks: enrichTasksWithAssignees(mergedTasks, members, userId),
-            notes: realNotes,
+            notes: [...localPendingNotes, ...realNotes],
             workspaceLists: nextLists,
             listItems: nextItems,
             taskFolders: [...otherWsTaskFolders, ...nextTaskFolders],
@@ -3284,9 +3302,14 @@ export const useTaskStore = create<TaskState>()(
               .filter((op) => op.entityType === "task" && op.workspaceId === workspaceId)
               .map((op) => op.targetId),
           );
-          const pendingNoteCreateIds = new Set(
+          const pendingNoteIds = new Set(
             pendingOpsNow
-              .filter((op) => op.entityType === "note" && op.type === "create")
+              .filter(
+                (op) =>
+                  op.entityType === "note" &&
+                  (op.type === "create" || op.type === "update") &&
+                  (!op.workspaceId || op.workspaceId === workspaceId),
+              )
               .map((op) => op.targetId),
           );
           const recentlyCreated = (iso?: string) => {
@@ -3357,7 +3380,7 @@ export const useTaskStore = create<TaskState>()(
               (n) =>
                 n.workspaceId === workspaceId &&
                 !remoteNoteIds.has(n.id) &&
-                (pendingNoteCreateIds.has(n.id) || recentlyCreated(n.createdAt)),
+                (pendingNoteIds.has(n.id) || recentlyCreated(n.createdAt)),
             );
             const mergedRemoteNotes = patchedNotes.map((n) =>
               mergeNoteListProjection(localNotesById.get(n.id), n),
@@ -4331,7 +4354,7 @@ export const useTaskStore = create<TaskState>()(
       // ------------------------------------------------------------------
       // Real offline/sync actions (Phase 1 mission complete)
       // ------------------------------------------------------------------
-      syncPendingWrites: async () => {
+      syncPendingWrites: async (opts) => {
         if (!isSupabaseLive()) return;
         if (get().isSyncing) return;
 
@@ -4364,13 +4387,21 @@ export const useTaskStore = create<TaskState>()(
               await get().initializeFromSupabase();
             }
             toast.success("Sync complete", {
+              id: "bat-outbox-synced",
               description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
               duration: 3200,
             });
           }
-          if (result.failed > 0) {
+          // Background retries (reconnect, tab focus, realtime resume) stay quiet.
+          // The same stuck write was toasting on every one of those.
+          if (opts?.notify && result.failed > 0) {
+            const online = getIsOnline();
             toast.warning(`${result.failed} change(s) still pending`, {
-              description: "Will retry automatically on next reconnect.",
+              id: "bat-outbox-pending",
+              description: online
+                ? "We'll keep trying in the background."
+                : "Will retry automatically when you're back online.",
+              duration: 4000,
             });
           }
         } catch (e) {

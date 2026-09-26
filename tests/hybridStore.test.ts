@@ -112,7 +112,7 @@ describe('hybridStore — M0 demo-only mock-heavy verification skeleton (guards,
 
       expect(hybrid.getPendingCount()).toBe(0);
       expect(hybrid.getPendingOperations()).toEqual([]);
-      expect(await hybrid.processPendingOperations()).toEqual({ synced: 0, skippedConflicts: 0, failed: 0 });
+      expect(await hybrid.processPendingOperations()).toEqual({ synced: 0, skippedConflicts: 0, failed: 0, dropped: 0 });
 
       expect(await hybrid.getRecentActivity(demoWs)).toEqual([]);
       expect(await hybrid.logActivity({ workspaceId: demoWs, actionType: 'test', targetType: 'task' })).toBe(false);
@@ -171,7 +171,7 @@ describe('hybridStore — M0 demo-only mock-heavy verification skeleton (guards,
 
     it('processPendingOperations (live) handles empty queue gracefully and returns zero counts', async () => {
       const result = await hybrid.processPendingOperations();
-      expect(result).toEqual({ synced: 0, skippedConflicts: 0, failed: 0 });
+      expect(result).toEqual({ synced: 0, skippedConflicts: 0, failed: 0, dropped: 0 });
       expect(mockClient.from).not.toHaveBeenCalled(); // early return on empty
     });
 

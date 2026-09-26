@@ -1138,7 +1138,7 @@ export default function BadAssTasks() {
     triggerHaptic("medium");
     const store = useTaskStore.getState();
     try {
-      await store.syncPendingWrites?.().catch(() => undefined);
+      await store.syncPendingWrites?.({ notify: true }).catch(() => undefined);
       await store.initializeFromSupabase?.().catch(() => undefined);
       await Promise.all([
         store.fetchNotifications?.(false).catch(() => undefined),
@@ -4021,7 +4021,7 @@ export default function BadAssTasks() {
                 onClick={async () => {
                   triggerHaptic("light");
                   if (syncPendingWrites) {
-                    await syncPendingWrites();
+                    await syncPendingWrites({ notify: true });
                   } else if (refreshOfflineStatus) {
                     refreshOfflineStatus();
                   }
