@@ -170,15 +170,12 @@ export function ListItemRow({
     const selectAll = () => {
       input.setSelectionRange(0, input.value.length);
       syncTextareaHeight(input);
-      if (isMobile) {
-        input.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }
     };
     requestAnimationFrame(() => {
       selectAll();
       requestAnimationFrame(selectAll);
     });
-  }, [isMobile]);
+  }, []);
 
   useLayoutEffect(() => {
     if (!titleEditMode || !pendingSelectAllRef.current) return;
@@ -249,9 +246,6 @@ export function ListItemRow({
 
     requestAnimationFrame(() => {
       syncTextareaHeight(input);
-      if (isMobile) {
-        input.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }
     });
   };
 

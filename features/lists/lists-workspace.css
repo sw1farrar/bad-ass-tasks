@@ -2076,11 +2076,14 @@
   touch-action: pan-y;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: max(
-    1.25rem,
-    env(safe-area-inset-bottom, 12px),
-    var(--keyboard-inset, 0px)
-  );
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 12px));
+}
+
+/* Shrink the column to the visual viewport. The sheet itself stays 100dvh. */
+.list-detail-modal.list-detail-sheet--mobile .list-detail-modal-surface {
+  box-sizing: border-box;
+  padding-top: var(--vv-offset-top, 0px);
+  padding-bottom: var(--keyboard-inset, 0px);
 }
 
 /* Only lock touch while the sheet is actually dragging — not merely at scrollTop 0. */
@@ -3162,14 +3165,14 @@
     color: var(--list-item-text-color, var(--text-primary));
   }
 
+  .list-detail-modal .list-item-text {
+    scroll-margin-bottom: 12px;
+  }
+
   .list-detail-modal .list-detail-scroll {
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: max(
-      1.25rem,
-      env(safe-area-inset-bottom, 12px),
-      var(--keyboard-inset, 0px)
-    );
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 12px));
   }
 
   .list-detail-modal.list-detail-sheet--mobile .list-detail-toolbar--mobile {

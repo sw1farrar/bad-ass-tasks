@@ -80,11 +80,14 @@ export function isListDetailHeaderDragTarget(target: EventTarget | null): boolea
   return true;
 }
 
-/** List drawer swipe: header chrome and empty space, never list items or other components. */
+/** List drawer swipe: header chrome and empty space, never the item list or other components. */
 export function isListDetailBlankDragTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   if (!target.closest(".list-detail-modal-surface")) return false;
   if (target.closest(".list-detail-header-actions, .list-header-btn")) return false;
+  // The item list must keep pan-y while the keyboard is open. Its padding and
+  // gaps are not a sheet-dismiss surface.
+  if (target.closest(".list-detail-scroll")) return false;
   return isSheetBlankDragTarget(target);
 }
 

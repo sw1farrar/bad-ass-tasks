@@ -9,6 +9,7 @@ import { useScrollLock } from "@/lib/hooks/useScrollLock";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
 import { useMobileSheetDrag } from "@/lib/hooks/useMobileSheetDrag";
 import { useVisualViewportInsets } from "@/lib/hooks/useVisualViewportInsets";
+import { scrollListEditorAboveKeyboard } from "@/lib/lists/scrollListEditorAboveKeyboard";
 import {
   MOBILE_SHEET_HEIGHT_CLASS,
   SHEET_ENTER_TRANSITION,
@@ -209,6 +210,7 @@ export function ListDetailModal({
     animateEnter,
     setDismissTarget,
     resetDrag,
+    resetDragIfPointerLost,
     startDrag,
     attachCaptureDragSurface,
     handleDragEnd,
@@ -227,6 +229,64 @@ export function ListDetailModal({
   });
 
   useVisualViewportInsets(isMobile && isOpen);
+
+  useEffect(() => {
+    if (!isMobile || !isOpen) return;
+
+    let frame = 0;
+    const scrollFocusedEditor = () => {
+      const active = document.activeElement;
+      const scroller = listScrollRef.current;
+      if (!scroller || !(active instanceof HTMLElement) || !scroller.contains(active)) return;
+      if (!(active instanceof HTMLInputElement) && !(active instanceof HTMLTextAreaElement)) {
+        return;
+      }
+      scrollListEditorAboveKeyboard(active, scroller);
+    };
+    const resizeObserver = new ResizeObserver(() => {
+      scrollFocusedEditor();
+    });
+
+    const observeFocusedEditor = () => {
+      resizeObserver.disconnect();
+      const active = document.activeElement;
+      const scroller = listScrollRef.current;
+      if (!scroller || !(active instanceof HTMLElement) || !scroller.contains(active)) return;
+      const row = active.closest(".list-item-row");
+      resizeObserver.observe(row instanceof HTMLElement ? row : active);
+    };
+
+    const onFocusIn = (event: FocusEvent) => {
+      const scroller = listScrollRef.current;
+      if (!scroller || !(event.target instanceof Node) || !scroller.contains(event.target)) return;
+      scrollFocusedEditor();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        scrollFocusedEditor();
+        observeFocusedEditor();
+      });
+    };
+
+    const onViewportResize = () => {
+      scrollFocusedEditor();
+      resetDragIfPointerLost();
+    };
+
+    document.addEventListener("focusin", onFocusIn);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", onViewportResize);
+    vv?.addEventListener("scroll", scrollFocusedEditor);
+    window.addEventListener("resize", scrollFocusedEditor);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      document.removeEventListener("focusin", onFocusIn);
+      vv?.removeEventListener("resize", onViewportResize);
+      vv?.removeEventListener("scroll", scrollFocusedEditor);
+      window.removeEventListener("resize", scrollFocusedEditor);
+    };
+  }, [isMobile, isOpen, resetDragIfPointerLost]);
 
   const handleClose = useCallback(() => {
     if (isMobile) {

@@ -95,7 +95,7 @@ describe("sheetDragTarget", () => {
     const title = sheet.querySelector(".list-detail-title-label")!;
     const scroll = sheet.querySelector(".list-detail-scroll")!;
     expect(isListDetailBlankDragTarget(title)).toBe(true);
-    expect(isListDetailBlankDragTarget(scroll)).toBe(true);
+    expect(isListDetailBlankDragTarget(scroll)).toBe(false);
     expect(isListDetailBlankDragTarget(toolbar)).toBe(false);
     expect(isListDetailBlankDragTarget(item)).toBe(false);
     expect(isListDetailHeaderDragTarget(title)).toBe(true);

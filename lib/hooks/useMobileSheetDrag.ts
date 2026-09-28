@@ -112,6 +112,19 @@ export function useMobileSheetDrag(options: {
     pointerRef.current = null;
   }, [sheetY, stopSheetAnimations]);
 
+  /**
+   * Keyboard close can drop pointerup/pointercancel and leave the sheet in
+   * the dragging lock. A live drag still holds pointer capture; a lost one
+   * does not.
+   */
+  const resetDragIfPointerLost = useCallback(() => {
+    const state = pointerRef.current;
+    if (!state?.dragging) return;
+    const stillHeld = state.captureEl?.hasPointerCapture?.(state.pointerId) ?? false;
+    if (stillHeld) return;
+    resetDrag();
+  }, [resetDrag]);
+
   const completeDismiss = useCallback(() => {
     setIsDismissing(false);
     setDismissVelocity(0);
@@ -595,6 +608,7 @@ export function useMobileSheetDrag(options: {
     backdropOpacity,
     dragControls,
     resetDrag,
+    resetDragIfPointerLost,
     startDrag,
     createDeferredDragHandlers,
     attachCaptureDragSurface,

@@ -386,7 +386,7 @@ export function ListCardBody({
   );
 
   useEffect(() => {
-    if (!isDetail || !activeRowId) return;
+    if (!isDetail || !activeRowId || mobileDetail) return;
     const frame = requestAnimationFrame(() => {
       const row = itemsStackRef.current?.querySelector<HTMLElement>(
         `[data-list-item-id="${activeRowId}"]`,
@@ -394,7 +394,7 @@ export function ListCardBody({
       row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeRowId, detailVisibleItems, isDetail, rawItems]);
+  }, [activeRowId, detailVisibleItems, isDetail, mobileDetail, rawItems]);
 
   useEffect(() => {
     if (!isDetail) return;
