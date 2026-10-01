@@ -17,7 +17,7 @@ export function resolveListItemEnterAction(options: {
   const { selectionStart, selectionEnd, value } = options;
   const length = value.length;
   const cursorAtEnd = selectionStart === length && selectionEnd === length;
-  // Desktop/mobile title-edit activates with select-all; treat that as insert-eligible.
+  // Desktop title-edit activates with select-all. That is insert-eligible, same as a caret at the end.
   const fullSelection = length > 0 && selectionStart === 0 && selectionEnd === length;
 
   if (!cursorAtEnd && !fullSelection) return "blur";

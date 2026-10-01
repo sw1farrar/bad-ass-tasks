@@ -6,6 +6,13 @@ import { Check, CirclePause } from "lucide-react";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { cn } from "@/lib/utils";
 import { useIsMobileViewport } from "@/lib/hooks/useIsMobileViewport";
+import {
+  isFullTextSelection,
+  LIST_ITEM_CARET_IOS_FIX_DELAYS_MS,
+  listItemCaretPlacement,
+  listItemCaretRange,
+  type ListItemCaretPlacement,
+} from "@/lib/lists/listItemCaret";
 import { resolveListItemEnterAction } from "@/lib/lists/listItemEnter";
 import type { ListItemFamilyChrome } from "@/lib/lists/listDragPreview";
 import type { ListItem } from "@/types";
@@ -46,7 +53,7 @@ interface ListItemRowProps {
   pendingSection?: boolean;
   /** Park this item in the pending bucket */
   onSetPending?: (id: string) => void;
-  /** Mobile list detail modal — show edit pencil that selects all on tap */
+  /** Mobile list detail — edit pencil and tap-to-edit place the caret at the end */
   showEditPencil?: boolean;
   /** Desktop detail — tap the item text (not the row) to edit with select-all */
   clickTitleToEdit?: boolean;
@@ -107,8 +114,8 @@ export function ListItemRow({
   const [localText, setLocalText] = useState(item.text);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingSelectAllRef = useRef(false);
-  const selectAllOnActivateRef = useRef(false);
+  const pendingCaretRef = useRef<ListItemCaretPlacement | null>(null);
+  const caretFixTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const isMobile = useIsMobileViewport();
   const useTitleDisplayMode = showEditPencil || clickTitleToEdit;
   const isEditingText = focused || titleEditMode;
@@ -163,28 +170,58 @@ export function ListItemRow({
     }
   }, [useTitleDisplayMode, item.id, item.text]);
 
-  const applySelectAll = useCallback(() => {
-    const input = textareaRef.current;
-    if (!input) return;
-    input.focus();
-    const selectAll = () => {
-      input.setSelectionRange(0, input.value.length);
-      syncTextareaHeight(input);
-    };
-    requestAnimationFrame(() => {
-      selectAll();
-      requestAnimationFrame(selectAll);
-    });
+  const clearCaretFix = useCallback(() => {
+    for (const timer of caretFixTimersRef.current) clearTimeout(timer);
+    caretFixTimersRef.current = [];
   }, []);
 
-  useLayoutEffect(() => {
-    if (!titleEditMode || !pendingSelectAllRef.current) return;
-    const input = textareaRef.current;
-    if (!input) return;
+  useEffect(() => clearCaretFix, [clearCaretFix]);
 
-    pendingSelectAllRef.current = false;
-    applySelectAll();
-  }, [titleEditMode, applySelectAll]);
+  const scheduleCaret = useCallback(
+    (input: HTMLTextAreaElement, placement: ListItemCaretPlacement) => {
+      const apply = () => {
+        if (!input.isConnected) return;
+        const range = listItemCaretRange(input.value.length, placement);
+        input.setSelectionRange(range.start, range.end);
+        syncTextareaHeight(input);
+      };
+      apply();
+      requestAnimationFrame(() => {
+        apply();
+        requestAnimationFrame(apply);
+      });
+      clearCaretFix();
+      if (placement !== "end") return;
+      caretFixTimersRef.current = LIST_ITEM_CARET_IOS_FIX_DELAYS_MS.map((delay) =>
+        setTimeout(() => {
+          if (!input.isConnected || document.activeElement !== input) return;
+          if (!isFullTextSelection(input.value.length, input.selectionStart ?? 0, input.selectionEnd ?? 0)) {
+            return;
+          }
+          const end = input.value.length;
+          input.setSelectionRange(end, end);
+        }, delay),
+      );
+    },
+    [clearCaretFix],
+  );
+
+  const focusWithCaret = useCallback(
+    (placement: ListItemCaretPlacement) => {
+      const input = textareaRef.current;
+      if (!input) return false;
+      pendingCaretRef.current = null;
+      input.focus();
+      scheduleCaret(input, placement);
+      return true;
+    },
+    [scheduleCaret],
+  );
+
+  useLayoutEffect(() => {
+    if (!titleEditMode || !pendingCaretRef.current) return;
+    focusWithCaret(pendingCaretRef.current);
+  }, [titleEditMode, focusWithCaret]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -233,15 +270,10 @@ export function ListItemRow({
     setFocused(true);
     const input = e.currentTarget;
 
-    if (selectAllOnActivateRef.current || pendingSelectAllRef.current) {
-      selectAllOnActivateRef.current = false;
-      pendingSelectAllRef.current = false;
-      const selectAll = () => input.setSelectionRange(0, input.value.length);
-      selectAll();
-      requestAnimationFrame(() => {
-        selectAll();
-        requestAnimationFrame(selectAll);
-      });
+    const placement = pendingCaretRef.current;
+    if (placement) {
+      pendingCaretRef.current = null;
+      scheduleCaret(input, placement);
     }
 
     requestAnimationFrame(() => {
@@ -253,18 +285,13 @@ export function ListItemRow({
     if (showEditPencil) onRowActivate?.(item.id);
     setLocalText(item.text);
     setFocused(true);
-    selectAllOnActivateRef.current = true;
-    pendingSelectAllRef.current = true;
+    const placement = listItemCaretPlacement(showEditPencil);
+    pendingCaretRef.current = placement;
 
-    if (textareaRef.current) {
-      applySelectAll();
-      selectAllOnActivateRef.current = false;
-      pendingSelectAllRef.current = false;
-      return;
-    }
+    if (focusWithCaret(placement)) return;
 
     setTitleEditMode(true);
-  }, [item.text, showEditPencil, onRowActivate, applySelectAll]);
+  }, [item.id, item.text, showEditPencil, onRowActivate, focusWithCaret]);
 
   const titleTapOriginRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -286,6 +313,8 @@ export function ListItemRow({
     const dx = Math.abs(e.clientX - origin.x);
     const dy = Math.abs(e.clientY - origin.y);
     if (dx > 10 || dy > 10) return;
+    e.preventDefault();
+    e.stopPropagation();
     activateTitleEdit();
   };
 
@@ -323,6 +352,7 @@ export function ListItemRow({
         return;
       }
 
+      clearCaretFix();
       setFocused(false);
       setTitleEditMode(false);
       if (!rowSelectionMode && !actionsMenuOpen) {
@@ -420,7 +450,7 @@ export function ListItemRow({
                   syncTextareaHeight(e.target);
                 }}
                 onMouseDown={(e) => {
-                  if (selectAllOnActivateRef.current || pendingSelectAllRef.current) {
+                  if (pendingCaretRef.current) {
                     e.preventDefault();
                   }
                 }}
