@@ -4390,9 +4390,16 @@ export const useTaskStore = create<TaskState>()(
               await get().initializeFromSupabase();
             }
           }
-          // Phone unlock and the header refresh both land here while the same
-          // writes are stuck. Announcing the backlog, then a success toast,
-          // is what flashes on wake. Retries stay quiet.
+          // A stuck backlog stays quiet. Phone wake was flashing "still pending"
+          // and then a success toast while the same writes had failed.
+          // Sync complete is only for a flush that actually finished.
+          if ((result.synced > 0 || result.skippedConflicts > 0) && result.failed === 0) {
+            toast.success("Sync complete", {
+              id: "bat-outbox-synced",
+              description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
+              duration: 3200,
+            });
+          }
         } catch (e) {
           set({ isSyncing: false, pendingSyncCount: getPendingCount(), isOnline: getIsOnline() });
           console.error("[store] syncPendingWrites error:", e);

@@ -310,9 +310,16 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
         });
 
       await useTaskStore.getState().syncPendingWrites();
-      await useTaskStore.getState().syncPendingWrites();
       expect(toast.warning).not.toHaveBeenCalled();
       expect(toast.success).not.toHaveBeenCalled();
+
+      await useTaskStore.getState().syncPendingWrites();
+      expect(toast.warning).not.toHaveBeenCalled();
+      expect(toast.success).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledWith(
+        'Sync complete',
+        expect.objectContaining({ id: 'bat-outbox-synced' }),
+      );
       expect(mockHybrid.processPendingOperations).toHaveBeenCalledTimes(2);
     });
   });
