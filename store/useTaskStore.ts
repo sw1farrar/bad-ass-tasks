@@ -133,7 +133,6 @@ import {
   sortWorkspacesDeterministic,
 } from "@/lib/workspacePersistence";
 import { toast } from "sonner";
-import { claimPendingToast } from "@/lib/data/outboxToastGate";
 import {
   applyThemeToDocument,
   DEFAULT_THEME,
@@ -725,7 +724,7 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   refreshRecentActivity: () => Promise<void>;
 
   // Offline / sync controls (exposed for future UI status badges, manual "Sync now", etc.)
-  syncPendingWrites: (opts?: { notify?: boolean }) => Promise<void>;
+  syncPendingWrites: () => Promise<void>;
   refreshOfflineStatus: () => void;
 
   // Phase 2: Collaboration actions (members, invites, realtime wiring)
@@ -4358,7 +4357,7 @@ export const useTaskStore = create<TaskState>()(
       // ------------------------------------------------------------------
       // Real offline/sync actions (Phase 1 mission complete)
       // ------------------------------------------------------------------
-      syncPendingWrites: async (opts) => {
+      syncPendingWrites: async () => {
         if (!isSupabaseLive()) return;
         if (get().isSyncing) return;
 
@@ -4391,29 +4390,9 @@ export const useTaskStore = create<TaskState>()(
               await get().initializeFromSupabase();
             }
           }
-          // Phone unlock, reconnect, and realtime resume all call this.
-          // Toasts here reappear on every wake while the same writes are stuck.
-          if (!opts?.notify) return;
-
-          if (result.synced > 0 || result.skippedConflicts > 0) {
-            if (result.failed === 0) {
-              toast.success("Sync complete", {
-                id: "bat-outbox-synced",
-                description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
-                duration: 3200,
-              });
-            }
-          }
-          if (result.failed > 0 && claimPendingToast(result.failed)) {
-            const online = getIsOnline();
-            toast.warning(`${result.failed} change(s) still pending`, {
-              id: "bat-outbox-pending",
-              description: online
-                ? "We'll keep trying in the background."
-                : "Will retry automatically when you're back online.",
-              duration: 4000,
-            });
-          }
+          // Phone unlock and the header refresh both land here while the same
+          // writes are stuck. Announcing the backlog, then a success toast,
+          // is what flashes on wake. Retries stay quiet.
         } catch (e) {
           set({ isSyncing: false, pendingSyncCount: getPendingCount(), isOnline: getIsOnline() });
           console.error("[store] syncPendingWrites error:", e);

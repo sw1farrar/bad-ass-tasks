@@ -1138,7 +1138,7 @@ export default function BadAssTasks() {
     triggerHaptic("medium");
     const store = useTaskStore.getState();
     try {
-      await store.syncPendingWrites?.({ notify: true }).catch(() => undefined);
+      await store.syncPendingWrites?.().catch(() => undefined);
       await store.initializeFromSupabase?.().catch(() => undefined);
       await Promise.all([
         store.fetchNotifications?.(false).catch(() => undefined),
@@ -1147,7 +1147,10 @@ export default function BadAssTasks() {
       if (currentView === "home") {
         await store.fetchGlobalHomeAggregates?.().catch(() => undefined);
       }
-      toast.success("Refreshed", { description: "Your workspace data is up to date." });
+      useTaskStore.getState().refreshOfflineStatus();
+      if (useTaskStore.getState().pendingSyncCount === 0) {
+        toast.success("Refreshed", { description: "Your workspace data is up to date." });
+      }
     } catch {
       toast.error("Could not refresh");
     } finally {
@@ -4021,23 +4024,10 @@ export default function BadAssTasks() {
                 onClick={async () => {
                   triggerHaptic("light");
                   if (syncPendingWrites) {
-                    await syncPendingWrites({ notify: true });
+                    await syncPendingWrites();
                   } else if (refreshOfflineStatus) {
                     refreshOfflineStatus();
                   }
-                  toast(
-                    syncDisplay.isOnline
-                      ? syncDisplay.pendingSyncCount > 0
-                        ? "Syncing pending writes..."
-                        : "Already in sync"
-                      : "Offline — changes will queue",
-                    {
-                      description:
-                        syncDisplay.pendingSyncCount > 0
-                          ? `${syncDisplay.pendingSyncCount} operation${syncDisplay.pendingSyncCount === 1 ? "" : "s"} pending`
-                          : undefined,
-                    }
-                  );
                 }}
                 className={cn(
                   "sync-indicator top-bar-sync-mobile text-[10px] px-2.5 py-1 active:scale-95 max-md:hidden md:hidden",
