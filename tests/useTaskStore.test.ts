@@ -121,6 +121,7 @@ vi.mock('@/lib/data/hybridStore', () => {
 // Safe to import now
 import { useTaskStore } from '@/store/useTaskStore';
 import * as hybrid from '@/lib/data/hybridStore';
+import { resetOutboxToastGate } from '@/lib/data/outboxToastGate';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 
@@ -289,6 +290,51 @@ describe('useTaskStore — M0 demo-only mock-heavy verification skeleton (guards
 
       // (setup realtime live path omitted in skeleton to avoid expanding presenceChannel mocks;
       // realtime sub guards covered in hybridStore.test.ts and demo branches above)
+    });
+
+    it('phone resume does not toast a stuck outbox, and refresh says it once', async () => {
+      resetOutboxToastGate();
+      vi.mocked(mockHybrid.isSupabaseLive).mockReturnValue(true);
+      vi.mocked(mockHybrid.getIsOnline).mockReturnValue(false);
+      vi.mocked(mockHybrid.getPendingCount).mockReturnValue(18);
+      vi.mocked(mockHybrid.processPendingOperations).mockResolvedValue({
+        synced: 0,
+        skippedConflicts: 0,
+        failed: 18,
+        dropped: 0,
+      });
+
+      await useTaskStore.getState().syncPendingWrites();
+      expect(toast.warning).not.toHaveBeenCalled();
+      expect(toast.success).not.toHaveBeenCalled();
+
+      await useTaskStore.getState().syncPendingWrites({ notify: true });
+      expect(toast.warning).toHaveBeenCalledTimes(1);
+      expect(toast.warning).toHaveBeenCalledWith(
+        '18 change(s) still pending',
+        expect.objectContaining({ id: 'bat-outbox-pending' }),
+      );
+
+      vi.mocked(toast.warning).mockClear();
+      await useTaskStore.getState().syncPendingWrites({ notify: true });
+      expect(toast.warning).not.toHaveBeenCalled();
+    });
+
+    it('background sync that reports progress does not toast Sync complete', async () => {
+      resetOutboxToastGate();
+      vi.mocked(mockHybrid.isSupabaseLive).mockReturnValue(true);
+      vi.mocked(mockHybrid.getIsOnline).mockReturnValue(false);
+      vi.mocked(mockHybrid.getPendingCount).mockReturnValue(18);
+      vi.mocked(mockHybrid.processPendingOperations).mockResolvedValue({
+        synced: 18,
+        skippedConflicts: 0,
+        failed: 0,
+        dropped: 0,
+      });
+
+      await useTaskStore.getState().syncPendingWrites();
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.warning).not.toHaveBeenCalled();
     });
   });
 

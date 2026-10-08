@@ -133,6 +133,7 @@ import {
   sortWorkspacesDeterministic,
 } from "@/lib/workspacePersistence";
 import { toast } from "sonner";
+import { claimPendingToast } from "@/lib/data/outboxToastGate";
 import {
   applyThemeToDocument,
   DEFAULT_THEME,
@@ -2506,25 +2507,28 @@ export const useTaskStore = create<TaskState>()(
                 }
               } catch {}
             };
-            const onVisibility = () => {
-              if (document.visibilityState === "visible") {
-                refreshPresenceMeta();
-                // Resume: flush outbox + rebuild realtime so peers' updates arrive after sleep.
-                get().syncPendingWrites().catch(() => {});
-                const ws = get().currentWorkspace;
-                if (ws?.id && !["w1", "w2"].includes(ws.id)) {
-                  get().setupWorkspaceRealtime();
-                  void get().hydrateWorkspaceListData(ws.id);
-                }
-              }
-            };
-            const onResumeSync = () => {
+            // Phone unlock fires visibility and bat:resume-sync in the same turn.
+            // Collapse that burst so one wake is one quiet flush, not a toast loop.
+            let lastForegroundResumeAt = 0;
+            const resumeForeground = () => {
+              const now = Date.now();
+              if (now - lastForegroundResumeAt < 1000) return;
+              lastForegroundResumeAt = now;
               get().syncPendingWrites().catch(() => {});
               const ws = get().currentWorkspace;
               if (ws?.id && isSupabaseLive() && !["w1", "w2"].includes(ws.id)) {
                 get().setupWorkspaceRealtime();
                 void get().hydrateWorkspaceListData(ws.id);
               }
+            };
+            const onVisibility = () => {
+              if (document.visibilityState === "visible") {
+                refreshPresenceMeta();
+                resumeForeground();
+              }
+            };
+            const onResumeSync = () => {
+              resumeForeground();
             };
             const onUnload = () => {
               try {
@@ -4386,15 +4390,21 @@ export const useTaskStore = create<TaskState>()(
             if (getIsOnline()) {
               await get().initializeFromSupabase();
             }
-            toast.success("Sync complete", {
-              id: "bat-outbox-synced",
-              description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
-              duration: 3200,
-            });
           }
-          // Background retries (reconnect, tab focus, realtime resume) stay quiet.
-          // The same stuck write was toasting on every one of those.
-          if (opts?.notify && result.failed > 0) {
+          // Phone unlock, reconnect, and realtime resume all call this.
+          // Toasts here reappear on every wake while the same writes are stuck.
+          if (!opts?.notify) return;
+
+          if (result.synced > 0 || result.skippedConflicts > 0) {
+            if (result.failed === 0) {
+              toast.success("Sync complete", {
+                id: "bat-outbox-synced",
+                description: `${result.synced} change(s) synced${result.skippedConflicts ? `, ${result.skippedConflicts} resolved by last-write-wins` : ""}.`,
+                duration: 3200,
+              });
+            }
+          }
+          if (result.failed > 0 && claimPendingToast(result.failed)) {
             const online = getIsOnline();
             toast.warning(`${result.failed} change(s) still pending`, {
               id: "bat-outbox-pending",
