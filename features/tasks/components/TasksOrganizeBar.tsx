@@ -133,6 +133,8 @@ interface TasksOrganizeBarProps {
   onSearchChange?: (value: string) => void;
   resultCount?: number;
   resultTotal?: number | null;
+  /** Desktop keeps these in the chip row. The mobile sheet hides them; they sit in the toolbar instead. */
+  showQuickFilters?: boolean;
 }
 
 export function TasksOrganizeBar({
@@ -157,6 +159,7 @@ export function TasksOrganizeBar({
   onSearchChange,
   resultCount,
   resultTotal,
+  showQuickFilters = true,
 }: TasksOrganizeBarProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -198,52 +201,56 @@ export function TasksOrganizeBar({
                 className="tasks-organize-bar__recurrence shrink-0"
               />
             ) : null}
-            <button
-              type="button"
-              onClick={() =>
-                onHotListFilterChange(hotListFilter === "only" ? "all" : "only")
-              }
-              aria-pressed={hotListFilter === "only"}
-              aria-label="Hot list"
-              title="Past due, today, tomorrow, or starred"
-              className={cn(
-                chipClass(hotListFilter === "only"),
-                "tasks-folder-chip--icon justify-center px-1.5",
-                hotListFilter === "only" &&
-                  "text-orange-400 border-orange-400/40 bg-orange-400/10",
-              )}
-            >
-              <Flame
-                className={cn(
-                  "h-3 w-3",
-                  hotListFilter === "only" && "fill-current text-orange-400",
-                )}
-                strokeWidth={hotListFilter === "only" ? 0 : 2}
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                onStarredFilterChange(starredFilter === "only" ? "all" : "only")
-              }
-              aria-pressed={starredFilter === "only"}
-              aria-label="Important"
-              title="Important"
-              className={cn(
-                chipClass(starredFilter === "only"),
-                "tasks-folder-chip--icon justify-center px-1.5",
-                starredFilter === "only" &&
-                  "text-amber-300 border-amber-400/40 bg-amber-400/10",
-              )}
-            >
-              <Star
-                className={cn(
-                  "h-3 w-3",
-                  starredFilter === "only" && "fill-current text-amber-400",
-                )}
-                strokeWidth={starredFilter === "only" ? 0 : 2}
-              />
-            </button>
+            {showQuickFilters ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onHotListFilterChange(hotListFilter === "only" ? "all" : "only")
+                  }
+                  aria-pressed={hotListFilter === "only"}
+                  aria-label="Hot list"
+                  title="Past due, today, tomorrow, or starred"
+                  className={cn(
+                    chipClass(hotListFilter === "only"),
+                    "tasks-folder-chip--icon justify-center px-1.5",
+                    hotListFilter === "only" &&
+                      "text-orange-400 border-orange-400/40 bg-orange-400/10",
+                  )}
+                >
+                  <Flame
+                    className={cn(
+                      "h-3 w-3",
+                      hotListFilter === "only" && "fill-current text-orange-400",
+                    )}
+                    strokeWidth={hotListFilter === "only" ? 0 : 2}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onStarredFilterChange(starredFilter === "only" ? "all" : "only")
+                  }
+                  aria-pressed={starredFilter === "only"}
+                  aria-label="Important"
+                  title="Important"
+                  className={cn(
+                    chipClass(starredFilter === "only"),
+                    "tasks-folder-chip--icon justify-center px-1.5",
+                    starredFilter === "only" &&
+                      "text-amber-300 border-amber-400/40 bg-amber-400/10",
+                  )}
+                >
+                  <Star
+                    className={cn(
+                      "h-3 w-3",
+                      starredFilter === "only" && "fill-current text-amber-400",
+                    )}
+                    strokeWidth={starredFilter === "only" ? 0 : 2}
+                  />
+                </button>
+              </>
+            ) : null}
 
             <TasksFolderFilterPicker
               folders={folders}

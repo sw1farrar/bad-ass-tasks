@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { SlidersHorizontal, X } from "lucide-react";
+import { Flame, SlidersHorizontal, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
 import type { TasksFolderFilterMode, TasksHotListFilterMode, TasksStarredFilterMode } from "@/store/useTaskStore";
@@ -46,6 +46,17 @@ function recurrenceShortLabel(mode: TasksRecurrenceFilterMode): string | null {
   return null;
 }
 
+function quickToggleClass(active: boolean, tone: "hot" | "important") {
+  return cn(
+    "tasks-mobile-organize__quick inline-flex shrink-0 items-center justify-center rounded-xl border min-h-[40px] min-w-[40px] transition",
+    active
+      ? tone === "hot"
+        ? "border-orange-400/40 bg-orange-400/10 text-orange-400"
+        : "border-amber-400/40 bg-amber-400/10 text-amber-300"
+      : "border-border-glass bg-surface-hover text-text-secondary",
+  );
+}
+
 export function TasksMobileOrganizeDisclosure({
   folders,
   starredFilter,
@@ -68,50 +79,76 @@ export function TasksMobileOrganizeDisclosure({
     let n = 0;
     if (statusFilter !== "incomplete") n += 1;
     if (recurrenceFilter !== "all") n += 1;
-    if (starredFilter === "only") n += 1;
-    if (hotListFilter === "only") n += 1;
     if (isFolderFilterActive(folderFilter)) n += 1;
     return n;
-  }, [statusFilter, recurrenceFilter, starredFilter, hotListFilter, folderFilter]);
+  }, [statusFilter, recurrenceFilter, folderFilter]);
 
   const summary = useMemo(() => {
     const parts = [statusShortLabel(statusFilter)];
     const recurrence = recurrenceShortLabel(recurrenceFilter);
     if (recurrence) parts.push(recurrence);
-    if (hotListFilter === "only") parts.push("Hot list");
-    if (starredFilter === "only") parts.push("Important");
     if (isFolderFilterActive(folderFilter)) {
       parts.push(folderFilterSummary(normalizeFolderFilter(folderFilter), folders));
     }
     return parts.join(" · ");
-  }, [statusFilter, recurrenceFilter, starredFilter, hotListFilter, folderFilter, folders]);
+  }, [statusFilter, recurrenceFilter, folderFilter, folders]);
 
   return (
     // `contents` lets the trigger + panel participate in the parent toolbar grid.
     <div className="tasks-mobile-organize contents">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label={open ? "Hide filters" : `Filters: ${summary}`}
-        className={cn(
-          "tasks-mobile-organize__trigger col-start-2 row-start-1 inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border px-2.5 min-h-[40px] min-w-[40px] text-xs font-semibold transition",
-          activeCount > 0 || open
-            ? "border-neon-purple/40 bg-neon-purple/10 text-neon-purple"
-            : "border-border-glass bg-surface-hover text-text-secondary",
-        )}
-      >
-        {open ? (
-          <X className="h-4 w-4" aria-hidden />
-        ) : (
-          <SlidersHorizontal className="h-4 w-4" aria-hidden />
-        )}
-        {activeCount > 0 ? (
-          <span className="tabular-nums leading-none">{activeCount}</span>
-        ) : (
-          <span className="sr-only">Filters</span>
-        )}
-      </button>
+      <div className="tasks-mobile-organize__tools col-start-2 row-start-1 flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onHotListFilterChange(hotListFilter === "only" ? "all" : "only")}
+          aria-pressed={hotListFilter === "only"}
+          aria-label="Hot list"
+          title="Past due, today, tomorrow, or starred"
+          className={quickToggleClass(hotListFilter === "only", "hot")}
+        >
+          <Flame
+            className={cn("h-4 w-4", hotListFilter === "only" && "fill-current")}
+            strokeWidth={hotListFilter === "only" ? 0 : 2}
+            aria-hidden
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() => onStarredFilterChange(starredFilter === "only" ? "all" : "only")}
+          aria-pressed={starredFilter === "only"}
+          aria-label="Important"
+          title="Important"
+          className={quickToggleClass(starredFilter === "only", "important")}
+        >
+          <Star
+            className={cn("h-4 w-4", starredFilter === "only" && "fill-current")}
+            strokeWidth={starredFilter === "only" ? 0 : 2}
+            aria-hidden
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={open ? "Hide filters" : `Filters: ${summary}`}
+          className={cn(
+            "tasks-mobile-organize__trigger inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border px-2.5 min-h-[40px] min-w-[40px] text-xs font-semibold transition",
+            activeCount > 0 || open
+              ? "border-neon-purple/40 bg-neon-purple/10 text-neon-purple"
+              : "border-border-glass bg-surface-hover text-text-secondary",
+          )}
+        >
+          {open ? (
+            <X className="h-4 w-4" aria-hidden />
+          ) : (
+            <SlidersHorizontal className="h-4 w-4" aria-hidden />
+          )}
+          {activeCount > 0 ? (
+            <span className="tabular-nums leading-none">{activeCount}</span>
+          ) : (
+            <span className="sr-only">Filters</span>
+          )}
+        </button>
+      </div>
 
       {open ? (
         <div className="tasks-mobile-organize__panel col-span-2 rounded-2xl border border-border-glass bg-surface-hover/40 p-2 space-y-2">
@@ -148,6 +185,7 @@ export function TasksMobileOrganizeDisclosure({
             onAddFolder={onAddFolder}
             onRenameFolder={onRenameFolder}
             onDeleteFolder={onDeleteFolder}
+            showQuickFilters={false}
             className="tasks-mobile-organize__bar"
           />
         </div>

@@ -1937,13 +1937,13 @@ export default function BadAssTasks() {
           className="tasks-desktop-page-header mb-1 md:hidden"
         />
 
-        {/* Mobile — search + compact filter trigger (status/type/folders open on demand) */}
+        {/* Mobile — search, then hot list and important, then the filter trigger */}
         <div className="tasks-toolbar-mobile grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 mb-1 md:hidden">
           <input
             value={taskFilter.search || ""}
             onChange={(e) => setTaskFilter({ search: e.target.value })}
             placeholder="Search tasks"
-            className="tasks-page-search input col-start-1 row-start-1 px-3 py-2.5 text-sm w-full min-h-[40px]"
+            className="tasks-page-search input col-start-1 row-start-1 min-w-0 px-3 py-2.5 text-sm w-full min-h-[40px]"
           />
           <TasksMobileOrganizeDisclosure
             folders={taskFolders}
