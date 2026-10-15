@@ -17,35 +17,27 @@ import {
   updateTask,
 } from "@/lib/mcp/data";
 import {
-  addAgendaNote,
-  addAgendaItem,
   addNotebookTask,
   archiveNote,
   completeNotebookTask,
   createList,
-  createMeeting,
   createNotebook,
   createTaskFolder,
   deleteList,
   deleteListItem,
-  deleteMeeting,
   deleteNote,
   deleteNotebookTask,
   deleteTaskFolder,
   listFiles,
   listMembers,
-  listMeetings,
   listNotebooks,
   listNotebookTasks,
   listTaskFolders,
   searchWorkspace,
-  updateAgendaItem,
   updateList,
   updateListItem,
-  updateMeeting,
   updateNotebook,
   updateTaskFolder,
-  getMeeting,
 } from "@/lib/mcp/suiteData";
 
 export type JsonSchema = {
@@ -91,8 +83,6 @@ const workspaceIdProp = {
 const statusEnum = ["backlog", "todo", "doing", "done"];
 const priorityEnum = ["P0", "P1", "P2", "P3"];
 const listColorEnum = ["default", "purple", "pink", "green", "amber", "blue"];
-const meetingStatusEnum = ["draft", "scheduled", "in_progress", "completed"];
-const agendaStatusEnum = ["open", "in_progress", "completed", "continued"];
 
 export const MCP_TOOLS: McpToolDefinition[] = [
   {
@@ -120,7 +110,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "search_workspace",
     description:
-      "Search tasks, notes, checklists, list items, and meetings by title/name in one call.",
+      "Search tasks, notes, checklists, and list items by title/name in one call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -729,171 +719,6 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       additionalProperties: false,
     },
     handler: (userId, args) => deleteListItem(userId, str(args, "item_id") ?? ""),
-  },
-  {
-    name: "list_meetings",
-    description: "List meetings in a workspace.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        workspace_id: workspaceIdProp,
-        status: { type: "string", enum: meetingStatusEnum },
-        limit: { type: "number" },
-      },
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      listMeetings(userId, {
-        workspace_id: str(args, "workspace_id"),
-        status: str(args, "status"),
-        limit: num(args, "limit"),
-      }),
-  },
-  {
-    name: "get_meeting",
-    description: "Get a meeting with its agenda items and notes.",
-    inputSchema: {
-      type: "object",
-      properties: { meeting_id: { type: "string" } },
-      required: ["meeting_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) => getMeeting(userId, str(args, "meeting_id") ?? ""),
-  },
-  {
-    name: "create_meeting",
-    description: "Create a meeting.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        title: { type: "string" },
-        workspace_id: workspaceIdProp,
-        description: { type: "string" },
-        status: { type: "string", enum: meetingStatusEnum },
-        scheduled_at: { type: "string", description: "ISO datetime." },
-        attendees: { type: "array", items: { type: "string" }, description: "Freeform attendee names." },
-        notebook_id: { type: "string" },
-      },
-      required: ["title"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      createMeeting(userId, {
-        title: str(args, "title") ?? "",
-        workspace_id: str(args, "workspace_id"),
-        description: str(args, "description"),
-        status: str(args, "status"),
-        scheduled_at: str(args, "scheduled_at"),
-        attendees: strs(args, "attendees"),
-        notebook_id: str(args, "notebook_id"),
-      }),
-  },
-  {
-    name: "update_meeting",
-    description: "Update a meeting's title, schedule, status, attendees, or archive flag.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        meeting_id: { type: "string" },
-        title: { type: "string" },
-        description: { type: "string" },
-        status: { type: "string", enum: meetingStatusEnum },
-        scheduled_at: { type: "string" },
-        attendees: { type: "array", items: { type: "string" } },
-        archived: { type: "boolean" },
-      },
-      required: ["meeting_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      updateMeeting(userId, {
-        meeting_id: str(args, "meeting_id") ?? "",
-        title: str(args, "title"),
-        description: str(args, "description"),
-        status: str(args, "status"),
-        scheduled_at: str(args, "scheduled_at"),
-        attendees: strs(args, "attendees"),
-        archived: bool(args, "archived"),
-      }),
-  },
-  {
-    name: "delete_meeting",
-    description: "Permanently delete a meeting.",
-    inputSchema: {
-      type: "object",
-      properties: { meeting_id: { type: "string" } },
-      required: ["meeting_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) => deleteMeeting(userId, str(args, "meeting_id") ?? ""),
-  },
-  {
-    name: "add_agenda_item",
-    description: "Add a topic to a meeting agenda.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        meeting_id: { type: "string" },
-        title: { type: "string" },
-        description: { type: "string" },
-        owner_name: { type: "string" },
-      },
-      required: ["meeting_id", "title"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      addAgendaItem(userId, {
-        meeting_id: str(args, "meeting_id") ?? "",
-        title: str(args, "title") ?? "",
-        description: str(args, "description"),
-        owner_name: str(args, "owner_name"),
-      }),
-  },
-  {
-    name: "update_agenda_item",
-    description: "Update an agenda topic's title, status, owner, or reviewed flag.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        item_id: { type: "string" },
-        title: { type: "string" },
-        description: { type: "string" },
-        status: { type: "string", enum: agendaStatusEnum },
-        owner_name: { type: "string" },
-        reviewed: { type: "boolean" },
-      },
-      required: ["item_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      updateAgendaItem(userId, {
-        item_id: str(args, "item_id") ?? "",
-        title: str(args, "title"),
-        description: str(args, "description"),
-        status: str(args, "status"),
-        owner_name: str(args, "owner_name"),
-        reviewed: bool(args, "reviewed"),
-      }),
-  },
-  {
-    name: "add_agenda_note",
-    description: "Add a note or decision under an agenda topic.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        item_id: { type: "string" },
-        body: { type: "string" },
-        is_decision: { type: "boolean" },
-      },
-      required: ["item_id", "body"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      addAgendaNote(userId, {
-        item_id: str(args, "item_id") ?? "",
-        body: str(args, "body") ?? "",
-        is_decision: bool(args, "is_decision"),
-      }),
   },
 ];
 

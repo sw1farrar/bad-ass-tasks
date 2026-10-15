@@ -15,7 +15,7 @@
 import { apiFetch } from "@/lib/api/apiFetch";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { fromDbRole, toDbRole, type WorkspaceRole } from "@/lib/roles";
-import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem, TaskFolder, Notebook, Meeting, MeetingAgendaItem, MeetingAgendaEntry } from "@/types";
+import type { Task, TaskStatus, Priority, Note, FileRecordType, FileReviewStatus, ActivityLog, PendingOperation, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceMessage, MessageReaction, WorkspaceList, ListItem, TaskFolder, Notebook } from "@/types";
 import { coerceNotebookEnabledSections, DEFAULT_NOTEBOOK_ENABLED_SECTIONS } from "@/lib/notebooks/notebookSections";
 import { buildSearchDocument } from "@/lib/files/buildSearchDocument";
 import {
@@ -998,9 +998,6 @@ export function __resetRealtimeGuardForTests(): void {
   activeNotebookTaskChannel = null;
   activeSharedListChannel = null;
   activeListShareChannel = null;
-  activeMeetingChannel = null;
-  activeMeetingAgendaItemChannel = null;
-  activeMeetingAgendaEntryChannel = null;
 }
 
 export function __getCurrentRealtimeWorkspaceIdForTests(): string | null {
@@ -5875,9 +5872,6 @@ let activeListItemChannel: any = null;
 let activeNotebookTaskChannel: any = null;
 let activeSharedListChannel: any = null;
 let activeListShareChannel: any = null;
-let activeMeetingChannel: any = null;
-let activeMeetingAgendaItemChannel: any = null;
-let activeMeetingAgendaEntryChannel: any = null;
 let activeRealtimeCleanup: (() => void) | null = null;
 let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 /** Bumped before channels are removed so their CLOSED callback cannot schedule another reconnect. */
@@ -5929,9 +5923,6 @@ export function subscribeToWorkspaceRealtime(
     onListItemChange?: (payload: any) => void;
     onNotebookTaskChange?: (payload: any) => void;
     onListShareChange?: (payload: any) => void;
-    onMeetingChange?: (payload: any) => void;
-    onMeetingAgendaItemChange?: (payload: any) => void;
-    onMeetingAgendaEntryChange?: (payload: any) => void;
   },
   options?: {
     /** Live-linked list ids visible in this workspace (from other workspaces). */
@@ -5969,8 +5960,7 @@ export function subscribeToWorkspaceRealtime(
     currentRealtimeWorkspaceId === wsId &&
     !sharedListsChanged &&
     (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel ||
-      activeMeetingChannel || activeMeetingAgendaItemChannel || activeMeetingAgendaEntryChannel)
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel)
   ) {
     console.log(
       `[realtime] EARLY RETURN (idempotency guard): already subscribed for workspace ${wsId} ` +
@@ -5983,8 +5973,7 @@ export function subscribeToWorkspaceRealtime(
   // Defensive: clear any stale channels from previous workspace BEFORE setting new guard value.
   // We clear currentRealtimeWorkspaceId here so that a subsequent subscribe for a *different* ws always proceeds.
   if (activeTaskChannel || activeNoteChannel || activeInviteChannel || activeMemberChannel || activeProfileChannel ||
-      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel ||
-      activeMeetingChannel || activeMeetingAgendaItemChannel || activeMeetingAgendaEntryChannel) {
+      activeCommentChannel || activeListChannel || activeListItemChannel || activeNotebookTaskChannel || activeSharedListChannel || activeListShareChannel) {
     realtimeGeneration += 1;
     if (activeTaskChannel) {
       supabase.removeChannel(activeTaskChannel).catch(() => {});
@@ -6030,18 +6019,6 @@ export function subscribeToWorkspaceRealtime(
       supabase.removeChannel(activeListShareChannel).catch(() => {});
       activeListShareChannel = null;
     }
-    if (activeMeetingChannel) {
-      supabase.removeChannel(activeMeetingChannel).catch(() => {});
-      activeMeetingChannel = null;
-    }
-    if (activeMeetingAgendaItemChannel) {
-      supabase.removeChannel(activeMeetingAgendaItemChannel).catch(() => {});
-      activeMeetingAgendaItemChannel = null;
-    }
-    if (activeMeetingAgendaEntryChannel) {
-      supabase.removeChannel(activeMeetingAgendaEntryChannel).catch(() => {});
-      activeMeetingAgendaEntryChannel = null;
-    }
     currentRealtimeWorkspaceId = null; // explicit clear in teardown path
     lastSubscribedSharedListKey = null;
   }
@@ -6061,9 +6038,6 @@ export function subscribeToWorkspaceRealtime(
     onListItemChange,
     onNotebookTaskChange,
     onListShareChange,
-    onMeetingChange,
-    onMeetingAgendaItemChange,
-    onMeetingAgendaEntryChange,
   } = handlers;
 
   if (onTaskChange) {
@@ -6295,59 +6269,6 @@ export function subscribeToWorkspaceRealtime(
       .subscribe(bindRealtimeStatus("workspace_list_shares", wsId));
   }
 
-  if (onMeetingChange) {
-    activeMeetingChannel = supabase
-      .channel(`ws-meetings-${wsId}`)
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "*",
-          schema: "public",
-          table: "meetings",
-          filter: `workspace_id=eq.${wsId}`,
-        },
-        (payload: any) => {
-          onMeetingChange(payload);
-        },
-      )
-      .subscribe(bindRealtimeStatus("meetings", wsId));
-  }
-
-  // Agenda items/entries have no workspace_id — RLS scopes events; handlers filter via parent meeting.
-  if (onMeetingAgendaItemChange) {
-    activeMeetingAgendaItemChannel = supabase
-      .channel(`ws-meeting-agenda-items-${wsId}`)
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "*",
-          schema: "public",
-          table: "meeting_agenda_items",
-        },
-        (payload: any) => {
-          onMeetingAgendaItemChange(payload);
-        },
-      )
-      .subscribe(bindRealtimeStatus("meeting_agenda_items", wsId));
-  }
-
-  if (onMeetingAgendaEntryChange) {
-    activeMeetingAgendaEntryChannel = supabase
-      .channel(`ws-meeting-agenda-entries-${wsId}`)
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "*",
-          schema: "public",
-          table: "meeting_agenda_entries",
-        },
-        (payload: any) => {
-          onMeetingAgendaEntryChange(payload);
-        },
-      )
-      .subscribe(bindRealtimeStatus("meeting_agenda_entries", wsId));
-  }
-
   // Return the unsubscribe / teardown fn. This is a teardown path: it clears guard + all channels.
   activeRealtimeCleanup = () => {
     realtimeGeneration += 1;
@@ -6394,18 +6315,6 @@ export function subscribeToWorkspaceRealtime(
     if (activeListShareChannel && supabase) {
       supabase.removeChannel(activeListShareChannel).catch(() => {});
       activeListShareChannel = null;
-    }
-    if (activeMeetingChannel && supabase) {
-      supabase.removeChannel(activeMeetingChannel).catch(() => {});
-      activeMeetingChannel = null;
-    }
-    if (activeMeetingAgendaItemChannel && supabase) {
-      supabase.removeChannel(activeMeetingAgendaItemChannel).catch(() => {});
-      activeMeetingAgendaItemChannel = null;
-    }
-    if (activeMeetingAgendaEntryChannel && supabase) {
-      supabase.removeChannel(activeMeetingAgendaEntryChannel).catch(() => {});
-      activeMeetingAgendaEntryChannel = null;
     }
     currentRealtimeWorkspaceId = null;
     lastSubscribedSharedListKey = null;
@@ -8752,535 +8661,6 @@ export async function backfillNotebooksIfNeeded(
   return true;
 }
 
-// ------------------------------------------------------------------
-// Meetings (workspace Notes feature)
-// ------------------------------------------------------------------
-
-type MeetingRow = {
-  id: string;
-  workspace_id: string;
-  title: string;
-  description?: string | null;
-  status: string;
-  scheduled_at: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  previous_meeting_id: string | null;
-  notebook_id: string | null;
-  attendee_ids: string[] | null;
-  attendees?: string[] | null;
-  summary_html: string | null;
-  sort_order: number;
-  archived?: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-/** null = not probed; false = attendees column missing; true = available */
-let meetingAttendeesColumnAvailable: boolean | null = null;
-let meetingAttendeesMigrationWarned = false;
-
-function isMeetingAttendeesColumnMissing(error: unknown): boolean {
-  const e = error as { code?: string; message?: string };
-  return (
-    (e?.code === "PGRST204" || e?.code === "42703") &&
-    typeof e?.message === "string" &&
-    e.message.includes("attendees")
-  );
-}
-
-function markMeetingAttendeesColumnMissing(): void {
-  if (meetingAttendeesColumnAvailable === false) return;
-  meetingAttendeesColumnAvailable = false;
-  if (!meetingAttendeesMigrationWarned) {
-    meetingAttendeesMigrationWarned = true;
-    console.warn(
-      "[Badazz Tasks] meetings.attendees is not synced yet. Run supabase/add-meeting-attendees.sql, then refresh.",
-    );
-  }
-}
-
-function markMeetingAttendeesColumnAvailable(): void {
-  meetingAttendeesColumnAvailable = true;
-}
-
-type MeetingAgendaItemRow = {
-  id: string;
-  meeting_id: string;
-  title: string;
-  description: string | null;
-  sort_order: number;
-  owner_id: string | null;
-  owner_name: string | null;
-  status: string;
-  reviewed?: boolean | null;
-  continued_from_item_id: string | null;
-  linked_task_ids: string[] | null;
-  time_budget_minutes: number | null;
-  completed_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type MeetingAgendaEntryRow = {
-  id: string;
-  agenda_item_id: string;
-  body: string;
-  author_id: string | null;
-  is_decision: boolean;
-  created_at: string;
-};
-
-let meetingTablesAvailable: boolean | null = null;
-
-function markMeetingTablesMissing(): void {
-  meetingTablesAvailable = false;
-}
-
-function markMeetingTablesAvailable(): void {
-  meetingTablesAvailable = true;
-}
-
-export function areMeetingTablesReady(): boolean {
-  return meetingTablesAvailable === true;
-}
-
-export function isMeetingPersistenceEnabled(): boolean {
-  return meetingTablesAvailable === true;
-}
-
-async function probeMeetingTables(force = false): Promise<void> {
-  if (!force && meetingTablesAvailable !== null) return;
-  const supabase = getClient();
-  if (!supabase) {
-    markMeetingTablesMissing();
-    return;
-  }
-  try {
-    const { error } = await (supabase.from("meetings") as any).select("id").limit(1);
-    if (error) {
-      if (isSchemaTableMissing(error)) markMeetingTablesMissing();
-      else logHybridError("probeMeetingTables", error);
-      return;
-    }
-    markMeetingTablesAvailable();
-  } catch (err) {
-    if (isSchemaTableMissing(err)) markMeetingTablesMissing();
-    else logHybridError("probeMeetingTables", err);
-  }
-}
-
-export async function ensureMeetingPersistenceReady(): Promise<boolean> {
-  if (meetingTablesAvailable === true) return true;
-  await probeMeetingTables(true);
-  return meetingTablesAvailable !== false && meetingTablesAvailable !== null;
-}
-
-export function mapMeetingRow(row: MeetingRow): Meeting {
-  return {
-    id: row.id,
-    workspaceId: row.workspace_id,
-    title: row.title,
-    description: row.description ?? null,
-    status: row.status as Meeting["status"],
-    scheduledAt: row.scheduled_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-    previousMeetingId: row.previous_meeting_id,
-    notebookId: row.notebook_id,
-    attendeeIds: row.attendee_ids ?? [],
-    attendees: row.attendees ?? [],
-    summaryHtml: row.summary_html,
-    sortOrder: row.sort_order,
-    archived: Boolean(row.archived),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-export function mapAgendaItemRow(row: MeetingAgendaItemRow): MeetingAgendaItem {
-  const status = row.status as MeetingAgendaItem["status"];
-  return {
-    id: row.id,
-    meetingId: row.meeting_id,
-    title: row.title,
-    description: row.description,
-    sortOrder: row.sort_order,
-    ownerId: row.owner_id,
-    ownerName: row.owner_name,
-    status,
-    // Prefer explicit column; fall back for rows that predate the migration.
-    reviewed: row.reviewed === true || (row.reviewed == null && status === "continued"),
-    continuedFromItemId: row.continued_from_item_id,
-    linkedTaskIds: row.linked_task_ids ?? [],
-    timeBudgetMinutes: row.time_budget_minutes,
-    completedAt: row.completed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-export function mapAgendaEntryRow(row: MeetingAgendaEntryRow): MeetingAgendaEntry {
-  return {
-    id: row.id,
-    agendaItemId: row.agenda_item_id,
-    body: row.body,
-    authorId: row.author_id,
-    isDecision: row.is_decision,
-    createdAt: row.created_at,
-  };
-}
-
-export async function getMeetings(workspaceId: string): Promise<{
-  meetings: Meeting[];
-  agendaItems: MeetingAgendaItem[];
-  entries: MeetingAgendaEntry[];
-}> {
-  if (!isLiveDataWorkspace(workspaceId) || !isCurrentlyOnline()) {
-    return { meetings: [], agendaItems: [], entries: [] };
-  }
-  const supabase = getClient();
-  if (!supabase) return { meetings: [], agendaItems: [], entries: [] };
-
-  try {
-    const { data: meetingsData, error: meetingsError } = await (supabase.from("meetings") as any)
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .order("sort_order", { ascending: true });
-
-    if (meetingsError) {
-      if (isSchemaTableMissing(meetingsError)) {
-        markMeetingTablesMissing();
-        return { meetings: [], agendaItems: [], entries: [] };
-      }
-      logHybridError("getMeetings", meetingsError);
-      return { meetings: [], agendaItems: [], entries: [] };
-    }
-
-    const meetings = (meetingsData ?? []).map((row: MeetingRow) => mapMeetingRow(row));
-    if (meetings.length === 0) {
-      markMeetingTablesAvailable();
-      return { meetings: [], agendaItems: [], entries: [] };
-    }
-
-    const meetingIds = meetings.map((m: Meeting) => m.id);
-    const { data: itemsData, error: itemsError } = await (supabase.from("meeting_agenda_items") as any)
-      .select("*")
-      .in("meeting_id", meetingIds)
-      .order("sort_order", { ascending: true });
-
-    if (itemsError) {
-      logHybridError("getMeetings:items", itemsError);
-      markMeetingTablesAvailable();
-      return { meetings, agendaItems: [], entries: [] };
-    }
-
-    const agendaItems = (itemsData ?? []).map((row: MeetingAgendaItemRow) => mapAgendaItemRow(row));
-    const itemIds = agendaItems.map((i: MeetingAgendaItem) => i.id);
-    let entries: MeetingAgendaEntry[] = [];
-
-    if (itemIds.length > 0) {
-      const { data: entriesData, error: entriesError } = await (supabase.from("meeting_agenda_entries") as any)
-        .select("*")
-        .in("agenda_item_id", itemIds)
-        .order("created_at", { ascending: true });
-
-      if (entriesError) logHybridError("getMeetings:entries", entriesError);
-      else entries = (entriesData ?? []).map((row: MeetingAgendaEntryRow) => mapAgendaEntryRow(row));
-    }
-
-    markMeetingTablesAvailable();
-    return { meetings, agendaItems, entries };
-  } catch (err) {
-    logHybridError("getMeetings", err);
-    return { meetings: [], agendaItems: [], entries: [] };
-  }
-}
-
-export async function createMeeting(meeting: Meeting): Promise<boolean> {
-  if (!isLiveDataWorkspace(meeting.workspaceId)) return false;
-  if (!(await ensureMeetingPersistenceReady())) return true;
-  if (!isCurrentlyOnline()) return true;
-
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  const payload: Record<string, unknown> = {
-    id: meeting.id,
-    workspace_id: meeting.workspaceId,
-    title: meeting.title,
-    description: meeting.description ?? null,
-    status: meeting.status,
-    scheduled_at: meeting.scheduledAt ?? null,
-    started_at: meeting.startedAt ?? null,
-    completed_at: meeting.completedAt ?? null,
-    previous_meeting_id: meeting.previousMeetingId ?? null,
-    notebook_id: meeting.notebookId ?? null,
-    attendee_ids: meeting.attendeeIds ?? [],
-    summary_html: meeting.summaryHtml ?? null,
-    sort_order: meeting.sortOrder,
-    created_at: meeting.createdAt,
-    updated_at: meeting.updatedAt,
-  };
-  if (meetingAttendeesColumnAvailable !== false) {
-    payload.attendees = meeting.attendees ?? [];
-  }
-
-  try {
-    const { error } = await (supabase.from("meetings") as any).insert(payload);
-    if (error) {
-      if (isSchemaTableMissing(error)) {
-        markMeetingTablesMissing();
-        return false;
-      }
-      if (isMeetingAttendeesColumnMissing(error) && "attendees" in payload) {
-        markMeetingAttendeesColumnMissing();
-        delete payload.attendees;
-        const retry = await (supabase.from("meetings") as any).insert(payload);
-        if (retry.error) {
-          logHybridError("createMeeting", retry.error);
-          return false;
-        }
-        markMeetingTablesAvailable();
-        return true;
-      }
-      logHybridError("createMeeting", error);
-      return false;
-    }
-    if ("attendees" in payload) markMeetingAttendeesColumnAvailable();
-    markMeetingTablesAvailable();
-    return true;
-  } catch (err) {
-    logHybridError("createMeeting", err);
-    return false;
-  }
-}
-
-export async function updateMeeting(
-  id: string,
-  workspaceId: string,
-  updates: Partial<Meeting>,
-): Promise<boolean> {
-  if (!isLiveDataWorkspace(workspaceId)) return false;
-  if (!isMeetingPersistenceEnabled()) return true;
-  if (!isCurrentlyOnline()) return true;
-
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (updates.title !== undefined) payload.title = updates.title;
-  if (updates.description !== undefined) payload.description = updates.description;
-  if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.scheduledAt !== undefined) payload.scheduled_at = updates.scheduledAt;
-  if (updates.startedAt !== undefined) payload.started_at = updates.startedAt;
-  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
-  if (updates.previousMeetingId !== undefined) payload.previous_meeting_id = updates.previousMeetingId;
-  if (updates.notebookId !== undefined) payload.notebook_id = updates.notebookId;
-  if (updates.attendeeIds !== undefined) payload.attendee_ids = updates.attendeeIds;
-  if (updates.attendees !== undefined && meetingAttendeesColumnAvailable !== false) {
-    payload.attendees = updates.attendees;
-  }
-  if (updates.summaryHtml !== undefined) payload.summary_html = updates.summaryHtml;
-  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
-  if (updates.archived !== undefined) payload.archived = updates.archived;
-
-  try {
-    const { error } = await (supabase.from("meetings") as any)
-      .update(payload)
-      .eq("id", id)
-      .eq("workspace_id", workspaceId);
-    if (error) {
-      if (isMeetingAttendeesColumnMissing(error) && "attendees" in payload) {
-        markMeetingAttendeesColumnMissing();
-        delete payload.attendees;
-        const retry = await (supabase.from("meetings") as any)
-          .update(payload)
-          .eq("id", id)
-          .eq("workspace_id", workspaceId);
-        if (retry.error && !isSchemaTableMissing(retry.error)) {
-          logHybridError("updateMeeting", retry.error);
-        }
-        return true;
-      }
-      if (!isSchemaTableMissing(error)) logHybridError("updateMeeting", error);
-      return true;
-    }
-    if ("attendees" in payload) markMeetingAttendeesColumnAvailable();
-    return true;
-  } catch (err) {
-    logHybridError("updateMeeting", err);
-    return true;
-  }
-}
-
-export async function deleteMeeting(id: string, workspaceId: string): Promise<boolean> {
-  if (!isLiveDataWorkspace(workspaceId)) return false;
-  if (!isMeetingPersistenceEnabled()) return true;
-  if (!isCurrentlyOnline()) return true;
-
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  try {
-    const { error } = await (supabase.from("meetings") as any)
-      .delete()
-      .eq("id", id)
-      .eq("workspace_id", workspaceId);
-    if (error && error.code !== "PGRST116" && !isSchemaTableMissing(error)) {
-      logHybridError("deleteMeeting", error);
-    }
-    return true;
-  } catch (err) {
-    logHybridError("deleteMeeting", err);
-    return true;
-  }
-}
-
-export async function createMeetingAgendaItem(item: MeetingAgendaItem): Promise<boolean> {
-  if (!isCurrentlyOnline()) return true;
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  const payload = {
-    id: item.id,
-    meeting_id: item.meetingId,
-    title: item.title,
-    description: item.description ?? null,
-    sort_order: item.sortOrder,
-    owner_id: item.ownerId ?? null,
-    owner_name: item.ownerName ?? null,
-    status: item.status,
-    reviewed: item.reviewed ?? false,
-    continued_from_item_id: item.continuedFromItemId ?? null,
-    linked_task_ids: item.linkedTaskIds ?? [],
-    time_budget_minutes: item.timeBudgetMinutes ?? null,
-    completed_at: item.completedAt ?? null,
-    created_at: item.createdAt,
-    updated_at: item.updatedAt,
-  };
-
-  try {
-    const { error } = await (supabase.from("meeting_agenda_items") as any).insert(payload);
-    if (error) logHybridError("createMeetingAgendaItem", error);
-    return !error;
-  } catch (err) {
-    logHybridError("createMeetingAgendaItem", err);
-    return false;
-  }
-}
-
-export async function updateMeetingAgendaItem(
-  id: string,
-  updates: Partial<MeetingAgendaItem>,
-): Promise<boolean> {
-  if (!isCurrentlyOnline()) return true;
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (updates.title !== undefined) payload.title = updates.title;
-  if (updates.description !== undefined) payload.description = updates.description;
-  if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
-  if (updates.ownerId !== undefined) payload.owner_id = updates.ownerId;
-  if (updates.ownerName !== undefined) payload.owner_name = updates.ownerName;
-  if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.reviewed !== undefined) payload.reviewed = updates.reviewed;
-  if (updates.continuedFromItemId !== undefined) payload.continued_from_item_id = updates.continuedFromItemId;
-  if (updates.linkedTaskIds !== undefined) payload.linked_task_ids = updates.linkedTaskIds;
-  if (updates.timeBudgetMinutes !== undefined) payload.time_budget_minutes = updates.timeBudgetMinutes;
-  if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt;
-
-  try {
-    const { error } = await (supabase.from("meeting_agenda_items") as any)
-      .update(payload)
-      .eq("id", id);
-    if (error) logHybridError("updateMeetingAgendaItem", error);
-    return true;
-  } catch (err) {
-    logHybridError("updateMeetingAgendaItem", err);
-    return true;
-  }
-}
-
-export async function deleteMeetingAgendaItem(id: string): Promise<boolean> {
-  if (!isCurrentlyOnline()) return true;
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  try {
-    const { error } = await (supabase.from("meeting_agenda_items") as any).delete().eq("id", id);
-    if (error && error.code !== "PGRST116") logHybridError("deleteMeetingAgendaItem", error);
-    return true;
-  } catch (err) {
-    logHybridError("deleteMeetingAgendaItem", err);
-    return true;
-  }
-}
-
-export async function createMeetingAgendaEntry(entry: MeetingAgendaEntry): Promise<boolean> {
-  if (!isCurrentlyOnline()) return true;
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  const payload = {
-    id: entry.id,
-    agenda_item_id: entry.agendaItemId,
-    body: entry.body,
-    author_id: entry.authorId ?? null,
-    is_decision: entry.isDecision ?? false,
-    created_at: entry.createdAt,
-  };
-
-  try {
-    const { error } = await (supabase.from("meeting_agenda_entries") as any).insert(payload);
-    if (error) logHybridError("createMeetingAgendaEntry", error);
-    return !error;
-  } catch (err) {
-    logHybridError("createMeetingAgendaEntry", err);
-    return false;
-  }
-}
-
-export async function updateMeetingAgendaEntry(
-  id: string,
-  updates: Partial<Pick<MeetingAgendaEntry, "body" | "isDecision">>,
-): Promise<boolean> {
-  if (!isCurrentlyOnline()) return true;
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  const payload: Record<string, unknown> = {};
-  if (updates.body !== undefined) payload.body = updates.body;
-  if (updates.isDecision !== undefined) payload.is_decision = updates.isDecision;
-  if (Object.keys(payload).length === 0) return true;
-
-  try {
-    const { error } = await (supabase.from("meeting_agenda_entries") as any)
-      .update(payload)
-      .eq("id", id);
-    if (error) logHybridError("updateMeetingAgendaEntry", error);
-    return !error;
-  } catch (err) {
-    logHybridError("updateMeetingAgendaEntry", err);
-    return false;
-  }
-}
-
-export async function deleteMeetingAgendaEntry(id: string): Promise<boolean> {
-  if (!isCurrentlyOnline()) return true;
-  const supabase = getClient();
-  if (!supabase) return false;
-
-  try {
-    const { error } = await (supabase.from("meeting_agenda_entries") as any).delete().eq("id", id);
-    if (error) logHybridError("deleteMeetingAgendaEntry", error);
-    return !error;
-  } catch (err) {
-    logHybridError("deleteMeetingAgendaEntry", err);
-    return false;
-  }
-}
 
 // Re-export template helpers from utils for store/UI consumers (no new imports needed in many places)
 export {

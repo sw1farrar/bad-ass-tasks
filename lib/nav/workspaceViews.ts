@@ -1,5 +1,4 @@
 import {
-  Calendar,
   Check,
   FolderOpen,
   Home,
@@ -19,7 +18,6 @@ export type WorkspaceNavViewId =
   | "tasks"
   | "notes"
   | "notebooks"
-  | "meetings"
   | "lists"
   | "chat"
   | "teams"
@@ -63,7 +61,6 @@ const MOBILE_MORE_META: Partial<
   Record<WorkspaceNavViewId, { group: MobileMoreNavGroupId; hint?: string }>
 > = {
   notebooks: { group: "work", hint: "Notebooks and writing" },
-  meetings: { group: "work", hint: "Agendas and follow-ups" },
   chat: { group: "team", hint: "Workspace messages" },
   teams: { group: "team", hint: "Members and invites" },
   settings: { group: "workspace", hint: "Features and preferences" },
@@ -77,7 +74,6 @@ const ALL_VIEWS: WorkspaceNavView[] = [
   { id: "tasks", label: "Tasks", icon: Check },
   { id: "notes", label: "Files", icon: FolderOpen },
   { id: "notebooks", label: "Notes", icon: Notebook },
-  { id: "meetings", label: "Meetings", icon: Calendar },
   { id: "lists", label: "Lists", icon: ListChecks },
   { id: "chat", label: "Chat", icon: MessageCircle },
   { id: "teams", label: "Team", icon: Users },
@@ -101,7 +97,7 @@ function isViewVisible(
   opts?: WorkspaceNavOptions,
 ): boolean {
   if (id === "chat") return opts?.showChat === true;
-  if (id === "notebooks" || id === "meetings") return isNotesFeatureEnabled(workspace.settings);
+  if (id === "notebooks") return isNotesFeatureEnabled(workspace.settings);
   return true;
 }
 
@@ -180,7 +176,14 @@ export function isValidNavView(
   opts?: WorkspaceNavOptions,
 ): view is WorkspaceNavViewId {
   if (view === "admin") return opts?.isSiteAdmin === true;
-  if (view === "calendar" || view === "today" || view === "files") return true;
+  if (
+    view === "calendar" ||
+    view === "today" ||
+    view === "files" ||
+    view === "meetings"
+  ) {
+    return true;
+  }
   const allowed = new Set([
     ...getBottomNavViews(workspace, opts).map((v) => v.id),
     ...(opts?.isSiteAdmin ? (["admin"] as const) : []),
@@ -189,7 +192,7 @@ export function isValidNavView(
 }
 
 export function resolveNavView(view: string): WorkspaceNavViewId {
-  if (view === "calendar" || view === "today") return "home";
+  if (view === "calendar" || view === "today" || view === "meetings") return "home";
   if (view === "files") return "notes";
   return view as WorkspaceNavViewId;
 }

@@ -49,8 +49,6 @@ describe("mcp protocol", () => {
         "add_list_item",
         "update_list_item",
         "complete_list_item",
-        "create_meeting",
-        "add_agenda_item",
         "list_files",
       ]),
     );
@@ -64,6 +62,14 @@ describe("mcp protocol", () => {
         "update_store",
         "delete_store",
         "list_territories",
+        "list_meetings",
+        "get_meeting",
+        "create_meeting",
+        "update_meeting",
+        "delete_meeting",
+        "add_agenda_item",
+        "update_agenda_item",
+        "add_agenda_note",
       ]),
     );
     expect(new Set(names).size).toBe(names.length);

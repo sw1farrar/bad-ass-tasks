@@ -141,64 +141,6 @@ export interface NotebookTaskProgress {
   createdAt: string;
 }
 
-export type MeetingStatus = "draft" | "scheduled" | "in_progress" | "completed";
-export type AgendaItemStatus = "open" | "in_progress" | "completed" | "continued";
-
-export interface Meeting {
-  id: string;
-  workspaceId: string;
-  title: string;
-  /** Optional one-line / short blurb shown in the header and on agenda/summary exports. */
-  description?: string | null;
-  status: MeetingStatus;
-  scheduledAt?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  previousMeetingId?: string | null;
-  notebookId?: string | null;
-  /** Legacy workspace-member UUID attendees (kept for older rows / filters). */
-  attendeeIds: string[];
-  /** Freeform attendee display names. */
-  attendees?: string[];
-  summaryHtml?: string | null;
-  sortOrder: number;
-  archived?: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface MeetingAgendaItem {
-  id: string;
-  meetingId: string;
-  title: string;
-  description?: string | null;
-  sortOrder: number;
-  ownerId?: string | null;
-  /** Free-text responsible when not a workspace member. */
-  ownerName?: string | null;
-  status: AgendaItemStatus;
-  /**
-   * Covered in this meeting for carry-forward. Persists across complete/reopen
-   * so returning a completed topic to Active keeps the Reviewed state.
-   */
-  reviewed?: boolean;
-  continuedFromItemId?: string | null;
-  linkedTaskIds: string[];
-  timeBudgetMinutes?: number | null;
-  completedAt?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface MeetingAgendaEntry {
-  id: string;
-  agendaItemId: string;
-  body: string;
-  authorId?: string | null;
-  isDecision?: boolean;
-  createdAt: string;
-}
-
 /** Google Keep–style checklist list (workspace-scoped). */
 /** Active cross-workspace link for a list (source workspace perspective). */
 export interface ListShareTarget {
