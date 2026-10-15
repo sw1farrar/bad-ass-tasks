@@ -1,17 +1,9 @@
 import { previewEntryBody } from "@/lib/notebooks/entryPreview";
-import { agendaEntryPlainText } from "@/lib/meetings/agendaEntryBody";
-import type {
-  MeetingAgendaEntry,
-  MeetingAgendaItem,
-  NotebookTask,
-  NotebookTaskProgress,
-} from "@/types";
+import type { NotebookTask, NotebookTaskProgress } from "@/types";
 
 export type PendingDestructiveDelete =
   | { kind: "task"; id: string }
-  | { kind: "taskProgress"; id: string }
-  | { kind: "agendaItem"; id: string }
-  | { kind: "agendaEntry"; id: string };
+  | { kind: "taskProgress"; id: string };
 
 export interface DestructiveConfirmContent {
   title: string;
@@ -23,8 +15,6 @@ export interface DestructiveConfirmContent {
 export interface DestructiveConfirmContext {
   tasks: NotebookTask[];
   taskProgress: NotebookTaskProgress[];
-  agendaItems: MeetingAgendaItem[];
-  agendaEntries: MeetingAgendaEntry[];
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
@@ -57,30 +47,6 @@ export function buildDestructiveConfirmContent(
         title: "Delete progress note?",
         highlight: entry ? previewEntryBody(entry.body) : "Progress note",
         description: "This progress note will be permanently removed. This cannot be undone.",
-        confirmText: "Delete note",
-      };
-    }
-    case "agendaItem": {
-      const item = ctx.agendaItems.find((i) => i.id === pending.id);
-      const noteCount = ctx.agendaEntries.filter((e) => e.agendaItemId === pending.id).length;
-      return {
-        title: "Delete agenda topic?",
-        highlight: item?.title?.trim() || "Untitled topic",
-        description:
-          noteCount > 0
-            ? `This topic and its ${plural(noteCount, "note")} will be permanently deleted. This cannot be undone.`
-            : "This agenda topic will be permanently deleted. This cannot be undone.",
-        confirmText: "Delete topic",
-      };
-    }
-    case "agendaEntry": {
-      const entry = ctx.agendaEntries.find((e) => e.id === pending.id);
-      return {
-        title: "Delete meeting note?",
-        highlight: entry
-          ? previewEntryBody(agendaEntryPlainText(entry.body))
-          : "Meeting note",
-        description: "This note will be permanently removed from the topic. This cannot be undone.",
         confirmText: "Delete note",
       };
     }

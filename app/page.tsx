@@ -73,8 +73,7 @@ import { isValidListShareId } from "@/lib/list-share/isValidListShareId";
 import { FilesView } from "@/features/files";
 import { ImportReviewBanner, ImportReviewDeck } from "@/features/import";
 import { NotebooksView } from "@/features/notebooks";
-import { MeetingsView } from "@/features/meetings";
-import { getBottomNavViews } from "@/lib/nav/workspaceViews";
+import { getBottomNavViews, resolveNavView } from "@/lib/nav/workspaceViews";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import {
   CaptureFileModal,
@@ -294,19 +293,12 @@ export default function BadAssTasks() {
     getArchivedNotebooks,
     getNotebookNotes,
     getNotebookTasks,
-    getMeetings,
-    getArchivedMeetings,
-    getMeetingAgendaItems,
     selectedNotebookId,
     selectedNotebookNoteId,
     selectedNotebookTaskId,
-    selectedMeetingId,
-    selectedAgendaItemId,
     setSelectedNotebookId,
     setSelectedNotebookNoteId,
     setSelectedNotebookTaskId,
-    setSelectedMeetingId,
-    setSelectedAgendaItemId,
     addNotebook,
     updateNotebook,
     deleteNotebook,
@@ -319,26 +311,6 @@ export default function BadAssTasks() {
     updateNotebookTaskProgress,
     deleteNotebookTaskProgress,
     hydrateNoteDetail,
-    addMeeting,
-    updateMeeting,
-    deleteMeeting,
-    addAgendaItem,
-    updateAgendaItem,
-    reorderAgendaItems,
-    addAgendaEntry,
-    updateAgendaEntry,
-    deleteAgendaEntry,
-    completeAgendaItem,
-    continueAgendaItem,
-    unreviewAgendaItem,
-    reopenAgendaItem,
-    deleteAgendaItem,
-    completeMeeting,
-    reopenMeeting,
-    startNextMeeting,
-    duplicateMeeting,
-    meetingAgendaItems,
-    meetingAgendaEntries,
     notebookTaskProgress,
     notebookTasks,
     notebooks,
@@ -1032,12 +1004,7 @@ export default function BadAssTasks() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const rawView = params.get("view");
-    const urlView =
-      rawView === "calendar" || rawView === "today"
-        ? "home"
-        : rawView === "files"
-          ? "notes"
-          : rawView;
+    const urlView = rawView ? resolveNavView(rawView) : null;
     const validViews = getBottomNavViews(currentWorkspace, {
       showChat: isSharedWorkspace(members),
     }).map((v) => v.id);
@@ -3338,75 +3305,6 @@ export default function BadAssTasks() {
             }}
           />
         );
-      case "meetings":
-        return (
-          <MeetingsView
-            workspaceId={currentWorkspace.id}
-            workspaceName={currentWorkspace.name}
-            meetings={getMeetings()}
-            archivedMeetings={getArchivedMeetings()}
-            meetingAgendaItems={meetingAgendaItems}
-            meetingAgendaEntries={meetingAgendaEntries}
-            members={members}
-            currentUserId={user?.id}
-            selectedMeetingId={selectedMeetingId}
-            selectedAgendaItemId={selectedAgendaItemId}
-            onSelectMeeting={setSelectedMeetingId}
-            onSelectAgendaItem={setSelectedAgendaItemId}
-            onAddMeeting={addMeeting}
-            onUpdateMeeting={updateMeeting}
-            onDeleteMeeting={deleteMeeting}
-            onAddAgendaItem={addAgendaItem}
-            onUpdateAgendaItem={updateAgendaItem}
-            onReorderAgendaItems={reorderAgendaItems}
-            onAddAgendaEntry={addAgendaEntry}
-            onUpdateAgendaEntry={updateAgendaEntry}
-            onDeleteAgendaEntry={deleteAgendaEntry}
-            onCompleteAgendaItem={completeAgendaItem}
-            onContinueAgendaItem={continueAgendaItem}
-            onUnreviewAgendaItem={unreviewAgendaItem}
-            onReopenAgendaItem={reopenAgendaItem}
-            onDeleteAgendaItem={deleteAgendaItem}
-            onCompleteMeeting={completeMeeting}
-            onReopenMeeting={reopenMeeting}
-            onStartNextMeeting={startNextMeeting}
-            onDuplicateMeeting={duplicateMeeting}
-            onSaveSummaryAsNote={async (meeting) => {
-              const items = getMeetingAgendaItems(meeting.id);
-              const itemIds = new Set(items.map((i) => i.id));
-              const entries = meetingAgendaEntries.filter((e) => itemIds.has(e.agendaItemId));
-              const { buildMeetingSummaryMarkdown } = await import("@/lib/meetings/summaryBuilder");
-              const md = buildMeetingSummaryMarkdown({
-                meeting,
-                items,
-                entries,
-                members,
-                currentUserId: user?.id,
-              });
-              const content = JSON.stringify({
-                type: "doc",
-                content: [{ type: "paragraph", content: [{ type: "text", text: md }] }],
-              });
-              const targetNotebookId =
-                meeting.notebookId ?? selectedNotebookId ?? getNotebooks()[0]?.id;
-              if (!targetNotebookId) {
-                toast.error("Create a notebook first to save the summary");
-                return;
-              }
-              const created = await addNote(`${meeting.title} — Summary`, content, {
-                notebookId: targetNotebookId,
-              });
-              if (created) {
-                if (created.notebookId) setSelectedNotebookId(created.notebookId);
-                setSelectedNotebookNoteId(created.id);
-                setView("notebooks");
-                toast.success("Summary saved to notebook");
-              } else {
-                toast.error("Could not save summary as note");
-              }
-            }}
-          />
-        );
       case "lists":
         return renderListsView();
       case "chat":
@@ -3918,7 +3816,6 @@ export default function BadAssTasks() {
               | "tasks"
               | "notes"
               | "notebooks"
-              | "meetings"
               | "lists"
               | "chat"
               | "teams"

@@ -74,17 +74,17 @@ describe("MobileBottomNav", () => {
     await user.click(screen.getByRole("button", { name: "More" }));
     const sheet = await screen.findByRole("dialog", { name: "More navigation" });
     expect(within(sheet).getByRole("button", { name: /Notes/i })).toBeInTheDocument();
-    expect(within(sheet).getByRole("button", { name: /Meetings/i })).toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: /Meetings/i })).not.toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: /Chat/i })).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: /Team/i })).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: /Settings/i })).toBeInTheDocument();
 
-    await user.type(within(sheet).getByPlaceholderText("Go to…"), "meet");
-    expect(within(sheet).getByRole("button", { name: /Meetings/i })).toBeInTheDocument();
-    expect(within(sheet).queryByRole("button", { name: /Chat/i })).not.toBeInTheDocument();
+    await user.type(within(sheet).getByPlaceholderText("Go to…"), "chat");
+    expect(within(sheet).getByRole("button", { name: /Chat/i })).toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: /Notes/i })).not.toBeInTheDocument();
 
-    await user.click(within(sheet).getByRole("button", { name: /Meetings/i }));
-    expect(onNavigate).toHaveBeenCalledWith("meetings");
+    await user.click(within(sheet).getByRole("button", { name: /Chat/i }));
+    expect(onNavigate).toHaveBeenCalledWith("chat");
   });
 
   it("marks More as the current page when an overflow view is open", () => {

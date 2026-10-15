@@ -70,7 +70,7 @@ export async function handleMcpMessage(
           capabilities: { tools: { listChanged: true } },
           serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
           instructions:
-            "You are connected to the signed-in user's Badazz Tasks account. Use tools to manage tasks, folders, notes, notebooks, checklists, meetings, and files. Prefer the default workspace when workspace_id is omitted. Use search_workspace to find things by name before updating them.",
+            "You are connected to the signed-in user's Badazz Tasks account. Use tools to manage tasks, folders, notes, notebooks, checklists, and files. Prefer the default workspace when workspace_id is omitted. Use search_workspace to find things by name before updating them.",
         },
       };
     }

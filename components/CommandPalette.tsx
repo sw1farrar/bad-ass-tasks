@@ -5,7 +5,7 @@ import { Command } from "cmdk";
 import * as Dialog from "@radix-ui/react-dialog";
 import { 
   Search, Plus, CheckSquare, FileText, ListChecks, Users, Settings,
-  ArrowRight, Briefcase, FilePlus, Hash, Filter, Download, FolderOpen, Notebook, Calendar,
+  ArrowRight, Briefcase, FilePlus, Hash, Filter, Download, FolderOpen, Notebook,
   MessageCircle,
 } from "lucide-react";
 import { getBottomNavViews } from "@/lib/nav/workspaceViews";
@@ -374,8 +374,6 @@ export function CommandPalette({ open, onOpenChange, onOpenTask }: CommandPalett
                         ? FileText
                         : v.id === "notebooks"
                           ? Notebook
-                          : v.id === "meetings"
-                            ? Calendar
                           : v.id === "lists"
                             ? ListChecks
                             : v.id === "chat"

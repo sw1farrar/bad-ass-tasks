@@ -168,8 +168,6 @@ export function NotebooksView({
       buildDestructiveConfirmContent(pendingDestructiveDelete, {
         tasks: notebookTasks,
         taskProgress: notebookTaskProgress,
-        agendaItems: [],
-        agendaEntries: [],
       }),
     [pendingDestructiveDelete, notebookTasks, notebookTaskProgress],
   );

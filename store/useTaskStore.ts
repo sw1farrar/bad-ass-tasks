@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, Meeting, MeetingAgendaItem, MeetingAgendaEntry } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress } from "@/types";
 import {
   DEFAULT_NOTEBOOK_SECTION_TAB,
   type NotebookSectionTab,
@@ -74,13 +74,6 @@ import {
   createNotebookSectionSliceActions,
   type NotebookSectionSliceActions,
 } from "@/store/notebookSectionSlice";
-import {
-  createMeetingSliceActions,
-  SAMPLE_MEETINGS,
-  SAMPLE_AGENDA_ITEMS,
-  SAMPLE_AGENDA_ENTRIES,
-  type MeetingSliceActions,
-} from "@/store/meetingSlice";
 import {
   TASK_ASSIGNEE_ALL_LABEL,
   buildAssigneeBreakdown,
@@ -160,9 +153,6 @@ import {
   getNotebooks,
   ensureNotebookPersistenceReady,
   areNotebookTablesReady,
-  getMeetings,
-  areMeetingTablesReady,
-  isMeetingPersistenceEnabled,
   remapLegacyListIdsInState,
   normalizeListEntityId,
   createTask as createTaskSupabase,
@@ -245,9 +235,6 @@ import {
   mapCommentRow,
   mapWorkspaceListRow,
   mapListItemRow,
-  mapMeetingRow,
-  mapAgendaItemRow,
-  mapAgendaEntryRow,
 } from "@/lib/data/hybridStore";
 import {
   areNotebookSectionTablesReady,
@@ -260,11 +247,7 @@ import {
   markBroadcastChannelReady,
   sendChannelBroadcast,
 } from "@/lib/realtime/channelBroadcast";
-import {
-  agendaEntryBelongsToWorkspace,
-  agendaItemBelongsToWorkspace,
-  commentBelongsToWorkspace,
-} from "@/lib/realtime/workspaceScope";
+import { commentBelongsToWorkspace } from "@/lib/realtime/workspaceScope";
 import {
   dismissReminder,
   dismissReminders,
@@ -468,12 +451,12 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "lists" | "chat" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksHotListFilterMode = "all" | "only";
 
-interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions {
+interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions {
   // Data
   tasks: Task[];
   notes: Note[];
@@ -484,11 +467,6 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   notebookTasks: NotebookTask[];
   notebookTaskProgress: NotebookTaskProgress[];
   selectedNotebookTaskId: string | null;
-  meetings: Meeting[];
-  meetingAgendaItems: MeetingAgendaItem[];
-  meetingAgendaEntries: MeetingAgendaEntry[];
-  selectedMeetingId: string | null;
-  selectedAgendaItemId: string | null;
   currentWorkspace: Workspace;
   workspaces: Workspace[];
   recentActivity: ActivityLog[];
@@ -801,9 +779,6 @@ function clearedLiveSessionState() {
   return {
     tasks: [],
     notes: [],
-    meetings: [],
-    meetingAgendaItems: [],
-    meetingAgendaEntries: [],
     workspaceLists: [],
     listItems: [],
     recentActivity: [],
@@ -818,8 +793,6 @@ function clearedLiveSessionState() {
     comments: [],
     selectedTaskId: null,
     selectedNoteId: null,
-    selectedMeetingId: null,
-    selectedAgendaItemId: null,
     isInitializing: false,
     pendingSyncCount: 0,
     isSyncing: false,
@@ -1100,6 +1073,30 @@ function resolveWorkspaceMemberCount(
   return Math.max(1, assigneeIds.size || assigneeLabels.size);
 }
 
+export const TASK_STORE_PERSIST_VERSION = 1;
+
+const REMOVED_MEETING_PERSIST_KEYS = [
+  "meetings",
+  "meetingAgendaItems",
+  "meetingAgendaEntries",
+  "selectedMeetingId",
+  "selectedAgendaItemId",
+] as const;
+
+/**
+ * Older clients persisted Meetings rows and a meetings view.
+ * Drop that data on upgrade and send the removed view to Home.
+ */
+export function migratePersistedTaskState(persisted: unknown, version: number): unknown {
+  if (!persisted || typeof persisted !== "object") return persisted;
+  const state = { ...(persisted as Record<string, unknown>) };
+  if (version < TASK_STORE_PERSIST_VERSION) {
+    for (const key of REMOVED_MEETING_PERSIST_KEYS) delete state[key];
+    if (state.currentView === "meetings") state.currentView = "home";
+  }
+  return state;
+}
+
 export const useTaskStore = create<TaskState>()(
   persist(
     (set, get) => ({
@@ -1112,11 +1109,6 @@ export const useTaskStore = create<TaskState>()(
       notebookTasks: [],
       notebookTaskProgress: [],
       selectedNotebookTaskId: null,
-      meetings: SAMPLE_MEETINGS,
-      meetingAgendaItems: SAMPLE_AGENDA_ITEMS,
-      meetingAgendaEntries: SAMPLE_AGENDA_ENTRIES,
-      selectedMeetingId: null,
-      selectedAgendaItemId: null,
       currentWorkspace: DEFAULT_WORKSPACE,
       workspaces: [
         DEFAULT_WORKSPACE,
@@ -1508,14 +1500,14 @@ export const useTaskStore = create<TaskState>()(
           return;
         }
         if (
-          (resolved === "notebooks" || resolved === "meetings") &&
+          resolved === "notebooks" &&
           !isNotesFeatureEnabled(get().currentWorkspace.settings)
         ) {
           set({ currentView: "home" });
           get().updatePresenceMeta({ view: "home" });
           return;
         }
-        if (raw === "health" || raw === "map") {
+        if (raw === "health" || raw === "map" || raw === "meetings") {
           set({ currentView: "home" });
           get().updatePresenceMeta({ view: "home" });
           return;
@@ -1595,8 +1587,6 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookNoteId: null,
           selectedNotebookTaskId: null,
           selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
-          selectedMeetingId: null,
-          selectedAgendaItemId: null,
           isInitializing: true,
           // Folder ids are workspace-scoped — never carry a stale folder filter across workspaces.
           taskFilter: {
@@ -1787,15 +1777,10 @@ export const useTaskStore = create<TaskState>()(
             set({
               tasks: [],
               notes: [],
-              meetings: [],
-              meetingAgendaItems: [],
-              meetingAgendaEntries: [],
               workspaceLists: [],
               listItems: [],
               recentActivity: [],
               taskLoadingStates: {},
-              selectedMeetingId: null,
-              selectedAgendaItemId: null,
             });
             return;
           }
@@ -1828,7 +1813,6 @@ export const useTaskStore = create<TaskState>()(
 
           const keptTaskFolders = get().taskFolders.filter((f) => f.workspaceId === workspaceId);
           const keptNotebooks = get().notebooks.filter((nb) => nb.workspaceId === workspaceId);
-          const keptMeetings = get().meetings.filter((m) => m.workspaceId === workspaceId);
           const keptNotebookTasks = get().notebookTasks.filter((t) => t.workspaceId === workspaceId);
           const keptNotebookTaskProgress = get().notebookTaskProgress;
 
@@ -1846,7 +1830,6 @@ export const useTaskStore = create<TaskState>()(
             realListItems,
             realTaskFolders,
             realNotebooks,
-            meetingBundle,
             notebookSectionBundle,
           ] = await Promise.all([
             getTasks(workspaceId),
@@ -1856,7 +1839,6 @@ export const useTaskStore = create<TaskState>()(
             listsBundlePromise.then((b) => b.items),
             getTaskFolders(workspaceId),
             getNotebooks(workspaceId),
-            getMeetings(workspaceId),
             getNotebookSectionBundle(workspaceId),
           ]);
 
@@ -2051,39 +2033,6 @@ export const useTaskStore = create<TaskState>()(
             return task && task.workspaceId !== workspaceId;
           });
 
-          const otherWsMeetings = get().meetings.filter((m) => m.workspaceId !== workspaceId);
-          const otherWsAgendaItems = get().meetingAgendaItems.filter((i) => {
-            const meeting = get().meetings.find((m) => m.id === i.meetingId);
-            return meeting && meeting.workspaceId !== workspaceId;
-          });
-          const otherWsAgendaEntries = get().meetingAgendaEntries.filter((e) => {
-            const item = get().meetingAgendaItems.find((i) => i.id === e.agendaItemId);
-            if (!item) return false;
-            const meeting = get().meetings.find((m) => m.id === item.meetingId);
-            return meeting && meeting.workspaceId !== workspaceId;
-          });
-
-          let nextMeetings = meetingBundle.meetings;
-          let nextAgendaItems = meetingBundle.agendaItems;
-          let nextAgendaEntries = meetingBundle.entries;
-          if (!isMeetingPersistenceEnabled()) {
-            nextMeetings = keptMeetings;
-            nextAgendaItems = get().meetingAgendaItems.filter((i) =>
-              keptMeetings.some((m) => m.id === i.meetingId),
-            );
-            nextAgendaEntries = get().meetingAgendaEntries.filter((e) =>
-              nextAgendaItems.some((i) => i.id === e.agendaItemId),
-            );
-          } else if (nextMeetings.length === 0 && keptMeetings.length > 0) {
-            nextMeetings = keptMeetings;
-            nextAgendaItems = get().meetingAgendaItems.filter((i) =>
-              keptMeetings.some((m) => m.id === i.meetingId),
-            );
-            nextAgendaEntries = get().meetingAgendaEntries.filter((e) =>
-              nextAgendaItems.some((i) => i.id === e.agendaItemId),
-            );
-          }
-
           const pendingNoteIds = new Set(
             getPendingOperations()
               .filter(
@@ -2111,9 +2060,6 @@ export const useTaskStore = create<TaskState>()(
             notebooks: [...otherWsNotebooks, ...nextNotebooks],
             notebookTasks: [...otherWsNotebookTasks, ...nextNotebookTasks],
             notebookTaskProgress: [...otherWsNotebookTaskProgress, ...nextNotebookTaskProgress],
-            meetings: [...otherWsMeetings, ...nextMeetings],
-            meetingAgendaItems: [...otherWsAgendaItems, ...nextAgendaItems],
-            meetingAgendaEntries: [...otherWsAgendaEntries, ...nextAgendaEntries],
             recentActivity: realActivity,
             taskLoadingStates: {},
             pendingSyncCount: getPendingCount(),
@@ -2226,16 +2172,11 @@ export const useTaskStore = create<TaskState>()(
             set({
               tasks: liveTasks,
               notes: liveNotes,
-              meetings: get().meetings.filter((m) => !isDemoWs(m.workspaceId)),
-              meetingAgendaItems: get().meetingAgendaItems,
-              meetingAgendaEntries: get().meetingAgendaEntries,
               workspaceLists: liveLists,
               listItems: liveItems,
               recentActivity: [],
               workspaces: get().workspaces.filter((w) => !isDemoWs(w.id)),
               currentWorkspace: keepWs,
-              selectedMeetingId: null,
-              selectedAgendaItemId: null,
             });
           }
 
@@ -2275,14 +2216,11 @@ export const useTaskStore = create<TaskState>()(
                 notes: get().notes.filter((n) => !isDemoWs(n.workspaceId)),
                 workspaceLists: get().workspaceLists.filter((l) => !isDemoWs(l.workspaceId)),
                 listItems: get().listItems.filter((i) => !isDemoWs(i.workspaceId)),
-                meetings: get().meetings.filter((m) => !isDemoWs(m.workspaceId)),
                 recentActivity: [],
                 workspaces: get().workspaces.filter((w) => !isDemoWs(w.id)),
                 currentWorkspace: isDemoWs(get().currentWorkspace?.id)
                   ? ({ id: "", name: "Loading your workspaces...", slug: "", role: "owner" } as Workspace)
                   : get().currentWorkspace,
-                selectedMeetingId: null,
-                selectedAgendaItemId: null,
               });
               get().loadNotificationPrefs?.().catch(() => {});
             }
@@ -4214,11 +4152,6 @@ export const useTaskStore = create<TaskState>()(
 
       ...createNotebookSectionSliceActions(get, set),
 
-      ...createMeetingSliceActions(
-        get as Parameters<typeof createMeetingSliceActions>[0],
-        set as Parameters<typeof createMeetingSliceActions>[1],
-      ),
-
       toggleTaskStarred: async (id) => {
         const task = resolveTaskInStore(get(), id);
         if (!task) return null;
@@ -5640,7 +5573,7 @@ export const useTaskStore = create<TaskState>()(
           if (updated) {
             set({ currentWorkspace: updated });
             if (
-              (get().currentView === "notebooks" || get().currentView === "meetings") &&
+              get().currentView === "notebooks" &&
               !isNotesFeatureEnabled(updated.settings)
             ) {
               get().setView("home");
@@ -6195,90 +6128,6 @@ export const useTaskStore = create<TaskState>()(
               });
             }
           },
-          onMeetingChange: (payload) => {
-            const { eventType, new: newRow, old: oldRow } = payload;
-            const meetings = get().meetings || [];
-            if (eventType === "INSERT" && newRow) {
-              const mapped = mapMeetingRow(newRow);
-              if (meetings.some((m) => m.id === mapped.id)) return;
-              set({ meetings: [...meetings, mapped] });
-            } else if (eventType === "UPDATE" && newRow) {
-              const mapped = mapMeetingRow(newRow);
-              set({
-                meetings: meetings.map((m) => (m.id === mapped.id ? { ...m, ...mapped } : m)),
-              });
-            } else if (eventType === "DELETE" && oldRow) {
-              const deletedId = oldRow.id as string;
-              const itemIds = new Set(
-                (get().meetingAgendaItems || [])
-                  .filter((i) => i.meetingId === deletedId)
-                  .map((i) => i.id),
-              );
-              set({
-                meetings: meetings.filter((m) => m.id !== deletedId),
-                meetingAgendaItems: (get().meetingAgendaItems || []).filter(
-                  (i) => i.meetingId !== deletedId,
-                ),
-                meetingAgendaEntries: (get().meetingAgendaEntries || []).filter(
-                  (e) => !itemIds.has(e.agendaItemId),
-                ),
-                selectedMeetingId:
-                  get().selectedMeetingId === deletedId ? null : get().selectedMeetingId,
-                selectedAgendaItemId:
-                  get().selectedAgendaItemId && itemIds.has(get().selectedAgendaItemId!)
-                    ? null
-                    : get().selectedAgendaItemId,
-              });
-            }
-          },
-          onMeetingAgendaItemChange: (payload) => {
-            const { eventType, new: newRow, old: oldRow } = payload;
-            const row = newRow || oldRow;
-            if (!agendaItemBelongsToWorkspace(get(), row)) return;
-
-            const items = get().meetingAgendaItems || [];
-            if (eventType === "INSERT" && newRow) {
-              const mapped = mapAgendaItemRow(newRow);
-              if (items.some((i) => i.id === mapped.id)) return;
-              set({ meetingAgendaItems: [...items, mapped] });
-            } else if (eventType === "UPDATE" && newRow) {
-              const mapped = mapAgendaItemRow(newRow);
-              set({
-                meetingAgendaItems: items.map((i) => (i.id === mapped.id ? mapped : i)),
-              });
-            } else if (eventType === "DELETE" && oldRow) {
-              const deletedId = oldRow.id as string;
-              set({
-                meetingAgendaItems: items.filter((i) => i.id !== deletedId),
-                meetingAgendaEntries: (get().meetingAgendaEntries || []).filter(
-                  (e) => e.agendaItemId !== deletedId,
-                ),
-                selectedAgendaItemId:
-                  get().selectedAgendaItemId === deletedId ? null : get().selectedAgendaItemId,
-              });
-            }
-          },
-          onMeetingAgendaEntryChange: (payload) => {
-            const { eventType, new: newRow, old: oldRow } = payload;
-            const row = newRow || oldRow;
-            if (!agendaEntryBelongsToWorkspace(get(), row)) return;
-
-            const entries = get().meetingAgendaEntries || [];
-            if (eventType === "INSERT" && newRow) {
-              const mapped = mapAgendaEntryRow(newRow);
-              if (entries.some((e) => e.id === mapped.id)) return;
-              set({ meetingAgendaEntries: [...entries, mapped] });
-            } else if (eventType === "UPDATE" && newRow) {
-              const mapped = mapAgendaEntryRow(newRow);
-              set({
-                meetingAgendaEntries: entries.map((e) => (e.id === mapped.id ? mapped : e)),
-              });
-            } else if (eventType === "DELETE" && oldRow) {
-              set({
-                meetingAgendaEntries: entries.filter((e) => e.id !== oldRow.id),
-              });
-            }
-          },
         }, { sharedListIds });
 
         // Store cleanup for later teardown (simple closure capture via state flag)
@@ -6756,6 +6605,8 @@ export const useTaskStore = create<TaskState>()(
     {
       name: "badazz-tasks-storage",
       storage: safeLocalStorage,
+      version: TASK_STORE_PERSIST_VERSION,
+      migrate: migratePersistedTaskState,
       partialize: (state) => {
         // Persistence strategy updated for Phase 1 offline support:
         // - Demo mode (!live): persist full data + workspaces (edits survive refresh, as before).
@@ -6773,9 +6624,6 @@ export const useTaskStore = create<TaskState>()(
             notebooks: state.notebooks,
             notebookTasks: state.notebookTasks,
             notebookTaskProgress: state.notebookTaskProgress,
-            meetings: state.meetings,
-            meetingAgendaItems: state.meetingAgendaItems,
-            meetingAgendaEntries: state.meetingAgendaEntries,
             currentWorkspace: state.currentWorkspace,
             workspaces: state.workspaces,
             currentView: state.currentView,
@@ -6783,7 +6631,6 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookNoteId: state.selectedNotebookNoteId,
             selectedNotebookTaskId: state.selectedNotebookTaskId,
             selectedNotebookSectionTab: state.selectedNotebookSectionTab,
-            selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
             theme: state.theme,
             myProfile: state.myProfile,
@@ -6799,16 +6646,12 @@ export const useTaskStore = create<TaskState>()(
           notebooks: state.notebooks,
           notebookTasks: state.notebookTasks,
           notebookTaskProgress: state.notebookTaskProgress,
-          meetings: state.meetings,
-          meetingAgendaItems: state.meetingAgendaItems,
-          meetingAgendaEntries: state.meetingAgendaEntries,
           currentWorkspace: state.currentWorkspace,
           workspaces: state.workspaces,
           selectedNotebookId: state.selectedNotebookId,
           selectedNotebookNoteId: state.selectedNotebookNoteId,
           selectedNotebookTaskId: state.selectedNotebookTaskId,
           selectedNotebookSectionTab: state.selectedNotebookSectionTab,
-          selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
           myProfile: state.myProfile,
           taskCommentsReadAt: state.taskCommentsReadAt,
@@ -6841,12 +6684,12 @@ if (typeof window !== "undefined") {
       useTaskStore.setState({ currentView: "home" });
     }
     if (
-      (persistedView === "notebooks" || persistedView === "meetings") &&
+      persistedView === "notebooks" &&
       !isNotesFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
     ) {
       useTaskStore.setState({ currentView: "home" });
     }
-    if (persistedView === "health" || persistedView === "map") {
+    if (persistedView === "health" || persistedView === "map" || persistedView === "meetings") {
       useTaskStore.setState({ currentView: "home" });
     }
     const persistedFilter = (state as { taskFilter?: TaskState["taskFilter"] })?.taskFilter;
@@ -6904,9 +6747,6 @@ if (typeof window !== "undefined") {
           tasks: [],
           notes: [],
           notebooks: [],
-          meetings: [],
-          meetingAgendaItems: [],
-          meetingAgendaEntries: [],
           workspaceLists: [],
           listItems: [],
           recentActivity: [],
@@ -6915,8 +6755,6 @@ if (typeof window !== "undefined") {
           taskLoadingStates: {},
           selectedNotebookId: null,
           selectedNotebookNoteId: null,
-          selectedMeetingId: null,
-          selectedAgendaItemId: null,
         });
       }
     }

@@ -15,8 +15,6 @@ import {
 } from "@/lib/mcp/data";
 
 const LIST_COLORS = ["default", "purple", "pink", "green", "amber", "blue"] as const;
-const MEETING_STATUSES = ["draft", "scheduled", "in_progress", "completed"] as const;
-const AGENDA_STATUSES = ["open", "in_progress", "completed", "continued"] as const;
 const FILE_RECORD_TYPES = ["note", "email", "document", "receipt", "other"] as const;
 const FILE_REVIEW_STATUSES = ["pending_review", "filed"] as const;
 
@@ -99,7 +97,7 @@ export async function searchWorkspace(
   const limit = clampLimit(input.limit, 8, 20);
   const supabase = admin();
   const like = `%${q}%`;
-  const [tasks, notes, lists, items, meetings] = await Promise.all([
+  const [tasks, notes, lists, items] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, status, priority, due_date")
@@ -126,12 +124,6 @@ export async function searchWorkspace(
       .eq("workspace_id", workspace.id)
       .ilike("text", like)
       .limit(limit),
-    supabase
-      .from("meetings")
-      .select("id, title, status, scheduled_at")
-      .eq("workspace_id", workspace.id)
-      .ilike("title", like)
-      .limit(limit),
   ]);
   return {
     workspace: { id: workspace.id, name: workspace.name },
@@ -140,7 +132,6 @@ export async function searchWorkspace(
     notes: notes.data ?? [],
     lists: lists.data ?? [],
     list_items: items.data ?? [],
-    meetings: meetings.error ? [] : (meetings.data ?? []),
   };
 }
 
@@ -440,262 +431,6 @@ export async function deleteListItem(userId: string, itemId: string) {
   return { deleted: true, id: row.id, text: row.text };
 }
 
-function mapMeeting(row: Record<string, unknown>) {
-  return {
-    id: String(row.id),
-    workspace_id: String(row.workspace_id),
-    title: String(row.title ?? ""),
-    description: (row.description as string | null) ?? null,
-    status: String(row.status ?? "draft"),
-    scheduled_at: (row.scheduled_at as string | null) ?? null,
-    started_at: (row.started_at as string | null) ?? null,
-    completed_at: (row.completed_at as string | null) ?? null,
-    notebook_id: row.notebook_id ? String(row.notebook_id) : null,
-    attendee_ids: Array.isArray(row.attendee_ids) ? row.attendee_ids : [],
-    attendees: Array.isArray(row.attendees) ? row.attendees : [],
-    archived: Boolean(row.archived),
-    created_at: row.created_at ? String(row.created_at) : "",
-    updated_at: row.updated_at ? String(row.updated_at) : "",
-  };
-}
-
-export async function listMeetings(
-  userId: string,
-  input: { workspace_id?: string; status?: string; limit?: number },
-) {
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const supabase = admin();
-  let query = supabase
-    .from("meetings")
-    .select(
-      "id, workspace_id, title, description, status, scheduled_at, started_at, completed_at, notebook_id, attendee_ids, attendees, archived, created_at, updated_at",
-    )
-    .eq("workspace_id", workspace.id)
-    .order("updated_at", { ascending: false })
-    .limit(clampLimit(input.limit));
-  if (input.status) query = query.eq("status", parseOne(input.status, MEETING_STATUSES, "status"));
-  const { data, error } = await query;
-  if (error) throw new McpToolError("Could not list meetings.");
-  return {
-    workspace: { id: workspace.id, name: workspace.name },
-    meetings: (data ?? []).map((row) => mapMeeting(row as Record<string, unknown>)),
-  };
-}
-
-export async function getMeeting(userId: string, meetingId: string) {
-  const id = requireId(meetingId, "meeting_id");
-  const supabase = admin();
-  const { data, error } = await supabase.from("meetings").select("*").eq("id", id).maybeSingle();
-  if (error) throw new McpToolError("Could not load that meeting.");
-  if (!data) throw new McpToolError("Meeting not found.");
-  const row = data as Record<string, unknown>;
-  await requireWorkspaceMember(userId, String(row.workspace_id));
-  const { data: items } = await supabase
-    .from("meeting_agenda_items")
-    .select(
-      "id, meeting_id, title, description, status, sort_order, owner_name, reviewed, linked_task_ids, completed_at",
-    )
-    .eq("meeting_id", id)
-    .order("sort_order", { ascending: true });
-  const itemIds = ((items ?? []) as Array<{ id: string }>).map((item) => item.id);
-  const { data: entries } = itemIds.length
-    ? await supabase
-        .from("meeting_agenda_entries")
-        .select("id, agenda_item_id, body, is_decision, created_at")
-        .in("agenda_item_id", itemIds)
-        .order("created_at", { ascending: true })
-        .limit(50)
-    : { data: [] };
-  return {
-    meeting: mapMeeting(row),
-    agenda_items: items ?? [],
-    notes: entries ?? [],
-  };
-}
-
-export async function createMeeting(
-  userId: string,
-  input: {
-    title: string;
-    workspace_id?: string;
-    description?: string;
-    status?: string;
-    scheduled_at?: string;
-    attendees?: string[];
-    notebook_id?: string | null;
-  },
-) {
-  const title = requireText(input.title, "title");
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const now = new Date().toISOString();
-  const payload: Record<string, unknown> = {
-    workspace_id: workspace.id,
-    title,
-    description: input.description?.trim() || null,
-    status: parseOne(input.status, MEETING_STATUSES, "status", "draft"),
-    scheduled_at: input.scheduled_at?.trim() || null,
-    attendee_ids: [],
-    attendees: input.attendees ?? [],
-    notebook_id: optionalUuid(input.notebook_id ?? undefined, "notebook_id") ?? null,
-    sort_order: await nextSortOrder("meetings", workspace.id),
-    created_at: now,
-    updated_at: now,
-  };
-  const supabase = admin();
-  let { data, error } = await (supabase.from("meetings") as any).insert(payload).select("*").single();
-  if (error && "attendees" in payload) {
-    const { attendees: _attendees, ...fallback } = payload;
-    const retry = await (supabase.from("meetings") as any).insert(fallback).select("*").single();
-    data = retry.data;
-    error = retry.error;
-  }
-  if (error || !data) throw new McpToolError("Could not create the meeting.");
-  return mapMeeting(data as Record<string, unknown>);
-}
-
-export async function updateMeeting(
-  userId: string,
-  input: {
-    meeting_id: string;
-    title?: string;
-    description?: string;
-    status?: string;
-    scheduled_at?: string | null;
-    attendees?: string[];
-    archived?: boolean;
-  },
-) {
-  const existing = await getMeeting(userId, input.meeting_id);
-  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (input.title !== undefined) payload.title = requireText(input.title, "title");
-  if (input.description !== undefined) payload.description = input.description;
-  if (input.status !== undefined) {
-    payload.status = parseOne(input.status, MEETING_STATUSES, "status");
-    if (payload.status === "completed") payload.completed_at = new Date().toISOString();
-    if (payload.status === "in_progress" && !existing.meeting.started_at) {
-      payload.started_at = new Date().toISOString();
-    }
-  }
-  if (input.scheduled_at !== undefined) payload.scheduled_at = input.scheduled_at?.trim() || null;
-  if (input.attendees !== undefined) payload.attendees = input.attendees;
-  if (input.archived !== undefined) payload.archived = input.archived;
-  const supabase = admin();
-  const { data, error } = await (supabase.from("meetings") as any)
-    .update(payload)
-    .eq("id", existing.meeting.id)
-    .select("*")
-    .single();
-  if (error || !data) throw new McpToolError("Could not update the meeting.");
-  return mapMeeting(data as Record<string, unknown>);
-}
-
-export async function deleteMeeting(userId: string, meetingId: string) {
-  const existing = await getMeeting(userId, meetingId);
-  const supabase = admin();
-  const { error } = await supabase.from("meetings").delete().eq("id", existing.meeting.id);
-  if (error) throw new McpToolError("Could not delete the meeting.");
-  return { deleted: true, id: existing.meeting.id, title: existing.meeting.title };
-}
-
-export async function addAgendaItem(
-  userId: string,
-  input: { meeting_id: string; title: string; description?: string; owner_name?: string },
-) {
-  const meeting = await getMeeting(userId, input.meeting_id);
-  const title = requireText(input.title, "title");
-  const now = new Date().toISOString();
-  const maxOrder = meeting.agenda_items.reduce((max, item) => {
-    const order = Number((item as { sort_order?: number }).sort_order ?? 0);
-    return Math.max(max, order);
-  }, -1000);
-  const payload = {
-    meeting_id: meeting.meeting.id,
-    title,
-    description: input.description?.trim() || null,
-    owner_name: input.owner_name?.trim() || null,
-    status: "open",
-    sort_order: maxOrder + 1000,
-    linked_task_ids: [],
-    created_at: now,
-    updated_at: now,
-  };
-  const supabase = admin();
-  const { data, error } = await (supabase.from("meeting_agenda_items") as any)
-    .insert(payload)
-    .select("*")
-    .single();
-  if (error || !data) throw new McpToolError("Could not add the agenda item.");
-  return data;
-}
-
-export async function updateAgendaItem(
-  userId: string,
-  input: {
-    item_id: string;
-    title?: string;
-    description?: string;
-    status?: string;
-    owner_name?: string | null;
-    reviewed?: boolean;
-  },
-) {
-  const id = requireId(input.item_id, "item_id");
-  const supabase = admin();
-  const { data: item, error: lookupError } = await supabase
-    .from("meeting_agenda_items")
-    .select("id, meeting_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (lookupError) throw new McpToolError("Could not load that agenda item.");
-  if (!item) throw new McpToolError("Agenda item not found.");
-  await getMeeting(userId, String((item as { meeting_id: string }).meeting_id));
-  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (input.title !== undefined) payload.title = requireText(input.title, "title");
-  if (input.description !== undefined) payload.description = input.description;
-  if (input.status !== undefined) {
-    payload.status = parseOne(input.status, AGENDA_STATUSES, "status");
-    if (payload.status === "completed") payload.completed_at = new Date().toISOString();
-  }
-  if (input.owner_name !== undefined) payload.owner_name = input.owner_name?.trim() || null;
-  if (input.reviewed !== undefined) payload.reviewed = input.reviewed;
-  const { data, error } = await (supabase.from("meeting_agenda_items") as any)
-    .update(payload)
-    .eq("id", id)
-    .select("*")
-    .single();
-  if (error || !data) throw new McpToolError("Could not update the agenda item.");
-  return data;
-}
-
-export async function addAgendaNote(
-  userId: string,
-  input: { item_id: string; body: string; is_decision?: boolean },
-) {
-  const id = requireId(input.item_id, "item_id");
-  const body = requireText(input.body, "body");
-  const supabase = admin();
-  const { data: item, error: lookupError } = await supabase
-    .from("meeting_agenda_items")
-    .select("id, meeting_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (lookupError) throw new McpToolError("Could not load that agenda item.");
-  if (!item) throw new McpToolError("Agenda item not found.");
-  await getMeeting(userId, String((item as { meeting_id: string }).meeting_id));
-  const payload = {
-    agenda_item_id: id,
-    body,
-    author_id: userId,
-    is_decision: input.is_decision === true,
-    created_at: new Date().toISOString(),
-  };
-  const { data, error } = await (supabase.from("meeting_agenda_entries") as any)
-    .insert(payload)
-    .select("id, agenda_item_id, body, is_decision, created_at")
-    .single();
-  if (error || !data) throw new McpToolError("Could not add the agenda note.");
-  return data;
-}
 
 export async function listFiles(
   userId: string,
