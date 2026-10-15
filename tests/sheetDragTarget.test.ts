@@ -147,6 +147,24 @@ describe("sheetDragTarget", () => {
     expect(isListDetailSheetDragTarget(text)).toBe(true);
   });
 
+  it("does not arm a sheet drag from task notes or the comment field", () => {
+    const sheet = el(`
+      <div class="task-detail-modal modal-panel">
+        <textarea placeholder="Add notes…">Review the monarch transactions</textarea>
+        <input placeholder="Write a comment…" value="follow up" />
+        <div class="task-sheet-header">Due date</div>
+      </div>
+    `);
+    const notes = sheet.querySelector("textarea")!;
+    const comment = sheet.querySelector("input")!;
+    const header = sheet.querySelector(".task-sheet-header")!;
+    expect(isSheetDragBlockedTarget(notes)).toBe(true);
+    expect(isSheetDragBlockedTarget(comment)).toBe(true);
+    expect(isSheetBlankDragTarget(notes)).toBe(false);
+    expect(isSheetBlankDragTarget(comment)).toBe(false);
+    expect(isSheetBlankDragTarget(header)).toBe(true);
+  });
+
   it("rejects interactive controls anywhere on the sheet surface", () => {
     const sheet = el(`
       <div class="list-detail-modal-surface">
