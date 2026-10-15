@@ -1464,6 +1464,52 @@
   color: #ffffff;
 }
 
+/* Notes use a 1px border plus p-3 (12px). Match that inset on the title. */
+.task-detail-modal .task-detail-title {
+  box-sizing: border-box;
+  border-width: 1px;
+  border-style: solid;
+  border-color: transparent;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.task-modal-close-icon-btn {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.task-modal-close-icon-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.task-modal-close-icon-btn:focus-visible {
+  outline: 2px solid var(--neon-purple);
+  outline-offset: 2px;
+}
+
+/* Filled track in both states. Off used to be a transparent ring. */
+.task-repeat-switch {
+  background: #64748b;
+}
+
+.task-repeat-switch[aria-checked="true"] {
+  background: #7c3aed;
+}
+
+.task-repeat-switch__thumb {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+}
+
+.task-repeat-helper {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+
 @media (max-width: 768px) {
   /* .mobile-bottom-sheet { touch-action: none } cancels text-selection
      gestures for every control inside the sheet. manipulation still
@@ -1484,5 +1530,18 @@
   .task-detail-modal.mobile-bottom-sheet.bottom-sheet-panel--dragging textarea,
   .task-detail-modal.mobile-bottom-sheet.bottom-sheet-panel--dragging input {
     touch-action: none;
+  }
+
+  /* Header strip dismiss. touch-action: none lets the finger track the sheet
+     from padding and empty header space, not only the grab pill. Buttons keep
+     manipulation so a tap still clicks and a drag on a control does not pan. */
+  .task-detail-modal.mobile-bottom-sheet .task-sheet-header,
+  .task-detail-modal.mobile-bottom-sheet .task-sheet-header * {
+    touch-action: none;
+  }
+
+  .task-detail-modal.mobile-bottom-sheet .task-sheet-header :is(button, a, input, textarea, select),
+  .task-detail-modal.mobile-bottom-sheet .task-sheet-header :is(button, a, input, textarea, select) * {
+    touch-action: manipulation;
   }
 }

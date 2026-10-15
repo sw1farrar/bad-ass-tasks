@@ -429,16 +429,14 @@ export function TaskRecurrenceEditor({
               >
                 {compact ? "From completion" : "Start recurrence from completion date"}
               </label>
-              {!compact ? (
-                <p
-                  id="recurrence-from-completion-desc"
-                  className="text-[10px] text-text-muted mt-0.5 leading-snug"
-                >
-                  {fromCompletion
-                    ? "Next dates from when you finish"
-                    : "Keeps the original schedule"}
-                </p>
-              ) : null}
+              <p
+                id="recurrence-from-completion-desc"
+                className="task-repeat-helper mt-0.5 leading-snug"
+              >
+                {fromCompletion
+                  ? "Next dates from when you finish"
+                  : "Keeps the original schedule"}
+              </p>
             </div>
             <button
               id="recurrence-from-completion"
@@ -446,7 +444,7 @@ export function TaskRecurrenceEditor({
               role="switch"
               aria-checked={fromCompletion}
               aria-label="Start recurrence from completion date"
-              aria-describedby={!compact ? "recurrence-from-completion-desc" : undefined}
+              aria-describedby="recurrence-from-completion-desc"
               title={
                 fromCompletion
                   ? "Next dates from when you finish"
@@ -454,18 +452,11 @@ export function TaskRecurrenceEditor({
               }
               onClick={() => setFromCompletion(!fromCompletion)}
               className={cn(
-                "inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary,#0a0a0a)]",
-                fromCompletion
-                  ? "justify-end border-neon-purple bg-neon-purple"
-                  : "justify-start border-text-muted/50 bg-transparent",
+                "task-repeat-switch inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-purple/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary,#0a0a0a)]",
+                fromCompletion ? "justify-end" : "justify-start",
               )}
             >
-              <span
-                className={cn(
-                  "pointer-events-none block h-3.5 w-3.5 rounded-full shadow",
-                  fromCompletion ? "bg-white" : "bg-text-muted",
-                )}
-              />
+              <span className="task-repeat-switch__thumb pointer-events-none block h-5 w-5 rounded-full" />
             </button>
           </div>
 
@@ -525,7 +516,7 @@ export function TaskRecurrenceEditor({
                   ))}
                 </div>
               </div>
-              <p className="text-[10px] text-text-muted leading-snug text-center">
+              <p className="task-repeat-helper leading-snug text-center">
                 {endMode === "never"
                   ? "Keeps repeating forever"
                   : endMode === "count"
@@ -582,7 +573,7 @@ export function TaskRecurrenceEditor({
       {localTask.recurringRule && upcoming.length > 0 ? (
         <div
           className={cn(
-            "text-[10px] text-text-muted pt-1",
+            "task-repeat-helper pt-1",
             compact && "truncate whitespace-nowrap",
           )}
           title={
@@ -666,7 +657,7 @@ export function TaskRecurrenceEditor({
             >
               Skip this occurrence
             </button>
-            <span className="text-[9px] text-text-muted">{endDesc}</span>
+            <span className="task-repeat-helper">{endDesc}</span>
           </div>
 
           {localTask.exceptionDates && localTask.exceptionDates.length > 0 ? (
