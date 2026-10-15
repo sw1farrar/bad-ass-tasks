@@ -1441,3 +1441,48 @@
 [data-theme="dark"] .task-detail-modal .text-neon-purple {
   color: #a78bfa !important;
 }
+
+/* Notes, title, and comment fields.
+   The app-wide ::selection color is a dark translucent purple
+   (rgba(42, 31, 74, 0.72)) that sits on the notes surface (#25252b),
+   so a successful drag, double-click, triple-click, or Cmd/Ctrl+A
+   leaves no visible highlight. Force an opaque selection and an
+   explicit text user-select so WebKit does not inherit a none value. */
+.task-detail-modal.modal-panel textarea,
+.task-detail-modal.modal-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="hidden"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.task-detail-modal.modal-panel ::selection {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.task-detail-modal.modal-panel ::-moz-selection {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  /* .mobile-bottom-sheet { touch-action: none } cancels text-selection
+     gestures for every control inside the sheet. manipulation still
+     pans and allows selection. An in-progress dismiss drag locks
+     touch-action back to none so the finger keeps tracking the sheet. */
+  .task-detail-modal.mobile-bottom-sheet {
+    touch-action: manipulation;
+  }
+
+  .task-detail-modal.mobile-bottom-sheet textarea,
+  .task-detail-modal.mobile-bottom-sheet input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="hidden"]) {
+    -webkit-user-select: text;
+    user-select: text;
+    touch-action: manipulation;
+  }
+
+  .task-detail-modal.mobile-bottom-sheet.bottom-sheet-panel--dragging,
+  .task-detail-modal.mobile-bottom-sheet.bottom-sheet-panel--dragging textarea,
+  .task-detail-modal.mobile-bottom-sheet.bottom-sheet-panel--dragging input {
+    touch-action: none;
+  }
+}
