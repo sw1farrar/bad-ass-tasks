@@ -23,7 +23,7 @@ const workspace: Workspace = {
   slug: "ventures",
   role: "owner",
   settings: {
-    features: { notesEnabled: true, healthEnabled: false, mapsEnabled: false },
+    features: { notesEnabled: true },
   },
 };
 

@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Settings, Trash2, Bell, Mail, Pencil, Check, X, Notebook, HeartPulse, MapPinned, KeyRound, Upload } from "lucide-react";
+import { Settings, Trash2, Bell, Mail, Pencil, Check, X, Notebook, KeyRound, Upload } from "lucide-react";
 import {
   getEnabledNotebookSections,
-  isHealthFeatureEnabled,
-  isMapsFeatureEnabled,
   isNotebookSectionEnabled,
   isNotesFeatureEnabled,
 } from "@/lib/workspace/workspaceSettings";
@@ -65,11 +63,7 @@ export function WorkspaceSettingsView() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingNotesFeature, setIsSavingNotesFeature] = useState(false);
   const [isSavingNotebookSections, setIsSavingNotebookSections] = useState(false);
-  const [isSavingHealthFeature, setIsSavingHealthFeature] = useState(false);
-  const [isSavingMapsFeature, setIsSavingMapsFeature] = useState(false);
   const notesEnabled = isNotesFeatureEnabled(currentWorkspace.settings);
-  const healthEnabled = isHealthFeatureEnabled(currentWorkspace.settings);
-  const mapsEnabled = isMapsFeatureEnabled(currentWorkspace.settings);
   const enabledNotebookSectionCount = getEnabledNotebookSections(currentWorkspace.settings).length;
 
   const handleToggleNotebookSection = async (tab: NotebookSectionTab, enabled: boolean) => {
@@ -305,62 +299,6 @@ export function WorkspaceSettingsView() {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {isOwner && (
-        <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3">
-          <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
-            <HeartPulse className="h-4 w-4 text-neon-purple shrink-0" />
-            Health
-          </div>
-          <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
-            Enable shared health tracking in navigation. All workspace members can log and view
-            everyone&apos;s readings. Off by default.
-          </p>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={healthEnabled}
-              disabled={isSavingHealthFeature}
-              onChange={(e) => {
-                setIsSavingHealthFeature(true);
-                void updateWorkspaceDetails({
-                  settings: { features: { healthEnabled: e.target.checked } },
-                }).finally(() => setIsSavingHealthFeature(false));
-              }}
-              className="h-4 w-4 accent-neon-purple"
-            />
-            <span className="text-sm text-text-primary">Enable Health in navigation</span>
-          </label>
-        </div>
-      )}
-
-      {isOwner && (
-        <div className="settings-panel glass rounded-2xl border border-border-glass p-4 md:p-5 space-y-3">
-          <div className="flex items-center gap-2 font-medium text-xs md:text-sm uppercase tracking-widest text-text-muted">
-            <MapPinned className="h-4 w-4 text-neon-purple shrink-0" />
-            Map
-          </div>
-          <p className="text-[11px] md:text-xs text-text-muted leading-relaxed">
-            Enable territory and store mapping in navigation. All workspace members can view and
-            edit map data. Off by default.
-          </p>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={mapsEnabled}
-              disabled={isSavingMapsFeature}
-              onChange={(e) => {
-                setIsSavingMapsFeature(true);
-                void updateWorkspaceDetails({
-                  settings: { features: { mapsEnabled: e.target.checked } },
-                }).finally(() => setIsSavingMapsFeature(false));
-              }}
-              className="h-4 w-4 accent-neon-purple"
-            />
-            <span className="text-sm text-text-primary">Enable Map in navigation</span>
-          </label>
         </div>
       )}
 

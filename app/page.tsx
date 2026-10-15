@@ -74,8 +74,6 @@ import { FilesView } from "@/features/files";
 import { ImportReviewBanner, ImportReviewDeck } from "@/features/import";
 import { NotebooksView } from "@/features/notebooks";
 import { MeetingsView } from "@/features/meetings";
-import { HealthView } from "@/features/health";
-import { MapsView } from "@/features/maps";
 import { getBottomNavViews } from "@/lib/nav/workspaceViews";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import {
@@ -296,26 +294,17 @@ export default function BadAssTasks() {
     getArchivedNotebooks,
     getNotebookNotes,
     getNotebookTasks,
-    getNotebookInvestments,
-    getNotebookCustomers,
-    getNotebookCompetitors,
     getMeetings,
     getArchivedMeetings,
     getMeetingAgendaItems,
     selectedNotebookId,
     selectedNotebookNoteId,
     selectedNotebookTaskId,
-    selectedNotebookInvestmentId,
-    selectedNotebookCustomerId,
-    selectedNotebookCompetitorId,
     selectedMeetingId,
     selectedAgendaItemId,
     setSelectedNotebookId,
     setSelectedNotebookNoteId,
     setSelectedNotebookTaskId,
-    setSelectedNotebookInvestmentId,
-    setSelectedNotebookCustomerId,
-    setSelectedNotebookCompetitorId,
     setSelectedMeetingId,
     setSelectedAgendaItemId,
     addNotebook,
@@ -329,27 +318,6 @@ export default function BadAssTasks() {
     addNotebookTaskProgress,
     updateNotebookTaskProgress,
     deleteNotebookTaskProgress,
-    addNotebookInvestment,
-    toggleNotebookInvestment,
-    updateNotebookInvestment,
-    reorderNotebookInvestments,
-    deleteNotebookInvestment,
-    addNotebookInvestmentNote,
-    updateNotebookInvestmentNote,
-    deleteNotebookInvestmentNote,
-    addNotebookCustomer,
-    updateNotebookCustomer,
-    deleteNotebookCustomer,
-    addNotebookCustomerNote,
-    updateNotebookCustomerNote,
-    deleteNotebookCustomerNote,
-    addNotebookCompetitor,
-    updateNotebookCompetitor,
-    deleteNotebookCompetitor,
-    addNotebookCompetitorNote,
-    updateNotebookCompetitorNote,
-    deleteNotebookCompetitorNote,
-    setNotebookOurSales,
     hydrateNoteDetail,
     addMeeting,
     updateMeeting,
@@ -372,21 +340,8 @@ export default function BadAssTasks() {
     meetingAgendaItems,
     meetingAgendaEntries,
     notebookTaskProgress,
-    notebookInvestmentNotes,
-    notebookCustomerNotes,
-    notebookCompetitors,
-    notebookCompetitorNotes,
     notebookTasks,
     notebooks,
-    healthProfiles,
-    selectedHealthMemberId,
-    healthSectionTab,
-    getHealthReadings,
-    setSelectedHealthMemberId,
-    setHealthSectionTab,
-    addHealthReading,
-    deleteHealthReading,
-    upsertHealthProfile,
   } = useTaskStore();
 
   // Derive pending *received* workspace invites for the current user from the centralized notifications store.
@@ -3336,7 +3291,6 @@ export default function BadAssTasks() {
         return (
           <NotebooksView
             workspaceId={currentWorkspace.id}
-            workspaceName={currentWorkspace.name}
             notebooks={getNotebooks()}
             archivedNotebooks={getArchivedNotebooks()}
             notes={getNotebookNotes(selectedNotebookId)}
@@ -3344,40 +3298,18 @@ export default function BadAssTasks() {
             notebookTaskProgress={notebookTaskProgress.filter((p) =>
               getNotebookTasks(selectedNotebookId).some((t) => t.id === p.taskId)
             )}
-            notebookInvestments={getNotebookInvestments(selectedNotebookId)}
-            notebookInvestmentNotes={notebookInvestmentNotes.filter((n) =>
-              getNotebookInvestments(selectedNotebookId).some((i) => i.id === n.investmentId)
-            )}
-            notebookCustomers={getNotebookCustomers(selectedNotebookId)}
-            notebookCustomerNotes={notebookCustomerNotes.filter((n) =>
-              getNotebookCustomers(selectedNotebookId).some((c) => c.id === n.customerId)
-            )}
-            notebookCompetitors={getNotebookCompetitors(selectedNotebookId)}
-            workspaceCompetitors={notebookCompetitors}
-            notebookCompetitorNotes={notebookCompetitorNotes.filter((n) =>
-              getNotebookCompetitors(selectedNotebookId).some((c) => c.id === n.competitorId)
-            )}
-            workspaceCompetitorNotes={notebookCompetitorNotes}
             members={members}
             currentUserId={user?.id}
             selectedNotebookId={selectedNotebookId}
             selectedNoteId={selectedNotebookNoteId}
             selectedNotebookTaskId={selectedNotebookTaskId}
-            selectedNotebookInvestmentId={selectedNotebookInvestmentId}
-            selectedNotebookCustomerId={selectedNotebookCustomerId}
-            selectedNotebookCompetitorId={selectedNotebookCompetitorId}
             isLive={isSupabaseConfigured()}
             onSelectNotebook={(id) => {
               setSelectedNotebookId(id);
               setSelectedNotebookTaskId(null);
-              setSelectedNotebookInvestmentId(null);
-              setSelectedNotebookCustomerId(null);
             }}
             onSelectNote={setSelectedNotebookNoteId}
             onSelectNotebookTask={setSelectedNotebookTaskId}
-            onSelectNotebookInvestment={setSelectedNotebookInvestmentId}
-            onSelectNotebookCustomer={setSelectedNotebookCustomerId}
-            onSelectNotebookCompetitor={setSelectedNotebookCompetitorId}
             onAddNotebook={addNotebook}
             onUpdateNotebook={updateNotebook}
             onDeleteNotebook={deleteNotebook}
@@ -3395,68 +3327,13 @@ export default function BadAssTasks() {
             onAddNotebookTaskProgress={addNotebookTaskProgress}
             onUpdateNotebookTaskProgress={updateNotebookTaskProgress}
             onDeleteNotebookTaskProgress={deleteNotebookTaskProgress}
-            onAddNotebookInvestment={(title) =>
-              selectedNotebookId ? addNotebookInvestment(selectedNotebookId, title) : undefined
-            }
-            onToggleNotebookInvestment={toggleNotebookInvestment}
-            onUpdateNotebookInvestment={(id, title) => updateNotebookInvestment(id, { title })}
-            onReorderNotebookInvestments={(orderedIds) =>
-              selectedNotebookId
-                ? reorderNotebookInvestments(selectedNotebookId, orderedIds)
-                : undefined
-            }
-            onDeleteNotebookInvestment={deleteNotebookInvestment}
-            onAddNotebookInvestmentNote={addNotebookInvestmentNote}
-            onUpdateNotebookInvestmentNote={updateNotebookInvestmentNote}
-            onDeleteNotebookInvestmentNote={deleteNotebookInvestmentNote}
-            onAddNotebookCustomer={(accountName) =>
-              selectedNotebookId ? addNotebookCustomer(selectedNotebookId, accountName) : undefined
-            }
-            onUpdateNotebookCustomer={(id, accountName) =>
-              updateNotebookCustomer(id, { accountName })
-            }
-            onDeleteNotebookCustomer={deleteNotebookCustomer}
-            onAddNotebookCustomerNote={addNotebookCustomerNote}
-            onUpdateNotebookCustomerNote={updateNotebookCustomerNote}
-            onDeleteNotebookCustomerNote={deleteNotebookCustomerNote}
-            onAddNotebookCompetitor={(name, salesPotential) =>
-              selectedNotebookId
-                ? addNotebookCompetitor(selectedNotebookId, name, salesPotential)
-                : undefined
-            }
-            onUpdateNotebookCompetitor={updateNotebookCompetitor}
-            onDeleteNotebookCompetitor={deleteNotebookCompetitor}
-            onAddNotebookCompetitorNote={addNotebookCompetitorNote}
-            onUpdateNotebookCompetitorNote={updateNotebookCompetitorNote}
-            onDeleteNotebookCompetitorNote={deleteNotebookCompetitorNote}
-            onSetNotebookOurSales={(value) =>
-              selectedNotebookId ? setNotebookOurSales(selectedNotebookId, value) : undefined
-            }
             getNotebookDeleteSummary={(notebookId) => {
               const tasks = getNotebookTasks(notebookId);
               const taskIds = new Set(tasks.map((t) => t.id));
-              const investments = getNotebookInvestments(notebookId);
-              const investmentIds = new Set(investments.map((i) => i.id));
-              const customers = getNotebookCustomers(notebookId);
-              const customerIds = new Set(customers.map((c) => c.id));
-              const competitors = getNotebookCompetitors(notebookId);
-              const competitorIds = new Set(competitors.map((c) => c.id));
               return {
                 noteCount: getNotebookNotes(notebookId).length,
                 taskCount: tasks.length,
                 taskProgressCount: notebookTaskProgress.filter((p) => taskIds.has(p.taskId)).length,
-                investmentCount: investments.length,
-                investmentNoteCount: notebookInvestmentNotes.filter((n) =>
-                  investmentIds.has(n.investmentId)
-                ).length,
-                customerCount: customers.length,
-                customerNoteCount: notebookCustomerNotes.filter((n) =>
-                  customerIds.has(n.customerId)
-                ).length,
-                competitorCount: competitors.length,
-                competitorNoteCount: notebookCompetitorNotes.filter((n) =>
-                  competitorIds.has(n.competitorId)
-                ).length,
               };
             }}
           />
@@ -3542,31 +3419,6 @@ export default function BadAssTasks() {
           />
         ) : (
           renderHomeView()
-        );
-      case "health":
-        return (
-          <HealthView
-            workspaceId={currentWorkspace.id}
-            workspaceName={currentWorkspace.name}
-            readings={getHealthReadings()}
-            profiles={healthProfiles.filter((p) => p.workspaceId === currentWorkspace.id)}
-            members={members}
-            currentUserId={user?.id}
-            activeTab={healthSectionTab}
-            selectedMemberId={selectedHealthMemberId}
-            onTabChange={setHealthSectionTab}
-            onMemberChange={setSelectedHealthMemberId}
-            onAddReading={addHealthReading}
-            onDeleteReading={deleteHealthReading}
-            onUpdateProfile={upsertHealthProfile}
-          />
-        );
-      case "map":
-        return (
-          <MapsView
-            workspaceId={currentWorkspace.id}
-            workspaceName={currentWorkspace.name}
-          />
         );
       case "teams":
         return renderTeamsView();
@@ -4069,7 +3921,6 @@ export default function BadAssTasks() {
               | "meetings"
               | "lists"
               | "chat"
-              | "health"
               | "teams"
               | "settings"
               | "admin"
@@ -4089,7 +3940,6 @@ export default function BadAssTasks() {
           className={cn(
             "main-content relative flex-1 overflow-auto p-6 lg:p-8",
             currentView === "chat" && "main-content--chat !p-0 lg:!p-0 overflow-hidden flex flex-col",
-            currentView === "health" && "main-content--health !p-0 lg:!p-0 overflow-hidden flex flex-col min-h-0"
           )}
         >
           {/* Persistent received workspace invite banner (distinct from bell notifications).

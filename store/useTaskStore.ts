@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, NotebookInvestment, NotebookInvestmentNote, NotebookCustomer, NotebookCustomerNote, NotebookCompetitor, NotebookCompetitorNote, HealthReading, HealthProfile, Meeting, MeetingAgendaItem, MeetingAgendaEntry } from "@/types";
+import { Task, Note, Workspace, Priority, TaskStatus, ActivityLog, WorkspaceMember, WorkspaceInvite, Comment, Notification, NotificationPrefs, NotificationType, WorkspaceTaskStats, WorkspaceList, ListItem, ListShareTarget, HomeListHighlight, TaskCommentSummary, TaskFolder, Notebook, NotebookTask, NotebookTaskProgress, Meeting, MeetingAgendaItem, MeetingAgendaEntry } from "@/types";
 import {
   DEFAULT_NOTEBOOK_SECTION_TAB,
   type NotebookSectionTab,
@@ -8,8 +8,6 @@ import {
 import {
   parseWorkspaceSettings,
   mergeWorkspaceSettings,
-  isHealthFeatureEnabled,
-  isMapsFeatureEnabled,
   isNotesFeatureEnabled,
 } from "@/lib/workspace/workspaceSettings";
 import { buildTaskCommentSummaries, taskCommentsReadKey } from "@/features/tasks/lib/taskCommentIndicators";
@@ -83,12 +81,6 @@ import {
   SAMPLE_AGENDA_ENTRIES,
   type MeetingSliceActions,
 } from "@/store/meetingSlice";
-import {
-  createHealthSliceActions,
-  type HealthSliceActions,
-} from "@/store/healthSlice";
-import { DEFAULT_HEALTH_SECTION_TAB, type HealthSectionTab } from "@/lib/health/healthSections";
-import { filterVisibleHealthReadings } from "@/lib/health/stressPrivacy";
 import {
   TASK_ASSIGNEE_ALL_LABEL,
   buildAssigneeBreakdown,
@@ -263,11 +255,6 @@ import {
   getNotebookSectionBundle,
   mapNotebookTaskRow,
 } from "@/lib/data/notebookSectionsStore";
-import {
-  areHealthTablesReady,
-  ensureHealthPersistenceReady,
-  getHealthBundle,
-} from "@/lib/data/healthStore";
 import { hasUnreadChatInbox } from "@/lib/chatReadState";
 import {
   markBroadcastChannelReady,
@@ -481,12 +468,12 @@ function getUserColor(userIdOrEmail: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "health" | "map" | "teams" | "settings" | "admin";
+type AppView = "home" | "tasks" | "notes" | "notebooks" | "meetings" | "lists" | "chat" | "teams" | "settings" | "admin";
 
 export type TasksStarredFilterMode = "all" | "only";
 export type TasksHotListFilterMode = "all" | "only";
 
-interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions, HealthSliceActions {
+interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSliceActions, NotebookSectionSliceActions, MeetingSliceActions {
   // Data
   tasks: Task[];
   notes: Note[];
@@ -496,25 +483,12 @@ interface TaskState extends ListSliceActions, TaskFolderSliceActions, NotebookSl
   notebooks: Notebook[];
   notebookTasks: NotebookTask[];
   notebookTaskProgress: NotebookTaskProgress[];
-  notebookInvestments: NotebookInvestment[];
-  notebookInvestmentNotes: NotebookInvestmentNote[];
-  notebookCustomers: NotebookCustomer[];
-  notebookCustomerNotes: NotebookCustomerNote[];
-  notebookCompetitors: NotebookCompetitor[];
-  notebookCompetitorNotes: NotebookCompetitorNote[];
   selectedNotebookTaskId: string | null;
-  selectedNotebookInvestmentId: string | null;
-  selectedNotebookCustomerId: string | null;
-  selectedNotebookCompetitorId: string | null;
   meetings: Meeting[];
   meetingAgendaItems: MeetingAgendaItem[];
   meetingAgendaEntries: MeetingAgendaEntry[];
   selectedMeetingId: string | null;
   selectedAgendaItemId: string | null;
-  healthReadings: HealthReading[];
-  healthProfiles: HealthProfile[];
-  selectedHealthMemberId: string | "all";
-  healthSectionTab: HealthSectionTab;
   currentWorkspace: Workspace;
   workspaces: Workspace[];
   recentActivity: ActivityLog[];
@@ -1137,25 +1111,12 @@ export const useTaskStore = create<TaskState>()(
       notebooks: SAMPLE_NOTEBOOKS,
       notebookTasks: [],
       notebookTaskProgress: [],
-      notebookInvestments: [],
-      notebookInvestmentNotes: [],
-      notebookCustomers: [],
-      notebookCustomerNotes: [],
-      notebookCompetitors: [],
-      notebookCompetitorNotes: [],
       selectedNotebookTaskId: null,
-      selectedNotebookInvestmentId: null,
-      selectedNotebookCustomerId: null,
-      selectedNotebookCompetitorId: null,
       meetings: SAMPLE_MEETINGS,
       meetingAgendaItems: SAMPLE_AGENDA_ITEMS,
       meetingAgendaEntries: SAMPLE_AGENDA_ENTRIES,
       selectedMeetingId: null,
       selectedAgendaItemId: null,
-      healthReadings: [],
-      healthProfiles: [],
-      selectedHealthMemberId: "all",
-      healthSectionTab: DEFAULT_HEALTH_SECTION_TAB,
       currentWorkspace: DEFAULT_WORKSPACE,
       workspaces: [
         DEFAULT_WORKSPACE,
@@ -1554,12 +1515,7 @@ export const useTaskStore = create<TaskState>()(
           get().updatePresenceMeta({ view: "home" });
           return;
         }
-        if (resolved === "health" && !isHealthFeatureEnabled(get().currentWorkspace.settings)) {
-          set({ currentView: "home" });
-          get().updatePresenceMeta({ view: "home" });
-          return;
-        }
-        if (resolved === "map" && !isMapsFeatureEnabled(get().currentWorkspace.settings)) {
+        if (raw === "health" || raw === "map") {
           set({ currentView: "home" });
           get().updatePresenceMeta({ view: "home" });
           return;
@@ -1638,9 +1594,6 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookId: null,
           selectedNotebookNoteId: null,
           selectedNotebookTaskId: null,
-          selectedNotebookInvestmentId: null,
-          selectedNotebookCustomerId: null,
-          selectedNotebookCompetitorId: null,
           selectedNotebookSectionTab: DEFAULT_NOTEBOOK_SECTION_TAB,
           selectedMeetingId: null,
           selectedAgendaItemId: null,
@@ -1872,27 +1825,12 @@ export const useTaskStore = create<TaskState>()(
           await ensureTaskFolderPersistenceReady();
           await ensureNotebookPersistenceReady();
           await ensureNotebookSectionPersistenceReady();
-          await ensureHealthPersistenceReady();
 
           const keptTaskFolders = get().taskFolders.filter((f) => f.workspaceId === workspaceId);
           const keptNotebooks = get().notebooks.filter((nb) => nb.workspaceId === workspaceId);
           const keptMeetings = get().meetings.filter((m) => m.workspaceId === workspaceId);
           const keptNotebookTasks = get().notebookTasks.filter((t) => t.workspaceId === workspaceId);
           const keptNotebookTaskProgress = get().notebookTaskProgress;
-          const keptNotebookInvestments = get().notebookInvestments.filter(
-            (i) => i.workspaceId === workspaceId,
-          );
-          const keptNotebookInvestmentNotes = get().notebookInvestmentNotes;
-          const keptNotebookCustomers = get().notebookCustomers.filter(
-            (c) => c.workspaceId === workspaceId,
-          );
-          const keptNotebookCustomerNotes = get().notebookCustomerNotes;
-          const keptNotebookCompetitors = get().notebookCompetitors.filter(
-            (c) => c.workspaceId === workspaceId,
-          );
-          const keptNotebookCompetitorNotes = get().notebookCompetitorNotes;
-          const keptHealthReadings = get().healthReadings.filter((r) => r.workspaceId === workspaceId);
-          const keptHealthProfiles = get().healthProfiles.filter((p) => p.workspaceId === workspaceId);
 
           const listsBundlePromise = getWorkspaceListsBundle(workspaceId).catch(() => ({
             lists: [] as WorkspaceList[],
@@ -1910,7 +1848,6 @@ export const useTaskStore = create<TaskState>()(
             realNotebooks,
             meetingBundle,
             notebookSectionBundle,
-            healthBundle,
           ] = await Promise.all([
             getTasks(workspaceId),
             getNotes(workspaceId),
@@ -1921,7 +1858,6 @@ export const useTaskStore = create<TaskState>()(
             getNotebooks(workspaceId),
             getMeetings(workspaceId),
             getNotebookSectionBundle(workspaceId),
-            getHealthBundle(workspaceId),
           ]);
 
           let nextLists = realLists;
@@ -2105,59 +2041,15 @@ export const useTaskStore = create<TaskState>()(
           const otherWsNotebooks = get().notebooks.filter((nb) => nb.workspaceId !== workspaceId);
           let nextNotebookTasks = notebookSectionBundle.tasks;
           let nextNotebookTaskProgress = notebookSectionBundle.taskProgress;
-          let nextNotebookInvestments = notebookSectionBundle.investments;
-          let nextNotebookInvestmentNotes = notebookSectionBundle.investmentNotes;
-          let nextNotebookCustomers = notebookSectionBundle.customers;
-          let nextNotebookCustomerNotes = notebookSectionBundle.customerNotes;
-          let nextNotebookCompetitors = notebookSectionBundle.competitors;
-          let nextNotebookCompetitorNotes = notebookSectionBundle.competitorNotes;
           if (!areNotebookSectionTablesReady()) {
             nextNotebookTasks = keptNotebookTasks;
             nextNotebookTaskProgress = keptNotebookTaskProgress;
-            nextNotebookInvestments = keptNotebookInvestments;
-            nextNotebookInvestmentNotes = keptNotebookInvestmentNotes;
-            nextNotebookCustomers = keptNotebookCustomers;
-            nextNotebookCustomerNotes = keptNotebookCustomerNotes;
-            nextNotebookCompetitors = keptNotebookCompetitors;
-            nextNotebookCompetitorNotes = keptNotebookCompetitorNotes;
           }
           const otherWsNotebookTasks = get().notebookTasks.filter((t) => t.workspaceId !== workspaceId);
           const otherWsNotebookTaskProgress = get().notebookTaskProgress.filter((p) => {
             const task = get().notebookTasks.find((t) => t.id === p.taskId);
             return task && task.workspaceId !== workspaceId;
           });
-          const otherWsNotebookInvestments = get().notebookInvestments.filter(
-            (i) => i.workspaceId !== workspaceId,
-          );
-          const otherWsNotebookInvestmentNotes = get().notebookInvestmentNotes.filter((n) => {
-            const investment = get().notebookInvestments.find((i) => i.id === n.investmentId);
-            return investment && investment.workspaceId !== workspaceId;
-          });
-          const otherWsNotebookCustomers = get().notebookCustomers.filter(
-            (c) => c.workspaceId !== workspaceId,
-          );
-          const otherWsNotebookCustomerNotes = get().notebookCustomerNotes.filter((n) => {
-            const customer = get().notebookCustomers.find((c) => c.id === n.customerId);
-            return customer && customer.workspaceId !== workspaceId;
-          });
-          const otherWsNotebookCompetitors = get().notebookCompetitors.filter(
-            (c) => c.workspaceId !== workspaceId,
-          );
-          const otherWsNotebookCompetitorNotes = get().notebookCompetitorNotes.filter((n) => {
-            const competitor = get().notebookCompetitors.find((c) => c.id === n.competitorId);
-            return competitor && competitor.workspaceId !== workspaceId;
-          });
-          let nextHealthReadings = filterVisibleHealthReadings(
-            healthBundle.readings,
-            get().user?.id ?? null,
-          );
-          let nextHealthProfiles = healthBundle.profiles;
-          if (!areHealthTablesReady()) {
-            nextHealthReadings = keptHealthReadings;
-            nextHealthProfiles = keptHealthProfiles;
-          }
-          const otherWsHealthReadings = get().healthReadings.filter((r) => r.workspaceId !== workspaceId);
-          const otherWsHealthProfiles = get().healthProfiles.filter((p) => p.workspaceId !== workspaceId);
 
           const otherWsMeetings = get().meetings.filter((m) => m.workspaceId !== workspaceId);
           const otherWsAgendaItems = get().meetingAgendaItems.filter((i) => {
@@ -2219,23 +2111,9 @@ export const useTaskStore = create<TaskState>()(
             notebooks: [...otherWsNotebooks, ...nextNotebooks],
             notebookTasks: [...otherWsNotebookTasks, ...nextNotebookTasks],
             notebookTaskProgress: [...otherWsNotebookTaskProgress, ...nextNotebookTaskProgress],
-            notebookInvestments: [...otherWsNotebookInvestments, ...nextNotebookInvestments],
-            notebookInvestmentNotes: [
-              ...otherWsNotebookInvestmentNotes,
-              ...nextNotebookInvestmentNotes,
-            ],
-            notebookCustomers: [...otherWsNotebookCustomers, ...nextNotebookCustomers],
-            notebookCustomerNotes: [...otherWsNotebookCustomerNotes, ...nextNotebookCustomerNotes],
-            notebookCompetitors: [...otherWsNotebookCompetitors, ...nextNotebookCompetitors],
-            notebookCompetitorNotes: [
-              ...otherWsNotebookCompetitorNotes,
-              ...nextNotebookCompetitorNotes,
-            ],
             meetings: [...otherWsMeetings, ...nextMeetings],
             meetingAgendaItems: [...otherWsAgendaItems, ...nextAgendaItems],
             meetingAgendaEntries: [...otherWsAgendaEntries, ...nextAgendaEntries],
-            healthReadings: [...otherWsHealthReadings, ...nextHealthReadings],
-            healthProfiles: [...otherWsHealthProfiles, ...nextHealthProfiles],
             recentActivity: realActivity,
             taskLoadingStates: {},
             pendingSyncCount: getPendingCount(),
@@ -4335,7 +4213,6 @@ export const useTaskStore = create<TaskState>()(
       ...createNotebookSliceActions(get, set),
 
       ...createNotebookSectionSliceActions(get, set),
-      ...createHealthSliceActions(get, set),
 
       ...createMeetingSliceActions(
         get as Parameters<typeof createMeetingSliceActions>[0],
@@ -5768,18 +5645,6 @@ export const useTaskStore = create<TaskState>()(
             ) {
               get().setView("home");
             }
-            if (
-              get().currentView === "health" &&
-              !isHealthFeatureEnabled(updated.settings)
-            ) {
-              get().setView("home");
-            }
-            if (
-              get().currentView === "map" &&
-              !isMapsFeatureEnabled(updated.settings)
-            ) {
-              get().setView("home");
-            }
           }
 
           toast.success("Workspace updated");
@@ -6908,12 +6773,6 @@ export const useTaskStore = create<TaskState>()(
             notebooks: state.notebooks,
             notebookTasks: state.notebookTasks,
             notebookTaskProgress: state.notebookTaskProgress,
-            notebookInvestments: state.notebookInvestments,
-            notebookInvestmentNotes: state.notebookInvestmentNotes,
-            notebookCustomers: state.notebookCustomers,
-            notebookCustomerNotes: state.notebookCustomerNotes,
-            notebookCompetitors: state.notebookCompetitors,
-            notebookCompetitorNotes: state.notebookCompetitorNotes,
             meetings: state.meetings,
             meetingAgendaItems: state.meetingAgendaItems,
             meetingAgendaEntries: state.meetingAgendaEntries,
@@ -6923,9 +6782,6 @@ export const useTaskStore = create<TaskState>()(
             selectedNotebookId: state.selectedNotebookId,
             selectedNotebookNoteId: state.selectedNotebookNoteId,
             selectedNotebookTaskId: state.selectedNotebookTaskId,
-            selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
-            selectedNotebookCustomerId: state.selectedNotebookCustomerId,
-            selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
             selectedNotebookSectionTab: state.selectedNotebookSectionTab,
             selectedMeetingId: state.selectedMeetingId,
             taskFilter: state.taskFilter,
@@ -6943,12 +6799,6 @@ export const useTaskStore = create<TaskState>()(
           notebooks: state.notebooks,
           notebookTasks: state.notebookTasks,
           notebookTaskProgress: state.notebookTaskProgress,
-          notebookInvestments: state.notebookInvestments,
-          notebookInvestmentNotes: state.notebookInvestmentNotes,
-          notebookCustomers: state.notebookCustomers,
-          notebookCustomerNotes: state.notebookCustomerNotes,
-          notebookCompetitors: state.notebookCompetitors,
-          notebookCompetitorNotes: state.notebookCompetitorNotes,
           meetings: state.meetings,
           meetingAgendaItems: state.meetingAgendaItems,
           meetingAgendaEntries: state.meetingAgendaEntries,
@@ -6957,9 +6807,6 @@ export const useTaskStore = create<TaskState>()(
           selectedNotebookId: state.selectedNotebookId,
           selectedNotebookNoteId: state.selectedNotebookNoteId,
           selectedNotebookTaskId: state.selectedNotebookTaskId,
-          selectedNotebookInvestmentId: state.selectedNotebookInvestmentId,
-          selectedNotebookCustomerId: state.selectedNotebookCustomerId,
-          selectedNotebookCompetitorId: state.selectedNotebookCompetitorId,
           selectedNotebookSectionTab: state.selectedNotebookSectionTab,
           selectedMeetingId: state.selectedMeetingId,
           theme: state.theme,
@@ -6999,16 +6846,7 @@ if (typeof window !== "undefined") {
     ) {
       useTaskStore.setState({ currentView: "home" });
     }
-    if (
-      persistedView === "health" &&
-      !isHealthFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
-    ) {
-      useTaskStore.setState({ currentView: "home" });
-    }
-    if (
-      persistedView === "map" &&
-      !isMapsFeatureEnabled((state as { currentWorkspace?: Workspace })?.currentWorkspace?.settings)
-    ) {
+    if (persistedView === "health" || persistedView === "map") {
       useTaskStore.setState({ currentView: "home" });
     }
     const persistedFilter = (state as { taskFilter?: TaskState["taskFilter"] })?.taskFilter;

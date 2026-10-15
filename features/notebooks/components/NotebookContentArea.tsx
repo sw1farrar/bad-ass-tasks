@@ -2,19 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Notebook as NotebookIcon } from "lucide-react";
-import type {
-  Note,
-  Notebook,
-  NotebookCompetitor,
-  NotebookCompetitorNote,
-  NotebookCustomer,
-  NotebookCustomerNote,
-  NotebookInvestment,
-  NotebookInvestmentNote,
-  NotebookTask,
-  NotebookTaskProgress,
-  WorkspaceMember,
-} from "@/types";
+import type { Note, Notebook, NotebookTask, NotebookTaskProgress, WorkspaceMember } from "@/types";
 import { filterNotebookNotesBySearch } from "@/lib/notebooks/notebookFilters";
 import {
   DEFAULT_NOTEBOOK_SECTION_TAB,
@@ -26,9 +14,6 @@ import { NotebookDetailHeader } from "./NotebookDetailHeader";
 import { NotebookNotesPanel } from "./NotebookNotesPanel";
 import { NotebookSectionMenu } from "./NotebookSectionMenu";
 import { NotebookTasksPanel } from "./NotebookTasksPanel";
-import { NotebookInvestmentsPanel } from "./NotebookInvestmentsPanel";
-import { NotebookCustomersPanel } from "./NotebookCustomersPanel";
-import { NotebookCompetitorsPanel } from "./NotebookCompetitorsPanel";
 
 interface NotebookContentAreaProps {
   notebook: Notebook | null;
@@ -37,31 +22,15 @@ interface NotebookContentAreaProps {
   notes: Note[];
   tasks: NotebookTask[];
   taskProgress: NotebookTaskProgress[];
-  investments: NotebookInvestment[];
-  investmentNotes: NotebookInvestmentNote[];
-  customers: NotebookCustomer[];
-  customerNotes: NotebookCustomerNote[];
-  competitors: NotebookCompetitor[];
-  workspaceCompetitors: NotebookCompetitor[];
-  competitorNotes: NotebookCompetitorNote[];
-  workspaceCompetitorNotes: NotebookCompetitorNote[];
-  allNotebooks: Notebook[];
-  workspaceName?: string;
   members: WorkspaceMember[];
   currentUserId?: string;
   selectedNoteId: string | null;
   selectedNote: Note | null;
   selectedTaskId: string | null;
-  selectedInvestmentId: string | null;
-  selectedCustomerId: string | null;
-  selectedCompetitorId: string | null;
   isLive: boolean;
   isCreatingNote?: boolean;
   onSelectNote: (id: string) => void;
   onSelectTask: (id: string | null) => void;
-  onSelectInvestment: (id: string | null) => void;
-  onSelectCustomer: (id: string | null) => void;
-  onSelectCompetitor: (id: string | null) => void;
   onCreateNote: () => void;
   onUpdateNote: (id: string, updates: Partial<Note>) => Promise<boolean | null>;
   onDeleteNote: (id: string) => Promise<boolean | null>;
@@ -77,30 +46,6 @@ interface NotebookContentAreaProps {
   onAddNotebookTaskProgress: (taskId: string, body: string) => void | Promise<unknown>;
   onUpdateNotebookTaskProgress: (id: string, body: string) => void | Promise<unknown>;
   onRequestDeleteNotebookTaskProgress: (id: string) => void;
-  onAddNotebookInvestment: (title?: string) => void | Promise<unknown>;
-  onToggleNotebookInvestment: (id: string) => void | Promise<unknown>;
-  onUpdateNotebookInvestment: (id: string, title: string) => void | Promise<unknown>;
-  onReorderNotebookInvestments: (orderedIds: string[]) => void | Promise<unknown>;
-  onRequestDeleteNotebookInvestment: (id: string) => void;
-  onAddNotebookInvestmentNote: (investmentId: string, body: string) => void | Promise<unknown>;
-  onUpdateNotebookInvestmentNote: (id: string, body: string) => void | Promise<unknown>;
-  onRequestDeleteNotebookInvestmentNote: (id: string) => void;
-  onAddNotebookCustomer: (accountName: string) => void | Promise<unknown>;
-  onUpdateNotebookCustomer: (id: string, accountName: string) => void | Promise<unknown>;
-  onRequestDeleteNotebookCustomer: (id: string) => void;
-  onAddNotebookCustomerNote: (customerId: string, body: string) => void | Promise<unknown>;
-  onUpdateNotebookCustomerNote: (id: string, body: string) => void | Promise<unknown>;
-  onRequestDeleteNotebookCustomerNote: (id: string) => void;
-  onAddNotebookCompetitor: (name: string, salesPotential: number) => void | Promise<unknown>;
-  onUpdateNotebookCompetitor: (
-    id: string,
-    updates: { name?: string; salesPotential?: number },
-  ) => void | Promise<unknown>;
-  onRequestDeleteNotebookCompetitor: (id: string) => void;
-  onAddNotebookCompetitorNote: (competitorId: string, body: string) => void | Promise<unknown>;
-  onUpdateNotebookCompetitorNote: (id: string, body: string) => void | Promise<unknown>;
-  onRequestDeleteNotebookCompetitorNote: (id: string) => void;
-  onSetNotebookOurSales: (value: number) => void | Promise<unknown>;
   focusTitleNoteId?: string | null;
   onTitleFocusConsumed?: () => void;
 }
@@ -112,31 +57,15 @@ export function NotebookContentArea({
   notes,
   tasks,
   taskProgress,
-  investments,
-  investmentNotes,
-  customers,
-  customerNotes,
-  competitors,
-  workspaceCompetitors,
-  competitorNotes,
-  workspaceCompetitorNotes,
-  allNotebooks,
-  workspaceName,
   members,
   currentUserId,
   selectedNoteId,
   selectedNote,
   selectedTaskId,
-  selectedInvestmentId,
-  selectedCustomerId,
-  selectedCompetitorId,
   isLive,
   isCreatingNote,
   onSelectNote,
   onSelectTask,
-  onSelectInvestment,
-  onSelectCustomer,
-  onSelectCompetitor,
   onCreateNote,
   onUpdateNote,
   onDeleteNote,
@@ -152,27 +81,6 @@ export function NotebookContentArea({
   onAddNotebookTaskProgress,
   onUpdateNotebookTaskProgress,
   onRequestDeleteNotebookTaskProgress,
-  onAddNotebookInvestment,
-  onToggleNotebookInvestment,
-  onUpdateNotebookInvestment,
-  onReorderNotebookInvestments,
-  onRequestDeleteNotebookInvestment,
-  onAddNotebookInvestmentNote,
-  onUpdateNotebookInvestmentNote,
-  onRequestDeleteNotebookInvestmentNote,
-  onAddNotebookCustomer,
-  onUpdateNotebookCustomer,
-  onRequestDeleteNotebookCustomer,
-  onAddNotebookCustomerNote,
-  onUpdateNotebookCustomerNote,
-  onRequestDeleteNotebookCustomerNote,
-  onAddNotebookCompetitor,
-  onUpdateNotebookCompetitor,
-  onRequestDeleteNotebookCompetitor,
-  onAddNotebookCompetitorNote,
-  onUpdateNotebookCompetitorNote,
-  onRequestDeleteNotebookCompetitorNote,
-  onSetNotebookOurSales,
   focusTitleNoteId,
   onTitleFocusConsumed,
 }: NotebookContentAreaProps) {
@@ -286,66 +194,6 @@ export function NotebookContentArea({
           onAddProgress={onAddNotebookTaskProgress}
           onUpdateProgress={onUpdateNotebookTaskProgress}
           onRequestDeleteProgress={onRequestDeleteNotebookTaskProgress}
-        />
-      )}
-
-      {activeTab === "investments" && (
-        <NotebookInvestmentsPanel
-          investments={investments}
-          notes={investmentNotes}
-          members={members}
-          currentUserId={currentUserId}
-          selectedInvestmentId={selectedInvestmentId}
-          onSelectInvestment={onSelectInvestment}
-          onAdd={onAddNotebookInvestment}
-          onToggle={onToggleNotebookInvestment}
-          onUpdate={onUpdateNotebookInvestment}
-          onReorder={(orderedIds) => onReorderNotebookInvestments(orderedIds)}
-          onRequestDelete={onRequestDeleteNotebookInvestment}
-          onAddNote={onAddNotebookInvestmentNote}
-          onUpdateNote={onUpdateNotebookInvestmentNote}
-          onRequestDeleteNote={onRequestDeleteNotebookInvestmentNote}
-        />
-      )}
-
-      {activeTab === "customers" && (
-        <NotebookCustomersPanel
-          customers={customers}
-          notes={customerNotes}
-          members={members}
-          currentUserId={currentUserId}
-          selectedCustomerId={selectedCustomerId}
-          onSelectCustomer={onSelectCustomer}
-          onAddCustomer={onAddNotebookCustomer}
-          onUpdateCustomer={onUpdateNotebookCustomer}
-          onRequestDeleteCustomer={onRequestDeleteNotebookCustomer}
-          onAddNote={onAddNotebookCustomerNote}
-          onUpdateNote={onUpdateNotebookCustomerNote}
-          onRequestDeleteNote={onRequestDeleteNotebookCustomerNote}
-        />
-      )}
-
-      {activeTab === "competitors" && (
-        <NotebookCompetitorsPanel
-          notebookId={notebook.id}
-          competitors={competitors}
-          workspaceCompetitors={workspaceCompetitors}
-          workspaceCompetitorNotes={workspaceCompetitorNotes}
-          notebooks={allNotebooks}
-          workspaceName={workspaceName}
-          notes={competitorNotes}
-          members={members}
-          currentUserId={currentUserId}
-          ourSales={notebook.ourSales ?? 0}
-          selectedCompetitorId={selectedCompetitorId}
-          onSelectCompetitor={onSelectCompetitor}
-          onOurSalesChange={onSetNotebookOurSales}
-          onAdd={onAddNotebookCompetitor}
-          onUpdate={onUpdateNotebookCompetitor}
-          onRequestDelete={onRequestDeleteNotebookCompetitor}
-          onAddNote={onAddNotebookCompetitorNote}
-          onUpdateNote={onUpdateNotebookCompetitorNote}
-          onRequestDeleteNote={onRequestDeleteNotebookCompetitorNote}
         />
       )}
     </div>

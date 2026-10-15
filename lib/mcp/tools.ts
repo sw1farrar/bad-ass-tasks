@@ -25,33 +25,25 @@ import {
   createList,
   createMeeting,
   createNotebook,
-  createStore,
   createTaskFolder,
-  deleteHealthReading,
   deleteList,
   deleteListItem,
   deleteMeeting,
   deleteNote,
   deleteNotebookTask,
-  deleteStore,
   deleteTaskFolder,
   listFiles,
-  listHealthReadings,
   listMembers,
   listMeetings,
   listNotebooks,
   listNotebookTasks,
-  listStores,
   listTaskFolders,
-  listTerritories,
-  logHealthReading,
   searchWorkspace,
   updateAgendaItem,
   updateList,
   updateListItem,
   updateMeeting,
   updateNotebook,
-  updateStore,
   updateTaskFolder,
   getMeeting,
 } from "@/lib/mcp/suiteData";
@@ -101,19 +93,6 @@ const priorityEnum = ["P0", "P1", "P2", "P3"];
 const listColorEnum = ["default", "purple", "pink", "green", "amber", "blue"];
 const meetingStatusEnum = ["draft", "scheduled", "in_progress", "completed"];
 const agendaStatusEnum = ["open", "in_progress", "completed", "continued"];
-const healthMetricEnum = [
-  "weight",
-  "body_fat",
-  "muscle_mass",
-  "waist",
-  "blood_pressure_systolic",
-  "resting_hr",
-  "sleep_hours",
-  "steps",
-  "active_minutes",
-  "calories_burned",
-  "stress",
-];
 
 export const MCP_TOOLS: McpToolDefinition[] = [
   {
@@ -141,7 +120,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "search_workspace",
     description:
-      "Search tasks, notes, checklists, list items, meetings, and stores by title/name in one call.",
+      "Search tasks, notes, checklists, list items, and meetings by title/name in one call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -914,189 +893,6 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         item_id: str(args, "item_id") ?? "",
         body: str(args, "body") ?? "",
         is_decision: bool(args, "is_decision"),
-      }),
-  },
-  {
-    name: "list_health_readings",
-    description: "List the signed-in user's health readings.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        workspace_id: workspaceIdProp,
-        metric_type: { type: "string", enum: healthMetricEnum },
-        limit: { type: "number" },
-      },
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      listHealthReadings(userId, {
-        workspace_id: str(args, "workspace_id"),
-        metric_type: str(args, "metric_type"),
-        limit: num(args, "limit"),
-      }),
-  },
-  {
-    name: "log_health_reading",
-    description: "Log a health metric (weight, steps, sleep, stress, etc.) for the signed-in user.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        metric_type: { type: "string", enum: healthMetricEnum },
-        value: { type: "number" },
-        workspace_id: workspaceIdProp,
-        unit: { type: "string" },
-        recorded_at: { type: "string", description: "ISO datetime. Defaults to now." },
-        note: { type: "string" },
-      },
-      required: ["metric_type", "value"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      logHealthReading(userId, {
-        metric_type: str(args, "metric_type") ?? "",
-        value: num(args, "value") ?? Number.NaN,
-        workspace_id: str(args, "workspace_id"),
-        unit: str(args, "unit"),
-        recorded_at: str(args, "recorded_at"),
-        note: str(args, "note"),
-      }),
-  },
-  {
-    name: "delete_health_reading",
-    description: "Delete one of the signed-in user's health readings.",
-    inputSchema: {
-      type: "object",
-      properties: { reading_id: { type: "string" } },
-      required: ["reading_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) => deleteHealthReading(userId, str(args, "reading_id") ?? ""),
-  },
-  {
-    name: "list_stores",
-    description: "List map stores in a workspace.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        workspace_id: workspaceIdProp,
-        query: { type: "string" },
-        status: { type: "string", enum: ["active", "inactive"] },
-        limit: { type: "number" },
-      },
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      listStores(userId, {
-        workspace_id: str(args, "workspace_id"),
-        query: str(args, "query"),
-        status: str(args, "status"),
-        limit: num(args, "limit"),
-      }),
-  },
-  {
-    name: "create_store",
-    description: "Add a store to the map. Geocodes the address when lat/lng are omitted.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        address: { type: "string" },
-        workspace_id: workspaceIdProp,
-        store_number: { type: "string" },
-        city: { type: "string" },
-        state: { type: "string" },
-        postal_code: { type: "string" },
-        country: { type: "string" },
-        notes: { type: "string" },
-        status: { type: "string", enum: ["active", "inactive"] },
-        latitude: { type: "number" },
-        longitude: { type: "number" },
-      },
-      required: ["name", "address"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      createStore(userId, {
-        name: str(args, "name") ?? "",
-        address: str(args, "address") ?? "",
-        workspace_id: str(args, "workspace_id"),
-        store_number: str(args, "store_number"),
-        city: str(args, "city"),
-        state: str(args, "state"),
-        postal_code: str(args, "postal_code"),
-        country: str(args, "country"),
-        notes: str(args, "notes"),
-        status: str(args, "status"),
-        latitude: num(args, "latitude"),
-        longitude: num(args, "longitude"),
-      }),
-  },
-  {
-    name: "update_store",
-    description: "Update a map store's name, address, notes, or status.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        store_id: { type: "string" },
-        name: { type: "string" },
-        address: { type: "string" },
-        store_number: { type: "string" },
-        city: { type: "string" },
-        state: { type: "string" },
-        postal_code: { type: "string" },
-        country: { type: "string" },
-        notes: { type: "string" },
-        status: { type: "string", enum: ["active", "inactive"] },
-        latitude: { type: "number" },
-        longitude: { type: "number" },
-      },
-      required: ["store_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      updateStore(userId, {
-        store_id: str(args, "store_id") ?? "",
-        name: str(args, "name"),
-        address: str(args, "address"),
-        store_number: str(args, "store_number"),
-        city: str(args, "city"),
-        state: str(args, "state"),
-        postal_code: str(args, "postal_code"),
-        country: str(args, "country"),
-        notes: str(args, "notes"),
-        status: str(args, "status"),
-        latitude: num(args, "latitude"),
-        longitude: num(args, "longitude"),
-      }),
-  },
-  {
-    name: "delete_store",
-    description: "Delete a map store.",
-    inputSchema: {
-      type: "object",
-      properties: { store_id: { type: "string" } },
-      required: ["store_id"],
-      additionalProperties: false,
-    },
-    handler: (userId, args) => deleteStore(userId, str(args, "store_id") ?? ""),
-  },
-  {
-    name: "list_territories",
-    description: "List map territories (metadata only, not polygon geometry).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        workspace_id: workspaceIdProp,
-        status: { type: "string", enum: ["active", "draft", "archived"] },
-        limit: { type: "number" },
-      },
-      additionalProperties: false,
-    },
-    handler: (userId, args) =>
-      listTerritories(userId, {
-        workspace_id: str(args, "workspace_id"),
-        status: str(args, "status"),
-        limit: num(args, "limit"),
       }),
   },
 ];

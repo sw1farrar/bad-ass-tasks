@@ -112,10 +112,8 @@ export interface Notebook {
   workspaceId: string;
   name: string;
   sortOrder: number;
-  /** Section tabs shown for this notebook (notes, tasks, investments, etc.). */
+  /** Section tabs shown for this notebook (notes and tasks). */
   enabledSections?: import("@/lib/notebooks/notebookSections").NotebookSectionTab[];
-  /** Our sales for market-share comparison in the Competitors section. */
-  ourSales?: number;
   archived?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -141,97 +139,6 @@ export interface NotebookTaskProgress {
   body: string;
   authorId?: string | null;
   createdAt: string;
-}
-
-export interface NotebookInvestment {
-  id: string;
-  notebookId: string;
-  workspaceId: string;
-  title: string;
-  sortOrder: number;
-  completed?: boolean;
-  completedAt?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface NotebookInvestmentNote {
-  id: string;
-  investmentId: string;
-  body: string;
-  authorId?: string | null;
-  createdAt: string;
-}
-
-export interface NotebookCustomer {
-  id: string;
-  notebookId: string;
-  workspaceId: string;
-  accountName: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface NotebookCustomerNote {
-  id: string;
-  customerId: string;
-  body: string;
-  authorId?: string | null;
-  createdAt: string;
-}
-
-export interface NotebookCompetitor {
-  id: string;
-  notebookId: string;
-  workspaceId: string;
-  name: string;
-  salesPotential: number;
-  sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface NotebookCompetitorNote {
-  id: string;
-  competitorId: string;
-  body: string;
-  authorId?: string | null;
-  createdAt: string;
-}
-
-export type HealthMetricType =
-  | "weight"
-  | "body_fat"
-  | "muscle_mass"
-  | "waist"
-  | "blood_pressure_systolic"
-  | "resting_hr"
-  | "sleep_hours"
-  | "steps"
-  | "active_minutes"
-  | "calories_burned"
-  | "stress";
-
-export interface HealthReading {
-  id: string;
-  workspaceId: string;
-  userId: string;
-  metricType: HealthMetricType;
-  value: number;
-  unit: string;
-  recordedAt: string;
-  note?: string | null;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface HealthProfile {
-  workspaceId: string;
-  userId: string;
-  heightCm?: number | null;
-  weightGoal?: number | null;
-  weightUnit: string;
-  updatedAt: string;
 }
 
 export type MeetingStatus = "draft" | "scheduled" | "in_progress" | "completed";
