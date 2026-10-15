@@ -18,8 +18,6 @@ function workspace(partial?: Partial<Workspace>): Workspace {
     settings: {
       features: {
         notesEnabled: false,
-        healthEnabled: false,
-        mapsEnabled: false,
       },
     },
     ...partial,
@@ -55,24 +53,18 @@ describe("mobile workspace navigation", () => {
         settings: {
           features: {
             notesEnabled: true,
-            healthEnabled: true,
-            mapsEnabled: true,
           },
         },
       }),
       { showChat: true, isSiteAdmin: true },
     );
 
-    expect(full.map((g) => g.id)).toEqual(["work", "team", "insights", "workspace"]);
+    expect(full.map((g) => g.id)).toEqual(["work", "team", "workspace"]);
     expect(full.find((g) => g.id === "work")?.items.map((i) => i.id)).toEqual([
       "notebooks",
       "meetings",
     ]);
     expect(full.find((g) => g.id === "team")?.items.map((i) => i.id)).toEqual(["chat", "teams"]);
-    expect(full.find((g) => g.id === "insights")?.items.map((i) => i.id)).toEqual([
-      "health",
-      "map",
-    ]);
     expect(full.find((g) => g.id === "workspace")?.items.map((i) => i.id)).toEqual([
       "settings",
       "admin",
@@ -81,7 +73,7 @@ describe("mobile workspace navigation", () => {
 
   it("still treats overflow views as valid routes", () => {
     const ws = workspace({
-      settings: { features: { notesEnabled: true, healthEnabled: true, mapsEnabled: true } },
+      settings: { features: { notesEnabled: true } },
     });
     expect(isValidNavView("settings", ws)).toBe(true);
     expect(isValidNavView("notebooks", ws)).toBe(true);

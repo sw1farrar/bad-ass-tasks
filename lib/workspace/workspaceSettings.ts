@@ -9,13 +9,10 @@ export type WorkspaceSettings = {
   features?: {
     /** When true, shows the Notes nav item and notebooks workspace. */
     notesEnabled?: boolean;
-    /** When true, shows the Health nav item and health tracking workspace. */
-    healthEnabled?: boolean;
-    /** When true, shows Map nav and territory/store workspace. */
-    mapsEnabled?: boolean;
     /**
      * Which notebook section tabs are visible.
      * Missing keys default to enabled (backward compatible).
+     * Unknown keys from removed sections are ignored.
      */
     notebookSections?: NotebookSectionsSettings;
   };
@@ -24,16 +21,11 @@ export type WorkspaceSettings = {
 export const DEFAULT_NOTEBOOK_SECTIONS: Record<NotebookSectionTab, boolean> = {
   notes: true,
   tasks: true,
-  investments: true,
-  customers: true,
-  competitors: true,
 };
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   features: {
     notesEnabled: false,
-    healthEnabled: false,
-    mapsEnabled: false,
     notebookSections: { ...DEFAULT_NOTEBOOK_SECTIONS },
   },
 };
@@ -82,14 +74,6 @@ export function parseWorkspaceSettings(raw: unknown): WorkspaceSettings {
         typeof featuresRaw.notesEnabled === "boolean"
           ? featuresRaw.notesEnabled
           : DEFAULT_WORKSPACE_SETTINGS.features?.notesEnabled,
-      healthEnabled:
-        typeof featuresRaw.healthEnabled === "boolean"
-          ? featuresRaw.healthEnabled
-          : DEFAULT_WORKSPACE_SETTINGS.features?.healthEnabled,
-      mapsEnabled:
-        typeof featuresRaw.mapsEnabled === "boolean"
-          ? featuresRaw.mapsEnabled
-          : DEFAULT_WORKSPACE_SETTINGS.features?.mapsEnabled,
       notebookSections: parseNotebookSections(featuresRaw.notebookSections),
     },
   };
@@ -97,14 +81,6 @@ export function parseWorkspaceSettings(raw: unknown): WorkspaceSettings {
 
 export function isNotesFeatureEnabled(settings?: WorkspaceSettings | null): boolean {
   return settings?.features?.notesEnabled === true;
-}
-
-export function isHealthFeatureEnabled(settings?: WorkspaceSettings | null): boolean {
-  return settings?.features?.healthEnabled === true;
-}
-
-export function isMapsFeatureEnabled(settings?: WorkspaceSettings | null): boolean {
-  return settings?.features?.mapsEnabled === true;
 }
 
 export function isNotebookSectionEnabled(

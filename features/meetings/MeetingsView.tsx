@@ -223,12 +223,6 @@ export function MeetingsView({
       buildDestructiveConfirmContent(pendingDestructiveDelete, {
         tasks: [],
         taskProgress: [],
-        investments: [],
-        investmentNotes: [],
-        customers: [],
-        customerNotes: [],
-        competitors: [],
-        competitorNotes: [],
         agendaItems: meetingAgendaItems,
         agendaEntries: meetingAgendaEntries,
       }),

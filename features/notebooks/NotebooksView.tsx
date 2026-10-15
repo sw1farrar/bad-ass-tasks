@@ -10,12 +10,6 @@ import { ConfirmationModal } from "@/components/ConfirmationModal";
 import type {
   Note,
   Notebook,
-  NotebookCompetitor,
-  NotebookCompetitorNote,
-  NotebookCustomer,
-  NotebookCustomerNote,
-  NotebookInvestment,
-  NotebookInvestmentNote,
   NotebookTask,
   NotebookTaskProgress,
   WorkspaceMember,
@@ -37,7 +31,6 @@ const EMPTY_DOC = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }]
 
 export interface NotebooksViewProps {
   workspaceId: string;
-  workspaceName?: string;
   notebooks: Notebook[];
   archivedNotebooks?: Notebook[];
   notes: Note[];
@@ -46,26 +39,12 @@ export interface NotebooksViewProps {
   selectedNotebookId: string | null;
   selectedNoteId: string | null;
   selectedNotebookTaskId: string | null;
-  selectedNotebookInvestmentId: string | null;
-  selectedNotebookCustomerId: string | null;
-  selectedNotebookCompetitorId: string | null;
   notebookTasks: NotebookTask[];
   notebookTaskProgress: NotebookTaskProgress[];
-  notebookInvestments: NotebookInvestment[];
-  notebookInvestmentNotes: NotebookInvestmentNote[];
-  notebookCustomers: NotebookCustomer[];
-  notebookCustomerNotes: NotebookCustomerNote[];
-  notebookCompetitors: NotebookCompetitor[];
-  workspaceCompetitors: NotebookCompetitor[];
-  notebookCompetitorNotes: NotebookCompetitorNote[];
-  workspaceCompetitorNotes: NotebookCompetitorNote[];
   isLive: boolean;
   onSelectNotebook: (id: string | null) => void;
   onSelectNote: (id: string | null) => void;
   onSelectNotebookTask: (id: string | null) => void;
-  onSelectNotebookInvestment: (id: string | null) => void;
-  onSelectNotebookCustomer: (id: string | null) => void;
-  onSelectNotebookCompetitor: (id: string | null) => void;
   onAddNotebook: (name?: string) => Promise<Notebook>;
   onUpdateNotebook: (
     id: string,
@@ -84,36 +63,11 @@ export interface NotebooksViewProps {
   onAddNotebookTaskProgress: (taskId: string, body: string) => void | Promise<unknown>;
   onUpdateNotebookTaskProgress: (id: string, body: string) => void | Promise<unknown>;
   onDeleteNotebookTaskProgress: (id: string) => void | Promise<unknown>;
-  onAddNotebookInvestment: (title?: string) => void | Promise<unknown>;
-  onToggleNotebookInvestment: (id: string) => void | Promise<unknown>;
-  onUpdateNotebookInvestment: (id: string, title: string) => void | Promise<unknown>;
-  onReorderNotebookInvestments: (orderedIds: string[]) => void | Promise<unknown>;
-  onDeleteNotebookInvestment: (id: string) => void | Promise<unknown>;
-  onAddNotebookInvestmentNote: (investmentId: string, body: string) => void | Promise<unknown>;
-  onUpdateNotebookInvestmentNote: (id: string, body: string) => void | Promise<unknown>;
-  onDeleteNotebookInvestmentNote: (id: string) => void | Promise<unknown>;
-  onAddNotebookCustomer: (accountName: string) => void | Promise<unknown>;
-  onUpdateNotebookCustomer: (id: string, accountName: string) => void | Promise<unknown>;
-  onDeleteNotebookCustomer: (id: string) => void | Promise<unknown>;
-  onAddNotebookCustomerNote: (customerId: string, body: string) => void | Promise<unknown>;
-  onUpdateNotebookCustomerNote: (id: string, body: string) => void | Promise<unknown>;
-  onDeleteNotebookCustomerNote: (id: string) => void | Promise<unknown>;
-  onAddNotebookCompetitor: (name: string, salesPotential: number) => void | Promise<unknown>;
-  onUpdateNotebookCompetitor: (
-    id: string,
-    updates: { name?: string; salesPotential?: number },
-  ) => void | Promise<unknown>;
-  onDeleteNotebookCompetitor: (id: string) => void | Promise<unknown>;
-  onAddNotebookCompetitorNote: (competitorId: string, body: string) => void | Promise<unknown>;
-  onUpdateNotebookCompetitorNote: (id: string, body: string) => void | Promise<unknown>;
-  onDeleteNotebookCompetitorNote: (id: string) => void | Promise<unknown>;
-  onSetNotebookOurSales: (value: number) => void | Promise<unknown>;
   getNotebookDeleteSummary?: (notebookId: string) => NotebookDeleteSummary;
 }
 
 export function NotebooksView({
   workspaceId,
-  workspaceName,
   notebooks,
   archivedNotebooks = [],
   notes,
@@ -122,26 +76,12 @@ export function NotebooksView({
   selectedNotebookId,
   selectedNoteId,
   selectedNotebookTaskId,
-  selectedNotebookInvestmentId,
-  selectedNotebookCustomerId,
-  selectedNotebookCompetitorId,
   notebookTasks,
   notebookTaskProgress,
-  notebookInvestments,
-  notebookInvestmentNotes,
-  notebookCustomers,
-  notebookCustomerNotes,
-  notebookCompetitors,
-  workspaceCompetitors,
-  notebookCompetitorNotes,
-  workspaceCompetitorNotes,
   isLive,
   onSelectNotebook,
   onSelectNote,
   onSelectNotebookTask,
-  onSelectNotebookInvestment,
-  onSelectNotebookCustomer,
-  onSelectNotebookCompetitor,
   onAddNotebook,
   onUpdateNotebook,
   onDeleteNotebook,
@@ -157,27 +97,6 @@ export function NotebooksView({
   onAddNotebookTaskProgress,
   onUpdateNotebookTaskProgress,
   onDeleteNotebookTaskProgress,
-  onAddNotebookInvestment,
-  onToggleNotebookInvestment,
-  onUpdateNotebookInvestment,
-  onReorderNotebookInvestments,
-  onDeleteNotebookInvestment,
-  onAddNotebookInvestmentNote,
-  onUpdateNotebookInvestmentNote,
-  onDeleteNotebookInvestmentNote,
-  onAddNotebookCustomer,
-  onUpdateNotebookCustomer,
-  onDeleteNotebookCustomer,
-  onAddNotebookCustomerNote,
-  onUpdateNotebookCustomerNote,
-  onDeleteNotebookCustomerNote,
-  onAddNotebookCompetitor,
-  onUpdateNotebookCompetitor,
-  onDeleteNotebookCompetitor,
-  onAddNotebookCompetitorNote,
-  onUpdateNotebookCompetitorNote,
-  onDeleteNotebookCompetitorNote,
-  onSetNotebookOurSales,
   getNotebookDeleteSummary,
 }: NotebooksViewProps) {
   const isMobile = useIsMobileViewport();
@@ -249,26 +168,10 @@ export function NotebooksView({
       buildDestructiveConfirmContent(pendingDestructiveDelete, {
         tasks: notebookTasks,
         taskProgress: notebookTaskProgress,
-        investments: notebookInvestments,
-        investmentNotes: notebookInvestmentNotes,
-        customers: notebookCustomers,
-        customerNotes: notebookCustomerNotes,
-        competitors: notebookCompetitors,
-        competitorNotes: notebookCompetitorNotes,
         agendaItems: [],
         agendaEntries: [],
       }),
-    [
-      pendingDestructiveDelete,
-      notebookTasks,
-      notebookTaskProgress,
-      notebookInvestments,
-      notebookInvestmentNotes,
-      notebookCustomers,
-      notebookCustomerNotes,
-      notebookCompetitors,
-      notebookCompetitorNotes,
-    ],
+    [pendingDestructiveDelete, notebookTasks, notebookTaskProgress],
   );
 
   const pendingNotebookDeleteDetails = useMemo(() => {
@@ -331,30 +234,6 @@ export function NotebooksView({
           await onDeleteNotebookTaskProgress(pendingDestructiveDelete.id);
           toast.success("Progress note deleted");
           break;
-        case "investment":
-          await onDeleteNotebookInvestment(pendingDestructiveDelete.id);
-          toast.success("Investment deleted");
-          break;
-        case "investmentNote":
-          await onDeleteNotebookInvestmentNote(pendingDestructiveDelete.id);
-          toast.success("Note deleted");
-          break;
-        case "customer":
-          await onDeleteNotebookCustomer(pendingDestructiveDelete.id);
-          toast.success("Customer deleted");
-          break;
-        case "customerNote":
-          await onDeleteNotebookCustomerNote(pendingDestructiveDelete.id);
-          toast.success("Note deleted");
-          break;
-        case "competitor":
-          await onDeleteNotebookCompetitor(pendingDestructiveDelete.id);
-          toast.success("Competitor deleted");
-          break;
-        case "competitorNote":
-          await onDeleteNotebookCompetitorNote(pendingDestructiveDelete.id);
-          toast.success("Note deleted");
-          break;
         default:
           break;
       }
@@ -364,17 +243,7 @@ export function NotebooksView({
       setIsDeletingDestructive(false);
       setPendingDestructiveDelete(null);
     }
-  }, [
-    pendingDestructiveDelete,
-    onDeleteNotebookTask,
-    onDeleteNotebookTaskProgress,
-    onDeleteNotebookInvestment,
-    onDeleteNotebookInvestmentNote,
-    onDeleteNotebookCustomer,
-    onDeleteNotebookCustomerNote,
-    onDeleteNotebookCompetitor,
-    onDeleteNotebookCompetitorNote,
-  ]);
+  }, [pendingDestructiveDelete, onDeleteNotebookTask, onDeleteNotebookTaskProgress]);
 
   const handleDeleteNotebook = useCallback(async () => {
     if (!pendingDeleteNotebookId) return;
@@ -569,33 +438,17 @@ export function NotebooksView({
           notes={notebookNotes}
           tasks={notebookTasks}
           taskProgress={notebookTaskProgress}
-          investments={notebookInvestments}
-          investmentNotes={notebookInvestmentNotes}
-          customers={notebookCustomers}
-          customerNotes={notebookCustomerNotes}
-          competitors={notebookCompetitors}
-          workspaceCompetitors={workspaceCompetitors}
-          competitorNotes={notebookCompetitorNotes}
-          workspaceCompetitorNotes={workspaceCompetitorNotes}
-          allNotebooks={notebooks}
-          workspaceName={workspaceName}
           members={members}
           currentUserId={currentUserId}
           selectedNoteId={selectedNoteId}
           selectedNote={selectedNote}
           selectedTaskId={selectedNotebookTaskId}
-          selectedInvestmentId={selectedNotebookInvestmentId}
-          selectedCustomerId={selectedNotebookCustomerId}
-          selectedCompetitorId={selectedNotebookCompetitorId}
           isLive={isLive}
           isCreatingNote={isCreatingNote}
           onSelectNote={(id) => {
             onSelectNote(id);
           }}
           onSelectTask={onSelectNotebookTask}
-          onSelectInvestment={onSelectNotebookInvestment}
-          onSelectCustomer={onSelectNotebookCustomer}
-          onSelectCompetitor={onSelectNotebookCompetitor}
           onCreateNote={() => void handleCreateNote()}
           onUpdateNote={onUpdateNote}
           onEditNotebook={() => {
@@ -620,45 +473,6 @@ export function NotebooksView({
           onUpdateNotebookTaskProgress={onUpdateNotebookTaskProgress}
           onRequestDeleteNotebookTaskProgress={(id) =>
             setPendingDestructiveDelete({ kind: "taskProgress", id })
-          }
-          onAddNotebookInvestment={(title) =>
-            selectedNotebookId ? onAddNotebookInvestment(title) : undefined
-          }
-          onToggleNotebookInvestment={onToggleNotebookInvestment}
-          onUpdateNotebookInvestment={onUpdateNotebookInvestment}
-          onReorderNotebookInvestments={onReorderNotebookInvestments}
-          onRequestDeleteNotebookInvestment={(id) =>
-            setPendingDestructiveDelete({ kind: "investment", id })
-          }
-          onAddNotebookInvestmentNote={onAddNotebookInvestmentNote}
-          onUpdateNotebookInvestmentNote={onUpdateNotebookInvestmentNote}
-          onRequestDeleteNotebookInvestmentNote={(id) =>
-            setPendingDestructiveDelete({ kind: "investmentNote", id })
-          }
-          onAddNotebookCustomer={onAddNotebookCustomer}
-          onUpdateNotebookCustomer={onUpdateNotebookCustomer}
-          onRequestDeleteNotebookCustomer={(id) =>
-            setPendingDestructiveDelete({ kind: "customer", id })
-          }
-          onAddNotebookCustomerNote={onAddNotebookCustomerNote}
-          onUpdateNotebookCustomerNote={onUpdateNotebookCustomerNote}
-          onRequestDeleteNotebookCustomerNote={(id) =>
-            setPendingDestructiveDelete({ kind: "customerNote", id })
-          }
-          onAddNotebookCompetitor={(name, sales) =>
-            selectedNotebookId ? onAddNotebookCompetitor(name, sales) : undefined
-          }
-          onUpdateNotebookCompetitor={onUpdateNotebookCompetitor}
-          onRequestDeleteNotebookCompetitor={(id) =>
-            setPendingDestructiveDelete({ kind: "competitor", id })
-          }
-          onAddNotebookCompetitorNote={onAddNotebookCompetitorNote}
-          onUpdateNotebookCompetitorNote={onUpdateNotebookCompetitorNote}
-          onRequestDeleteNotebookCompetitorNote={(id) =>
-            setPendingDestructiveDelete({ kind: "competitorNote", id })
-          }
-          onSetNotebookOurSales={(value) =>
-            selectedNotebookId ? onSetNotebookOurSales(value) : undefined
           }
           focusTitleNoteId={focusTitleNoteId}
           onTitleFocusConsumed={() => setFocusTitleNoteId(null)}
@@ -720,7 +534,7 @@ export function NotebooksView({
         onOpenChange={(open) => !open && !isDeletingNotebook && setPendingDeleteNotebookId(null)}
         title="Delete notebook?"
         highlight={pendingDeleteNotebook?.name?.trim() || "Untitled notebook"}
-        description="This notebook and all of its notes, tasks, customers, investments, and competitors will be permanently deleted."
+        description="This notebook and all of its notes and tasks will be permanently deleted."
         details={
           pendingNotebookDeleteDetails ? (
             <p className="text-sm text-text-muted">{pendingNotebookDeleteDetails}</p>

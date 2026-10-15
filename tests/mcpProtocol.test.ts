@@ -51,12 +51,23 @@ describe("mcp protocol", () => {
         "complete_list_item",
         "create_meeting",
         "add_agenda_item",
+        "list_files",
+      ]),
+    );
+    expect(names).not.toEqual(
+      expect.arrayContaining([
         "log_health_reading",
+        "list_health_readings",
+        "delete_health_reading",
         "create_store",
+        "list_stores",
+        "update_store",
+        "delete_store",
+        "list_territories",
       ]),
     );
     expect(new Set(names).size).toBe(names.length);
-    expect(names.length).toBeGreaterThan(40);
+    expect(names.length).toBeGreaterThan(30);
   });
 
   it("returns an error result for unknown tools", async () => {

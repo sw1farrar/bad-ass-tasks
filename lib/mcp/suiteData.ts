@@ -1,8 +1,6 @@
 import "server-only";
-import { geocodeAddress } from "@/lib/maps/geocode";
 import { DEFAULT_NOTEBOOK_ENABLED_SECTIONS } from "@/lib/notebooks/notebookSections";
 import { fromDbRole } from "@/lib/roles";
-import type { HealthMetricType } from "@/types";
 import {
   McpToolError,
   admin,
@@ -21,33 +19,6 @@ const MEETING_STATUSES = ["draft", "scheduled", "in_progress", "completed"] as c
 const AGENDA_STATUSES = ["open", "in_progress", "completed", "continued"] as const;
 const FILE_RECORD_TYPES = ["note", "email", "document", "receipt", "other"] as const;
 const FILE_REVIEW_STATUSES = ["pending_review", "filed"] as const;
-const STORE_STATUSES = ["active", "inactive"] as const;
-const HEALTH_METRICS: HealthMetricType[] = [
-  "weight",
-  "body_fat",
-  "muscle_mass",
-  "waist",
-  "blood_pressure_systolic",
-  "resting_hr",
-  "sleep_hours",
-  "steps",
-  "active_minutes",
-  "calories_burned",
-  "stress",
-];
-const HEALTH_UNITS: Record<HealthMetricType, string> = {
-  weight: "lb",
-  body_fat: "%",
-  muscle_mass: "lb",
-  waist: "in",
-  blood_pressure_systolic: "mmHg",
-  resting_hr: "bpm",
-  sleep_hours: "hr",
-  steps: "steps",
-  active_minutes: "min",
-  calories_burned: "kcal",
-  stress: "/10",
-};
 
 function parseOne<T extends string>(
   value: string | undefined,
@@ -128,7 +99,7 @@ export async function searchWorkspace(
   const limit = clampLimit(input.limit, 8, 20);
   const supabase = admin();
   const like = `%${q}%`;
-  const [tasks, notes, lists, items, meetings, stores] = await Promise.all([
+  const [tasks, notes, lists, items, meetings] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, status, priority, due_date")
@@ -161,12 +132,6 @@ export async function searchWorkspace(
       .eq("workspace_id", workspace.id)
       .ilike("title", like)
       .limit(limit),
-    supabase
-      .from("map_stores")
-      .select("id, name, city, status")
-      .eq("workspace_id", workspace.id)
-      .ilike("name", like)
-      .limit(limit),
   ]);
   return {
     workspace: { id: workspace.id, name: workspace.name },
@@ -176,7 +141,6 @@ export async function searchWorkspace(
     lists: lists.data ?? [],
     list_items: items.data ?? [],
     meetings: meetings.error ? [] : (meetings.data ?? []),
-    stores: stores.error ? [] : (stores.data ?? []),
   };
 }
 
@@ -733,86 +697,6 @@ export async function addAgendaNote(
   return data;
 }
 
-export async function listHealthReadings(
-  userId: string,
-  input: { workspace_id?: string; metric_type?: string; limit?: number },
-) {
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const supabase = admin();
-  let query = supabase
-    .from("health_readings")
-    .select("id, workspace_id, user_id, metric_type, value, unit, recorded_at, note")
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", userId)
-    .order("recorded_at", { ascending: false })
-    .limit(clampLimit(input.limit));
-  if (input.metric_type) {
-    query = query.eq("metric_type", parseOne(input.metric_type, HEALTH_METRICS, "metric_type"));
-  }
-  const { data, error } = await query;
-  if (error) throw new McpToolError("Could not list health readings.");
-  return { workspace: { id: workspace.id, name: workspace.name }, readings: data ?? [] };
-}
-
-export async function logHealthReading(
-  userId: string,
-  input: {
-    metric_type: string;
-    value: number;
-    workspace_id?: string;
-    unit?: string;
-    recorded_at?: string;
-    note?: string;
-  },
-) {
-  const metric = parseOne(input.metric_type, HEALTH_METRICS, "metric_type");
-  if (typeof input.value !== "number" || !Number.isFinite(input.value)) {
-    throw new McpToolError("value must be a number.");
-  }
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const payload = {
-    workspace_id: workspace.id,
-    user_id: userId,
-    metric_type: metric,
-    value: input.value,
-    unit: input.unit?.trim() || HEALTH_UNITS[metric],
-    recorded_at: input.recorded_at?.trim() || new Date().toISOString(),
-    note: input.note?.trim() || null,
-    metadata: { source: "grok" },
-  };
-  const supabase = admin();
-  const { data, error } = await (supabase.from("health_readings") as any)
-    .insert(payload)
-    .select("id, workspace_id, user_id, metric_type, value, unit, recorded_at, note")
-    .single();
-  if (error || !data) throw new McpToolError("Could not log the health reading.");
-  return data;
-}
-
-export async function deleteHealthReading(userId: string, readingId: string) {
-  const id = requireId(readingId, "reading_id");
-  const supabase = admin();
-  const { data, error: lookupError } = await supabase
-    .from("health_readings")
-    .select("id, workspace_id, user_id, metric_type, value")
-    .eq("id", id)
-    .maybeSingle();
-  if (lookupError) throw new McpToolError("Could not load that reading.");
-  if (!data) throw new McpToolError("Health reading not found.");
-  const row = data as {
-    id: string;
-    workspace_id: string;
-    user_id: string;
-    metric_type: string;
-    value: number;
-  };
-  await requireWorkspaceMember(userId, row.workspace_id);
-  if (row.user_id !== userId) throw new McpToolError("You can only delete your own health readings.");
-  const { error } = await supabase.from("health_readings").delete().eq("id", id);
-  if (error) throw new McpToolError("Could not delete the health reading.");
-  return { deleted: true, id: row.id, metric_type: row.metric_type, value: row.value };
-}
-
 export async function listFiles(
   userId: string,
   input: {
@@ -848,197 +732,6 @@ export async function listFiles(
   const { data, error } = await query;
   if (error) throw new McpToolError("Could not list files.");
   return { workspace: { id: workspace.id, name: workspace.name }, files: data ?? [] };
-}
-
-const MAP_STORE_COLUMNS =
-  "id, workspace_id, name, store_number, address, city, state, postal_code, country, latitude, longitude, mission_types, notes, status, created_at, updated_at";
-
-export async function listStores(
-  userId: string,
-  input: { workspace_id?: string; query?: string; status?: string; limit?: number },
-) {
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const supabase = admin();
-  let query = supabase
-    .from("map_stores")
-    .select(MAP_STORE_COLUMNS)
-    .eq("workspace_id", workspace.id)
-    .order("name", { ascending: true })
-    .limit(clampLimit(input.limit, 25, 50));
-  if (input.status) query = query.eq("status", parseOne(input.status, STORE_STATUSES, "status"));
-  if (input.query?.trim()) query = query.ilike("name", `%${input.query.trim()}%`);
-  const { data, error } = await query;
-  if (error) throw new McpToolError("Could not list stores.");
-  return { workspace: { id: workspace.id, name: workspace.name }, stores: data ?? [] };
-}
-
-async function maybeGeocode(input: {
-  address?: string;
-  city?: string | null;
-  state?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-}) {
-  if (input.latitude != null && input.longitude != null) {
-    return { latitude: input.latitude, longitude: input.longitude };
-  }
-  const address = [input.address, input.city, input.state, input.postal_code, input.country]
-    .filter(Boolean)
-    .join(", ");
-  if (!address) return { latitude: null, longitude: null };
-  try {
-    const geo = await geocodeAddress(address);
-    return geo
-      ? { latitude: geo.latitude, longitude: geo.longitude }
-      : { latitude: null, longitude: null };
-  } catch {
-    return { latitude: null, longitude: null };
-  }
-}
-
-export async function createStore(
-  userId: string,
-  input: {
-    name: string;
-    address: string;
-    workspace_id?: string;
-    store_number?: string;
-    city?: string;
-    state?: string;
-    postal_code?: string;
-    country?: string;
-    notes?: string;
-    status?: string;
-    latitude?: number;
-    longitude?: number;
-  },
-) {
-  const name = requireText(input.name, "name");
-  const address = requireText(input.address, "address");
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const geo = await maybeGeocode({
-    address,
-    city: input.city,
-    state: input.state,
-    postal_code: input.postal_code,
-    country: input.country,
-    latitude: input.latitude,
-    longitude: input.longitude,
-  });
-  const payload = {
-    workspace_id: workspace.id,
-    name,
-    address,
-    store_number: input.store_number?.trim() || null,
-    city: input.city?.trim() || null,
-    state: input.state?.trim() || null,
-    postal_code: input.postal_code?.trim() || null,
-    country: input.country?.trim() || null,
-    notes: input.notes?.trim() || null,
-    status: parseOne(input.status, STORE_STATUSES, "status", "active"),
-    mission_types: [] as string[],
-    latitude: geo.latitude,
-    longitude: geo.longitude,
-    created_by: userId,
-    updated_by: userId,
-  };
-  const supabase = admin();
-  const { data, error } = await (supabase.from("map_stores") as any)
-    .insert(payload)
-    .select(MAP_STORE_COLUMNS)
-    .single();
-  if (error || !data) throw new McpToolError("Could not create the store.");
-  return data;
-}
-
-export async function updateStore(
-  userId: string,
-  input: {
-    store_id: string;
-    name?: string;
-    address?: string;
-    store_number?: string | null;
-    city?: string | null;
-    state?: string | null;
-    postal_code?: string | null;
-    country?: string | null;
-    notes?: string | null;
-    status?: string;
-    latitude?: number | null;
-    longitude?: number | null;
-  },
-) {
-  const id = requireId(input.store_id, "store_id");
-  const supabase = admin();
-  const { data: existing, error: lookupError } = await supabase
-    .from("map_stores")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (lookupError) throw new McpToolError("Could not load that store.");
-  if (!existing) throw new McpToolError("Store not found.");
-  const row = existing as Record<string, unknown>;
-  await requireWorkspaceMember(userId, String(row.workspace_id));
-  const payload: Record<string, unknown> = { updated_by: userId, updated_at: new Date().toISOString() };
-  if (input.name !== undefined) payload.name = requireText(input.name, "name");
-  if (input.address !== undefined) payload.address = requireText(input.address, "address");
-  if (input.store_number !== undefined) payload.store_number = input.store_number?.trim() || null;
-  if (input.city !== undefined) payload.city = input.city?.trim() || null;
-  if (input.state !== undefined) payload.state = input.state?.trim() || null;
-  if (input.postal_code !== undefined) payload.postal_code = input.postal_code?.trim() || null;
-  if (input.country !== undefined) payload.country = input.country?.trim() || null;
-  if (input.notes !== undefined) payload.notes = input.notes?.trim() || null;
-  if (input.status !== undefined) payload.status = parseOne(input.status, STORE_STATUSES, "status");
-  if (input.latitude !== undefined) payload.latitude = input.latitude;
-  if (input.longitude !== undefined) payload.longitude = input.longitude;
-  const { data, error } = await (supabase.from("map_stores") as any)
-    .update(payload)
-    .eq("id", id)
-    .select(MAP_STORE_COLUMNS)
-    .single();
-  if (error || !data) throw new McpToolError("Could not update the store.");
-  return data;
-}
-
-export async function deleteStore(userId: string, storeId: string) {
-  const id = requireId(storeId, "store_id");
-  const supabase = admin();
-  const { data: existing, error: lookupError } = await supabase
-    .from("map_stores")
-    .select("id, workspace_id, name")
-    .eq("id", id)
-    .maybeSingle();
-  if (lookupError) throw new McpToolError("Could not load that store.");
-  if (!existing) throw new McpToolError("Store not found.");
-  const row = existing as { id: string; workspace_id: string; name: string };
-  await requireWorkspaceMember(userId, row.workspace_id);
-  const { error } = await supabase.from("map_stores").delete().eq("id", id);
-  if (error) throw new McpToolError("Could not delete the store.");
-  return { deleted: true, id: row.id, name: row.name };
-}
-
-export async function listTerritories(
-  userId: string,
-  input: { workspace_id?: string; status?: string; limit?: number },
-) {
-  const workspace = await resolveWorkspace(userId, input.workspace_id);
-  const supabase = admin();
-  let query = supabase
-    .from("map_territories")
-    .select(
-      "id, workspace_id, name, territory_type, color, notes, status, assigned_person, created_at, updated_at",
-    )
-    .eq("workspace_id", workspace.id)
-    .order("name", { ascending: true })
-    .limit(clampLimit(input.limit, 25, 50));
-  if (input.status) {
-    query = query.eq("status", parseOne(input.status, ["active", "draft", "archived"] as const, "status"));
-  }
-  const { data, error } = await query;
-  if (error) throw new McpToolError("Could not list territories.");
-  return { workspace: { id: workspace.id, name: workspace.name }, territories: data ?? [] };
 }
 
 export async function listNotebookTasks(

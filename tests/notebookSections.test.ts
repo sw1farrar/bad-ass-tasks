@@ -6,15 +6,15 @@ import {
 } from "@/lib/notebooks/notebookSections";
 
 describe("notebookSections", () => {
-  it("defaults to all sections when enabledSections is missing", () => {
+  it("defaults to notes and tasks when enabledSections is missing", () => {
     expect(resolveNotebookEnabledSections({})).toEqual(DEFAULT_NOTEBOOK_ENABLED_SECTIONS);
+    expect(DEFAULT_NOTEBOOK_ENABLED_SECTIONS).toEqual(["notes", "tasks"]);
   });
 
-  it("always keeps notes enabled", () => {
-    expect(normalizeNotebookEnabledSections(["tasks", "investments"])).toEqual([
+  it("always keeps notes enabled and drops removed section ids", () => {
+    expect(normalizeNotebookEnabledSections(["tasks", "investments" as never])).toEqual([
       "notes",
       "tasks",
-      "investments",
     ]);
   });
 
@@ -25,8 +25,8 @@ describe("notebookSections", () => {
         "tasks",
         "tasks",
         "unknown" as never,
-        "customers",
+        "customers" as never,
       ]),
-    ).toEqual(["notes", "tasks", "customers"]);
+    ).toEqual(["notes", "tasks"]);
   });
 });

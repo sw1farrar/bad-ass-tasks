@@ -51,10 +51,6 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
   AND p.proname IN (
-    'search_map_stores',
-    'map_stores_in_geojson',
-    'map_stores_in_territory',
-    'check_map_territory_overlap',
     'create_workspace_for_user',
     'update_member_role',
     'create_workspace_invite',

@@ -3,8 +3,6 @@ import {
   DEFAULT_NOTEBOOK_SECTIONS,
   DEFAULT_WORKSPACE_SETTINGS,
   getEnabledNotebookSections,
-  isHealthFeatureEnabled,
-  isMapsFeatureEnabled,
   isNotebookSectionEnabled,
   isNotesFeatureEnabled,
   mergeWorkspaceSettings,
@@ -17,21 +15,18 @@ describe("workspaceSettings", () => {
     expect(isNotesFeatureEnabled(parseWorkspaceSettings({}))).toBe(false);
   });
 
-  it("defaults healthEnabled and mapsEnabled to false", () => {
-    const parsed = parseWorkspaceSettings({});
-    expect(isHealthFeatureEnabled(parsed)).toBe(false);
-    expect(isMapsFeatureEnabled(parsed)).toBe(false);
-    expect(parsed.features?.mapsEnabled).toBe(false);
+  it("ignores removed health and map flags", () => {
+    const parsed = parseWorkspaceSettings({
+      features: { healthEnabled: true, mapsEnabled: true, notesEnabled: true },
+    });
+    expect(parsed.features?.notesEnabled).toBe(true);
+    expect(parsed.features).not.toHaveProperty("healthEnabled");
+    expect(parsed.features).not.toHaveProperty("mapsEnabled");
   });
 
   it("reads notesEnabled from persisted JSON", () => {
     const parsed = parseWorkspaceSettings({ features: { notesEnabled: true } });
     expect(isNotesFeatureEnabled(parsed)).toBe(true);
-  });
-
-  it("reads mapsEnabled from persisted JSON", () => {
-    const parsed = parseWorkspaceSettings({ features: { mapsEnabled: true } });
-    expect(isMapsFeatureEnabled(parsed)).toBe(true);
   });
 
   it("merges partial settings patches", () => {
@@ -42,43 +37,38 @@ describe("workspaceSettings", () => {
     expect(merged.features?.notesEnabled).toBe(true);
   });
 
-  it("merges mapsEnabled without wiping other flags", () => {
+  it("merges notesEnabled without wiping notebook sections", () => {
     const merged = mergeWorkspaceSettings(
-      { features: { notesEnabled: true, healthEnabled: true, mapsEnabled: false } },
-      { features: { mapsEnabled: true } },
+      { features: { notesEnabled: true, notebookSections: { notes: true, tasks: false } } },
+      { features: { notesEnabled: false } },
     );
-    expect(merged.features?.mapsEnabled).toBe(true);
-    expect(merged.features?.notesEnabled).toBe(true);
-    expect(merged.features?.healthEnabled).toBe(true);
+    expect(merged.features?.notesEnabled).toBe(false);
+    expect(merged.features?.notebookSections).toEqual({
+      ...DEFAULT_NOTEBOOK_SECTIONS,
+      tasks: false,
+    });
   });
 
-  it("defaults all notebook sections to enabled when unset", () => {
+  it("defaults notebook sections to notes and tasks", () => {
     const parsed = parseWorkspaceSettings({ features: { notesEnabled: true } });
     expect(parsed.features?.notebookSections).toEqual(DEFAULT_NOTEBOOK_SECTIONS);
-    expect(getEnabledNotebookSections(parsed)).toEqual([
-      "notes",
-      "tasks",
-      "investments",
-      "customers",
-      "competitors",
-    ]);
+    expect(getEnabledNotebookSections(parsed)).toEqual(["notes", "tasks"]);
   });
 
-  it("reads notebookSections from persisted JSON", () => {
+  it("ignores removed notebook section keys", () => {
     const parsed = parseWorkspaceSettings({
       features: {
         notesEnabled: true,
-        notebookSections: { tasks: false, investments: false },
+        notebookSections: { tasks: false, investments: false, customers: true, competitors: false },
       },
     });
     expect(isNotebookSectionEnabled(parsed, "notes")).toBe(true);
     expect(isNotebookSectionEnabled(parsed, "tasks")).toBe(false);
-    expect(isNotebookSectionEnabled(parsed, "investments")).toBe(false);
-    expect(getEnabledNotebookSections(parsed)).toEqual([
-      "notes",
-      "customers",
-      "competitors",
-    ]);
+    expect(parsed.features?.notebookSections).toEqual({
+      notes: true,
+      tasks: false,
+    });
+    expect(getEnabledNotebookSections(parsed)).toEqual(["notes"]);
   });
 
   it("deep-merges notebookSections so one toggle does not wipe others", () => {
@@ -86,25 +76,21 @@ describe("workspaceSettings", () => {
       {
         features: {
           notesEnabled: true,
-          notebookSections: { notes: true, tasks: false, investments: true },
+          notebookSections: { notes: true, tasks: false },
         },
       },
-      { features: { notebookSections: { investments: false } } },
+      { features: { notebookSections: { tasks: true } } },
     );
     expect(merged.features?.notebookSections).toEqual({
       ...DEFAULT_NOTEBOOK_SECTIONS,
-      tasks: false,
-      investments: false,
+      tasks: true,
     });
   });
 
   it("treats missing section keys as enabled", () => {
-    expect(isNotebookSectionEnabled(undefined, "competitors")).toBe(true);
+    expect(isNotebookSectionEnabled(undefined, "tasks")).toBe(true);
     expect(
-      isNotebookSectionEnabled(
-        { features: { notebookSections: { competitors: false } } },
-        "notes",
-      ),
+      isNotebookSectionEnabled({ features: { notebookSections: { tasks: false } } }, "notes"),
     ).toBe(true);
   });
 });

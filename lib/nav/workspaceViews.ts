@@ -2,10 +2,8 @@ import {
   Calendar,
   Check,
   FolderOpen,
-  HeartPulse,
   Home,
   ListChecks,
-  MapPinned,
   MessageCircle,
   Notebook,
   Settings,
@@ -14,11 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Workspace } from "@/types";
-import {
-  isHealthFeatureEnabled,
-  isMapsFeatureEnabled,
-  isNotesFeatureEnabled,
-} from "@/lib/workspace/workspaceSettings";
+import { isNotesFeatureEnabled } from "@/lib/workspace/workspaceSettings";
 
 export type WorkspaceNavViewId =
   | "home"
@@ -28,8 +22,6 @@ export type WorkspaceNavViewId =
   | "meetings"
   | "lists"
   | "chat"
-  | "health"
-  | "map"
   | "teams"
   | "settings"
   | "admin";
@@ -48,7 +40,7 @@ export type WorkspaceNavOptions = {
   isSiteAdmin?: boolean;
 };
 
-export type MobileMoreNavGroupId = "work" | "team" | "insights" | "workspace";
+export type MobileMoreNavGroupId = "work" | "team" | "workspace";
 
 export type MobileMoreNavItem = WorkspaceNavView & {
   group: MobileMoreNavGroupId;
@@ -64,7 +56,6 @@ const MOBILE_PRIMARY_NAV_ID_SET = new Set<string>(MOBILE_PRIMARY_NAV_IDS);
 const MOBILE_MORE_GROUP_LABELS: Record<MobileMoreNavGroupId, string> = {
   work: "Work",
   team: "Team",
-  insights: "Insights",
   workspace: "Workspace",
 };
 
@@ -75,18 +66,11 @@ const MOBILE_MORE_META: Partial<
   meetings: { group: "work", hint: "Agendas and follow-ups" },
   chat: { group: "team", hint: "Workspace messages" },
   teams: { group: "team", hint: "Members and invites" },
-  health: { group: "insights", hint: "Habits and tracking" },
-  map: { group: "insights", hint: "Territories and stores" },
   settings: { group: "workspace", hint: "Features and preferences" },
   admin: { group: "workspace", hint: "Site administration" },
 };
 
-const MOBILE_MORE_GROUP_ORDER: MobileMoreNavGroupId[] = [
-  "work",
-  "team",
-  "insights",
-  "workspace",
-];
+const MOBILE_MORE_GROUP_ORDER: MobileMoreNavGroupId[] = ["work", "team", "workspace"];
 
 const ALL_VIEWS: WorkspaceNavView[] = [
   { id: "home", label: "Home", icon: Home },
@@ -96,8 +80,6 @@ const ALL_VIEWS: WorkspaceNavView[] = [
   { id: "meetings", label: "Meetings", icon: Calendar },
   { id: "lists", label: "Lists", icon: ListChecks },
   { id: "chat", label: "Chat", icon: MessageCircle },
-  { id: "health", label: "Health", icon: HeartPulse },
-  { id: "map", label: "Map", icon: MapPinned },
   { id: "teams", label: "Team", icon: Users },
   {
     id: "settings",
@@ -120,8 +102,6 @@ function isViewVisible(
 ): boolean {
   if (id === "chat") return opts?.showChat === true;
   if (id === "notebooks" || id === "meetings") return isNotesFeatureEnabled(workspace.settings);
-  if (id === "health") return isHealthFeatureEnabled(workspace.settings);
-  if (id === "map") return isMapsFeatureEnabled(workspace.settings);
   return true;
 }
 

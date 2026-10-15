@@ -8568,7 +8568,6 @@ export function mapNotebookRow(row: NotebookRow): Notebook {
     sortOrder: row.sort_order,
     enabledSections:
       coerceNotebookEnabledSections(row.enabled_sections) ?? DEFAULT_NOTEBOOK_ENABLED_SECTIONS,
-    ourSales: Number((row as { our_sales?: number }).our_sales) || 0,
     archived: Boolean(row.archived),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -8653,16 +8652,15 @@ export async function updateNotebook(
   id: string,
   workspaceId: string,
   updates: Partial<
-    Pick<Notebook, "name" | "sortOrder" | "ourSales" | "enabledSections" | "archived">
+    Pick<Notebook, "name" | "sortOrder" | "enabledSections" | "archived">
   >,
 ): Promise<boolean> {
   if (!isLiveDataWorkspace(workspaceId)) return false;
   if (!isNotebookPersistenceEnabled()) return true;
 
-  const payload: Partial<NotebookRow> & { our_sales?: number } = {};
+  const payload: Partial<NotebookRow> = {};
   if (updates.name !== undefined) payload.name = updates.name;
   if (updates.sortOrder !== undefined) payload.sort_order = updates.sortOrder;
-  if (updates.ourSales !== undefined) payload.our_sales = updates.ourSales;
   if (updates.enabledSections !== undefined) {
     payload.enabled_sections = updates.enabledSections;
   }
