@@ -95,3 +95,27 @@ export function isListDetailTitleLabelTarget(target: EventTarget | null): boolea
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest(".list-detail-title-label"));
 }
+
+function eventTargetElement(target: EventTarget | null): Element | null {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+/**
+ * Task detail sheet header strip. The whole row can start a dismiss drag,
+ * except controls (star, trash, Done, Close, Revert) so taps still fire.
+ */
+export function isTaskSheetHeaderDragTarget(target: EventTarget | null): boolean {
+  const el = eventTargetElement(target);
+  if (!el) return false;
+  if (!el.closest(".task-sheet-header")) return false;
+  if (isSheetDragBlockedTarget(el)) return false;
+  return true;
+}
+
+/** Mobile task sheet: header chrome, plus other blank areas. Never fields or buttons. */
+export function canStartTaskSheetDrag(target: EventTarget | null): boolean {
+  if (isTaskSheetHeaderDragTarget(target)) return true;
+  return isSheetBlankDragTarget(target);
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canStartTaskSheetDrag,
   isActiveListDetailDragTarget,
   isListDetailBlankDragTarget,
   isListDetailHeaderDragTarget,
@@ -7,6 +8,7 @@ import {
   isListDetailTitleLabelTarget,
   isSheetBlankDragTarget,
   isSheetDragBlockedTarget,
+  isTaskSheetHeaderDragTarget,
 } from "@/lib/motion/sheetDragTarget";
 
 function el(html: string) {
@@ -163,6 +165,59 @@ describe("sheetDragTarget", () => {
     expect(isSheetBlankDragTarget(notes)).toBe(false);
     expect(isSheetBlankDragTarget(comment)).toBe(false);
     expect(isSheetBlankDragTarget(header)).toBe(true);
+  });
+
+  it("starts a task-sheet drag from the header strip, not from its buttons", () => {
+    const sheet = el(`
+      <div class="task-detail-modal mobile-bottom-sheet">
+        <div class="sheet-drag-handle-zone"><span class="sheet-drag-handle"></span></div>
+        <div class="task-sheet-header">
+          <div class="flex w-full">
+            <div aria-hidden="true"></div>
+            <div>
+              <button type="button" class="task-star-btn">Star</button>
+              <button type="button" class="task-modal-delete-icon-btn">Delete</button>
+              <button type="button" class="btn-primary">Done</button>
+              <button type="button" class="task-modal-close-icon-btn" aria-label="Close">X</button>
+            </div>
+          </div>
+        </div>
+        <div class="task-sheet-body">
+          <textarea class="task-detail-title">Buy milk</textarea>
+          <textarea class="input">Review the monarch transactions</textarea>
+          <input placeholder="Write a comment…" />
+          <div class="task-sheet-gap"></div>
+        </div>
+      </div>
+    `);
+    const header = sheet.querySelector(".task-sheet-header")!;
+    const headerGap = header.querySelector(".flex")!;
+    const star = sheet.querySelector(".task-star-btn")!;
+    const trash = sheet.querySelector(".task-modal-delete-icon-btn")!;
+    const done = sheet.querySelector(".btn-primary")!;
+    const close = sheet.querySelector(".task-modal-close-icon-btn")!;
+    const title = sheet.querySelector(".task-detail-title")!;
+    const notes = sheet.querySelector("textarea.input")!;
+    const comment = sheet.querySelector("input")!;
+    const bodyGap = sheet.querySelector(".task-sheet-gap")!;
+
+    expect(isTaskSheetHeaderDragTarget(header)).toBe(true);
+    expect(isTaskSheetHeaderDragTarget(headerGap)).toBe(true);
+    expect(canStartTaskSheetDrag(header)).toBe(true);
+    expect(canStartTaskSheetDrag(headerGap)).toBe(true);
+
+    for (const control of [star, trash, done, close]) {
+      expect(isTaskSheetHeaderDragTarget(control)).toBe(false);
+      expect(canStartTaskSheetDrag(control)).toBe(false);
+      expect(isSheetDragBlockedTarget(control)).toBe(true);
+    }
+
+    expect(isTaskSheetHeaderDragTarget(notes)).toBe(false);
+    expect(canStartTaskSheetDrag(title)).toBe(false);
+    expect(canStartTaskSheetDrag(notes)).toBe(false);
+    expect(canStartTaskSheetDrag(comment)).toBe(false);
+    expect(isSheetDragBlockedTarget(notes)).toBe(true);
+    expect(canStartTaskSheetDrag(bodyGap)).toBe(true);
   });
 
   it("rejects interactive controls anywhere on the sheet surface", () => {

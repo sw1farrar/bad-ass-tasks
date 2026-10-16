@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Trash2, Loader2, Pencil, Check } from "lucide-react";
+import { MessageSquare, Trash2, Loader2, Pencil, Check, X } from "lucide-react";
 import { WorkspaceItemDeepLink } from "./WorkspaceItemDeepLink";
 import {
   getMemberDisplayName,
@@ -31,7 +31,7 @@ import {
   defaultTaskDueDate,
 } from "@/lib/utils";
 import { MOBILE_SHEET_HEIGHT_CLASS } from "@/lib/motion/sheet";
-import { isSheetBlankDragTarget } from "@/lib/motion/sheetDragTarget";
+import { canStartTaskSheetDrag } from "@/lib/motion/sheetDragTarget";
 
 interface TaskModalProps {
   task: Task;
@@ -679,7 +679,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
     return attachCaptureDragSurface(taskPanelRef.current, {
       getScrollEl: () => taskScrollRef.current,
       scrollGateSelector: ".task-sheet-scroll",
-      canStart: isSheetBlankDragTarget,
+      canStart: canStartTaskSheetDrag,
     });
   }, [attachCaptureDragSurface, isOpen, isMobile]);
 
@@ -773,6 +773,14 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
                 >
                   Done
                 </button>
+                <button
+                  type="button"
+                  onClick={handleSheetClose}
+                  className="task-modal-close-icon-btn inline-flex shrink-0 items-center justify-center h-9 w-9 max-[768px]:min-h-[44px] max-[768px]:min-w-[44px] rounded-lg border transition active:scale-[0.98]"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
               </div>
             </div>
           </div>
@@ -808,7 +816,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               if (e.key === "Enter") e.preventDefault();
             }}
             rows={1}
-            className="w-full bg-transparent text-xl font-semibold tracking-tight outline-none resize-none overflow-hidden leading-snug"
+            className="task-detail-title w-full bg-transparent text-xl font-semibold tracking-tight outline-none resize-none overflow-hidden leading-snug"
           />
 
           {liveEditing?.[localTask.id] && liveEditing[localTask.id].userId !== (user?.id || "me") && (
@@ -940,7 +948,7 @@ export function TaskModal({ task, isOpen, onClose, workspaceDeepLink }: TaskModa
               onChange={(e) => save({ title: e.target.value })}
               onFocus={(e) => e.currentTarget.select()}
               className={cn(
-                "w-full min-w-0 shrink-0 bg-transparent text-2xl font-semibold tracking-tight outline-none",
+                "task-detail-title w-full min-w-0 shrink-0 bg-transparent text-2xl font-semibold tracking-tight outline-none",
                 localTask.status === "done" && "line-through text-text-muted",
               )}
               aria-label="Task title"
