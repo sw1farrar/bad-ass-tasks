@@ -285,3 +285,28 @@
   background-color: var(--neon-purple-dark);
   width: 3px;
 }
+
+/* Selected text in the notes editor (Notes, notebooks, Files).
+   The app-wide ::selection is a faint lavender — dark theme uses
+   var(--accent-purple-subtle) (rgba(42, 31, 74, 0.72)), light theme
+   uses #f3e8ff — so a drag on the dark notebook canvas (#1e1e24 / #25252b)
+   barely shows. Match .task-detail-modal.modal-panel ::selection:
+   opaque #7c3aed with white text (readable on both themes).
+   ::selection does not inherit, so paint the editor and every descendant
+   (paragraphs, headings, lists, tables, code, blockquotes).
+   ProseMirror toggles .ProseMirror-hideselection for node/gap selections
+   and style/prosemirror.css (not imported by this app) sets
+   *::selection { background: transparent }. These selectors outrank that
+   rule and both theme ::selection rules. Node outlines
+   (.ProseMirror-selectednode, .selectedCell) are unchanged. */
+.notes-rich-editor .ProseMirror::selection,
+.notes-rich-editor .ProseMirror *::selection {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.notes-rich-editor .ProseMirror::-moz-selection,
+.notes-rich-editor .ProseMirror *::-moz-selection {
+  background: #7c3aed;
+  color: #ffffff;
+}
